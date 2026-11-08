@@ -3,58 +3,59 @@
 jayweihung's general-purpose mods and settings for [Herdr](https://github.com/herdrdev/herdr-app).
 jayweihung 的 Herdr 通用 mod 與設定。
 
-- **Text only**: JavaScript mods, Lua, JSON, Markdown. No executables, no scripts, no binaries.
-  只有文字檔（mod 的 .js、Lua、.json、.md），沒有執行檔、腳本或 binary。
-- **Herdr itself is not here**: build it from the official source (Apache-2.0), plus the text patches in `patches/` if any.
-  不含 Herdr 本體：從官方原始碼 build，`patches/` 有修改的話先套上。
+- **Text only**: JavaScript mods, Lua, JSON, Markdown, text patches. No executables, no scripts, no binaries.
+  只有文字檔，沒有執行檔、腳本或 binary。
+- **Herdr itself is not here**: build it from the official source (Apache-2.0) plus the text patches in `patches/`.
+  不含 Herdr 本體：從官方原始碼 build，再套上 `patches/`。
 - Third-party mods are not included; install them from their authors.
-  別人寫的 mod 不放這裡，請從原作者那裡裝。
+
+## Where to read / 從哪裡看
+
+| | |
+|---|---|
+| **macOS** install, update, troubleshooting / Mac 安裝 | [docs/macos.md](docs/macos.md) |
+| **Windows** install, update, troubleshooting, test checklist / Windows 安裝 | [docs/windows.md](docs/windows.md) |
+| **jay-nvim** features, keys, macOS vs Windows, security / nvim 功能 | [docs/nvim.md](docs/nvim.md) |
+| New Herdr default keys per release / 各版新增的預設按鍵 | [docs/keys.md](docs/keys.md) |
+| Patches to Herdr's source / 對 Herdr 原始碼的修改 | [patches/README.md](patches/README.md) |
+| What changed in herdr-jay / 更新紀錄 | [CHANGELOG.md](CHANGELOG.md) |
 
 ## Contents / 內容
 
 | Path | What |
 |---|---|
-| `mods/jay-nvim` | Neovim beside your agent: follow the agent's files, live diff, file tree, comments to the agent, LSP, mouse ([README](mods/jay-nvim/README.md)) |
-| `patches/` | Changes to Herdr's own source (only what a mod can't do), as text patches on an official tag ([README](patches/README.md)) |
-| `mods/jay-nvim-pick` | `cmd-o`: the files the agent read or edited, in the jay-nvim pane |
+| `mods/jay-nvim` | Neovim beside your agent: follow the agent's files, live diff, file tree, comments to the agent, LSP, mouse |
+| `mods/jay-nvim-pick` | `cmd-o` / `ctrl-shift-j`: jump to the jay-nvim pane and list the files the agent read or edited |
+| `patches/<repo>/<tag>/` | changes to Herdr's own source (only what a mod can't do), one folder per official tag |
+| `docs/` | the guides above |
 
-## Install / 安裝
+## Versions / 版本
 
-Build Herdr from the official source plus `patches/`, then install the mods. Step by step, with checks and troubleshooting:
-從官方原始碼＋`patches/` build Herdr，再裝 mod。完整步驟（含檢查、疑難排解）：
+Build exactly these. **Don't build a Herdr version that isn't in this table** — wait until it is (jay checks each
+release first). Upstream sometimes moves a release tag a few CI/test commits later; the commit column says which
+one was checked.
+只 build 這張表裡的版本；表上沒有的新版，等 jay 驗過再更新。
 
-- **macOS**: [docs/macos.md](docs/macos.md)
-- **Windows**: [docs/windows.md](docs/windows.md)
+| herdr-jay | Herdr app | Herdr core | core patches | Checked on macOS | Checked on Windows |
+|---|---|---|---|---|---|
+| `main` (now) | v0.1.13 (`93b097f`) | v0.1.19 (`2e8ebb3`; upstream later moved the tag to `06793ed`, CI/test only) | `patches/herdr-core/v0.1.19` | 2026-11-08 | not yet |
 
-Needs Neovim **0.11 or newer**. Never run plain `hc update` (it swaps in the official core).
-需要 Neovim **0.11 以上**。不要跑 `hc update`（會換回官方 core）。
+The app needs at least the core in its `distribution/core-version` (v0.1.13: core 0.1.11).
 
-## Mac vs Windows / Mac 和 Windows 的差別
+**Tags** `for-herdr-v<app version>-r<N>` mark a herdr-jay state checked on **both** macOS and Windows. They never
+move; a fix on the same Herdr gets the next `-r`. Take the highest `-r` for your app version. The old tag
+`for-herdr-v0.1.13` (no `-r`) is older and macOS-only: use `main` until `for-herdr-v0.1.13-r2` exists.
+tag 一旦打上就不移動；同一版 Herdr 有修正就加 `-r`。舊的 `for-herdr-v0.1.13` 沒有 Windows 支援。
 
-The same mod folders work on both; nothing to switch. Each computer has its own Herdr home and its own `keys.json`.
-同一份 mod 兩邊都能用，不用切換；每台電腦有自己的 Herdr 設定目錄和自己的 `keys.json`。
-
-| | macOS | Windows |
-|---|---|---|
-| Herdr home | `~/.config/herdr-app` | `%USERPROFILE%\.config\herdr-app` |
-| Open nvim | `cmd-e` | `ctrl-shift-i` |
-| Files the agent touched | `cmd-o` | `ctrl-shift-j` |
-| How nvim starts | `/bin/sh` finds nvim, Lua passed on the command line | the mod writes `mods\jay-nvim\.init.lua`, nvim runs it (`dofile`) |
-| Agent running as root (handoff) | optional | not available |
-
-The mod checks the OS itself (`window().platform`); nvim checks it with `has("win32")`.
-mod 自己判斷是哪個系統，不用設定。
-
-## Compatibility / 相容版本
-
-Made for Herdr app v0.1.13 / core v0.1.19 (with the core patch in `patches/`). **Use `main`** for now: the tag `for-herdr-v0.1.13` is older (no Windows
-support). From now on, a `for-herdr-vX.Y.Z` tag is added only after both macOS and Windows have been checked on that release.
-目前請用 `main`；舊 tag `for-herdr-v0.1.13` 沒有 Windows 支援。之後的 tag 都是 Mac 和 Windows 都驗過才打。
+Never run plain `hc update`, and don't press Install / Update on Herdr's core screen or run "Update herdr-core":
+they install the official core over yours.
+不要跑 `hc update`，也不要按 Herdr 的「更新 core」：會換回官方版。
 
 ## Settings / 設定
 
-jay keeps Herdr's defaults except `"appearance": "dark"` in `settings.json` (or Herdr Settings → Appearance → Dark).
-除了深色外觀，其他都是 Herdr 預設。
+jay keeps Herdr's defaults except `"appearance": "dark"` in `settings.json` (or Settings → Appearance → Dark).
+Keys: only the two jay-nvim keys ([docs/nvim.md](docs/nvim.md#2-keys--按鍵)).
+除了深色外觀和兩個 jay-nvim 按鍵，其他都是 Herdr 預設。
 
 ## License
 

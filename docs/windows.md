@@ -15,7 +15,7 @@ Commands are for **PowerShell**. Checked against Herdr app v0.1.13 and core v0.1
 | [3](#3-herdr-app) | Herdr app |
 | [4](#4-neovim) | Neovim (≥ 0.11) and optional LSP tools |
 | [5](#5-install-herdr-jay--安裝-herdr-jay) | Install herdr-jay: copy two folders, add two keys |
-| [6](#6-try-it--試用) | Try it / 試用 |
+| [6](#6-test-checklist--實測清單) | Test checklist (15 min) / 實測清單 |
 | [7](#7-when-something-goes-wrong--出問題時) | When something goes wrong / 出問題時 |
 | [8](#8-updating--更新) | Updating / 更新 |
 
@@ -250,6 +250,7 @@ Optional, for go-to-definition and errors (skip if Node or Python are not allowe
    $h = "$env:USERPROFILE\.config\herdr-app"
    New-Item -ItemType Directory -Force "$h\mods" | Out-Null
    Copy-Item -Recurse -Force "$j\mods\jay-nvim", "$j\mods\jay-nvim-pick" "$h\mods\"
+   git -C $j describe --tags --always > "$h\mods\jay-nvim\.herdr-jay"   # which herdr-jay you copied
    ```
 
    (A different home only if you set `HERDR_APP_HOME` or `XDG_CONFIG_HOME`.)
@@ -267,8 +268,8 @@ Optional, for go-to-definition and errors (skip if Node or Python are not allowe
    "ctrl-shift-j": "mod.open:jay-nvim-pick",
    ```
 
-   Herdr reloads `keys.json` by itself. Note: once you edit it, new Herdr versions no longer add their new default keys
-   to it for you.
+   Herdr reloads `keys.json` by itself. Once you edit it, new Herdr versions no longer add their new default keys:
+   [docs/keys.md](keys.md) lists them per release.
 4. Check / 檢查 → both print `check passed: ...`:
 
    ```powershell
@@ -279,32 +280,53 @@ Optional, for go-to-definition and errors (skip if Node or Python are not allowe
 
 ---
 
-## 6. Try it / 試用
+## 6. Test checklist / 實測清單
 
-1. In Herdr, make a space for your project (`ctrl-shift-n`, pick the project folder); new tabs there (`ctrl-shift-t`)
-   start in that folder. Run your agent there.
-   nvim opens in the folder the focused pane was *started* in; a later `cd` in PowerShell doesn't move it.
-   請在專案資料夾開終端機再跑 agent；PowerShell 裡後來 `cd` 不算。
-2. With the agent's pane focused: `ctrl-shift-i` → Neovim on the right, file tree beside it.
-3. `ctrl-shift-j` → jumps to that nvim and lists the files the agent read or edited (Claude Code). In nvim: `space` `o`.
-4. Comment a line: `space a c`. Send all comments to the agent: `space a s`.
+About 15 minutes. What each step does is explained in [docs/nvim.md](nvim.md). If a step fails, take a photo of
+the screen and of `:messages` in nvim, note the step number, go on.
+大約 15 分鐘；哪一步失敗就拍照（含 nvim 的 `:messages`），記下第幾步，繼續下一步。
 
-`ctrl-shift-i` 開 nvim；`ctrl-shift-j` 列出 agent 動過的檔案；`空白鍵 a c` 加註解、`空白鍵 a s` 送給 agent。
+1. New PowerShell: `nvim --version`, `hc --version`, `git --version` → NVIM ≥ 0.11, `hc 0.1.19`, a git version.
+2. In Herdr make a space for a git project (`ctrl-shift-n`, pick the folder); in a tab there run `claude`
+   (no `cd` first). With that pane focused: `ctrl-shift-i` → nvim on the right, file tree beside it, and
+   `%USERPROFILE%\.config\herdr-app\mods\jay-nvim\.init.lua` exists.
+3. In nvim: `:lua print(vim.uv.os_homedir(), vim.env.USERPROFILE)` → the same `C:\Users\<you>` twice.
+   If the first is another drive (e.g. `H:\`), write it down.
+4. Tree: `.gitignore`d folders (e.g. `node_modules`) are missing; the open file's line is highlighted.
+5. Ask Claude to read a file → within ~2 s nvim opens it, the bar on top shows `agent 讀`.
+6. Ask Claude to edit a line → the file reloads, old line red `-`, new line green `+`, cursor there.
+7. Ask Claude to change a repo file with a shell command (e.g. `sed -i`) → nvim follows it.
+   Then a file **outside** the repo by absolute path → nvim should follow it too; note which path form Claude used
+   (`C:\…`, `C:/…` or `/c/…`).
+8. In nvim `space o` → files Claude touched (newest first) plus git changes; pick one → it opens.
+9. Focus Claude's pane, press `ctrl-shift-j` → focus jumps to nvim and the list opens. `Esc`, then `:set modified?`
+   → `nomodified` (nothing typed into the file). Again from insert mode (`i` first).
+10. `space a c` on a line, type `test`, Enter; `space a l` lists it; `space a s` → Claude gets one message, sent once.
+11. Python file, pyright installed: first a note "pyright / TypeScript 沒在 … 啟動" → `:JayTrust`, reopen the file
+    (`:e`). Rest the mouse on a function name → a type popup after ~0.6 s. Right-click → the Chinese menu
+    (Shift + right-click → Herdr's).
+12. Put an error in the Python file → a message shows inline; `gd` on a name → jumps to its definition.
+13. A second jay-nvim (another tab, same file): type in one → a yellow note "… 的 nvim 也開著這個檔".
+14. `hc get <nvim pane>` (the address in Herdr, e.g. `t3`) → labels include `herdr.right-click=program`.
+15. Bring jay the photos plus the four lines of [8.0](#80-what-do-i-have--目前裝的是什麼).
 
 ---
 
 ## 7. When something goes wrong / 出問題時
 
+nvim itself (follow, trust, LSP, comments): [docs/nvim.md → 8](nvim.md#8-when-something-goes-wrong--出問題時).
+Here: install and Windows.
+
 | What you see / 看到什麼 | Why / 原因 | Fix / 怎麼修 |
 |---|---|---|
 | `ctrl-shift-i` does nothing | key missing, or a typo in `keys.json` | with Herdr open: `herdr-app status \| Out-Host` shows keys.json errors; check quotes and commas |
 | Error "nvim: not found on PATH" | Neovim not installed / not on PATH | step 4; `nvim --version` in a new PowerShell |
-| Lua error about `vim.lsp.config` or `vim.system` | Neovim older than 0.11 | install a newer one (step 4) |
 | Notification "jay-nvim 開不起來" | could not write `mods\jay-nvim\.init.lua` | the home folder must be writable; bring the message to jay |
 | "找不到 hc" inside nvim | `hc` not on PATH | `hc --version`; step 2 |
-| nvim never follows the agent / files list shows only git | agent isn't Claude Code, or nothing read yet, or two Claude Codes in one folder | following works with Claude Code; one per folder |
+| nvim never follows Claude | Claude started after a `cd`, or two Claudes in one folder | start Claude in the tab's own folder (step 6.2) |
 | Herdr shows a core setup screen | no core found, or older than the app needs | **don't press Install / Update there** (it installs the official core); do step 2 (or 8), then reopen Herdr |
 | "running scripts is disabled on this system" | company script policy | the **by hand** parts of steps 2 and 3 |
+| "This app has been blocked" / herdr-app.exe or a build step won't start | AppLocker / WDAC / SmartScreen | ask IT to allow `%LOCALAPPDATA%\Programs\herdr-*` and `%USERPROFILE%\src\*\target` |
 | Build: `libclang` not found | LLVM missing or `LIBCLANG_PATH` unset | step 1, LLVM row; new PowerShell |
 | Build: `link.exe` not found | Build Tools without C++ | step 1, vswhere check |
 | Build: Zig errors | wrong Zig | `zig version` must be `0.16.0` |
@@ -318,43 +340,79 @@ Anything else: copy the exact error text (a photo is fine) and bring it to jay.
 
 ## 8. Updating / 更新
 
-Order: core, then app, then the mods. **Never plain `hc update`** (it installs the official core over yours).
-順序：core → app → mod。不要用 `hc update`。
+Windows follows **herdr-jay**, never upstream directly: build only the versions in the
+[README versions table](../README.md#versions--版本). How to know there is something new: the
+[CHANGELOG](../CHANGELOG.md) (or `git -C $j fetch; git -C $j log --oneline HEAD..origin/main`).
+Order: herdr-jay, core, app, mods. **Never plain `hc update`, never "Update herdr-core" in Herdr.**
+Windows 只跟 herdr-jay：只 build README 版本表裡的版本。順序：herdr-jay → core → app → mod。
 
-1. herdr-jay (ZIP: download again into the same folder):
+### 8.0 What do I have / 目前裝的是什麼
 
-   ```powershell
-   Set-Location "$env:USERPROFILE\src\herdr-jay"
-   git checkout main; git pull
-   git checkout for-herdr-v0.1.20        # only if that tag exists for your new Herdr; otherwise stay on main
-   ```
+```powershell
+$j = "$env:USERPROFILE\src\herdr-jay"; $h = "$env:USERPROFILE\.config\herdr-app"
+hc --version
+herdr-app --version | Out-Host
+git -C $j describe --tags --always
+Get-Content "$h\mods\jay-nvim\.herdr-jay"
+```
 
-2. herdr-core first, then herdr-app. Each has **its own** new tag (core and app versions differ). Set the two lines at
-   the top, run, then again for the other repo:
+Send these four lines to jay when reporting a problem.
 
-   ```powershell
-   $repo = "herdr-core"; $tag = "v0.1.20"              # then: $repo = "herdr-app"; $tag = "<app tag>"
-   $j = "$env:USERPROFILE\src\herdr-jay"
-   Set-Location "$env:USERPROFILE\src\$repo"
-   git fetch --tags --force
-   git checkout --force $tag
-   git submodule update --init --recursive
-   $pd = "$j\patches\$repo\$tag"
-   if (Test-Path $pd) { git -c user.name=me -c user.email=me@local am (Get-ChildItem "$pd\*.patch" | Sort-Object Name).FullName } else { "no patches" }
-   ```
+### 8.1 herdr-jay
 
-   ```powershell
-   just install                                        # terminals keep running
-   ```
+```powershell
+Set-Location "$env:USERPROFILE\src\herdr-jay"
+git checkout main; git pull
+```
 
-3. Mods — remove the old folders first so deleted files don't linger:
+If the README table names a tag for your Herdr (`for-herdr-v<app>-r<N>`), `git checkout <that tag>` (and
+`git checkout main` before the next `git pull`). ZIP: delete the old folder, download again, rename to `herdr-jay`.
 
-   ```powershell
-   $j = "$env:USERPROFILE\src\herdr-jay"
-   $h = "$env:USERPROFILE\.config\herdr-app"
-   Remove-Item -Recurse -Force "$h\mods\jay-nvim", "$h\mods\jay-nvim-pick" -ErrorAction SilentlyContinue
-   Copy-Item -Recurse -Force "$j\mods\jay-nvim", "$j\mods\jay-nvim-pick" "$h\mods\"
-   herdr-app check "$h\mods\jay-nvim" | Out-Host
-   ```
+### 8.2 Core, then app
 
-4. Quit and reopen Herdr. `keys.json` stays as you left it.
+Only if the README table lists a newer version. Set the two lines at the top (the versions from the table), run,
+then again for `herdr-app`:
+
+```powershell
+$repo = "herdr-core"; $tag = "v0.1.20"              # then: $repo = "herdr-app"; $tag = "<app version from the table>"
+$j = "$env:USERPROFILE\src\herdr-jay"
+Set-Location "$env:USERPROFILE\src\$repo"
+git am --abort 2>$null                              # leftovers from an earlier failed try
+git fetch --tags --force
+git checkout --force $tag
+git submodule update --init --recursive
+$rd = "$j\patches\$repo"; $pd = "$rd\$tag"
+if ((Test-Path $rd) -and -not (Test-Path $pd)) { throw "herdr-jay has no patches for $repo $tag yet: stay on your version" }
+if (Test-Path $pd) { git -c user.name=me -c user.email=me@local am -3 (Get-ChildItem "$pd\*.patch" | Sort-Object Name).FullName } else { "no patches" }
+```
+
+For the app, also check it fits the core: `Get-Content distribution\core-version` must be ≤ `hc --version`.
+
+```powershell
+just install                                        # terminals keep running
+```
+
+Scripts blocked: core `cargo build --release --locked` then `hc update --from target\release\herdr-core.exe`;
+app: quit Herdr, `cargo build --release --locked`, copy `target\release\herdr-app.exe` as in step 3.
+
+If `git am` fails: `git am --abort`, rebuild the version you had (same block with your old `$tag`), and bring the
+message to jay.
+
+### 8.3 Mods
+
+Remove the old folders first so deleted files don't linger:
+
+```powershell
+$j = "$env:USERPROFILE\src\herdr-jay"; $h = "$env:USERPROFILE\.config\herdr-app"
+Remove-Item -Recurse -Force "$h\mods\jay-nvim", "$h\mods\jay-nvim-pick" -ErrorAction SilentlyContinue
+Copy-Item -Recurse -Force "$j\mods\jay-nvim", "$j\mods\jay-nvim-pick" "$h\mods\"
+git -C $j describe --tags --always > "$h\mods\jay-nvim\.herdr-jay"
+herdr-app check "$h\mods\jay-nvim" | Out-Host
+herdr-app check "$h\mods\jay-nvim-pick" | Out-Host
+```
+
+If `check` fails, go back to your previous herdr-jay (`git checkout <old tag or commit>`) and copy again.
+
+### 8.4 Keys, then restart
+
+If the new app version adds default keys, paste them from [docs/keys.md](keys.md). Quit and reopen Herdr.

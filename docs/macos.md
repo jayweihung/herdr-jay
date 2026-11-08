@@ -1,7 +1,8 @@
 # Herdr + herdr-jay on macOS / 在 Mac 上用
 
 Build Herdr from the official source (plus jay's text patches), then install two mods.
-jay's own Mac is built and installed the same way. Checked on Apple Silicon with only the Command Line Tools
+jay's own Mac is built from these same public sources and patches (jay keeps private forks of the two Herdr repos
+with the same patches applied; the result is the same). Checked on Apple Silicon with only the Command Line Tools
 (no full Xcode), Herdr app v0.1.13 and core v0.1.19.
 從官方原始碼 build Herdr（加上 jay 的文字補丁），再裝兩個 mod。jay 自己的 Mac 就是這樣裝的。
 
@@ -25,6 +26,7 @@ xcode-select --install                 # Command Line Tools: clang, git, the mac
 brew install just zig@0.16 rustup neovim
 ```
 
+(Without Homebrew: rustup from <https://rustup.rs>, Zig 0.16.0 from <https://ziglang.org/download/>.)
 `zig@0.16` and `rustup` are keg-only, and Herdr installs its commands into `~/.local/bin`, which macOS doesn't put on
 PATH. Add all three once, then open a **new terminal**:
 
@@ -67,7 +69,7 @@ because Ghostty tries to build an Xcode framework):
 
 ```sh
 ls ~/src/herdr-jay/patches/herdr-core/v0.1.19/          # exists = apply
-git -c user.name=me -c user.email=me@local am ~/src/herdr-jay/patches/herdr-core/v0.1.19/*.patch
+git -c user.name=me -c user.email=me@local am -3 ~/src/herdr-jay/patches/herdr-core/v0.1.19/*.patch
 ```
 
 ```sh
@@ -79,8 +81,9 @@ It builds a release, installs `~/.local/share/herdr-core/…/Herdr Core.app` (ad
 
 **Check**: `hc --version` → `hc 0.1.19`; `hc server status --json` shows `"version":"0.1.19"`.
 
-**Never run plain `hc update`**: it replaces your build with the official one. Update as in [step 8](#8-updating--更新).
-不要跑 `hc update`，會換回官方版。
+**Never run plain `hc update`**, and never "Update herdr-core" / Install on Herdr's core screen: they replace your
+build with the official one. Update as in [step 8](#8-updating--更新).
+不要跑 `hc update`，也不要按 Herdr 的更新 core：會換回官方版。
 
 ---
 
@@ -136,7 +139,8 @@ Keys: open `~/.config/herdr-app/keys.json` and paste **directly under** the line
 "cmd-o": "mod.open:jay-nvim-pick",
 ```
 
-Herdr reloads `keys.json` by itself. Once edited, new Herdr versions no longer add their new default keys to it.
+Herdr reloads `keys.json` by itself. Once edited, new Herdr versions no longer add their new default keys to it:
+[docs/keys.md](keys.md) lists them per release.
 
 **Check** → both print `check passed: ...`:
 
@@ -149,12 +153,16 @@ herdr-app check ~/.config/herdr-app/mods/jay-nvim-pick
 
 ## 6. Try it / 試用
 
-1. In Herdr, run your agent in a terminal in your project folder.
+1. In Herdr, start Claude Code in a terminal in your project folder.
 2. With its pane focused: `cmd-e` → Neovim on the right, file tree beside it.
-3. `cmd-o` → jumps to that nvim and lists the files the agent read or edited (Claude Code). In nvim: `space` `o`.
-4. Comment a line: `space a c`. Send all comments to the agent: `space a s`.
+3. Ask Claude to read or edit a file → nvim opens it; edits show red `-` / green `+`.
+4. `cmd-o` → jumps to that nvim and lists the files Claude read or edited. In nvim: `space o`.
+5. Comment a line: `space a c`. Send all comments to Claude: `space a s`.
+6. Python / TypeScript: run `:JayTrust` once per project so pyright / TypeScript start
+   ([why](nvim.md#3-language-servers-and-trust--語言伺服器和信任)).
 
-On a space of another machine (Herdr "machines"), the pane opens there: that machine needs nvim ≥ 0.11, git and `hc`.
+All keys and features: [docs/nvim.md](nvim.md). On a space of another machine (Herdr "machines"), the pane opens
+there: that machine needs nvim ≥ 0.11, git and `hc`.
 
 ---
 
@@ -164,7 +172,6 @@ On a space of another machine (Herdr "machines"), the pane opens there: that mac
 |---|---|---|
 | `cmd-e` does nothing | key missing or a typo in `keys.json` | `herdr-app status` shows keys.json errors |
 | "nvim not found on <host>" | nvim not in the four folders above | `brew install neovim`, or link it into `~/.local/bin` |
-| Lua error about `vim.lsp.config` or `vim.system` | Neovim older than 0.11 | `brew upgrade neovim` |
 | "找不到 hc" inside nvim | `hc` not in `~/.local/bin` | step 2 |
 | `herdr-app` / `hc`: command not found | `~/.local/bin` not on PATH | step 1, `~/.zprofile` line; new terminal |
 | Core build: `xcodebuild` / xcframework error | jay's core patch not applied | step 2, `git am` |
@@ -172,23 +179,43 @@ On a space of another machine (Herdr "machines"), the pane opens there: that mac
 | Linker / SDK errors | Command Line Tools missing or broken | `xcode-select --install` |
 | Herdr shows a core setup screen | no core, or older than the app needs | **don't press Install / Update there** (it installs the official core); step 2, then quit and reopen Herdr |
 | Two Herdrs, or Herdr updates itself | an official app is still installed | step 1, remove it |
-| `hc --version` shows another version than you built | `hc update` or an official installer ran | step 2 `just install` again |
+| `hc --version` shows another version than you built | `hc update`, "Update herdr-core" or an official installer ran | step 2 `just install` again |
+
+nvim itself (follow, trust, LSP, comments): [docs/nvim.md → 8](nvim.md#8-when-something-goes-wrong--出問題時).
 
 ---
 
 ## 8. Updating / 更新
 
-Order: core, then app. **Never plain `hc update`.** 順序：core → app。
+Build only the versions in the [README versions table](../README.md#versions--版本); what changed is in the
+[CHANGELOG](../CHANGELOG.md). Order: herdr-jay, core, app. **Never plain `hc update`, never "Update herdr-core".**
+只 build README 版本表裡的版本。順序：herdr-jay → core → app。
+
+What you have now: `hc --version`, `herdr-app --version`, `git -C ~/src/herdr-jay describe --tags --always`.
 
 ```sh
-cd ~/src/herdr-jay && git pull                     # tag for-herdr-<version> if there is one, else main
-cd ~/src/herdr-core                                # then the same in ~/src/herdr-app
-git fetch --tags --force
-git checkout --force v0.1.20                       # the new tag
-git submodule update --init --recursive
-ls ~/src/herdr-jay/patches/herdr-core/v0.1.20/ 2>/dev/null && \
-  git -c user.name=me -c user.email=me@local am ~/src/herdr-jay/patches/herdr-core/v0.1.20/*.patch
-just install                                       # terminals keep running
+cd ~/src/herdr-jay && git checkout main && git pull    # or: git checkout for-herdr-v<app>-r<N> if the README names one
 ```
 
-Then quit and reopen Herdr, and run `herdr-app check` on both mods. With symlinks the mods are already current.
+Core, then the same for the app (`repo=herdr-app tag=<app version>`), only if the table lists a newer version:
+
+```sh
+repo=herdr-core tag=v0.1.20                            # from the README table
+cd ~/src/$repo
+git am --abort 2>/dev/null                             # leftovers from an earlier failed try
+git fetch --tags --force
+git checkout --force $tag
+git submodule update --init --recursive
+rd=~/src/herdr-jay/patches/$repo; pd=$rd/$tag
+if [ -d "$rd" ] && [ ! -d "$pd" ]; then echo "no patches for $repo $tag yet: stay on your version"
+else
+  [ -d "$pd" ] && git -c user.name=me -c user.email=me@local am -3 "$pd"/*.patch
+  just install                                         # terminals keep running
+fi
+```
+
+For the app, `cat distribution/core-version` must be ≤ `hc --version`. If `git am` fails: `git am --abort`, run the
+block again with your old `tag`, and bring the message to jay.
+
+Then: new default keys from [docs/keys.md](keys.md); quit and reopen Herdr; `herdr-app check` both mods. With
+symlinks the mods are already current (copied: copy again).

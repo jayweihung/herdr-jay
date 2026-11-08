@@ -25,19 +25,24 @@ macOS / Linux:
 ```sh
 git checkout v0.1.19                      # the tag the patch folder is named after
 git submodule update --init --recursive
-git -c user.name=me -c user.email=me@local am ~/src/herdr-jay/patches/herdr-core/v0.1.19/*.patch
+git -c user.name=me -c user.email=me@local am -3 ~/src/herdr-jay/patches/herdr-core/v0.1.19/*.patch
 ```
 
 Windows (PowerShell does not expand `*.patch` for git):
 
 ```powershell
 $j = "$env:USERPROFILE\src\herdr-jay"
-git -c user.name=me -c user.email=me@local am (Get-ChildItem "$j\patches\herdr-core\v0.1.19\*.patch" | Sort-Object Name).FullName
+git -c user.name=me -c user.email=me@local am -3 (Get-ChildItem "$j\patches\herdr-core\v0.1.19\*.patch" | Sort-Object Name).FullName
 ```
 
 The `-c user.name=… user.email=…` only lets `git am` record the commit on a machine where git has no name set.
 If `git am` fails: `git am --abort`, make sure you are on exactly that tag, try again.
-Note: upstream sometimes moves a release tag a few CI/test commits later; the patches apply to either.
+`-3` lets git fall back to a 3-way merge if the files moved a little.
+
+**Moved tags**: upstream sometimes moves a release tag a few CI/test commits later (e.g. herdr-core v0.1.19:
+`2e8ebb3` → `06793ed`). Each patch's `From` line / the README versions table says which commit was checked; the
+patches apply to either. Use `git fetch --tags --force` to get the moved tag.
+上游偶爾會把 tag 移到後面幾個 CI/測試 commit；patch 兩邊都套得上。
 
 ## License
 

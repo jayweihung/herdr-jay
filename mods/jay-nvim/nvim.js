@@ -9,15 +9,99 @@
 // - lsp: go to definition, hover and lint errors from whichever servers this machine has (not as root)
 export const NVIM_INIT = String.raw`-- autoread would reload before FileChangedShell fires, leaving nothing to diff against
 vim.o.autoread = false
--- Windows: no HOME, no uid, ';' between PATH entries, no pgrep / sudo.
-local WIN = vim.fn.has("win32") == 1
-local HOME = WIN and vim.uv.os_homedir() or vim.env.HOME or vim.uv.os_homedir() or "" -- Windows: like node (Claude Code), not nvim's HOMEDRIVE guess
--- One spelling per file on Windows (C:/x/y): nvim, git and the agent mix \\ and /, and drive-letter case.
-local function norm(p)
-  if not WIN or type(p) ~= "string" then return p end
+-- ===================================== PLATFORM =====================================
+-- Every difference between operating systems lives in this table P; nothing below tests the OS.
+-- The facts are about the machine nvim runs on, which may not be the one Herdr runs on (a pane can open
+-- on another machine). macOS and Linux share the "unix" side; Windows has its own.
+local P = { win = vim.fn.has("win32") == 1 }
+-- Home: like node (so like Claude Code). Windows: USERPROFILE, not nvim's HOMEDRIVE guess (often a network drive).
+P.home = P.win and vim.uv.os_homedir() or vim.env.HOME or vim.uv.os_homedir() or ""
+-- One spelling per file. Windows: nvim, git and the agent mix \ and / and drive-letter case, so C:/x/y.
+function P.norm(p)
+  if not P.win or type(p) ~= "string" then return p end
   return ((p:gsub("\\", "/"):gsub("^(%a):", function(d) return d:upper() .. ":" end)))
 end
-local function is_root() return not WIN and vim.uv.getuid() == 0 end
+-- For comparing two paths: Windows file names ignore case.
+function P.key(p)
+  p = P.norm(p)
+  return (P.win and type(p) == "string") and p:lower() or p
+end
+P.root = not P.win and vim.uv.getuid() == 0
+-- A root agent beside this pane: exit 77 so main.js can hand over (unix only; see README).
+P.handoff = not P.win
+-- Windows runs a program found in the current folder before PATH (nvim, libuv and cmd.exe all do). The current
+-- folder is usually the agent's project, which may be someone else's code: never run a program from it.
+if P.win then vim.env.NoDefaultCurrentDirectoryInExePath = "1" end
+function P.bin(name)
+  local p = vim.fn.exepath(name)
+  if p == "" then return nil end
+  if P.win then
+    local here = P.key(vim.fn.getcwd()):gsub("/$", "") .. "/"
+    if P.key(p):sub(1, #here) == here then return nil end
+  end
+  return p
+end
+-- Where hc may be when PATH doesn't have it (Herdr starts panes with a bare PATH).
+P.hc_paths = P.win and { (vim.env.LOCALAPPDATA or "") .. "/Programs/herdr-core/herdr-core.exe" }
+  or { P.home .. "/.local/bin/hc", "/opt/homebrew/bin/hc", "/usr/local/bin/hc" }
+-- Folders put in front of PATH for language servers (unix: Homebrew and ~/.local/bin; Windows: PATH as it is).
+P.extra_path = not P.win and { P.home .. "/.local/bin", "/opt/homebrew/bin", "/usr/local/bin" } or nil
+P.path_sep = P.win and ";" or ":"
+-- Absolute paths a shell command names. Windows: C:\x, C:/x, and Git Bash's /c/x.
+local NAME = "[^%s'\"<>|;&()]+"
+function P.abs_paths(cmd)
+  local out = {}
+  cmd = type(cmd) == "string" and cmd or ""
+  if P.win then
+    for p in cmd:gmatch("%a:[\\/]" .. NAME) do out[#out + 1] = P.norm(p) end
+    for d, rest in cmd:gmatch("%f[%S]/(%a)/(" .. NAME .. ")") do out[#out + 1] = d:upper() .. ":/" .. rest end
+  else
+    for p in cmd:gmatch("/" .. NAME) do out[#out + 1] = p end
+  end
+  return out
+end
+-- The Claude Code session of the agent in a pane: { pid = n } from ~/.claude/sessions/<pid>.json, or the file's table.
+-- unix: the pane's foreground pid; under sudo there is none, so walk the pane's process tree (pgrep).
+-- Windows: Herdr starts agents through pwsh (or npm's claude.cmd), so the pid is the shell's: take the live session
+-- whose folder is the pane's, active last. shortcut: two Claude Codes in one folder may swap.
+function P.session(info, t)
+  local function read(f)
+    local h = io.open(f)
+    if not h then return nil end
+    local ok, d = pcall(vim.json.decode, h:read("*a"))
+    h:close()
+    return ok and type(d) == "table" and d or nil
+  end
+  local dir = P.home .. "/.claude/sessions/"
+  local pid = type(info) == "table" and info.foreground and info.foreground.pid
+  if not P.win then
+    if not pid and type(info) == "table" and info.pid then
+      local todo = { tostring(info.pid) }
+      while not pid and #todo > 0 do
+        for c in (vim.system({ "pgrep", "-P", table.remove(todo, 1) }, { text = true }):wait().stdout or ""):gmatch("%d+") do
+          if vim.uv.fs_stat(dir .. c .. ".json") then pid = tonumber(c) break end
+          todo[#todo + 1] = c
+        end
+      end
+    end
+    return pid and read(dir .. pid .. ".json")
+  end
+  local s = pid and read(dir .. pid .. ".json")
+  if s or type(t.cwd) ~= "string" then return s end
+  local want = P.key(t.cwd):gsub("/$", "")
+  for _, f in ipairs(vim.fn.glob(dir .. "*.json", false, true)) do
+    local d = read(f)
+    if d and type(d.cwd) == "string" and type(d.pid) == "number" and P.key(d.cwd):gsub("/$", "") == want
+      and vim.uv.kill(d.pid, 0) == 0 and (not s or (tonumber(d.updatedAt) or 0) > (tonumber(s.updatedAt) or 0)) then
+      s = d
+    end
+  end
+  return s
+end
+-- ================================== end of PLATFORM ==================================
+
+local HOME, norm = P.home, P.norm
+local GIT = P.bin("git") or "git"
 local api, ns, old = vim.api, vim.api.nvim_create_namespace("jay-nvim-changes"), {}
 api.nvim_create_autocmd("FileChangedShell", { callback = function(a)
   if vim.v.fcs_reason == "deleted" then vim.v.fcs_choice = "ask" return end
@@ -65,9 +149,9 @@ local function head_lines(b)
   local f = api.nvim_buf_get_name(b)
   if f == "" or vim.bo[b].buftype ~= "" then return end
   local dir, name = vim.fn.fnamemodify(f, ":h"), vim.fn.fnamemodify(f, ":t")
-  local r = vim.system({ "git", "-C", dir, "show", "HEAD:./" .. name }, { text = true }):wait()
+  local r = vim.system({ GIT, "-C", dir, "show", "HEAD:./" .. name }, { text = true }):wait()
   if r.code == 0 then return vim.split(r.stdout, "\n", { plain = true, trimempty = false }) end
-  if vim.system({ "git", "-C", dir, "rev-parse", "--is-inside-work-tree" }):wait().code == 0 then return {} end
+  if vim.system({ GIT, "-C", dir, "rev-parse", "--is-inside-work-tree" }):wait().code == 0 then return {} end
 end
 local function mark_head(b)
   local before = head_lines(b)
@@ -95,12 +179,19 @@ end))
 -- Another pane's nvim has this file open too: say which, the first time you change it here (Emacs's file locks).
 -- Saving still checks the disk (FileChangedShell above); this is the early heads-up.
 local function other_nvims(b)
-  local path, mine, out = api.nvim_buf_get_name(b), vim.fn.swapname(b), {}
+  local path, mine, out = P.key(api.nvim_buf_get_name(b)), vim.fn.swapname(b), {}
   -- the same file's other swap files sit beside ours (.swp .swo ...); swapfilelist() doubles the folder in 0.12
-  for _, sw in ipairs(mine == "" and {} or vim.fn.glob(vim.fn.escape(mine:sub(1, -4), "[]*?") .. "s??", false, true)) do
+  local swaps = {}
+  if mine ~= "" then
+    local dir, stem = vim.fs.dirname(mine), vim.fs.basename(mine):sub(1, -4) -- "...file." without "swp"
+    for name in vim.fs.dir(dir) do
+      if #name == #stem + 3 and name:sub(1, #stem) == stem and name:sub(-3, -3) == "s" then swaps[#swaps + 1] = dir .. "/" .. name end
+    end
+  end
+  for _, sw in ipairs(swaps) do
     local ok, i = pcall(vim.fn.swapinfo, sw)
     if ok and type(i) == "table" and i.pid and i.pid ~= vim.fn.getpid() and type(i.fname) == "string"
-      and vim.fn.fnamemodify(i.fname, ":p") == path and vim.uv.kill(i.pid, 0) == 0 then
+      and P.key(vim.fn.fnamemodify(i.fname, ":p")) == path and vim.uv.kill(i.pid, 0) == 0 then
       local env = io.open("/proc/" .. i.pid .. "/environ") -- its Herdr pane; no /proc on a Mac
       local pane = env and env:read("*a"):match("HC_TERMINAL_ID=([^%z]+)")
       if env then env:close() end
@@ -183,16 +274,16 @@ local SHELLS = { bash = 1, sh = 1, zsh = 1, fish = 1, dash = 1, ksh = 1, nvim = 
 -- hc names a terminal by its program; on Windows that can be "C:\\...\\pwsh.exe"
 local function is_shell(name) return SHELLS[((tostring(name):match("[^/\\]+$") or ""):lower():gsub("%.exe$", ""))] end
 
+local hc_found
 local function hc_bin()
   if vim.env.JAY_NVIM_HC then return vim.env.JAY_NVIM_HC end -- set by a handoff command (see README)
+  if hc_found then return hc_found end
   for _, name in ipairs({ "hc", "herdr-core" }) do -- Windows installs herdr-core.exe; hc.exe only if no hc existed
-    local found = vim.fn.exepath(name)
-    if found ~= "" then return found end
+    hc_found = P.bin(name)
+    if hc_found then return hc_found end
   end
-  local lad = vim.env.LOCALAPPDATA
-  for _, p in ipairs({ home .. "/.local/bin/hc", "/opt/homebrew/bin/hc", "/usr/local/bin/hc",
-    lad and (lad .. "/Programs/herdr-core/herdr-core.exe") or "" }) do
-    if vim.fn.executable(p) == 1 then return p end
+  for _, p in ipairs(P.hc_paths) do
+    if vim.fn.executable(p) == 1 then hc_found = p return p end
   end
 end
 
@@ -236,55 +327,21 @@ end
 local TOOLS = { Read = "讀", Edit = "改", MultiEdit = "改", NotebookEdit = "改", Write = "寫" }
 local function session_log(t)
   if t.agent ~= "claude-code" or t.address:find("/") then return nil end
-  local info = hc({ "get", t.address })
-  local pid = type(info) == "table" and info.foreground and info.foreground.pid
-  -- An agent under sudo: Herdr runs as you and reports no foreground. Walk the pane's process tree
-  -- for the first pid with a session file in our ~/.claude (root's nvim finds root's claude; yours finds none).
-  if not pid and not WIN and type(info) == "table" and info.pid then
-    local todo = { tostring(info.pid) }
-    while not pid and #todo > 0 do
-      for c in (vim.system({ "pgrep", "-P", table.remove(todo, 1) }, { text = true }):wait().stdout or ""):gmatch("%d+") do
-        if vim.uv.fs_stat(("%s/.claude/sessions/%s.json"):format(home, c)) then pid = tonumber(c) break end
-        todo[#todo + 1] = c
-      end
-    end
-  end
-  local f = pid and io.open(("%s/.claude/sessions/%d.json"):format(home, pid))
-  local ok, s
-  if f then
-    ok, s = pcall(vim.json.decode, f:read("*a"))
-    f:close()
-  elseif WIN and type(t.cwd) == "string" then
-    -- Windows: Herdr starts agents through pwsh (or npm's claude.cmd), so the pane's pid is the shell's.
-    -- Take the live Claude Code session in the agent's folder that was active last.
-    -- shortcut: two Claude Codes in one folder may swap; upgrade by walking the pane's child processes.
-    local want = norm(t.cwd):lower():gsub("/$", "")
-    for _, file in ipairs(vim.fn.glob(home .. "/.claude/sessions/*.json", false, true)) do
-      local h = io.open(file)
-      local okd, d = pcall(vim.json.decode, h and h:read("*a") or "")
-      if h then h:close() end
-      if okd and type(d) == "table" and type(d.cwd) == "string" and type(d.pid) == "number"
-        and norm(d.cwd):lower():gsub("/$", "") == want and vim.uv.kill(d.pid, 0) == 0
-        and (not s or (tonumber(d.updatedAt) or 0) > (tonumber(s.updatedAt) or 0)) then
-        ok, s = true, d
-      end
-    end
-  end
-  if not ok or type(s) ~= "table" then return nil end
-  return ok and s.sessionId and vim.fn.glob(("%s/.claude/projects/*/%s.jsonl"):format(home, s.sessionId), false, true)[1]
+  local s = P.session(hc({ "get", t.address }), t)
+  return s and s.sessionId and vim.fn.glob(("%s/.claude/projects/*/%s.jsonl"):format(home, s.sessionId), false, true)[1]
 end
 
 -- An agent started under sudo: hc can't see its foreground and its log is root's.
 -- This nvim then exits 77 and main.js runs the configured handoff command (README), which should run root's own copy of this Lua.
 local function runs_as_root(t)
-  if WIN or is_root() or t.agent ~= "claude-code" then return false end
+  if not P.handoff or P.root or t.agent ~= "claude-code" then return false end
   local info = hc({ "get", t.address })
   return type(info) == "table" and not info.foreground and info.pid ~= nil
     and vim.system({ "pgrep", "-u", "0", "-P", tostring(info.pid) }):wait().code == 0
 end
 -- A new pane has no "where" in hc ls for its first seconds, so keep asking for 10s until a claude-code agent shows up.
 local root_probe, root_tries = vim.uv.new_timer(), 0
-if not WIN then root_probe:start(0, 1000, vim.schedule_wrap(function()
+if P.handoff and not P.root then root_probe:start(0, 1000, vim.schedule_wrap(function()
   root_tries = root_tries + 1
   local agent = (JN.agents() or {})[1]
   if agent and runs_as_root(agent) then vim.cmd("cquit 77") end
@@ -348,7 +405,6 @@ local function epoch(ts) -- "2026-11-07T18:43:13.354Z" is UTC; os.time reads a t
   local now = os.time()
   return os.time({ year = y, month = mo, day = d, hour = h, min = mi, sec = s }) + os.difftime(now, os.time(os.date("!*t", now)))
 end
-local PATHS = "/[^%s'\"<>|;&()]+" -- absolute paths in a command line
 -- What a file held before a Bash call ran, kept by snap_hook.sh (a PreToolUse hook): the call reaches the log only
 -- after it ran (root's agent), so nvim cannot keep it itself. Diffed against for a file outside a repo (no HEAD)
 local SNAP = HOME .. "/.cache/jay-nvim/snap/"
@@ -369,7 +425,7 @@ local function bash_changed(cwd, since, cmd)
     if st and st.type == "file" and st.mtime.sec >= since and (not at or st.mtime.sec > at) then best, at = norm(p), st.mtime.sec end
   end
   local dirs, n = { cwd }, 0
-  for p in (type(cmd) == "string" and cmd or ""):gmatch(PATHS) do
+  for _, p in ipairs(P.abs_paths(cmd)) do
     n = n + 1
     if n > 20 then break end
     local t = (vim.uv.fs_stat(p) or {}).type
@@ -377,11 +433,11 @@ local function bash_changed(cwd, since, cmd)
   end
   local seen = {}
   for _, d in ipairs(dirs) do
-    local top = vim.system({ "git", "-C", d, "rev-parse", "--show-toplevel" }, { text = true }):wait()
+    local top = vim.system({ GIT, "-C", d, "rev-parse", "--show-toplevel" }, { text = true }):wait()
     top = top.code == 0 and vim.trim(top.stdout)
     if top and not seen[top] then
       seen[top] = true
-      local files = vim.system({ "git", "-C", top, "-c", "core.quotepath=off", "ls-files", "-m", "-o", "--exclude-standard" }, { text = true }):wait().stdout or ""
+      local files = vim.system({ GIT, "-C", top, "-c", "core.quotepath=off", "ls-files", "-m", "-o", "--exclude-standard" }, { text = true }):wait().stdout or ""
       for f in files:gmatch("[^\n]+") do consider(top .. "/" .. f) end
     end
   end
@@ -536,8 +592,8 @@ function JN.pick()
   local seen = {}
   for _, it in ipairs(items) do seen[it.path] = true end
   local root = vim.fn.getcwd()
-  local git = vim.system({ "git", "-C", root, "status", "--porcelain", "-z" }, { text = true }):wait()
-  local top = vim.trim(vim.system({ "git", "-C", root, "rev-parse", "--show-toplevel" }, { text = true }):wait().stdout or "")
+  local git = vim.system({ GIT, "-C", root, "status", "--porcelain", "-z" }, { text = true }):wait()
+  local top = vim.trim(vim.system({ GIT, "-C", root, "rev-parse", "--show-toplevel" }, { text = true }):wait().stdout or "")
   for _, e in ipairs(git.code == 0 and vim.split(git.stdout, "\0", { trimempty = true }) or {}) do
     local path = norm(top .. "/" .. e:sub(4))
     if #e > 3 and not seen[path] and vim.uv.fs_stat(path) then
@@ -609,17 +665,19 @@ end
 
 function JN.message(cwd)
   local list = resolved()
-  local function slash(p) return WIN and (p:gsub("\\", "/"):lower()) or p end -- Windows: \ or /, any case
-  local prefix = cwd and (slash(cwd):gsub("/$", "") .. "/")
+  -- Control characters from a file or a comment would reach the agent's terminal as keys (Enter, Esc, Ctrl-C):
+  -- drop them; tabs stay.
+  local function clean(x) return (tostring(x):gsub("[%z\1-\8\11-\31\127]", "")) end
+  local prefix = cwd and (P.key(cwd):gsub("/$", "") .. "/")
   local lines = { "從編輯器來的註解：", "" }
   for i, c in ipairs(list) do
-    local f = slash(c.file)
+    local f = P.key(c.file)
     local file = prefix and f:sub(1, #prefix) == prefix and c.file:sub(#prefix + 1) or c.file
     table.insert(lines, ("%d. %s:%s"):format(i, file, c.l1 == c.l2 and c.l1 or (c.l1 .. "-" .. c.l2)))
     for _, s in ipairs(vim.api.nvim_buf_get_lines(c.n.buf, c.l1 - 1, math.min(c.l2, c.l1 + 2), false)) do
-      table.insert(lines, "   > " .. s)
+      table.insert(lines, "   > " .. clean(s))
     end
-    table.insert(lines, "   註解：" .. c.n.text)
+    table.insert(lines, "   註解：" .. clean(c.n.text))
     table.insert(lines, "")
   end
   table.insert(lines, "請逐條處理，回覆每條改了什麼。")
@@ -651,8 +709,12 @@ end
 
 local map = vim.keymap.set
 map("n", "<leader>o", JN.pick, { desc = "agent 讀過／改過的檔" })
-map("n", "<D-o>", JN.pick, { desc = "agent 讀過／改過的檔" })
-map("n", "<M-o>", JN.pick, { desc = "agent 讀過／改過的檔" }) -- jay-nvim-pick on Windows / Linux (no cmd key)
+-- jay-nvim-pick presses <D-o> (macOS) or <M-o> (Windows / Linux, no cmd key), in whatever mode nvim is in.
+-- It sends no Esc first: in a legacy-keyboard terminal Esc + Alt-o can read as <M-Esc> then "o" (a new line).
+for _, k in ipairs({ "<D-o>", "<M-o>" }) do
+  map("n", k, JN.pick, { desc = "agent 讀過／改過的檔" })
+  map({ "i", "x", "s", "o", "c" }, k, function() vim.api.nvim_feedkeys(vim.keycode("<C-\\><C-n>"), "nx", false) JN.pick() end, { desc = "agent 讀過／改過的檔" })
+end
 map("n", "<leader>ac", function() JN.comment(vim.fn.line("."), vim.fn.line(".")) end, { desc = "註解這行" })
 function JN.comment_sel()
   local a, b = vim.fn.line("v"), vim.fn.line(".")
@@ -669,23 +731,50 @@ map("n", "<leader>af", JN.toggle_follow, { desc = "跟著 agent 開檔（開／�
 -- and pyright / typescript-language-server are node scripts that need node on it.
 -- A server not installed on this machine is skipped. Keys are nvim's defaults (K, grr, grn, gra, [d ]d) plus gd.
 -- Never as root: the servers load code from the project (tsserver from its node_modules), which you can write.
-if not is_root() then
-if not WIN then vim.env.PATH = table.concat({ HOME .. "/.local/bin", "/opt/homebrew/bin", "/usr/local/bin", vim.env.PATH or "" }, ":") end
+-- pyright runs the project's Python (its venv) and ts_ls the project's own tsserver: both run the project's code,
+-- so they start only in folders you trust (:JayTrust, kept in ~/.config/jay-nvim/trust). ruff only reads files.
+if not P.root then
+if P.extra_path then vim.env.PATH = table.concat(vim.list_extend(vim.list_extend({}, P.extra_path), { vim.env.PATH or "" }), P.path_sep) end
+local TRUST = HOME .. "/.config/jay-nvim/trust"
+local function trusted(dir)
+  local d = P.key(dir):gsub("/$", "") .. "/"
+  for _, line in ipairs(vim.fn.filereadable(TRUST) == 1 and vim.fn.readfile(TRUST) or {}) do
+    local t = P.key(vim.trim(line)):gsub("/$", "") .. "/"
+    if t ~= "/" and d:sub(1, #t) == t then return true end
+  end
+end
+local told = {}
+local function only_trusted(markers, need)
+  return function(b, on_dir)
+    local r = vim.fs.root(b, markers)
+    if not r or (need and not need(r)) then return end
+    if trusted(r) then return on_dir(r) end
+    if not told[r] then
+      told[r] = true
+      vim.notify(("pyright / TypeScript 沒在 %s 啟動：還沒信任這個資料夾（會跑它的程式碼）。信任就 :JayTrust"):format(r), vim.log.levels.INFO)
+    end
+  end
+end
+vim.api.nvim_create_user_command("JayTrust", function(o)
+  local r = o.args ~= "" and vim.fn.fnamemodify(o.args, ":p") or vim.fs.root(0, { "pyproject.toml", "setup.py", "tsconfig.json", "package.json", ".git" }) or vim.fn.getcwd()
+  vim.fn.mkdir(vim.fs.dirname(TRUST), "p")
+  vim.fn.writefile({ r }, TRUST, "a")
+  vim.notify("已信任 " .. r .. "（重開這個檔就會啟動）")
+end, { nargs = "?", complete = "dir", desc = "信任這個專案：pyright / TypeScript 可以在這裡啟動" })
 vim.diagnostic.config({ virtual_text = true, severity_sort = true })
 local py_root = { "pyproject.toml", "ruff.toml", "setup.py", ".git" } -- backend/ruff.toml makes backend/ the root, so "from app..." resolves
 for name, c in pairs({
-  pyright = { cmd = { "pyright-langserver", "--stdio" }, filetypes = { "python" }, root_markers = py_root },
+  pyright = { cmd = { "pyright-langserver", "--stdio" }, filetypes = { "python" }, root_dir = only_trusted(py_root) },
   ruff = { cmd = { "ruff", "server" }, filetypes = { "python" }, root_markers = py_root },
   -- Only where the project has its own TypeScript (node_modules/typescript): the server needs its tsserver, and a
   -- global TypeScript 7 (the Go rewrite) ships none, so elsewhere it fails to start with an error popup.
   ts_ls = { cmd = { "typescript-language-server", "--stdio" },
     filetypes = { "javascript", "javascriptreact", "typescript", "typescriptreact" },
-    root_dir = function(b, on_dir)
-      local r = vim.fs.root(b, { "tsconfig.json", "package.json", ".git" })
-      if r and vim.uv.fs_stat(r .. "/node_modules/typescript/lib/tsserver.js") then on_dir(r) end
-    end },
+    root_dir = only_trusted({ "tsconfig.json", "package.json", ".git" },
+      function(r) return vim.uv.fs_stat(r .. "/node_modules/typescript/lib/tsserver.js") end) },
 }) do
-  if vim.fn.executable(c.cmd[1]) == 1 then vim.lsp.config(name, c); vim.lsp.enable(name) end
+  local exe = P.bin(c.cmd[1]) -- the full path: never a program sitting in the project folder
+  if exe then c.cmd[1] = exe; vim.lsp.config(name, c); vim.lsp.enable(name) end
 end
 map("n", "gd", function() JN.definition() end, { desc = "跳到定義" })
 end
@@ -701,7 +790,7 @@ function JN.on_list(o)
   end
   local it = items[1]
   vim.cmd("normal! m'") -- so <C-o> and the back button come back here
-  if vim.fn.fnamemodify(it.filename, ":p") ~= api.nvim_buf_get_name(0) then vim.cmd.edit(vim.fn.fnameescape(it.filename)) end
+  if P.key(vim.fn.fnamemodify(it.filename, ":p")) ~= P.key(api.nvim_buf_get_name(0)) then vim.cmd.edit(vim.fn.fnameescape(it.filename)) end
   pcall(api.nvim_win_set_cursor, 0, { it.lnum, math.max(it.col - 1, 0) })
   vim.cmd("normal! zv")
 end

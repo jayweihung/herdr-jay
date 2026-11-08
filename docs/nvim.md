@@ -105,7 +105,7 @@ read them; removed after 10 minutes). jay-nvim then marks what the command chang
 repo 外的檔被 Bash 指令改掉時，沒有「改之前」可比；snap hook 會在指令跑之前先存一份，jay-nvim 才標得出改了哪裡。
 
 The hook is a Lua file jay-nvim writes itself, on every machine where it runs (macOS, Windows, a Linux server):
-`~/.config/jay-nvim/snap_hook.lua` (Windows: `%USERPROFILE%\.config\jay-nvim\snap_hook.lua`), refreshed when
+`~/.config/jay-nvim/snap_hook.lua` (Windows: under `vim.uv.os_homedir()`, usually `%USERPROFILE%`), refreshed when
 jay-nvim updates. It runs with `nvim -l`, so it needs nothing but Neovim. To turn it on, open jay-nvim once on that
 machine, then add this to Claude Code's `~/.claude/settings.json` there (merge into an existing `"hooks"`):
 jay-nvim 會自己把 hook 寫到每台機器上；在那台機器的 Claude Code 設定加這段就啟用：
@@ -119,8 +119,8 @@ jay-nvim 會自己把 hook 寫到每台機器上；在那台機器的 Claude Cod
 ```
 
 `nvim` must be on the PATH Claude Code runs hooks with; if not, give its full path (macOS Homebrew
-`/opt/homebrew/bin/nvim`, a Linux server `~/.local/bin/nvim`). Windows: not yet checked; if `~` isn't
-expanded there, write the full path `C:/Users/<you>/.config/jay-nvim/snap_hook.lua`. It never blocks a command: it prints nothing and always exits 0.
+`/opt/homebrew/bin/nvim`, a Linux server `~/.local/bin/nvim`). Windows (not yet tested there): full paths, and
+matcher `Bash|PowerShell`; see [windows.md §5a](windows.md#5a-snap-hook-for-claude-code--snap-hook). It never blocks a command: it prints nothing and always exits 0.
 Check: after the agent runs a Bash command naming a file, `~/.cache/jay-nvim/snap/` has a folder for it.
 
 ## 8. When something goes wrong / 出問題時

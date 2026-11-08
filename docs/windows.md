@@ -329,26 +329,31 @@ Optional, for go-to-definition and errors (skip if Node or Python are not allowe
 ### 5a. Snap hook for Claude Code / snap hook
 
 Lets jay-nvim mark what a Bash command changed in a file **outside** a git repo ([nvim.md §7](nvim.md#7-snapshots-for-bash-edits-optional--bash-改檔的快照選用)).
-Do it after jay-nvim has opened once (§6 step 2), which writes `%USERPROFILE%\.config\jay-nvim\snap_hook.lua`.
+Do it after jay-nvim has opened once (§6 step 2), which writes `<home>\.config\jay-nvim\snap_hook.lua`. `<home>` is
+the **first** folder §6 step 3 prints (`vim.uv.os_homedir()`): usually `C:\Users\<you>`, but a company may set it to
+another drive (e.g. `H:\`); use that one below.
 jay-nvim 開過一次後，在 Claude Code 設定加這個 hook（一次就好，之後 jay-nvim 會自己更新 hook 檔）。
 
 1. Back up `%USERPROFILE%\.claude\settings.json` (if it exists).
 2. Merge into it (keep everything else; if `"hooks"` already has `"PreToolUse"`, add this entry to that list).
-   Full paths with forward slashes, because Claude Code may run hooks in PowerShell or Git Bash:
+   Write `<home>` in full with forward slashes (no `~`, no `%…%`). The matcher also names `PowerShell` because
+   Claude Code on Windows may run commands with its PowerShell tool instead of Bash:
 
    ```json
    "hooks": {
      "PreToolUse": [
-       { "matcher": "Bash", "hooks": [{ "type": "command", "timeout": 15,
+       { "matcher": "Bash|PowerShell", "hooks": [{ "type": "command", "timeout": 15,
          "command": "nvim -l C:/Users/<you>/.config/jay-nvim/snap_hook.lua" }] }
      ]
    }
    ```
 
-   `nvim` not found by the hook → write nvim.exe's full path, e.g. `"C:/Program Files/Neovim/bin/nvim.exe"` in
-   quotes inside the command: `"\"C:/Program Files/Neovim/bin/nvim.exe\" -l C:/Users/<you>/..."`.
+   `nvim` not found by the hook → write nvim.exe's full path (`where.exe nvim`), forward slashes, e.g.
+   `C:/Users/<you>/AppData/Local/Programs/nvim-win64/bin/nvim.exe -l …`. A path with a space (winget's
+   `C:/Program Files/Neovim/…`) needs quotes inside the command: `"\"C:/Program Files/Neovim/bin/nvim.exe\" -l …"`
+   (Claude Code runs hooks in Git Bash, which it needs anyway; if it ran them in PowerShell, that form would need `& ` in front).
 3. Restart Claude Code (or `/hooks` once). **Check**: §6 step 7 — after Claude changes a file outside the repo with
-   a shell command, `%USERPROFILE%\.cache\jay-nvim\snap\` has a new folder and nvim shows red / green.
+   a shell command, `<home>\.cache\jay-nvim\snap\` has a new folder and nvim shows red / green.
 
 ---
 
@@ -370,7 +375,7 @@ the screen and of `:messages` in nvim, note the step number, go on.
 7. Ask Claude to change a repo file with a shell command (e.g. `sed -i`) → nvim follows it.
    Then a file **outside** the repo by absolute path → nvim should follow it too; note which path form Claude used
    (`C:\…`, `C:/…` or `/c/…`). With the snap hook (§5a): old lines red, new green, and
-   `%USERPROFILE%\.cache\jay-nvim\snap\` has a new folder. Without it the file just reloads.
+   `<home>\.cache\jay-nvim\snap\` (§5a) has a new folder. Without it the file just reloads.
 8. In nvim `space o` → files Claude touched (newest first) plus git changes; pick one → it opens.
 9. Focus Claude's pane, press `ctrl-shift-j` → focus jumps to nvim and the list opens. `Esc`, then `:set modified?`
    → `nomodified` (nothing typed into the file). Again from insert mode (`i` first).

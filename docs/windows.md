@@ -3,14 +3,19 @@
 Text only: no scripts here. Every step is a command you type or an installer you run yourself.
 只有說明，沒有腳本：每一步都是自己打指令或自己跑安裝程式。
 
-## 1. Build Herdr from the official source / 從官方原始碼 build Herdr
+## 1. Build Herdr: official source + jay's patches / 官方原始碼＋jay 的修改
 
-Follow the official READMEs; they are the source of truth:
+Herdr's own build steps are in the official READMEs:
 
 - App: <https://github.com/herdrdev/herdr-app> → "Build from source"
 - Core (`hc`): <https://github.com/herdrdev/herdr-core> → "CONTRIBUTING.md"
 
-What they need on Windows (as of Herdr app v0.1.13 / core v0.1.19):
+**Before building, check [`patches/`](../patches/)**: if there is a folder for that repo, check out exactly the tag it is
+named after and apply the patches (`git am`, see [patches/README.md](../patches/README.md)). No folder = no changes:
+build the official tag as is. This way the company build has the same Herdr as jay's own.
+**build 之前先看 `patches/`**：有那個 repo 的資料夾，就切到資料夾名稱的那個 tag、`git am` 套上；沒有就直接 build 官方 tag。
+
+What the build needs on Windows (as of Herdr app v0.1.13 / core v0.1.19):
 
 | Tool | Version | Notes |
 |---|---|---|
@@ -20,8 +25,8 @@ What they need on Windows (as of Herdr app v0.1.13 / core v0.1.19):
 | Git for Windows | current | also provides `sh`, used by core templates |
 | just | current | the repos' build recipes |
 
-Clone with submodules (`git clone --recurse-submodules ...`), then `just build` / `just install` in each repo.
-Build a release **tag** (e.g. `git checkout v0.1.13`) rather than `master`, so it matches the version herdr-jay was checked with.
+Clone with submodules (`git clone --recurse-submodules ...`), check out a release **tag** (e.g. `git checkout v0.1.13`),
+apply patches if any, then `just build` / `just install`.
 
 ## 2. Install herdr-jay / 安裝 herdr-jay
 

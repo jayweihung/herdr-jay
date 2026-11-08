@@ -21,12 +21,30 @@ Copy both folders into your Herdr home's `mods/` (macOS / Linux: `~/.config/herd
 - `jay-nvim` — opens the pane (`mod.open:jay-nvim`)
 - `jay-nvim-pick` — `cmd-o`: focus the jay-nvim pane in this tab and open the "files the agent touched" list
 
-Keys (add to your `keys.json`, `global` section):
+Keys (add to your `keys.json`, `global` section) / 按鍵（加進 `keys.json` 的 `global`）:
+
+macOS:
 
 ```json
 "cmd-e": "mod.open:jay-nvim",
 "cmd-o": "mod.open:jay-nvim-pick"
 ```
+
+Windows / Linux (no `cmd` key) / Windows、Linux（沒有 cmd 鍵）:
+
+```json
+"ctrl-shift-i": "mod.open:jay-nvim",
+"ctrl-shift-j": "mod.open:jay-nvim-pick"
+```
+
+Why these: Herdr's Windows/Linux defaults (v0.1.13) already use `ctrl-shift-e` / `ctrl-shift-o` (split down / right),
+and plain `ctrl-e` / `ctrl-o` belong to the shell and nvim (end of line, jump back). `ctrl-shift-i` / `ctrl-shift-j`
+are free and side by side. Pick others if you like; check Herdr's defaults first (`herdr-app commands`, `keys.json`).
+為什麼選這兩個：Herdr 在 Windows/Linux 的預設已經用掉 `ctrl-shift-e`／`ctrl-shift-o`（往下／往右分割），
+`ctrl-e`／`ctrl-o` 是 shell 和 nvim 自己要用的（行尾、跳回）。`ctrl-shift-i`／`ctrl-shift-j` 沒人用，又剛好相鄰。
+
+Note: `cmd-o` inside the pane (the files list) is a macOS key sent to nvim as `<D-o>`; on Windows use `<leader>o`
+(space, then o) inside nvim, or `ctrl-shift-j` from anywhere in the tab.
 
 Needs on each machine where the pane opens: `nvim` (≥ 0.10) and `hc` on a usual path
 (`~/.local/bin`, `/opt/homebrew/bin`, `/usr/local/bin`, `/usr/bin`). LSP servers are optional.

@@ -40,7 +40,7 @@ If `git am` fails: `git am --abort`, make sure you are on exactly that tag, try 
 `-3` lets git fall back to a 3-way merge if the files moved a little.
 
 **Moved tags**: upstream sometimes moves a release tag a few CI/test commits later (e.g. herdr-core v0.1.19:
-`2e8ebb3` → `06793ed`). Each patch's `From` line / the README versions table says which commit was checked; the
+`2e8ebb3` → `06793ed`). Each patch's `base-commit:` line and the README versions table say which commit was checked; the
 patches apply to either. Use `git fetch --tags --force` to get the moved tag.
 上游偶爾會把 tag 移到後面幾個 CI/測試 commit；patch 兩邊都套得上。
 

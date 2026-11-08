@@ -38,7 +38,7 @@ one was checked.
 
 | herdr-jay | Herdr app | Herdr core | core patches | Checked on macOS | Checked on Windows |
 |---|---|---|---|---|---|
-| `main` (now) | v0.1.13 (`93b097f`) | v0.1.19 (`2e8ebb3`; upstream later moved the tag to `06793ed`, CI/test only) | `patches/herdr-core/v0.1.19` | 2026-11-08 | not yet |
+| `main` (now) | v0.1.13 (`93b097f`) | v0.1.19 (`06793ed`, the moved tag; `git fetch --tags --force`) | `patches/herdr-core/v0.1.19` | 2026-11-08 | not yet |
 
 The app needs at least the core in its `distribution/core-version` (v0.1.13: core 0.1.11).
 

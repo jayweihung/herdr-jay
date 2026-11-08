@@ -9,6 +9,9 @@ Needs: **mods** = copy the two mod folders again (macOS symlinks: nothing) · **
 
 Needs: **mods**, and **core** (apply `patches/herdr-core/v0.1.19`).
 
+- herdr-core v0.1.19 now means upstream's moved tag `06793ed` (2 CI/test commits after `2e8ebb3`): `git fetch --tags --force`
+  before checking it out. Built on `2e8ebb3` already? Nothing changes for you; rebuilding is optional.
+
 - Install guides for macOS and Windows ([docs/macos.md](docs/macos.md), [docs/windows.md](docs/windows.md)),
   jay-nvim guide [docs/nvim.md](docs/nvim.md), this changelog, [docs/keys.md](docs/keys.md), versions table in README.
 - Core patch: skip Ghostty's xcframework, so core builds with only the macOS Command Line Tools (harmless on Windows).

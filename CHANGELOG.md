@@ -9,6 +9,9 @@ Needs: **mods** = copy the two mod folders again (macOS symlinks: nothing) · **
 
 Needs: **mods** (copy both again), **app** (build v0.1.14).
 
+- docs/windows.md: build tools reduced to the versions needed; **§8 Updating** now covers everything that gets
+  updated — herdr-jay, core on the PC and the Linux server, app, mods, Neovim — in one order. README names the Neovim version.
+  更新步驟集中在 §8：PC 和 server 的 core、app、mod、Neovim。
 - **jay-nvim security fixes** (review): an untrusted repo could still make nvim's own git calls run a program — a
   filter name containing `=`, the `post-index-change` hook through `git status`, a partial clone's lazy fetch
   (`uploadpack` / `sshCommand`), a submodule's filter, and netrw's `git ls-files` on git older than 2.31. Now every git

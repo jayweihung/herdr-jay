@@ -60,7 +60,7 @@ installer / the company software center. First run asks to accept terms: add
 找不到 `winget`：從 Microsoft Store 裝「App Installer」，或用各工具自己的安裝程式／公司軟體中心。
 
 **Admin rights / 管理員權限**: Visual Studio Build Tools need admin (or IT / the software center); LLVM too, unless you
-use the no-admin download in step 1.
+use LLVM's no-admin release archive.
 Everything else here can be installed per user. No admin → ask IT for
 "Visual Studio 2022 Build Tools with **Desktop development with C++**" and "LLVM".
 沒有管理員權限：請 IT 裝「Visual Studio 2022 Build Tools（勾 Desktop development with C++）」和「LLVM」。
@@ -109,53 +109,24 @@ Every block below sets the folders it uses, so it works in any new window (excep
 
 ## 1. Build tools / build 工具（一次）
 
-| Tool / 工具 | Install (per user unless noted) | Check (new PowerShell) / 檢查 |
+Install them the way your company does; the versions are what matter (the build fails or differs without them):
+用公司的方式裝；版本要對：
+
+| Tool | Version / what | Check (new PowerShell) |
 |---|---|---|
-| Git for Windows | step 0 | `git --version` |
-| Visual Studio 2022 Build Tools (**admin**) | `winget install Microsoft.VisualStudio.2022.BuildTools --override "--passive --wait --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"` | see below |
-| Rust | `winget install Rustlang.Rustup`, then **in a new PowerShell**: `rustup toolchain install 1.95.0` and `rustup default 1.95.0` | `rustc --version` → `rustc 1.95.0` |
-| Zig **0.16.0** | `winget install zig.zig --version 0.16.0`, or download `zig-x86_64-windows-0.16.0.zip` from ziglang.org and unzip it as below (no admin) | `zig version` → `0.16.0`, and `zig env` prints a `lib_dir` (fails → use the zip route below) |
-| LLVM (only for the app; **admin**) | `winget install LLVM.LLVM`, then `setx LIBCLANG_PATH "C:\Program Files\LLVM\bin"` (no admin: see below) | `Test-Path "$env:LIBCLANG_PATH\libclang.dll"` → `True` |
-| just | `winget install Casey.Just`, or without winget (after Rust): `cargo install just --locked` | `just --version` |
-
-Build Tools check: this prints a folder; nothing printed = the C++ part is missing
-(open **Visual Studio Installer** → Modify → tick **Desktop development with C++**):
-
-```powershell
-& "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
-```
-
-Zig without winget: unzip with PowerShell (Explorer's "Extract All" adds an extra folder level), then add
-`%LOCALAPPDATA%\Programs\zig-x86_64-windows-0.16.0` to PATH ([Add to PATH](#add-a-folder-to-path)); that folder must
-directly contain `zig.exe`:
-
-```powershell
-Expand-Archive -Force "$env:USERPROFILE\Downloads\zig-x86_64-windows-0.16.0.zip" "$env:LOCALAPPDATA\Programs"
-Test-Path "$env:LOCALAPPDATA\Programs\zig-x86_64-windows-0.16.0\zig.exe"     # must be True
-```
-
-(`Downloads`, or wherever your browser saved it.) Then in a new PowerShell `zig env` must print a `lib_dir`.
-
-LLVM without admin: download `clang+llvm-<version>-x86_64-pc-windows-msvc.tar.xz` from
-<https://github.com/llvm/llvm-project/releases>, then (replace `<file>` and `<version>`):
-
-```powershell
-& "$env:SystemRoot\System32\tar.exe" -xf "$env:USERPROFILE\Downloads\<file>" -C "$env:LOCALAPPDATA\Programs"
-setx LIBCLANG_PATH "$env:LOCALAPPDATA\Programs\clang+llvm-<version>-x86_64-pc-windows-msvc\bin"
-```
-
-Use Windows' own `tar.exe` as written: Git's GNU `tar`, if it comes first on PATH, reads `C:` as a host name.
-If `tar` can't open the `.xz` file, extract it with 7-Zip, or ask IT.
-`tar` 解不開 `.xz` 就用 7-Zip，或請 IT 幫忙。
-
-Rust must be the **MSVC** kind (the Windows default): `rustup show` lists `x86_64-pc-windows-msvc`.
+| Git for Windows | any recent | `git --version` |
+| Visual Studio 2022 Build Tools | **Desktop development with C++** + a **Windows 11 SDK** | `link.exe` found by the build |
+| Rust | **1.95.0**, MSVC (`x86_64-pc-windows-msvc`); for the Linux server's core also the target `x86_64-unknown-linux-musl` | `rustc --version` |
+| Zig | **0.16.0** | `zig version` |
+| LLVM (only for the app) | any recent, `LIBCLANG_PATH` = its `bin` | `Test-Path "$env:LIBCLANG_PATH\libclang.dll"` |
+| just | any | `just --version` |
 
 ### Add a folder to PATH
 
 Per user, no admin, adds it only once. Change the first line to the folder you are adding:
 
 ```powershell
-$add = "$env:LOCALAPPDATA\Programs\zig-x86_64-windows-0.16.0"
+$add = "$env:LOCALAPPDATA\Programs\nvim-win64\bin"
 $k = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey("Environment", $true)
 $p = [string]$k.GetValue("Path", "", "DoNotExpandEnvironmentNames")
 if (($p -split ";") -notcontains $add) { $k.SetValue("Path", (($p.TrimEnd(";"), $add) -join ";").TrimStart(";"), "ExpandString"); [Environment]::SetEnvironmentVariable("HERDR_JAY_X", "1", "User"); [Environment]::SetEnvironmentVariable("HERDR_JAY_X", $null, "User") }
@@ -385,7 +356,7 @@ the screen and of `:messages` in nvim, note the step number, go on.
 12. Put an error in the Python file → a message shows inline; `gd` on a name → jumps to its definition.
 13. A second jay-nvim (another tab, same file): type in one → a yellow note "… 的 nvim 也開著這個檔".
 14. `hc get <nvim pane>` (the address in Herdr, e.g. `t3`) → labels include `herdr.right-click=program`.
-15. Bring jay the photos plus the four lines of [8.0](#80-what-do-i-have--目前裝的是什麼).
+15. Bring jay the photos plus the lines of [8.0](#80-what-do-i-have--目前裝的是什麼).
 
 ---
 
@@ -420,11 +391,23 @@ Anything else: copy the exact error text (a photo is fine) and bring it to jay.
 
 ## 8. Updating / 更新
 
+What gets updated, and where / 要更新的東西：
+
+| What | Where it runs | How | When |
+|---|---|---|---|
+| herdr-jay | PC | `git pull` (8.1) | first, always |
+| herdr-core | PC (Windows) **and** the Linux server | build the README tag + patches for both, install / copy (8.2, 8.3) | the README table names a new core |
+| Herdr app | PC | build the README tag + patches (8.2) | the README table names a new app |
+| jay-nvim mods | PC (they open nvim on the server too) | copy the two folders (8.4) | the CHANGELOG says **mods** |
+| Neovim | PC and the server | new version (8.5) | only when the README says so (needs ≥ 0.11) |
+| Claude Code snap hook | wherever jay-nvim runs | nothing: jay-nvim rewrites it | — |
+
 Windows follows **herdr-jay**, never upstream directly: build only the versions in the
 [README versions table](../README.md#versions--版本). How to know there is something new: the
-[CHANGELOG](../CHANGELOG.md) (or `git -C "$env:USERPROFILE\src\herdr-jay" fetch; git -C "$env:USERPROFILE\src\herdr-jay" log --oneline HEAD..origin/main`).
-Order: herdr-jay, core, app, mods. **Never plain `hc update`, never "Update herdr-core" in Herdr.**
-Windows 只跟 herdr-jay：只 build README 版本表裡的版本。順序：herdr-jay → core → app → mod。
+[CHANGELOG](../CHANGELOG.md) (or `git -C "$env:USERPROFILE\src\herdr-jay" fetch; git -C "$env:USERPROFILE\src\herdr-jay" log --oneline HEAD..origin/main`);
+each entry starts with what it **Needs**. Order: herdr-jay → core (PC, then server) → app → mods → keys, restart.
+**Never plain `hc update`, never "Update herdr-core" in Herdr, never `hc machine update`** (they install official builds).
+Windows 只跟 herdr-jay：只 build README 版本表裡的版本。順序：herdr-jay → core（PC，再 server）→ app → mod。
 
 ### 8.0 What do I have / 目前裝的是什麼
 
@@ -434,9 +417,12 @@ hc --version
 herdr-app --version | Out-Host
 git -C $j describe --tags --always --match "for-herdr-v*-r*"
 Get-Content "$h\mods\jay-nvim\.herdr-jay"
+nvim --version | Select-Object -First 1
+hc machine ls                                        # the server: connected, its version = hc --version
+ssh <user>@<server> '~/.local/bin/herdr-core --version; ~/.local/bin/nvim --version | head -1'
 ```
 
-Send these four lines to jay when reporting a problem.
+Send these lines to jay when reporting a problem.
 
 ### 8.1 herdr-jay
 
@@ -448,7 +434,7 @@ git checkout main; git pull
 If the README table names a tag for your Herdr (`for-herdr-v<app>-r<N>`), `git checkout <that tag>` (and
 `git checkout main` before the next `git pull`). ZIP: delete the old folder, download again, rename to `herdr-jay`.
 
-### 8.2 Core, then app
+### 8.2 Core and app on the PC
 
 Only if the README table lists a newer version. In the first line replace `<version from the README table>` with
 that version (e.g. `v0.1.20`), run, then again with `$repo = "herdr-app"` and the app version.
@@ -468,8 +454,8 @@ if ((Test-Path $rd) -and -not (Test-Path $pd)) { "STOP: herdr-jay has no patches
 
 If it printed `STOP`, nothing changed: stay on your version. A version folder holding only `README.md` (no `.patch`
 files) means jay checked that tag and it needs no patches: the block prints `no patches` and goes on.
-If `git am` printed an error, **don't run `just install`**; see the rollback below.
-印出 `STOP` 或 `git am` 出錯，就**不要** `just install`。
+If `git am` printed an error, **don't build**; see the rollback below.
+印出 `STOP` 或 `git am` 出錯，就**不要** build。
 
 For the app, also check it fits the core: `Get-Content distribution\core-version` must be ≤ `hc --version`.
 Then, in the **same window** (it uses `$repo`):
@@ -481,12 +467,23 @@ just install                                        # terminals keep running
 
 Scripts blocked: core `cargo build --release --locked` then `hc update --from target\release\herdr-core.exe`;
 app: quit Herdr, `cargo build --release --locked`, copy `target\release\herdr-app.exe` as in step 3.
+**Check**: `hc --version` / `herdr-app --version | Out-Host` print the new versions.
 
-If `git am` fails: `git am --abort`, rebuild the version you had (same block with your old `$tag`), and bring the
-message to jay. Your old `$tag` is the number `hc --version` (core) or `herdr-app --version` (app) printed, with a `v`
-in front, e.g. `$tag = "v0.1.19"`.
+Rollback (`git am` failed, or the new one misbehaves): `git am --abort`, rebuild the version you had (same block
+with your old `$tag`), and bring the message to jay. Your old `$tag` is the number `hc --version` (core) or
+`herdr-app --version` (app) printed, with a `v` in front, e.g. `$tag = "v0.1.19"`.
 
-### 8.3 Mods
+### 8.3 Core on the Linux server
+
+Right after the PC's core, from the **same checkout** (so both are the same tag + patches): build herdr-core for
+Linux (`x86_64-unknown-linux-musl`) and put it on the server as in
+[linux-remote.md step 2](linux-remote.md#2-herdr-core-for-the-server-built-on-the-pc--server-的-core在-pc-上-build):
+`~/.local/bin/herdr-core`, then `~/.local/bin/herdr-core server restart` (the server's terminals keep running).
+**Check**: `hc machine ls` shows the server `connected`, same version as `hc --version`. Until both match, Herdr may
+show it as `needs_update` and suggest `hc machine update`: **don't** run that (official build); copy yours.
+PC 的 core 更新完，用同一份原始碼 build Linux 版，複製到 server；不要用 `hc machine update`。
+
+### 8.4 Mods
 
 Remove the old folders first so deleted files don't linger:
 
@@ -499,8 +496,17 @@ herdr-app check "$h\mods\jay-nvim" | Out-Host
 herdr-app check "$h\mods\jay-nvim-pick" | Out-Host
 ```
 
-If `check` fails, go back to your previous herdr-jay (`git checkout <old tag or commit>`) and copy again.
+Nothing to copy to the server: jay-nvim hands nvim its Lua each time it opens a pane there. Already open nvim panes
+keep the old version until you close and reopen them. If `check` fails, go back to your previous herdr-jay
+(`git checkout <old tag or commit>`) and copy again.
+server 不用複製：jay-nvim 每次開格子都把程式帶過去；開著的 nvim 要關掉重開才是新版。
 
-### 8.4 Keys, then restart
+### 8.5 Neovim
+
+Only when the README says so (jay-nvim needs ≥ 0.11). PC: the same way you installed it (step 4: winget / scoop /
+a new `nvim-win64.zip` over the old folder). Server: [linux-remote.md step 3](linux-remote.md#3-neovim-and-git-on-the-server--server-上的-neovim-和-git)
+with the new tag (`rm -rf build .deps` first; from a pack: a new pack). **Check**: `nvim --version` on both.
+
+### 8.6 Keys, then restart
 
 If the new app version adds default keys, paste them from [docs/keys.md](keys.md). Quit and reopen Herdr.

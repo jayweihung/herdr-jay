@@ -43,6 +43,8 @@ one was checked.
 | `main` (now) | v0.1.14 (`2405bf3`) | v0.1.19 (`06793ed`, the moved tag; `git fetch --tags --force`) | `patches/herdr-core/v0.1.19` | 2026-11-09 | not yet |
 
 The app needs at least the core in its `distribution/core-version` (v0.1.14: core 0.1.11).
+Neovim: **v0.12.6** (the Linux server builds this tag from source; anything ≥ 0.11 works with jay-nvim).
+Neovim：server 從原始碼 build v0.12.6；0.11 以上都能用。
 
 **Tags** `for-herdr-v<app version>-r<N>` mark a herdr-jay state checked on **both** macOS and Windows. They never
 move; a fix on the same Herdr gets the next `-r`. Take the highest `-r` for your app version. The old tag

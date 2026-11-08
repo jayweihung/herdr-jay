@@ -9,6 +9,16 @@ Needs: **mods** = copy the two mod folders again (macOS symlinks: nothing) · **
 
 Needs: **mods** (copy both again), **app** (build v0.1.14).
 
+- **jay-nvim security fixes** (review): an untrusted repo could still make nvim's own git calls run a program — a
+  filter name containing `=`, the `post-index-change` hook through `git status`, a partial clone's lazy fetch
+  (`uploadpack` / `sshCommand`), a submodule's filter, and netrw's `git ls-files` on git older than 2.31. Now every git
+  call has hooks, index writes and fetching off, `status` skips submodules, a `=` filter name means no git there, and
+  netrw's call is guarded through `GIT_CONFIG_PARAMETERS`. Also: follow mode was one hour off in daylight-saving time
+  zones. 修正：別人的 repo 還有幾種方法讓 nvim 的 git 跑程式，全部擋掉；夏令時間差一小時。
+- **Snap hook** (jay-nvim): the Claude Code hook that saves a file before a Bash command changes it is now part of
+  jay-nvim (Lua, run with `nvim -l`, written to `~/.config/jay-nvim/snap_hook.lua` on every machine jay-nvim runs on;
+  macOS, Windows, Linux). Turn it on in Claude Code's settings: [docs/nvim.md §7](docs/nvim.md#7-snapshots-for-bash-edits-optional--bash-改檔的快照選用).
+  snap hook 進 jay-nvim，三個系統都能用。
 - docs/linux-remote.md: the server's herdr-core is now **built on the Windows PC** for Linux
   (`x86_64-unknown-linux-musl`) and copied over; the server needs no Rust or Zig and builds nothing for it. Only
   Neovim v0.12.6 is built on the server, from source (needs `gcc`, `make`, `cmake`); a server without internet gets

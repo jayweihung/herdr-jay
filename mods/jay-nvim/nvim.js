@@ -7,6 +7,79 @@
 // - agent: <leader>o lists the files the agent beside read or edited; <leader>ac/al/ad/as
 //   comment lines and send the comments to it with hc send
 // - lsp: go to definition, hover and lint errors from whichever servers this machine has (not as root)
+const PATH_RULES = String.raw`local P = { win = vim.fn.has("win32") == 1 }
+-- Home: like node (so like Claude Code). Windows: USERPROFILE, not nvim's HOMEDRIVE guess (often a network drive).
+P.home = P.win and vim.uv.os_homedir() or vim.env.HOME or vim.uv.os_homedir() or ""
+-- One spelling per file. Windows: nvim, git and the agent mix \ and / and drive-letter case, so C:/x/y.
+function P.norm(p)
+  if not P.win or type(p) ~= "string" then return p end
+  return ((p:gsub("\\", "/"):gsub("^(%a):", function(d) return d:upper() .. ":" end)))
+end
+-- Absolute paths a shell command names. Windows: C:\x, C:/x, and Git Bash's /c/x.
+local NAME = "[^%s'\"<>|;&()=]+"
+function P.abs_paths(cmd)
+  local out = {}
+  cmd = type(cmd) == "string" and cmd or ""
+  local function add(p) out[#out + 1] = p end
+  -- quoted strings first, whole (paths with spaces), then the rest of the command word by word
+  local rest = cmd:gsub([=[(["'])(.-)%1]=], function(_, q)
+    if P.win and q:match("^%a:[\\/]") then add(P.norm(q))
+    elseif P.win and q:match("^/%a/") then add(q:sub(2, 2):upper() .. ":" .. q:sub(3))
+    elseif not P.win and q:match("^/") then add(q) end
+    return " " .. q:gsub("[\"']", " ") .. " " -- and the words inside it (python -c "open('/tmp/x')")
+  end)
+  for w in rest:gmatch(NAME) do
+    if P.win and w:match("^%a:[\\/]") then add(P.norm(w))
+    elseif P.win and w:match("^/%a/") then add(w:sub(2, 2):upper() .. ":" .. w:sub(3))
+    elseif not P.win and w:match("^/") then add(w) end
+  end
+  return out
+end
+`;
+
+// The snap hook, a Claude Code PreToolUse hook (matcher Bash) run with `nvim -l`. jay-nvim writes it to
+// ~/.config/jay-nvim/snap_hook.lua on the machine where it runs, so it exists wherever jay-nvim does (macOS,
+// Windows, a remote Linux server) and always matches this version's path rules (PATH_RULES, shared with nvim).
+const SNAP_HOOK = String.raw`-- jay-nvim's snap hook: written by jay-nvim (herdr-jay mods/jay-nvim/nvim.js); edits here are overwritten.
+-- Claude Code PreToolUse hook, matcher Bash, run as: nvim -l <this file>. Before a command runs, keep a copy of each
+-- file it names by absolute path (at most 20, each up to 1 MB; not /proc, /sys, /dev), so jay-nvim can mark what the
+-- command changed in a file outside any git repo. Copies: ~/.cache/jay-nvim/snap/<tool_use_id>/<sha256 of the path>,
+-- only you can read them, removed after 10 minutes. Never blocks the command: prints nothing, always exits 0.
+pcall(function()
+${PATH_RULES}
+  local ok, call = pcall(vim.json.decode, io.read("*a") or "")
+  if not ok or type(call) ~= "table" then return end
+  local id = call.tool_use_id
+  if type(id) ~= "string" or not id:match("^[%w_]+$") then return end
+  local input = type(call.tool_input) == "table" and call.tool_input or {}
+  local dir = P.home .. "/.cache/jay-nvim/snap"
+  vim.fn.mkdir(dir, "p", 448) -- 0700
+  local now = os.time()
+  for name in vim.fs.dir(dir) do
+    local st = vim.uv.fs_stat(dir .. "/" .. name)
+    if st and now - st.mtime.sec > 600 then vim.fn.delete(dir .. "/" .. name, "rf") end
+  end
+  local function special(q) -- reading one can hang (/proc/kmsg), also through a link
+    for _, top in ipairs({ "/proc", "/sys", "/dev" }) do
+      if q == top or q:sub(1, #top + 1) == top .. "/" then return true end
+    end
+  end
+  for n, p in ipairs(P.abs_paths(input.command)) do
+    if n > 20 then break end
+    local st = not P.win and (special(p) or special(vim.uv.fs_realpath(p) or p)) and nil or vim.uv.fs_stat(p)
+    if st and st.type == "file" and st.size <= 1048576 then
+      vim.fn.mkdir(dir .. "/" .. id, "p", 448)
+      local fd = vim.uv.fs_open(p, "r", 0)
+      local data = fd and vim.uv.fs_read(fd, 1048576, 0)
+      if fd then vim.uv.fs_close(fd) end
+      local out = data and vim.uv.fs_open(dir .. "/" .. id .. "/" .. vim.fn.sha256(p), "w", 384) -- 0600
+      if out then vim.uv.fs_write(out, data, 0) vim.uv.fs_close(out) end
+    end
+  end
+end)
+os.exit(0)
+`;
+
 export const NVIM_INIT = String.raw`if vim.fn.has("nvim-0.11") == 0 then
   vim.api.nvim_echo({ { "jay-nvim needs Neovim 0.11 or newer (this is " .. tostring(vim.version()) .. ")", "ErrorMsg" } }, true, {})
   return
@@ -25,15 +98,7 @@ vim.o.autoread = false
 -- Every difference between operating systems lives in this table P; nothing below tests the OS.
 -- The facts are about the machine nvim runs on, which may not be the one Herdr runs on (a pane can open
 -- on another machine). macOS and Linux share the "unix" side; Windows has its own.
-local P = { win = vim.fn.has("win32") == 1 }
--- Home: like node (so like Claude Code). Windows: USERPROFILE, not nvim's HOMEDRIVE guess (often a network drive).
-P.home = P.win and vim.uv.os_homedir() or vim.env.HOME or vim.uv.os_homedir() or ""
--- One spelling per file. Windows: nvim, git and the agent mix \ and / and drive-letter case, so C:/x/y.
-function P.norm(p)
-  if not P.win or type(p) ~= "string" then return p end
-  return ((p:gsub("\\", "/"):gsub("^(%a):", function(d) return d:upper() .. ":" end)))
-end
--- For comparing two paths: Windows file names ignore case.
+${PATH_RULES}-- For comparing two paths: Windows file names ignore case.
 function P.key(p)
   p = P.norm(p)
   return (P.win and type(p) == "string") and p:lower() or p
@@ -59,26 +124,6 @@ P.hc_paths = P.win and { (vim.env.LOCALAPPDATA or "") .. "/Programs/herdr-core/h
 -- Folders put in front of PATH for language servers (unix: Homebrew and ~/.local/bin; Windows: PATH as it is).
 P.extra_path = not P.win and { P.home .. "/.local/bin", "/opt/homebrew/bin", "/usr/local/bin" } or nil
 P.path_sep = P.win and ";" or ":"
--- Absolute paths a shell command names. Windows: C:\x, C:/x, and Git Bash's /c/x.
-local NAME = "[^%s'\"<>|;&()=]+"
-function P.abs_paths(cmd)
-  local out = {}
-  cmd = type(cmd) == "string" and cmd or ""
-  local function add(p) out[#out + 1] = p end
-  -- quoted strings first, whole (paths with spaces), then the rest of the command word by word
-  local rest = cmd:gsub([=[(["'])(.-)%1]=], function(_, q)
-    if P.win and q:match("^%a:[\\/]") then add(P.norm(q))
-    elseif P.win and q:match("^/%a/") then add(q:sub(2, 2):upper() .. ":" .. q:sub(3))
-    elseif not P.win and q:match("^/") then add(q) end
-    return " " .. q:gsub("[\"']", " ") .. " " -- and the words inside it (python -c "open('/tmp/x')")
-  end)
-  for w in rest:gmatch(NAME) do
-    if P.win and w:match("^%a:[\\/]") then add(P.norm(w))
-    elseif P.win and w:match("^/%a/") then add(w:sub(2, 2):upper() .. ":" .. w:sub(3))
-    elseif not P.win and w:match("^/") then add(w) end
-  end
-  return out
-end
 -- The Claude Code session of the agent in a pane: { pid = n } from ~/.claude/sessions/<pid>.json, or the file's table.
 -- unix: the pane's foreground pid; under sudo there is none, so walk the pane's process tree (pgrep).
 -- Windows: Herdr starts agents through pwsh (or npm's claude.cmd), so the pid is the shell's: take the live session
@@ -129,6 +174,21 @@ end
 -- ================================== end of PLATFORM ==================================
 
 local HOME, norm = P.home, P.norm
+-- Keep the snap hook file current (see SNAP_HOOK at the top of nvim.js; enabling it is a Claude Code setting).
+-- libuv, not io.open: on Windows io.open goes through the ANSI code page (a non-English user name).
+pcall(function()
+  local f, want = HOME .. "/.config/jay-nvim/snap_hook.lua", [=====[
+${SNAP_HOOK}]=====]
+  local st = vim.uv.fs_stat(f)
+  local fd = st and vim.uv.fs_open(f, "r", 0)
+  local have = fd and vim.uv.fs_read(fd, st.size, 0)
+  if fd then vim.uv.fs_close(fd) end
+  if have ~= want then
+    vim.fn.mkdir(vim.fs.dirname(f), "p")
+    local w = vim.uv.fs_open(f, "w", 420) -- 0644
+    if w then vim.uv.fs_write(w, want, 0) vim.uv.fs_close(w) end
+  end
+end)
 -- git found on PATH only (nil: rejected or missing, and then every git feature is skipped: a bare "git" could be
 -- looked up in the project folder again on Windows).
 local GIT = P.bin("git")
@@ -152,6 +212,8 @@ local function git_guard(dir)
     local scope, key = line:match("^(%S+)\t(.+)$")
     if not scoped then scope, key = "local", line end
     local name = (scope == "local" or scope == "worktree") and key:match("^filter%.(.+)%.[^.]+$")
+    -- "-c filter.a=b.clean=" would set filter.a to "b.clean=": a name with "=" can't be switched off, so no git here
+    if name and name:find("=", 1, true) then return nil end
     if name and not seen[name] then
       seen[name] = true
       for _, k in ipairs({ "clean", "smudge", "process" }) do vim.list_extend(out, { "-c", "filter." .. name .. "." .. k .. "=" }) end
@@ -160,9 +222,17 @@ local function git_guard(dir)
   return out
 end
 local NOGIT = { wait = function() return { code = 1, stdout = "", stderr = "git not found" } end }
+-- Also off for every call: hooks (core.hooksPath to a folder that never has any; status may run post-index-change),
+-- index writes (GIT_OPTIONAL_LOCKS), and any fetch (a partial clone fetches a missing blob with a command the repo
+-- names: uploadpack, core.sshCommand): protocol.allow=never and GIT_NO_LAZY_FETCH.
+local NO_HOOKS = P.home .. "/.cache/jay-nvim/no-hooks"
+local GIT_ENV = { GIT_OPTIONAL_LOCKS = "0", GIT_NO_LAZY_FETCH = "1" }
 local function git(dir, args, opts)
   if not GIT then return NOGIT end
-  return vim.system(vim.list_extend(vim.list_extend({ GIT, "-C", dir }, git_guard(dir)), args), opts or {})
+  local guard = git_guard(dir)
+  if not guard then return NOGIT end
+  local base = { GIT, "-C", dir, "-c", "protocol.allow=never", "-c", "core.hooksPath=" .. NO_HOOKS }
+  return vim.system(vim.list_extend(vim.list_extend(base, guard), args), vim.tbl_extend("force", opts or {}, { env = GIT_ENV }))
 end
 local api, ns, old = vim.api, vim.api.nvim_create_namespace("jay-nvim-changes"), {}
 api.nvim_create_autocmd("FileChangedShell", { group = AUG, callback = function(a)
@@ -278,11 +348,14 @@ vim.opt.fillchars:append({ eob = " ", lastline = " " })
 -- empty pattern) and "" in a repo with nothing ignored; either way an empty pattern hid every file
 pcall(function()
   if not GIT then error("no git") end
-  -- netrw runs plain "git ls-files" through the shell: give it the same guard, then restore the environment
-  local keep = { vim.env.GIT_CONFIG_COUNT, vim.env.GIT_CONFIG_KEY_0, vim.env.GIT_CONFIG_VALUE_0 }
-  if not keep[1] then vim.env.GIT_CONFIG_COUNT, vim.env.GIT_CONFIG_KEY_0, vim.env.GIT_CONFIG_VALUE_0 = "1", "core.fsmonitor", "false" end
+  -- netrw runs plain "git ls-files --other --ignored" through the shell (no filters, but core.fsmonitor and a
+  -- fetch): switch those off through the environment, in GIT_CONFIG_PARAMETERS' old 'key=value' form that every git
+  -- reads (GIT_CONFIG_COUNT needs 2.31), added to any value already set; then restore the environment
+  local keep = { vim.env.GIT_CONFIG_PARAMETERS, vim.env.GIT_OPTIONAL_LOCKS, vim.env.GIT_NO_LAZY_FETCH }
+  vim.env.GIT_CONFIG_PARAMETERS = (keep[1] and keep[1] .. " " or "") .. "'core.fsmonitor=false' 'protocol.allow=never'"
+  vim.env.GIT_OPTIONAL_LOCKS, vim.env.GIT_NO_LAZY_FETCH = "0", "1"
   local ok, h = pcall(vim.fn["netrw_gitignore#Hide"])
-  vim.env.GIT_CONFIG_COUNT, vim.env.GIT_CONFIG_KEY_0, vim.env.GIT_CONFIG_VALUE_0 = keep[1], keep[2], keep[3]
+  vim.env.GIT_CONFIG_PARAMETERS, vim.env.GIT_OPTIONAL_LOCKS, vim.env.GIT_NO_LAZY_FETCH = keep[1], keep[2], keep[3]
   if not ok then error(h) end
   vim.g.netrw_list_hide = (vim.v.shell_error == 0 and h ~= "" and h .. "," or "") .. [[^\.\.\=/\=$]]
 end)
@@ -481,9 +554,10 @@ local function epoch(ts) -- "2026-11-07T18:43:13.354Z" is UTC; os.time reads a t
   local y, mo, d, h, mi, s = (type(ts) == "string" and ts or ""):match("^(%d+)-(%d+)-(%d+)T(%d+):(%d+):(%d+)")
   if not y then return end
   local now = os.time()
-  return os.time({ year = y, month = mo, day = d, hour = h, min = mi, sec = s }) + os.difftime(now, os.time(os.date("!*t", now)))
+  return os.time({ year = y, month = mo, day = d, hour = h, min = mi, sec = s, isdst = false })
+    + os.difftime(now, os.time(os.date("!*t", now))) -- isdst: the table os.date("!*t") gives has false
 end
--- What a file held before a Bash call ran, kept by snap_hook.sh (a PreToolUse hook): the call reaches the log only
+-- What a file held before a Bash call ran, kept by the snap hook (SNAP_HOOK, a PreToolUse hook): the call reaches the log only
 -- after it ran (root's agent), so nvim cannot keep it itself. Diffed against for a file outside a repo (no HEAD)
 local SNAP = HOME .. "/.cache/jay-nvim/snap/"
 local function snap_of(ids, p)
@@ -671,7 +745,7 @@ function JN.pick()
   local seen = {}
   for _, it in ipairs(items) do seen[P.key(it.path)] = true end
   local root = vim.fn.getcwd()
-  local st = git(root, { "status", "--porcelain", "-z" }, { text = true }):wait()
+  local st = git(root, { "status", "--porcelain", "-z", "--ignore-submodules=all" }, { text = true }):wait()
   local top = vim.trim(git(root, { "rev-parse", "--show-toplevel" }, { text = true }):wait().stdout or "")
   local skip = false
   for _, e in ipairs(st.code == 0 and vim.split(st.stdout, "\0", { trimempty = true }) or {}) do

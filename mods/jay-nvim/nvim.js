@@ -12,10 +12,13 @@ export const NVIM_INIT = String.raw`if vim.fn.has("nvim-0.11") == 0 then
   return
 end
 -- Run again (:source on Windows): stop the old timers, autocmds are in one cleared group.
-if _G.JN and _G.JN.timers then for _, t in ipairs(_G.JN.timers) do pcall(function() t:stop() t:close() end) end end
+local PREV = _G.JN
+if PREV and PREV.timers then for _, t in ipairs(PREV.timers) do pcall(function() t:stop() t:close() end) end end
 local AUG = vim.api.nvim_create_augroup("jay-nvim", { clear = true })
 local TIMERS = {}
 local function new_timer() local t = vim.uv.new_timer() TIMERS[#TIMERS + 1] = t return t end
+local JN = { timers = TIMERS }
+_G.JN = JN -- now, so a later error still leaves the timers stoppable
 -- autoread would reload before FileChangedShell fires, leaving nothing to diff against
 vim.o.autoread = false
 -- ===================================== PLATFORM =====================================
@@ -36,8 +39,8 @@ function P.key(p)
   return (P.win and type(p) == "string") and p:lower() or p
 end
 P.root = not P.win and vim.uv.getuid() == 0
--- A root agent beside this pane: exit 77 so main.js can hand over (unix only; see README).
-P.handoff = not P.win
+-- A root (sudo'd) agent beside this pane can be detected on unix (its process tree); Windows has no such case.
+P.sudo_check = not P.win
 -- Windows runs a program found in the current folder before PATH (nvim, libuv and cmd.exe all do). The current
 -- folder is usually the agent's project, which may be someone else's code: never run a program from it.
 if P.win then vim.env.NoDefaultCurrentDirectoryInExePath = "1" end
@@ -57,7 +60,7 @@ P.hc_paths = P.win and { (vim.env.LOCALAPPDATA or "") .. "/Programs/herdr-core/h
 P.extra_path = not P.win and { P.home .. "/.local/bin", "/opt/homebrew/bin", "/usr/local/bin" } or nil
 P.path_sep = P.win and ";" or ":"
 -- Absolute paths a shell command names. Windows: C:\x, C:/x, and Git Bash's /c/x.
-local NAME = "[^%s'\"<>|;&()]+"
+local NAME = "[^%s'\"<>|;&()=]+"
 function P.abs_paths(cmd)
   local out = {}
   cmd = type(cmd) == "string" and cmd or ""
@@ -67,7 +70,7 @@ function P.abs_paths(cmd)
     if P.win and q:match("^%a:[\\/]") then add(P.norm(q))
     elseif P.win and q:match("^/%a/") then add(q:sub(2, 2):upper() .. ":" .. q:sub(3))
     elseif not P.win and q:match("^/") then add(q) end
-    return " "
+    return " " .. q:gsub("[\"']", " ") .. " " -- and the words inside it (python -c "open('/tmp/x')")
   end)
   for w in rest:gmatch(NAME) do
     if P.win and w:match("^%a:[\\/]") then add(P.norm(w))
@@ -116,6 +119,7 @@ function P.session(info, t)
 end
 -- The Herdr pane of another process (for "another nvim has this file"): Linux reads its environment; elsewhere unknown.
 function P.pane_of_pid(pid)
+  if P.win or not vim.uv.fs_stat("/proc/self") then return nil end -- Windows would read C:\proc\...
   local env = io.open("/proc/" .. pid .. "/environ")
   if not env then return nil end
   local pane = env:read("*a"):match("HC_TERMINAL_ID=([^%z]+)")
@@ -125,10 +129,29 @@ end
 -- ================================== end of PLATFORM ==================================
 
 local HOME, norm = P.home, P.norm
-local GIT = P.bin("git") or "git"
--- git status / ls-files in a repo would run its core.fsmonitor hook: a repo may be someone else's code.
-if not vim.env.GIT_CONFIG_COUNT then
-  vim.env.GIT_CONFIG_COUNT, vim.env.GIT_CONFIG_KEY_0, vim.env.GIT_CONFIG_VALUE_0 = "1", "core.fsmonitor", "false"
+-- git found on PATH only (nil: rejected or missing, and then every git feature is skipped: a bare "git" could be
+-- looked up in the project folder again on Windows).
+local GIT = P.bin("git")
+-- A repo may be someone else's code, and git status / ls-files run what its own .git/config names: the
+-- core.fsmonitor hook, and clean filters (filter.<x>.clean / process, picked by .gitattributes). Reading the config
+-- runs nothing; every git call here switches those off for that repo (its own config only: your global ones, e.g. git-lfs, stay). Only for nvim's own git calls, not :terminal.
+local function git_guard(dir)
+  local out = { "-c", "core.fsmonitor=false" }
+  local r = vim.system({ GIT, "-C", dir, "config", "--local", "--name-only", "--get-regexp", [[^filter\.]] }, { text = true }):wait()
+  local seen = {}
+  for key in (r.stdout or ""):gmatch("[^\n]+") do
+    local name = key:match("^filter%.(.+)%.[^.]+$")
+    if name and not seen[name] then
+      seen[name] = true
+      for _, k in ipairs({ "clean", "smudge", "process" }) do vim.list_extend(out, { "-c", "filter." .. name .. "." .. k .. "=" }) end
+    end
+  end
+  return out
+end
+local NOGIT = { wait = function() return { code = 1, stdout = "", stderr = "git not found" } end }
+local function git(dir, args, opts)
+  if not GIT then return NOGIT end
+  return vim.system(vim.list_extend(vim.list_extend({ GIT, "-C", dir }, git_guard(dir)), args), opts or {})
 end
 local api, ns, old = vim.api, vim.api.nvim_create_namespace("jay-nvim-changes"), {}
 api.nvim_create_autocmd("FileChangedShell", { group = AUG, callback = function(a)
@@ -177,9 +200,9 @@ local function head_lines(b)
   local f = api.nvim_buf_get_name(b)
   if f == "" or vim.bo[b].buftype ~= "" then return end
   local dir, name = vim.fn.fnamemodify(f, ":h"), vim.fn.fnamemodify(f, ":t")
-  local r = vim.system({ GIT, "-C", dir, "show", "HEAD:./" .. name }, { text = true }):wait()
+  local r = git(dir, { "show", "HEAD:./" .. name }, { text = true }):wait()
   if r.code == 0 then return vim.split(r.stdout, "\n", { plain = true, trimempty = false }) end
-  if vim.system({ GIT, "-C", dir, "rev-parse", "--is-inside-work-tree" }):wait().code == 0 then return {} end
+  if git(dir, { "rev-parse", "--is-inside-work-tree" }):wait().code == 0 then return {} end
 end
 local function mark_head(b)
   local before = head_lines(b)
@@ -243,10 +266,22 @@ vim.opt.fillchars:append({ eob = " ", lastline = " " })
 -- Hide() returns git's error text when git fails (root's nvim in your repo: dubious ownership, two lines = an
 -- empty pattern) and "" in a repo with nothing ignored; either way an empty pattern hid every file
 pcall(function()
-  local h = vim.fn["netrw_gitignore#Hide"]()
+  if not GIT then error("no git") end
+  -- netrw runs plain "git ls-files" through the shell: give it the same guard, then restore the environment
+  local keep = { vim.env.GIT_CONFIG_COUNT, vim.env.GIT_CONFIG_KEY_0, vim.env.GIT_CONFIG_VALUE_0 }
+  if not keep[1] then vim.env.GIT_CONFIG_COUNT, vim.env.GIT_CONFIG_KEY_0, vim.env.GIT_CONFIG_VALUE_0 = "1", "core.fsmonitor", "false" end
+  local ok, h = pcall(vim.fn["netrw_gitignore#Hide"])
+  vim.env.GIT_CONFIG_COUNT, vim.env.GIT_CONFIG_KEY_0, vim.env.GIT_CONFIG_VALUE_0 = keep[1], keep[2], keep[3]
+  if not ok then error(h) end
   vim.g.netrw_list_hide = (vim.v.shell_error == 0 and h ~= "" and h .. "," or "") .. [[^\.\.\=/\=$]]
 end)
-vim.cmd("Lexplore! | wincmd h") -- ! puts the tree on the right; the file window keeps focus
+local function has_tree()
+  for _, w in ipairs(api.nvim_tabpage_list_wins(0)) do
+    if vim.bo[api.nvim_win_get_buf(w)].filetype == "netrw" then return true end
+  end
+end
+-- ! puts the tree on the right; the file window keeps focus. Lexplore toggles: not again on a re-run.
+if not has_tree() then vim.cmd("Lexplore! | wincmd h") end
 -- The tree keeps at least 30 columns (25% of a 90-column pane was 16), also after the pane resizes
 local tree_ns = api.nvim_create_namespace("jay-nvim-tree")
 api.nvim_set_hl(0, "QtTreeCur", { bg = "#1f4f7a", bold = true })
@@ -292,8 +327,6 @@ end })
 -- The agent beside this nvim: the one non-shell terminal in the same Herdr tab (hc ls "where").
 -- Comment spans and the message shape follow herdr-nvim (MIT, ChmaraX/herdr-nvim lua/herdr-nvim).
 if vim.g.mapleader == nil then vim.g.mapleader = " " end
-local JN = { timers = TIMERS }
-_G.JN = JN
 local home = HOME
 -- Coding agents (hc's agent name). Only these get comments typed into them: anything else (a shell, ssh, a REPL)
 -- would run the quoted lines as commands.
@@ -303,7 +336,6 @@ local function is_agent(name) return AGENTS[((tostring(name):match("[^/\\]+$") o
 
 local hc_found
 local function hc_bin()
-  if vim.env.JAY_NVIM_HC then return vim.env.JAY_NVIM_HC end -- set by a handoff command (see README)
   if hc_found then return hc_found end
   for _, name in ipairs({ "hc", "herdr-core" }) do -- Windows installs herdr-core.exe; hc.exe only if no hc existed
     hc_found = P.bin(name)
@@ -339,7 +371,7 @@ function JN.agents()
   for _, t in ipairs(ls.terminals or {}) do
     -- "where" is "space / tab name" and names repeat: confirm the same tab by its id
     if where and t.where == where and t.address ~= me and t.state == "live" and is_agent(t.agent) then
-      mytab = mytab or tab_of(me) or false
+      if mytab == nil then mytab = tab_of(me) or false end
       if not mytab or tab_of(t.address) == mytab then table.insert(out, t) end
     end
   end
@@ -364,20 +396,22 @@ local function session_log(t)
   return s and s.sessionId and vim.fn.glob(("%s/.claude/projects/*/%s.jsonl"):format(home, s.sessionId), false, true)[1]
 end
 
--- An agent started under sudo: hc can't see its foreground and its log is root's.
--- This nvim then exits 77 and main.js runs the configured handoff command (README), which should run root's own copy of this Lua.
+-- An agent started under sudo: hc can't see its foreground and its log is root's, so nothing can be followed.
+-- Say so once (no root handoff: an editor run as root, reachable by anything that can type into a pane, is a root door).
 local function runs_as_root(t)
-  if not P.handoff or P.root or t.agent ~= "claude-code" then return false end
+  if not P.sudo_check or P.root or t.agent ~= "claude-code" then return false end
   local info = hc({ "get", t.address })
   return type(info) == "table" and not info.foreground and info.pid ~= nil
     and vim.system({ "pgrep", "-u", "0", "-P", tostring(info.pid) }):wait().code == 0
 end
 -- A new pane has no "where" in hc ls for its first seconds, so keep asking for 10s until a claude-code agent shows up.
 local root_probe, root_tries = new_timer(), 0
-if P.handoff and not P.root then root_probe:start(0, 1000, vim.schedule_wrap(function()
+if P.sudo_check and not P.root then root_probe:start(0, 1000, vim.schedule_wrap(function()
   root_tries = root_tries + 1
   local agent = (JN.agents() or {})[1]
-  if agent and runs_as_root(agent) then vim.cmd("cquit 77") end
+  if agent and runs_as_root(agent) then
+    vim.notify("旁邊的 agent 用 root（sudo）在跑：它的紀錄只有 root 讀得到，jay-nvim 不會跟著它開檔", vim.log.levels.WARN)
+  end
   if (agent and agent.agent == "claude-code") or root_tries >= 10 then root_probe:stop() end
 end)) end
 
@@ -466,11 +500,11 @@ local function bash_changed(cwd, since, cmd)
   end
   local seen = {}
   for _, d in ipairs(dirs) do
-    local top = vim.system({ GIT, "-C", d, "rev-parse", "--show-toplevel" }, { text = true }):wait()
+    local top = git(d, { "rev-parse", "--show-toplevel" }, { text = true }):wait()
     top = top.code == 0 and vim.trim(top.stdout)
     if top and not seen[top] then
       seen[top] = true
-      local files = vim.system({ GIT, "-C", top, "-c", "core.quotepath=off", "ls-files", "-m", "-o", "--exclude-standard" }, { text = true }):wait().stdout or ""
+      local files = git(top, { "-c", "core.quotepath=off", "ls-files", "-m", "-o", "--exclude-standard" }, { text = true }):wait().stdout or ""
       for f in files:gmatch("[^\n]+") do consider(top .. "/" .. f) end
     end
   end
@@ -495,7 +529,7 @@ end
 -- Follow: open whatever file an agent in this tab last read or edited; with several agents, whichever
 -- touched a file last . Never while you type
 -- or when the shown buffer has unsaved changes.
-local follow = { on = true, logs = {}, state = {}, checked = 0, last = nil, who = nil }
+local follow = { on = true, logs = {}, state = {}, checked = -1e9, last = nil, who = nil }
 -- One agent's log since the last tick: the newest file it read or edited, or nil. s keeps that log's place.
 local function scan(s)
   local st = vim.uv.fs_stat(s.log)
@@ -547,7 +581,7 @@ end
 local function follow_tick()
   if not follow.on or vim.fn.mode() ~= "n" then return end
   local now = vim.uv.now()
-  if next(follow.logs) == nil or now - follow.checked > 10000 then -- agents start and restart; re-find every 10s
+  if now - follow.checked > (next(follow.logs) == nil and 3000 or 10000) then -- agents start and restart: re-find (3s while none)
     follow.checked = now
     follow.logs = {}
     for _, t in ipairs(JN.agents() or {}) do
@@ -626,13 +660,19 @@ function JN.pick()
   local seen = {}
   for _, it in ipairs(items) do seen[P.key(it.path)] = true end
   local root = vim.fn.getcwd()
-  local git = vim.system({ GIT, "-C", root, "status", "--porcelain", "-z" }, { text = true }):wait()
-  local top = vim.trim(vim.system({ GIT, "-C", root, "rev-parse", "--show-toplevel" }, { text = true }):wait().stdout or "")
-  for _, e in ipairs(git.code == 0 and vim.split(git.stdout, "\0", { trimempty = true }) or {}) do
+  local st = git(root, { "status", "--porcelain", "-z" }, { text = true }):wait()
+  local top = vim.trim(git(root, { "rev-parse", "--show-toplevel" }, { text = true }):wait().stdout or "")
+  local skip = false
+  for _, e in ipairs(st.code == 0 and vim.split(st.stdout, "\0", { trimempty = true }) or {}) do
     local path = norm(top .. "/" .. e:sub(4))
-    if #e > 3 and not seen[P.key(path)] and vim.uv.fs_stat(path) then
-      seen[P.key(path)] = true
-      table.insert(items, { path = path, tag = "git" })
+    local renamed = e:match("^[RC]") or e:match("^.[RC]")
+    if skip then skip = false -- the old path of a rename / copy: a bare path, no status letters
+    else
+      if #e > 3 and not seen[P.key(path)] and vim.uv.fs_stat(path) then
+        seen[P.key(path)] = true
+        table.insert(items, { path = path, tag = "git" })
+      end
+      skip = renamed and true or false
     end
   end
   if #items == 0 then return vim.notify("agent 還沒讀過或改過檔案，git 也沒有改動", vim.log.levels.WARN) end
@@ -648,7 +688,8 @@ end
 
 -- Comments: a line span kept by an extmark, so it follows later edits.
 local cns = vim.api.nvim_create_namespace("jay-nvim-comments")
-local notes = {}
+local notes = PREV and PREV.notes_list and PREV.notes_list() or {} -- a re-run keeps unsent comments
+function JN.notes_list() return notes end
 
 function JN.comment(l1, l2)
   local b = vim.api.nvim_get_current_buf()
@@ -710,14 +751,14 @@ function JN.message(cwd)
     table.insert(lines, ("%d. %s:%s"):format(i, clean(file), c.l1 == c.l2 and c.l1 or (c.l1 .. "-" .. c.l2)))
     for _, s in ipairs(vim.api.nvim_buf_get_lines(c.n.buf, c.l1 - 1, math.min(c.l2, c.l1 + 2), false)) do
       s = clean(s)
-      table.insert(lines, "   > " .. (#s > 200 and (vim.fn.strcharpart(s, 0, 200) .. " …") or s))
+      table.insert(lines, "   > " .. (vim.fn.strchars(s) > 200 and (vim.fn.strcharpart(s, 0, 200) .. " …") or s))
     end
     table.insert(lines, "   註解：" .. clean(c.n.text))
     table.insert(lines, "")
   end
   table.insert(lines, "請逐條處理，回覆每條改了什麼。")
   local text = table.concat(lines, "\n")
-  if #text > 16000 then text = text:sub(1, 16000) .. "\n…（太長，後面截掉了；請分批送）" end -- Windows command line: 32767
+  if #text > 16000 then text = text:sub(1, 16000 + vim.str_utf_start(text, 16001)) .. "\n…（太長，後面截掉了；請分批送）" end -- Windows command line: 32767
   return #list > 0 and text or nil
 end
 
@@ -771,13 +812,17 @@ map("n", "<leader>af", JN.toggle_follow, { desc = "跟著 agent 開檔（開／�
 -- pyright runs the project's Python (its venv) and ts_ls the project's own tsserver: both run the project's code,
 -- so they start only in folders you trust (:JayTrust, kept in ~/.config/jay-nvim/trust). ruff only reads files.
 if not P.root then
-if P.extra_path then vim.env.PATH = table.concat(vim.list_extend(vim.list_extend({}, P.extra_path), { vim.env.PATH or "" }), P.path_sep) end
+if P.extra_path and (vim.env.PATH or ""):sub(1, #P.extra_path[1]) ~= P.extra_path[1] then
+  vim.env.PATH = table.concat(vim.list_extend(vim.list_extend({}, P.extra_path), { vim.env.PATH or "" }), P.path_sep)
+end
 local TRUST = HOME .. "/.config/jay-nvim/trust"
 local function trusted(dir)
   local d = P.key(dir):gsub("/$", "") .. "/"
   for _, line in ipairs(vim.fn.filereadable(TRUST) == 1 and vim.fn.readfile(TRUST) or {}) do
     local t = P.key(vim.trim(line)):gsub("/$", "") .. "/"
-    if t ~= "/" and d:sub(1, #t) == t then return true end
+    local h = P.key(HOME):gsub("/$", "") .. "/"
+    -- a line for home or above (or a drive) would trust every project: ignored
+    if t ~= "/" and not t:match("^%a:/$") and h:sub(1, #t) ~= t and d:sub(1, #t) == t then return true end
   end
 end
 local told = {}
@@ -911,7 +956,7 @@ end })
 -- Right-click (mousemodel popup_setpos puts the cursor there first): nvim's menu, in Chinese, with the
 -- language items on top. Its own MenuPopup handler names the English items, so it goes too.
 vim.cmd([[
-  aunmenu PopUp
+  silent! aunmenu PopUp
   nnoremenu PopUp.看型別 <Cmd>lua vim.lsp.buf.hover()<CR>
   nnoremenu PopUp.跳到定義 <Cmd>lua JN.definition()<CR>
   nnoremenu PopUp.找所有用到的地方 <Cmd>lua vim.lsp.buf.references()<CR>

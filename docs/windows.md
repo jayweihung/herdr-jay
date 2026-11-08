@@ -19,9 +19,10 @@ Commands are for **PowerShell**. Checked against Herdr app v0.1.13 and core v0.1
 | [7](#7-when-something-goes-wrong--出問題時) | When something goes wrong / 出問題時 |
 | [8](#8-updating--更新) | Updating / 更新 |
 
-**PATH**: installers and `setx` change only *new* windows. After each install, open a **new PowerShell**.
+**PATH**: installers and `setx` change only *new* windows. After each install, open a **new PowerShell** fresh
+from the Start menu: a new tab in an open VS Code terminal or in an already running Windows Terminal keeps the old PATH.
 Herdr started from the Start menu afterwards sees the new PATH too.
-裝完東西後要開**新的 PowerShell** 才看得到。
+裝完東西後要從開始選單開**新的 PowerShell** 才看得到（已開著的 VS Code / Windows Terminal 開新分頁不算）。
 
 **`herdr-app` prints after the prompt**: it is a windowed program, so PowerShell doesn't wait for it.
 Add `| Out-Host` (as below) to see its output in order.
@@ -31,8 +32,17 @@ Add `| Out-Host` (as below) to see its output in order.
 
 ## 0. Before you start / 開始前
 
+**Official Herdr installed? / 裝過官方版 Herdr？** Quit it and delete `%LOCALAPPDATA%\Programs\herdr-app*`
+(and `herdr-core*`) first.
+先關掉官方版 Herdr，刪掉 `%LOCALAPPDATA%\Programs\herdr-app*`（和 `herdr-core*`）。
+
 **Git first / 先裝 Git**: everything below uses it. `winget install Git.Git --scope user` (no admin), or the company
 software center; then open a **new PowerShell** and check `git --version`.
+
+winget notes: `winget` not found → install "App Installer" from the Microsoft Store, or use each tool's own
+installer / the company software center. First run asks to accept terms: add
+`--accept-source-agreements --accept-package-agreements`.
+找不到 `winget`：從 Microsoft Store 裝「App Installer」，或用各工具自己的安裝程式／公司軟體中心。
 
 **Admin rights / 管理員權限**: Visual Studio Build Tools need admin (or IT / the software center); LLVM too, unless you
 use the no-admin download in step 1.
@@ -71,7 +81,14 @@ git clone https://github.com/jayweihung/herdr-jay.git
 ```
 
 Or on GitHub **Code → Download ZIP**, extract into `%USERPROFILE%\src` and rename the folder that directly contains
-`mods` and `docs` to `herdr-jay`. Every block below sets the folders it uses, so it works in any new window.
+`mods` and `docs` to `herdr-jay` (Explorer's "Extract All" nests it: `herdr-jay-main\herdr-jay-main`; take the inner one).
+Check / 檢查:
+
+```powershell
+Test-Path "$env:USERPROFILE\src\herdr-jay\mods"          # must be True
+```
+
+Every block below sets the folders it uses, so it works in any new window (except where it says "same window").
 
 ---
 
@@ -82,9 +99,9 @@ Or on GitHub **Code → Download ZIP**, extract into `%USERPROFILE%\src` and ren
 | Git for Windows | step 0 | `git --version` |
 | Visual Studio 2022 Build Tools (**admin**) | `winget install Microsoft.VisualStudio.2022.BuildTools --override "--passive --wait --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"` | see below |
 | Rust | `winget install Rustlang.Rustup`, then **in a new PowerShell**: `rustup toolchain install 1.95.0` and `rustup default 1.95.0` | `rustc --version` → `rustc 1.95.0` |
-| Zig **0.16.0** | `winget install zig.zig --version 0.16.0`, or download `zig-x86_64-windows-0.16.0.zip` from ziglang.org and unzip it as below (no admin) | `zig version` → `0.16.0` |
+| Zig **0.16.0** | `winget install zig.zig --version 0.16.0`, or download `zig-x86_64-windows-0.16.0.zip` from ziglang.org and unzip it as below (no admin) | `zig version` → `0.16.0`, and `zig env` prints a `lib_dir` (fails → use the zip route below) |
 | LLVM (only for the app; **admin**) | `winget install LLVM.LLVM`, then `setx LIBCLANG_PATH "C:\Program Files\LLVM\bin"` (no admin: see below) | `Test-Path "$env:LIBCLANG_PATH\libclang.dll"` → `True` |
-| just | `winget install Casey.Just` | `just --version` |
+| just | `winget install Casey.Just`, or without winget (after Rust): `cargo install just --locked` | `just --version` |
 
 Build Tools check: this prints a folder; nothing printed = the C++ part is missing
 (open **Visual Studio Installer** → Modify → tick **Desktop development with C++**):
@@ -98,24 +115,23 @@ Zig without winget: unzip with PowerShell (Explorer's "Extract All" adds an extr
 directly contain `zig.exe`:
 
 ```powershell
-Expand-Archive "$env:USERPROFILE\Downloads\zig-x86_64-windows-0.16.0.zip" "$env:LOCALAPPDATA\Programs"
+Expand-Archive -Force "$env:USERPROFILE\Downloads\zig-x86_64-windows-0.16.0.zip" "$env:LOCALAPPDATA\Programs"
 Test-Path "$env:LOCALAPPDATA\Programs\zig-x86_64-windows-0.16.0\zig.exe"     # must be True
 ```
+
+(`Downloads`, or wherever your browser saved it.) Then in a new PowerShell `zig env` must print a `lib_dir`.
 
 LLVM without admin: download `clang+llvm-<version>-x86_64-pc-windows-msvc.tar.xz` from
 <https://github.com/llvm/llvm-project/releases>, then (replace `<file>` and `<version>`):
 
 ```powershell
-tar -xf "$env:USERPROFILE\Downloads\<file>" -C "$env:LOCALAPPDATA\Programs"
+& "$env:SystemRoot\System32\tar.exe" -xf "$env:USERPROFILE\Downloads\<file>" -C "$env:LOCALAPPDATA\Programs"
 setx LIBCLANG_PATH "$env:LOCALAPPDATA\Programs\clang+llvm-<version>-x86_64-pc-windows-msvc\bin"
 ```
 
+Use Windows' own `tar.exe` as written: Git's GNU `tar`, if it comes first on PATH, reads `C:` as a host name.
 If `tar` can't open the `.xz` file, extract it with 7-Zip, or ask IT.
 `tar` 解不開 `.xz` 就用 7-Zip，或請 IT 幫忙。
-
-winget notes: `winget` not found → install "App Installer" from the Microsoft Store, or use each tool's own
-installer / the company software center. First run asks to accept terms: add
-`--accept-source-agreements --accept-package-agreements`.
 
 Rust must be the **MSVC** kind (the Windows default): `rustup show` lists `x86_64-pc-windows-msvc`.
 
@@ -161,6 +177,7 @@ A fresh clone gets the right commit. An older clone: run `git fetch --tags --for
 (it matters on a Mac, harmless on Windows). `$j` = the herdr-jay folder from step 0:
 
 ```powershell
+Set-Location "$env:USERPROFILE\src\herdr-core"
 $j = "$env:USERPROFILE\src\herdr-jay"
 $pd = "$j\patches\herdr-core\v0.1.19"
 $ps = @(Get-ChildItem "$pd\*.patch" -ErrorAction SilentlyContinue | Sort-Object Name).FullName
@@ -172,6 +189,7 @@ If `git am` stops with an error: `git am --abort` and bring the message to jay.
 Build and install:
 
 ```powershell
+Set-Location "$env:USERPROFILE\src\herdr-core"
 just install
 ```
 
@@ -227,6 +245,7 @@ if ($ps) { git -c user.name=me -c user.email=me@local am -3 $ps } else { "no pat
 As in step 2: an older clone needs `git fetch --tags --force` before `git checkout`.
 
 ```powershell
+Set-Location "$env:USERPROFILE\src\herdr-app"
 just install
 ```
 
@@ -259,7 +278,7 @@ jay-nvim 不會幫你裝 Neovim，要 **0.11 以上**：
 - `winget install Neovim.Neovim` (an MSI for all users: may need admin)
 - `scoop install neovim` (per user; needs scoop, which itself needs scripts allowed)
 - no admin, no winget: download `nvim-win64.zip` from <https://github.com/neovim/neovim/releases>, unzip it with
-  `Expand-Archive "$env:USERPROFILE\Downloads\nvim-win64.zip" "$env:LOCALAPPDATA\Programs"` (gives
+  `Expand-Archive -Force "$env:USERPROFILE\Downloads\nvim-win64.zip" "$env:LOCALAPPDATA\Programs"` (or wherever your browser saved it; gives
   `nvim-win64\bin\nvim.exe`; not Explorer's "Extract All", which adds an extra folder level), and add
   `%LOCALAPPDATA%\Programs\nvim-win64\bin` to PATH ([Add to PATH](#add-a-folder-to-path))
 - or IT / the software center ("Neovim")
@@ -331,7 +350,7 @@ the screen and of `:messages` in nvim, note the step number, go on.
 
 1. New PowerShell: `nvim --version`, `hc --version`, `git --version` → NVIM ≥ 0.11, `hc 0.1.19`, a git version.
 2. In Herdr make a space for a git project (`ctrl-shift-n`, pick the folder); in a tab there run `claude`
-   (no `cd` first). With that pane focused: `ctrl-shift-i` → nvim on the right, file tree beside it, and
+   (no `cd` first). With that pane focused: `ctrl-shift-i` → nvim on the right in that pane's folder, file tree beside it, and
    `%USERPROFILE%\.config\herdr-app\mods\jay-nvim\.init.lua` exists.
 3. In nvim: `:lua print(vim.uv.os_homedir(), vim.env.USERPROFILE)` → the same `C:\Users\<you>` twice.
    If the first is another drive (e.g. `H:\`), write it down.
@@ -345,7 +364,7 @@ the screen and of `:messages` in nvim, note the step number, go on.
 9. Focus Claude's pane, press `ctrl-shift-j` → focus jumps to nvim and the list opens. `Esc`, then `:set modified?`
    → `nomodified` (nothing typed into the file). Again from insert mode (`i` first).
 10. `space a c` on a line, type `test`, Enter; `space a l` lists it; `space a s` → Claude gets one message, sent once.
-11. Python file, pyright installed: first a note "pyright / TypeScript 沒在 … 啟動" → `:JayTrust`, reopen the file
+11. Python file, pyright installed: first a note "pyright / TypeScript 沒啟動（K 不會顯示型別）：… 還沒信任" → `:JayTrust`, reopen the file
     (`:e`). Rest the mouse on a function name → a type popup after ~0.6 s. Right-click → the Chinese menu
     (Shift + right-click → Herdr's).
 12. Put an error in the Python file → a message shows inline; `gd` on a name → jumps to its definition.
@@ -369,13 +388,14 @@ Here: install and Windows.
 | nvim never follows Claude | Claude started after a `cd`, or two Claudes in one folder | start Claude in the tab's own folder (step 6.2) |
 | Herdr shows a core setup screen | no core found, or older than the app needs | **don't press Install / Update there** (it installs the official core); do step 2 (or 8), then reopen Herdr |
 | "running scripts is disabled on this system" | company script policy | the **by hand** parts of steps 2 and 3 |
-| "This app has been blocked" / herdr-app.exe or a build step won't start | AppLocker / WDAC / SmartScreen | ask IT to allow `%LOCALAPPDATA%\Programs\herdr-*` and `%USERPROFILE%\src\*\target` |
+| "This app has been blocked" / herdr-app.exe or a build step won't start | AppLocker / WDAC / SmartScreen | ask IT to allow `%LOCALAPPDATA%\Programs\herdr-*`, `%USERPROFILE%\src\*\target`, `%TEMP%\hc-install-*` (the core install runs the new exe from there), `%LOCALAPPDATA%\Programs\zig-*`, `%LOCALAPPDATA%\Programs\nvim-win64`, `%USERPROFILE%\.cargo\bin`; or use the by-hand part of step 2 (no `%TEMP%`) |
 | Build: `libclang` not found | LLVM missing or `LIBCLANG_PATH` unset | step 1, LLVM row; new PowerShell |
 | Build: `link.exe` not found | Build Tools without C++ | step 1, vswhere check |
 | Build: Zig errors | wrong Zig | `zig version` must be `0.16.0` |
 | Build: path too long / file not found deep in `vendor` | 260-char limit | step 0: `core.longpaths`, short folder |
 | Build: download / TLS errors | network blocked | step 0 host list to IT; `HTTPS_PROXY` |
 | `SSL certificate problem: unable to get local issuer certificate` | company TLS inspection | `git config --global http.sslBackend schannel` |
+| `CRYPT_E_NO_REVOCATION_CHECK` / "unable to check revocation" (git or cargo) | company TLS inspection | `git config --global http.schannelCheckRevoke false` and `setx CARGO_HTTP_CHECK_REVOKE false` (then a new PowerShell) |
 | Build: "Failed to find fxc.exe" | Windows SDK missing | Visual Studio Installer → Modify → tick a **Windows 11 SDK** |
 
 Anything else: copy the exact error text (a photo is fine) and bring it to jay.
@@ -387,7 +407,7 @@ Anything else: copy the exact error text (a photo is fine) and bring it to jay.
 
 Windows follows **herdr-jay**, never upstream directly: build only the versions in the
 [README versions table](../README.md#versions--版本). How to know there is something new: the
-[CHANGELOG](../CHANGELOG.md) (or `git -C $j fetch; git -C $j log --oneline HEAD..origin/main`).
+[CHANGELOG](../CHANGELOG.md) (or `git -C "$env:USERPROFILE\src\herdr-jay" fetch; git -C "$env:USERPROFILE\src\herdr-jay" log --oneline HEAD..origin/main`).
 Order: herdr-jay, core, app, mods. **Never plain `hc update`, never "Update herdr-core" in Herdr.**
 Windows 只跟 herdr-jay：只 build README 版本表裡的版本。順序：herdr-jay → core → app → mod。
 
@@ -431,12 +451,16 @@ if ((Test-Path $rd) -and -not (Test-Path $pd)) { "STOP: herdr-jay has no patches
   if ($ps) { git -c user.name=me -c user.email=me@local am -3 $ps } else { "no patches" } }
 ```
 
-If it printed `STOP`, nothing changed: stay on your version. If `git am` printed an error, **don't run `just install`**;
-see the rollback below. 印出 `STOP` 或 `git am` 出錯，就**不要** `just install`。
+If it printed `STOP`, nothing changed: stay on your version. A version folder holding only `README.md` (no `.patch`
+files) means jay checked that tag and it needs no patches: the block prints `no patches` and goes on.
+If `git am` printed an error, **don't run `just install`**; see the rollback below.
+印出 `STOP` 或 `git am` 出錯，就**不要** `just install`。
 
 For the app, also check it fits the core: `Get-Content distribution\core-version` must be ≤ `hc --version`.
+Then, in the **same window** (it uses `$repo`):
 
 ```powershell
+Set-Location "$env:USERPROFILE\src\$repo"
 just install                                        # terminals keep running
 ```
 
@@ -444,7 +468,8 @@ Scripts blocked: core `cargo build --release --locked` then `hc update --from ta
 app: quit Herdr, `cargo build --release --locked`, copy `target\release\herdr-app.exe` as in step 3.
 
 If `git am` fails: `git am --abort`, rebuild the version you had (same block with your old `$tag`), and bring the
-message to jay.
+message to jay. Your old `$tag` is the number `hc --version` (core) or `herdr-app --version` (app) printed, with a `v`
+in front, e.g. `$tag = "v0.1.19"`.
 
 ### 8.3 Mods
 

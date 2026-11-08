@@ -3,7 +3,8 @@
 Build Herdr from the official source (plus jay's text patches), then install two mods.
 jay's own Mac is built from these same public sources and patches (jay keeps private forks of the two Herdr repos
 with the same patches applied; the result is the same). Checked on Apple Silicon with only the Command Line Tools
-(no full Xcode), Herdr app v0.1.13 and core v0.1.19.
+(no full Xcode), Herdr app v0.1.13 and core v0.1.19. Intel Macs are fine too: the official releases are
+Apple-Silicon-only, so building from source is the way there.
 從官方原始碼 build Herdr（加上 jay 的文字補丁），再裝兩個 mod。jay 自己的 Mac 就是這樣裝的。
 
 | Step / 步驟 | |
@@ -33,8 +34,10 @@ brew install just zig@0.16 rustup neovim
 PATH. Add all three once, then open a **new terminal**:
 
 ```sh
-echo 'export PATH="$HOME/.local/bin:/opt/homebrew/opt/zig@0.16/bin:/opt/homebrew/opt/rustup/bin:$PATH"' >> ~/.zprofile
+echo "export PATH=\"\$HOME/.local/bin:$(brew --prefix)/opt/zig@0.16/bin:$(brew --prefix)/opt/rustup/bin:\$PATH\"" >> ~/.zprofile
 ```
+
+`$(brew --prefix)` is filled in once, now (`/opt/homebrew` on Apple Silicon, `/usr/local` on Intel).
 
 ```sh
 rustup toolchain install 1.95.0 && rustup default 1.95.0
@@ -66,8 +69,12 @@ cd ~/src
 git clone --recurse-submodules https://github.com/herdrdev/herdr-core.git
 cd herdr-core
 git checkout v0.1.19
+git rev-parse --short HEAD
 git submodule update --init --recursive
 ```
+
+`git rev-parse` must print `06793ed` (README versions table). An older clone: `git fetch --tags --force` before
+`git checkout`.
 
 **jay's patches** — needed: core v0.1.19 has one (without it the build fails with only the Command Line Tools,
 because Ghostty tries to build an Xcode framework):
@@ -103,12 +110,17 @@ cd ~/src
 git clone --recurse-submodules https://github.com/herdrdev/herdr-app.git
 cd herdr-app
 git checkout v0.1.13
+git rev-parse --short HEAD
 git submodule update --init --recursive
 ls ~/src/herdr-jay/patches/herdr-app/v0.1.13/ 2>/dev/null
-just install
 ```
 
-The `ls` shows nothing today (no app patches); if that folder ever exists, `git am` it like step 2 before `just install`.
+`git rev-parse` must print `93b097f` (an older clone: `git fetch --tags --force` first). The `ls` shows nothing
+today (no app patches); if that folder ever has `.patch` files, `git am` them like step 2 before `just install`.
+
+```sh
+cd ~/src/herdr-app && just install
+```
 
 Installs `~/Applications/Herdr.app` (ad-hoc signed) and `~/.local/bin/herdr-app`. A self-built app never updates itself.
 
@@ -209,25 +221,30 @@ cd ~/src/herdr-jay && git checkout main && git pull
 If the README names a tag for your Herdr (`for-herdr-v<app>-r<N>`), check that out instead of staying on `main`.
 
 Core, then the same for the app (`repo=herdr-app`), only if the table lists a newer version. Set `tag` to the
-version from the table. The block applies jay's patches if there are any and installs only when they applied
-(terminals keep running):
+version from the table. The block runs `just install` only when the tag checked out, the app's
+`distribution/core-version` is ≤ `hc --version` (app only), and jay's patches (if any) applied (terminals keep running):
 
 ```sh
 repo=herdr-core tag=vX.Y.Z
 cd ~/src/$repo
 git am --abort 2>/dev/null
 git fetch --tags --force
-git checkout --force $tag
+git checkout --force "$tag"
 git submodule update --init --recursive
 rd=~/src/herdr-jay/patches/$repo; pd=$rd/$tag
-if [ -d "$rd" ] && [ ! -d "$pd" ]; then echo "no patches for $repo $tag yet: stay on your version"
+set -- "$pd"/*.patch(N)
+if ! git rev-parse -q --verify "$tag^{commit}" >/dev/null; then echo "no tag $tag"
+elif [ "$(git rev-parse HEAD)" != "$(git rev-parse "$tag^{commit}")" ]; then echo "checkout of $tag failed: not installing"
+elif [ -d "$rd" ] && [ ! -d "$pd" ]; then echo "no patches for $repo $tag yet: stay on your version"
+elif [ "$repo" = herdr-app ] && ! printf '%s\n' "$(cat distribution/core-version)" "$(hc --version | awk '{print $2}')" | sort -V -C; then echo "core too old: needs $(cat distribution/core-version), have $(hc --version)"
 else
-  { [ ! -d "$pd" ] || git -c user.name=me -c user.email=me@local am -3 "$pd"/*.patch; } && just install
+  { [ -z "$1" ] || git -c user.name=me -c user.email=me@local am -3 "$@"; } && just install
 fi
 ```
 
-For the app, `cat distribution/core-version` must be ≤ `hc --version`. If `git am` fails: `git am --abort`, run the
-block again with your old `tag`, and bring the message to jay.
+A version folder holding only `README.md` means jay checked that tag and it needs no patches. If `git am` fails:
+`git am --abort`, run the block again with your old `tag` (the `hc --version` / `herdr-app --version` number with a
+`v` in front), and bring the message to jay.
 
 Then: new default keys from [docs/keys.md](keys.md); quit and reopen Herdr; `herdr-app check` both mods. With
 symlinks the mods are already current (copied: copy again).

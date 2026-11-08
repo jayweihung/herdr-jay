@@ -18,10 +18,12 @@ function onThisComputer() {
 export default class JayNvim extends View {
   init(_props, cx) {
     const { overlay } = props() ?? {};
+    // the focused pane's live folder (the agent's project); terminal.open alone may start in the space's folder
+    const cwd = focused()?.cwd ?? null;
     if (window()?.platform === "windows" && onThisComputer()) {
       cx.spawn(async () => {
         try {
-          await openWindows();
+          await openWindows(cwd);
         } catch (e) {
           notify({ title: "jay-nvim 開不起來", body: String(e?.message ?? e), level: "error" });
         }
@@ -29,7 +31,7 @@ export default class JayNvim extends View {
       });
       return;
     }
-    openUnix();
+    openUnix(cwd);
     if (overlay) closeOverlay(overlay);
   }
 

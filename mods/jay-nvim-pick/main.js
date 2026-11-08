@@ -19,8 +19,10 @@ export default class JayNvimPick extends View {
     const pane = panes().find((p) => p.tab === tab && p.terminal && isJayNvim(byAddr.get(p.terminal)));
     if (pane) {
       run("pane.focus", { pane: pane.pane });
-      Promise.resolve(hc(["keys", pane.terminal, PICK_KEY])).catch((e) =>
-        notify({ title: "jay-nvim 沒收到按鍵", body: String(e?.message ?? e), level: "error" }));
+      const fail = (why) => notify({ title: "jay-nvim 沒收到按鍵", body: String(why), level: "error" });
+      Promise.resolve(hc(["keys", pane.terminal, PICK_KEY]))
+        .then((r) => { if (r?.code) fail(r.stderr || `hc keys exit ${r.code}`); })
+        .catch((e) => fail(e?.message ?? e));
     } else {
       notify({ title: "這個分頁沒有 jay-nvim", body: "先開一格 jay-nvim（macOS cmd-e；Windows ctrl-shift-i）", level: "warning" });
     }

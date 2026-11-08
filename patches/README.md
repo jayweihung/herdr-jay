@@ -4,9 +4,11 @@ jayweihung's own changes to Herdr's source, as plain-text `git format-patch` fil
 Most of what herdr-jay adds is mods (no source change); this folder is only for what a mod can't do.
 這裡是 jayweihung 對 Herdr 原始碼的修改（純文字 patch）。大部分功能是 mod，不用改原始碼；只有 mod 做不到的才在這裡。
 
-Layout: `patches/<repo>/<official tag>/NNNN-*.patch`, e.g. `patches/herdr-app/v0.1.13/0001-....patch`.
+Layout: `patches/<repo>/<official tag>/NNNN-*.patch`, e.g. `patches/herdr-core/v0.1.19/0001-....patch`.
 Each set applies on top of exactly that official release tag.
 **No folder for a repo = no changes to it**: build the official tag as is.
+A tag that needs no patches still gets a folder holding only README.md, so the update steps know it was checked.
+不需要 patch 的 tag 也有資料夾（只放 README.md），更新步驟才知道 jay 驗過。
 沒有某個 repo 的資料夾＝沒改它，直接 build 官方版本。
 
 ## What is here now / 目前有的修改

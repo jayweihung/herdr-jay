@@ -13,7 +13,7 @@ Needs **Neovim 0.11 or newer**, `git`, and `hc` on the machine where the pane op
 3. [Language servers and trust](#3-language-servers-and-trust--語言伺服器和信任)
 4. [macOS vs Windows](#4-macos-vs-windows--兩個系統的差別)
 5. [How it is built](#5-how-it-is-built--程式結構)
-6. [Agent running as root (unix, optional)](#6-agent-running-as-root-unix-optional--agent-用-root-跑選用)
+6. [Agent running as root](#6-agent-running-as-root--agent-用-root-跑)
 7. [Snapshots for Bash edits (optional)](#7-snapshots-for-bash-edits-optional--bash-改檔的快照選用)
 8. [When something goes wrong](#8-when-something-goes-wrong--出問題時)
 
@@ -82,8 +82,8 @@ It refuses your home folder or anything above it (that would trust every project
 會跑專案程式碼的兩個伺服器，只在你信任的資料夾啟動；第一次會提示，打 `:JayTrust` 就好。
 
 Programs are always run by full path; on Windows never from the project folder (Windows would otherwise run a
-`git.exe` or `ruff.exe` sitting in it). Every git nvim runs has `core.fsmonitor` off, so `git status` in a repo
-can't start a hook set in that repo's config.
+`git.exe` or `ruff.exe` sitting in it). Every git nvim runs has `core.fsmonitor` and the repo's own clean / smudge filters off, so `git status` in a
+repo can't start a program set in that repo's `.git/config` (your global filters, e.g. git-lfs, stay).
 
 ## 4. macOS vs Windows / 兩個系統的差別
 
@@ -97,7 +97,7 @@ One `nvim.js` for both; all OS differences sit in its PLATFORM section ([5](#5-h
 | Finding the agent's session | the pane's process (`~/.claude/sessions/<pid>.json`) | the live Claude Code session in the pane's start folder (agents run inside pwsh) |
 | Paths | as they are | one spelling (`C:/x/y`), case ignored when comparing |
 | Paths in Bash commands | `/abs/path` | `C:\x`, `C:/x`, `/c/x` |
-| Agent running as root | optional handoff ([6](#6-agent-running-as-root-unix-optional--agent-用-root-跑選用)) | not available |
+| Agent running as root | a warning, no follow ([6](#6-agent-running-as-root--agent-用-root-跑)) | — |
 | Pick key nvim receives | `<M-o>` (alt+o) | `<M-o>` (alt+o) |
 
 On Windows, start the agent in the folder the tab was opened in (no `cd` first): that is how jay-nvim finds its
@@ -108,7 +108,7 @@ session. Two Claude Codes in the same folder may get mixed up.
 ```
 mods/jay-nvim/
   main.js     picks the launcher: Windows + a pane on this computer → windows.js, otherwise unix.js
-  unix.js     macOS / Linux / other machines: /bin/sh, root handoff
+  unix.js     macOS / Linux / other machines: /bin/sh finds nvim
   windows.js  Windows: .init.lua + :source
   mark.js     the argv item both launchers pass, so jay-nvim-pick finds the pane
   nvim.js     the Lua (one string, NVIM_INIT), run by nvim on the machine where the pane opens
@@ -121,25 +121,12 @@ mods/jay-nvim-pick/
 `nvim.js` stays a single file: the unix launcher puts the whole Lua on one command line, and a root-side copy can be
 pinned by its sha256.
 
-## 6. Agent running as root (unix, optional) / agent 用 root 跑（選用）
+## 6. Agent running as root / agent 用 root 跑
 
-Linux only in practice: the runtime dir it passes is `$XDG_RUNTIME_DIR` (`/run/user/<uid>`), which macOS doesn't have.
-
-When the agent beside the pane runs under `sudo`, its session log is root's, so jay-nvim exits with code 77. If
-`~/.config/jay-nvim/handoff` holds an absolute path, the pane then runs `sudo <that path> <pane id> <runtime dir>`.
-Without the file, the pane just says so.
-
-**Security — read before setting it up.** The root command opens an editor as root, and any program running as you
-can type into a Herdr pane (`hc keys`). A sudoers rule for it without a password is a root door for every program you
-run. Prefer not to use this: instead let root grant you read access to the one session log and keep nvim as you.
-If you do use it, the root-side command must:
-
-- be root-owned, in root-owned folders not writable by others, and allowed in sudoers **with** a password;
-- check `$1` (pane id, letters / digits only) and require `$2` to be exactly `/run/user/$SUDO_UID`;
-- keep sudo's `env_reset` (no `-E`; `HOME`, `XDG_*`, `PATH` not kept), so root's nvim never reads your config or runs your `hc`;
-- start **root's own** nvim with **root's own** copy of `nvim.js` (never this mod's Lua: you can write it);
-- never set git's `safe.directory=*` for root (nvim runs git in your repos; git's owner check is what stops a
-  repo's hooks / fsmonitor from running as root). It may set `JAY_NVIM_HC` to root's `hc`.
+When the agent beside the pane runs under `sudo`, its session log is root's: jay-nvim can't read it, says so once,
+and doesn't follow that agent (everything else works). There is no root mode on purpose: an editor running as root
+that any program running as you can type into (`hc keys`) would be a root door.
+旁邊的 agent 用 sudo 跑時，jay-nvim 讀不到它的紀錄，只提示一次、不跟著開檔；故意不提供 root 模式。
 
 ## 7. Snapshots for Bash edits (optional) / Bash 改檔的快照（選用）
 
@@ -157,7 +144,7 @@ OS-specific problems (install, PATH, keys) are in each install guide. These are 
 | "jay-nvim needs Neovim 0.11 or newer" | Neovim older than 0.11 (e.g. Ubuntu's apt) | install a newer Neovim (the official release or a PPA) |
 | "找不到 hc" inside nvim | `hc` not found | install Herdr core; check `hc --version` |
 | nvim never follows the agent | agent isn't Claude Code, nothing read yet, or follow is off | `space a f`; on Windows see [4](#4-macos-vs-windows--兩個系統的差別) |
-| "pyright / TypeScript 沒在 … 啟動" | folder not trusted | `:JayTrust`, then reopen the file |
+| "pyright / TypeScript 沒啟動 … 還沒信任" | folder not trusted | `:JayTrust`, then reopen the file |
 | No hover / go-to-definition | server not installed on that machine | install it; `:checkhealth vim.lsp` |
 | No "another nvim has this file" warning | the other nvim uses no swap file, or is on another machine | — |
 

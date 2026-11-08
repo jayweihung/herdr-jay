@@ -5,6 +5,20 @@ Newest first. Each entry says what you need to do on your machine.
 Needs: **mods** = copy the two mod folders again (macOS symlinks: nothing) · **core** / **app** = rebuild ·
 **keys** = see [docs/keys.md](docs/keys.md).
 
+## 2026-11-09
+
+Needs: **mods** (copy both again).
+
+- nvim opens in the focused pane's folder (it could start in the space's folder).
+- Root handoff removed: a sudo'd agent beside the pane gets a one-time warning, no follow (docs/nvim.md 6).
+- git safety: also the repo's own clean / smudge filters are off for nvim's git calls (not only fsmonitor);
+  no git at all on Windows when only a project-folder git exists.
+- Re-sourcing keeps the tree and unsent comments; trust-file lines for home or above are ignored.
+- Fixes: UTF-8-safe cut of long comments, renames in the pick list, pick reports a failed key send,
+  two Windows opens at once, `--out=/path` and paths inside quoted code in Bash commands.
+- docs: Windows TLS revocation / AppLocker / tar / winget-less notes, blocks that work in a fresh window;
+  macOS Intel PATH, update block stops on a bad tag and checks the core version before installing.
+
 ## 2026-11-08 (review 2)
 
 Needs: **mods** (copy again; both mods changed together — use them as a pair).

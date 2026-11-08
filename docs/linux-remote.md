@@ -53,7 +53,27 @@ terminal **on the server** (ssh in from step 1, or let an agent there do it: [ag
 Needs about 3 GB free disk in your home and 2–3 GB RAM while building (10–30 minutes). On a busy shared server
 the build below runs at the lowest priority with a memory cap, so it can't push the server's own services out.
 
-Tools, once (Rust 1.95.0 and Zig 0.16.0 in your home; git and a C compiler `cc` must already be there):
+**What the server needs first / server 要先有的**: Rust and Zig are the two compilers herdr-core is built with
+(Rust for herdr-core itself, Zig for the terminal library inside it). They are **not** installed system-wide: the
+official prebuilt toolchains are unpacked into your home below, no root. From the system it needs only `gcc`
+(Rust links with `cc`), `git`, `curl`, `tar`, `xz` — and the server must reach these hosts while building:
+`sh.rustup.rs`, `static.rust-lang.org`, `index.crates.io`, `static.crates.io`, `ziglang.org`, `github.com`,
+`codeload.github.com`, `deps.files.ghostty.org`.
+Rust 和 Zig 是 build herdr-core 用的編譯器，直接下載官方編好的放到家目錄（不用 root、不用自己編）；系統只要 gcc、git、curl、tar、xz，
+build 時要連得到上面這些網址。
+
+Check all of it in one go (each line must say ok):
+
+```sh
+for c in cc git curl tar xz; do command -v $c >/dev/null && echo "ok  $c" || echo "MISSING  $c"; done
+for h in sh.rustup.rs static.rust-lang.org index.crates.io static.crates.io ziglang.org github.com codeload.github.com deps.files.ghostty.org; do curl -sS -o /dev/null --max-time 10 "https://$h" && echo "ok  $h" || echo "BLOCKED  $h"; done
+```
+
+A MISSING command: ask IT to install it (Ubuntu: `gcc`, `git`, `curl`, `xz-utils`). A BLOCKED host: ask IT to allow
+it, or set the company proxy first (`export https_proxy=http://<proxy>:<port>`). If the server can't get out at all,
+bring it to jay (the build then has to happen elsewhere and only the binary is copied).
+
+Tools, once (Rust 1.95.0 and Zig 0.16.0 in your home):
 
 ```sh
 curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain 1.95.0 --no-modify-path

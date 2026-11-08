@@ -72,4 +72,4 @@ against it. Without it, those files just reload.
 
 ## License
 
-MIT (see the repo's LICENSE).
+Apache License 2.0 (see the repo's LICENSE). Comment spans and message shape follow herdr-nvim (MIT, ChmaraX/herdr-nvim).

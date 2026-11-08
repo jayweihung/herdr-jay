@@ -15,7 +15,7 @@ jayweihung 的 Herdr 通用 mod 與設定。
 | Path | What |
 |---|---|
 | `mods/jay-nvim` | Neovim beside your agent: follow the agent's files, live diff, file tree, comments to the agent, LSP, mouse ([README](mods/jay-nvim/README.md)) |
-| `patches/` | Changes to Herdr's own source (only what a mod can't do), as text patches on an official tag — Apache-2.0 ([README](patches/README.md)) |
+| `patches/` | Changes to Herdr's own source (only what a mod can't do), as text patches on an official tag ([README](patches/README.md)) |
 | `mods/jay-nvim-pick` | `cmd-o`: the files the agent read or edited, in the jay-nvim pane |
 
 ## Install / 安裝
@@ -33,4 +33,4 @@ Tested with Herdr app v0.1.13. Tags `for-herdr-vX.Y.Z` mark versions checked aga
 
 ## License
 
-MIT. See [LICENSE](LICENSE). Exception: `patches/` (changes to Herdr, Apache-2.0).
+Apache License 2.0 (the same as Herdr). See [LICENSE](LICENSE). Copyright 2026 jayweihung.

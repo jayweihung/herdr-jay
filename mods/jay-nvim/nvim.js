@@ -178,9 +178,13 @@ local SHELLS = { bash = 1, sh = 1, zsh = 1, fish = 1, dash = 1, ksh = 1, nvim = 
 
 local function hc_bin()
   if vim.env.JAY_NVIM_HC then return vim.env.JAY_NVIM_HC end -- set by a handoff command (see README)
-  local found = vim.fn.exepath("hc")
-  if found ~= "" then return found end
-  for _, p in ipairs({ home .. "/.local/bin/hc", "/opt/homebrew/bin/hc", "/usr/local/bin/hc" }) do
+  for _, name in ipairs({ "hc", "herdr-core" }) do -- Windows installs herdr-core.exe; hc.exe only if no hc existed
+    local found = vim.fn.exepath(name)
+    if found ~= "" then return found end
+  end
+  local lad = vim.env.LOCALAPPDATA
+  for _, p in ipairs({ home .. "/.local/bin/hc", "/opt/homebrew/bin/hc", "/usr/local/bin/hc",
+    lad and (lad .. "/Programs/herdr-core/herdr-core.exe") or "" }) do
     if vim.fn.executable(p) == 1 then return p end
   end
 end

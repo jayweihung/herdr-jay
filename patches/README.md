@@ -24,6 +24,4 @@ If `git am` fails, your checkout isn't that exact tag: `git am --abort`, check o
 
 ## License
 
-Herdr is Apache-2.0. These patches modify Apache-2.0 files and are provided under the **Apache License 2.0**,
-like the code they change (the rest of herdr-jay is MIT).
-這些 patch 修改的是 Apache-2.0 的程式碼，所以 patch 本身也用 Apache-2.0（herdr-jay 其他部分是 MIT）。
+Apache License 2.0, like Herdr and the rest of herdr-jay.

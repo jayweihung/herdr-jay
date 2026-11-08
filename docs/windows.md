@@ -37,9 +37,19 @@ An agent doing the install for you: [docs/agent-install.md](agent-install.md).
 
 ## 0. Before you start / 開始前
 
-**Official Herdr installed? / 裝過官方版 Herdr？** Quit it and delete `%LOCALAPPDATA%\Programs\herdr-app*`
-(and `herdr-core*`) first.
-先關掉官方版 Herdr，刪掉 `%LOCALAPPDATA%\Programs\herdr-app*`（和 `herdr-core*`）。
+**Official Herdr installed? / 裝過官方版 Herdr？** Quit it, stop its core (quitting the app leaves the core and
+its terminals running, and Windows can't delete a running program; this **ends those terminals**), then delete it
+and its Start-menu entry:
+先關掉官方版 Herdr，停掉它的 core（會結束那些終端機），再刪掉：
+
+```powershell
+hc server stop
+Remove-Item -Recurse -Force "$env:LOCALAPPDATA\Programs\herdr-app*", "$env:LOCALAPPDATA\Programs\herdr-core*"
+Remove-Item "$([Environment]::GetFolderPath('Programs'))\Herdr.lnk" -ErrorAction SilentlyContinue
+Test-Path "$env:LOCALAPPDATA\Programs\herdr-core\herdr-core.exe"     # must be False
+```
+
+(If `Test-Path` says True, something still runs it: sign out and in, then delete again.)
 
 **Git first / 先裝 Git**: everything below uses it. `winget install Git.Git --scope user` (no admin), or the company
 software center; then open a **new PowerShell** and check `git --version`.
@@ -68,7 +78,7 @@ If something is blocked, give IT this list. Behind a proxy: `setx HTTPS_PROXY ht
 
 **Time and disk / 時間和空間**: the first build of each repo takes a long time (tens of minutes on a laptop)
 and several GB. Windows Defender scanning makes it much slower: ask IT to exclude `%USERPROFILE%\src`
-and `%USERPROFILE%\.cargo` if allowed.
+`%USERPROFILE%\.cargo` and `%USERPROFILE%\.rustup` if allowed.
 
 **One short folder for everything / 全部放一個短路徑**: not under OneDrive or Documents (Windows' 260-character limit).
 
@@ -267,7 +277,7 @@ Copy-Item -Force target\release\herdr-app.exe $a
 ```
 
 Add it to PATH: [Add to PATH](#add-a-folder-to-path) with the first line `$add = "$env:LOCALAPPDATA\Programs\herdr-app"`. No Start-menu entry this way: right-click
-`herdr-app.exe` in Explorer → **Pin to Start**.
+`herdr-app.exe` in Explorer → **Pin to Start**, and open Herdr from that pin (below: "from the Start menu").
 
 **Check**: `herdr-app --version | Out-Host` → `herdr-app 0.1.14`. Then open **Herdr** once from the Start menu:
 it creates `%USERPROFILE%\.config\herdr-app` with `keys.json`, `settings.json` and `mods\`.
@@ -393,7 +403,7 @@ Here: install and Windows.
 | nvim never follows Claude | Claude started after a `cd`, or two Claudes in one folder | start Claude in the tab's own folder (step 6.2) |
 | Herdr shows a core setup screen | no core found, or older than the app needs | **don't press Install / Update there** (it installs the official core); do step 2 (or 8), then reopen Herdr |
 | "running scripts is disabled on this system" | company script policy | the **by hand** parts of steps 2 and 3 |
-| "This app has been blocked" / herdr-app.exe or a build step won't start | AppLocker / WDAC / SmartScreen | ask IT to allow `%LOCALAPPDATA%\Programs\herdr-*`, `%USERPROFILE%\src\*\target`, `%TEMP%\hc-local-*` and `%TEMP%\hc-install-*` (the core install runs its script and the new exe from there), `%LOCALAPPDATA%\Programs\zig-*`, `%LOCALAPPDATA%\Programs\nvim-win64`, `%USERPROFILE%\.cargo\bin`; or use the by-hand part of step 2 (no `%TEMP%`) |
+| "This app has been blocked" / herdr-app.exe or a build step won't start | AppLocker / WDAC / SmartScreen | ask IT to allow `%LOCALAPPDATA%\Programs\herdr-*`, `%USERPROFILE%\src\*\target`, `%TEMP%\hc-local-*` and `%TEMP%\hc-install-*` (the core install runs its script and the new exe from there), `%LOCALAPPDATA%\Programs\zig-*`, `%LOCALAPPDATA%\Programs\nvim-win64`, `%USERPROFILE%\.cargo\bin`, `%USERPROFILE%\.rustup\toolchains` (the real compilers), and if you used winget `%LOCALAPPDATA%\Microsoft\WinGet\Packages` + `…\WinGet\Links` (Zig, just); or use the by-hand part of step 2 (no `%TEMP%`) |
 | Build: `libclang` not found | LLVM missing or `LIBCLANG_PATH` unset | step 1, LLVM row; new PowerShell |
 | Build: `link.exe` not found | Build Tools without C++ | step 1, vswhere check |
 | Build: Zig errors | wrong Zig | `zig version` must be `0.16.0` |

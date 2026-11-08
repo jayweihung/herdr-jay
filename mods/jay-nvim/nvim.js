@@ -66,12 +66,16 @@ ${PATH_RULES}
   end
   for n, p in ipairs(P.abs_paths(input.command)) do
     if n > 20 then break end
-    local st = not P.win and (special(p) or special(vim.uv.fs_realpath(p) or p)) and nil or vim.uv.fs_stat(p)
+    local skip = not P.win and (special(p) or special(vim.uv.fs_realpath(p) or p))
+    local st = not skip and vim.uv.fs_stat(p)
     if st and st.type == "file" and st.size <= 1048576 then
-      vim.fn.mkdir(dir .. "/" .. id, "p", 448)
-      local fd = vim.uv.fs_open(p, "r", 0)
-      local data = fd and vim.uv.fs_read(fd, 1048576, 0)
+      -- Non-blocking open, then check the opened file itself: the path may have become a FIFO since the stat.
+      local c = vim.uv.constants or {}
+      local fd = vim.uv.fs_open(p, (not P.win and c.O_NONBLOCK) and ((c.O_RDONLY or 0) + c.O_NONBLOCK) or "r", 0)
+      local ft = fd and vim.uv.fs_fstat(fd)
+      local data = ft and ft.type == "file" and ft.size <= 1048576 and vim.uv.fs_read(fd, 1048576, 0)
       if fd then vim.uv.fs_close(fd) end
+      if data then vim.fn.mkdir(dir .. "/" .. id, "p", 448) end
       local out = data and vim.uv.fs_open(dir .. "/" .. id .. "/" .. vim.fn.sha256(p), "w", 384) -- 0600
       if out then vim.uv.fs_write(out, data, 0) vim.uv.fs_close(out) end
     end
@@ -185,8 +189,12 @@ ${SNAP_HOOK}]=====]
   if fd then vim.uv.fs_close(fd) end
   if have ~= want then
     vim.fn.mkdir(vim.fs.dirname(f), "p")
-    local w = vim.uv.fs_open(f, "w", 420) -- 0644
-    if w then vim.uv.fs_write(w, want, 0) vim.uv.fs_close(w) end
+    -- Write a temp file, then rename it over: a hook starting meanwhile never runs a half-written file.
+    local tmp = f .. ".tmp" .. vim.uv.os_getpid()
+    local w = vim.uv.fs_open(tmp, "wx", 420) -- 0644
+    local ok = w and vim.uv.fs_write(w, want, 0) == #want
+    if w then vim.uv.fs_close(w) end
+    if not (ok and vim.uv.fs_rename(tmp, f)) then vim.uv.fs_unlink(tmp) end
   end
 end)
 -- git found on PATH only (nil: rejected or missing, and then every git feature is skipped: a bare "git" could be

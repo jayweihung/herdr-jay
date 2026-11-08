@@ -94,6 +94,47 @@ off); hooks (`core.hooksPath` points at an empty folder) and index writes; any f
 git at all from nvim. The tree's `git ls-files` gets `core.fsmonitor` and fetching off through the environment.
 別人的 repo 可以在自己的設定裡指定 git 要跑的程式；nvim 跑的每個 git 都把這些關掉（fsmonitor、filter、hook、抓取、子模組）。
 
+## 4. macOS vs Windows / 兩個系統的差別
+
+One `nvim.js` for both; all OS differences sit in its PLATFORM section ([5](#5-how-it-is-built--程式結構)).
+
+| | macOS (and Linux, other machines) | Windows |
+|---|---|---|
+| Herdr home | `~/.config/herdr-app` | `%USERPROFILE%\.config\herdr-app` |
+| Keys | `cmd-e`, `cmd-o` | `ctrl-shift-i`, `ctrl-shift-j` |
+| Launcher | `unix.js`: `/bin/sh` finds nvim in `~/.local/bin`, `/opt/homebrew/bin`, `/usr/local/bin`, `/usr/bin`; the Lua goes on the command line | `windows.js`: writes `mods\jay-nvim\.init.lua` (a command line holds at most 32767 characters), nvim `:source`s it; nvim from PATH |
+| Finding the agent's session | the pane's process (`~/.claude/sessions/<pid>.json`) | the live Claude Code session in the pane's start folder (agents run inside pwsh) |
+| Paths | as they are | one spelling (`C:/x/y`), case ignored when comparing |
+| Paths in Bash commands | `/abs/path` | `C:\x`, `C:/x`, `/c/x` |
+| Agent running as root | a warning, no follow ([6](#6-agent-running-as-root--agent-用-root-跑)) | — |
+| Pick key nvim receives | `<M-o>` (alt+o) | `<M-o>` (alt+o) |
+
+On Windows, start the agent in the folder the tab was opened in (no `cd` first): that is how jay-nvim finds its
+session. Two Claude Codes in the same folder may get mixed up.
+
+## 5. How it is built / 程式結構
+
+```
+mods/jay-nvim/
+  main.js     picks the launcher: Windows + a pane on this computer → windows.js, otherwise unix.js
+  unix.js     macOS / Linux / other machines: /bin/sh finds nvim
+  windows.js  Windows: .init.lua + :source
+  mark.js     the argv item both launchers pass, so jay-nvim-pick finds the pane
+  nvim.js     the Lua (one string, NVIM_INIT), run by nvim on the machine where the pane opens
+                PLATFORM  every OS difference, in one table P (nothing below tests the OS)
+                then: reload + diff, swap-file heads-up, tree, agent + follow, comments, keys, LSP, mouse
+mods/jay-nvim-pick/
+  main.js     finds the pane by the argv item `let g:jay_nvim = 1`, focuses it, sends alt+o (nvim: <M-o>)
+```
+
+`nvim.js` stays a single file: the unix launcher puts the whole Lua on one command line, and a root-side copy can be
+pinned by its sha256.
+
+## 6. Agent running as root / agent 用 root 跑
+
+When the agent beside the pane runs under `sudo`, its session log is root's: jay-nvim can't read it, says so once,
+and doesn't follow that agent (everything else works). There is no root mode on purpose: an editor running as root
+that any program running as you can type into (`hc keys`) would be a root door.
 旁邊的 agent 用 sudo 跑時，jay-nvim 讀不到它的紀錄，只提示一次、不跟著開檔；故意不提供 root 模式。
 
 ## 7. Snapshots for Bash edits (optional) / Bash 改檔的快照（選用）
@@ -107,7 +148,8 @@ repo 外的檔被 Bash 指令改掉時，沒有「改之前」可比；snap hook
 The hook is a Lua file jay-nvim writes itself, on every machine where it runs (macOS, Windows, a Linux server):
 `~/.config/jay-nvim/snap_hook.lua` (Windows: under `vim.uv.os_homedir()`, usually `%USERPROFILE%`), refreshed when
 jay-nvim updates. It runs with `nvim -l`, so it needs nothing but Neovim. To turn it on, open jay-nvim once on that
-machine, then add this to Claude Code's `~/.claude/settings.json` there (merge into an existing `"hooks"`):
+machine, then add this to Claude Code's `~/.claude/settings.json` there (back it up first; keep its other settings;
+if `"PreToolUse"` already exists, add this entry to its list; no settings.json yet → wrap the snippet in `{ }`):
 jay-nvim 會自己把 hook 寫到每台機器上；在那台機器的 Claude Code 設定加這段就啟用：
 
 ```json
@@ -120,7 +162,8 @@ jay-nvim 會自己把 hook 寫到每台機器上；在那台機器的 Claude Cod
 
 `nvim` must be on the PATH Claude Code runs hooks with; if not, give its full path (macOS Homebrew
 `/opt/homebrew/bin/nvim`, a Linux server `~/.local/bin/nvim`). Windows (not yet tested there): full paths, and
-matcher `Bash|PowerShell`; see [windows.md §5a](windows.md#5a-snap-hook-for-claude-code--snap-hook). It never blocks a command: it prints nothing and always exits 0.
+matcher `Bash|PowerShell`; see [windows.md §5a](windows.md#5a-snap-hook-for-claude-code--snap-hook). The hook prints nothing and
+always exits 0; only if nvim itself can't start does the hook fail (`"onFailure": "continue"` keeps that from blocking).
 Check: after the agent runs a Bash command naming a file, `~/.cache/jay-nvim/snap/` has a folder for it.
 
 ## 8. When something goes wrong / 出問題時

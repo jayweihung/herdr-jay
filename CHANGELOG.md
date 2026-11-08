@@ -7,13 +7,19 @@ Needs: **mods** = copy the two mod folders again (macOS symlinks: nothing) · **
 
 ## 2026-11-09
 
-Needs: **mods** (copy both again), **app** (build v0.1.14).
+Needs: **mods** (copy both again), **app** (build v0.1.14), and once per machine running Claude Code: the snap hook in its settings.
 
 - Install guides now include the **snap hook** step: [windows.md §5a](docs/windows.md#5a-snap-hook-for-claude-code--snap-hook),
   [linux-remote.md §4](docs/linux-remote.md#4-agents-on-the-server--server-上的-agent), and row 8 of
   [agent-install.md](docs/agent-install.md). Each machine running Claude Code adds the hook once.
   安裝文件補上 snap hook：每台跑 Claude Code 的機器加一次。
   Windows: matcher `Bash|PowerShell`, and the home folder is the one nvim reports (may be `H:\`), not always `C:\Users\<you>`.
+- **Snap hook fixes** (review): the `/proc` `/sys` `/dev` skip never applied (a Lua `and nil or` slip), so e.g.
+  `/proc/self/environ` was copied; a file swapped for a FIFO after the check could stall the command; jay-nvim now
+  writes the hook file via a temp file + rename, so a hook starting meanwhile never runs half a file.
+  修 snap hook：/proc 等沒真的跳過、FIFO 可能卡住、寫 hook 檔改成先寫暫存再換名。
+- docs/nvim.md: §4 (macOS vs Windows), §5 (how it is built) and §6 (agent as root) were cut by mistake in the
+  previous change; back.
 - docs/windows.md: build tools reduced to the versions needed; **§8 Updating** now covers everything that gets
   updated — herdr-jay, core on the PC and the Linux server, app, mods, Neovim — in one order. README names the Neovim version.
   更新步驟集中在 §8：PC 和 server 的 core、app、mod、Neovim。

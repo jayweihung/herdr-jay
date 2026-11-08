@@ -329,7 +329,7 @@ Optional, for go-to-definition and errors (skip if Node or Python are not allowe
 ### 5a. Snap hook for Claude Code / snap hook
 
 Lets jay-nvim mark what a Bash command changed in a file **outside** a git repo ([nvim.md §7](nvim.md#7-snapshots-for-bash-edits-optional--bash-改檔的快照選用)).
-Do it after jay-nvim has opened once (§6 step 2), which writes `<home>\.config\jay-nvim\snap_hook.lua`. `<home>` is
+Do it during §6 (step 3 sends you here): jay-nvim's first start (§6 step 2) writes `<home>\.config\jay-nvim\snap_hook.lua`. `<home>` is
 the **first** folder §6 step 3 prints (`vim.uv.os_homedir()`): usually `C:\Users\<you>`, but a company may set it to
 another drive (e.g. `H:\`); use that one below.
 jay-nvim 開過一次後，在 Claude Code 設定加這個 hook（一次就好，之後 jay-nvim 會自己更新 hook 檔）。
@@ -343,15 +343,19 @@ jay-nvim 開過一次後，在 Claude Code 設定加這個 hook（一次就好�
    "hooks": {
      "PreToolUse": [
        { "matcher": "Bash|PowerShell", "hooks": [{ "type": "command", "timeout": 15,
-         "command": "nvim -l C:/Users/<you>/.config/jay-nvim/snap_hook.lua" }] }
+         "onFailure": "continue",
+         "command": "nvim -l <home>/.config/jay-nvim/snap_hook.lua" }] }
      ]
    }
    ```
 
-   `nvim` not found by the hook → write nvim.exe's full path (`where.exe nvim`), forward slashes, e.g.
-   `C:/Users/<you>/AppData/Local/Programs/nvim-win64/bin/nvim.exe -l …`. A path with a space (winget's
-   `C:/Program Files/Neovim/…`) needs quotes inside the command: `"\"C:/Program Files/Neovim/bin/nvim.exe\" -l …"`
-   (Claude Code runs hooks in Git Bash, which it needs anyway; if it ran them in PowerShell, that form would need `& ` in front).
+   e.g. `"nvim -l C:/Users/amy/.config/jay-nvim/snap_hook.lua"`. `"onFailure": "continue"` keeps a failed start
+   of nvim from blocking commands (older Claude Code ignores it).
+   `nvim` not found by the hook → write nvim.exe's full path (`where.exe nvim`) with forward slashes, e.g.
+   `C:/Users/amy/AppData/Local/Programs/nvim-win64/bin/nvim.exe -l …`. A path with a space (winget's
+   `C:/Program Files/Neovim/…`): Claude Code runs hook commands in Git Bash if it finds it, otherwise PowerShell, and
+   the two quote differently; use the no-shell form instead (newer Claude Code): `"command": "C:/Program Files/Neovim/bin/nvim.exe"`,
+   `"args": ["-l", "<home>/.config/jay-nvim/snap_hook.lua"]`.
 3. Restart Claude Code (or `/hooks` once). **Check**: §6 step 7 — after Claude changes a file outside the repo with
    a shell command, `<home>\.cache\jay-nvim\snap\` has a new folder and nvim shows red / green.
 
@@ -368,7 +372,8 @@ the screen and of `:messages` in nvim, note the step number, go on.
    (no `cd` first). With that pane focused: `ctrl-shift-i` → nvim on the right in that pane's folder, file tree beside it, and
    `%USERPROFILE%\.config\herdr-app\mods\jay-nvim\.init.lua` exists.
 3. In nvim: `:lua print(vim.uv.os_homedir(), vim.env.USERPROFILE)` → the same `C:\Users\<you>` twice.
-   If the first is another drive (e.g. `H:\`), write it down.
+   If the first is another drive (e.g. `H:\`), write it down. That first folder is `<home>`: now do
+   [§5a](#5a-snap-hook-for-claude-code--snap-hook), then restart `claude` in the step-2 tab (or run `/hooks` there).
 4. Tree: `.gitignore`d folders (e.g. `node_modules`) are missing; the open file's line is highlighted.
 5. Ask Claude to read a file → within ~2 s nvim opens it, the bar on top shows `agent 讀`.
 6. Ask Claude to edit a line → the file reloads, old line red `-`, new line green `+`, cursor there.
@@ -406,7 +411,7 @@ Here: install and Windows.
 | "running scripts is disabled on this system" | company script policy | the **by hand** parts of steps 2 and 3 |
 | "This app has been blocked" / herdr-app.exe or a build step won't start | AppLocker / WDAC / SmartScreen | ask IT to allow `%LOCALAPPDATA%\Programs\herdr-*`, `%USERPROFILE%\src\*\target`, `%TEMP%\hc-local-*` and `%TEMP%\hc-install-*` (the core install runs its script and the new exe from there), `%LOCALAPPDATA%\Programs\zig-*`, `%LOCALAPPDATA%\Programs\nvim-win64`, `%USERPROFILE%\.cargo\bin`, `%USERPROFILE%\.rustup\toolchains` (the real compilers), and if you used winget `%LOCALAPPDATA%\Microsoft\WinGet\Packages` + `…\WinGet\Links` (Zig, just); or use the by-hand part of step 2 (no `%TEMP%`) |
 | Build: `libclang` not found | LLVM missing or `LIBCLANG_PATH` unset | step 1, LLVM row; new PowerShell |
-| Build: `link.exe` not found | Build Tools without C++ | step 1, vswhere check |
+| Build: `link.exe` not found | Build Tools without C++ | step 1, Build Tools row (C++ workload + Windows SDK) |
 | Build: Zig errors | wrong Zig | `zig version` must be `0.16.0` |
 | Build: path too long / file not found deep in `vendor` | 260-char limit | step 0: `core.longpaths`, short folder |
 | Build: download / TLS errors | network blocked | step 0 host list to IT; `HTTPS_PROXY` |
@@ -466,8 +471,9 @@ If the README table names a tag for your Herdr (`for-herdr-v<app>-r<N>`), `git c
 
 ### 8.2 Core and app on the PC
 
-Only if the README table lists a newer version. In the first line replace `<version from the README table>` with
-that version (e.g. `v0.1.20`), run, then again with `$repo = "herdr-app"` and the app version.
+Only if the README table lists a newer version. Order: **core** checkout block → its build block → [8.3](#83-core-on-the-linux-server)
+(server) → **app** checkout block (`$repo = "herdr-app"`, the app version) → its build block.
+In the first line replace `<version from the README table>` with that version (e.g. `v0.1.20`).
 Paste each block with **Ctrl+V as one block** (not right-click, not line by line).
 第一行換成 README 表裡的版本；整段用 Ctrl+V 一次貼上（不要右鍵、不要一行一行貼）。
 

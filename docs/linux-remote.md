@@ -173,7 +173,8 @@ run on Windows yet.
 ## 4. Agents on the server / server 上的 agent
 
 An agent that should work on the server's files runs **on the server**: open a tab on that machine and start it
-there (Claude Code: install it on the server as the company allows; its login is per machine).
+there, only if the company already provides Claude Code on the server (it is a prebuilt program: don't install it
+yourself on a source-only server; its login is per machine). No agent there → do §5 with the PC's agent and skip the snap hook below.
 Agents on the Windows PC and on the server can sit in different tabs of the same Herdr window.
 要改 server 上的檔，agent 就在 server 上跑（在那台機器的分頁裡開）。
 
@@ -181,7 +182,8 @@ jay-nvim follows the agent **in the same tab and on the same machine** as the nv
 
 **Snap hook** (so nvim marks Bash edits outside a repo, [nvim.md §7](nvim.md#7-snapshots-for-bash-edits-optional--bash-改檔的快照選用)):
 after jay-nvim has opened on the server once (§5 step 2 writes `~/.config/jay-nvim/snap_hook.lua`), back up the
-server's `~/.claude/settings.json` and merge in (keep its other settings):
+server's `~/.claude/settings.json` and merge in (keep its other settings; if `"PreToolUse"` already exists, add this
+entry to its list; no settings.json yet → wrap the snippet in `{ }`):
 server 上的 Claude Code 也要加一次 hook（jay-nvim 在 server 開過一次之後）：
 
 ```json

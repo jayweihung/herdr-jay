@@ -14,7 +14,8 @@ jayweihung 的 Herdr 通用 mod 與設定。
 
 | Path | What |
 |---|---|
-| `mods/` | Herdr mods (coming: `jay-nvim` — Neovim in a Herdr pane with LSP, mouse, right-click menu, file tree, follow-the-agent) |
+| `mods/jay-nvim` | Neovim beside your agent: follow the agent's files, live diff, file tree, comments to the agent, LSP, mouse ([README](mods/jay-nvim/README.md)) |
+| `mods/jay-nvim-pick` | `cmd-o`: the files the agent read or edited, in the jay-nvim pane |
 
 ## Install / 安裝
 

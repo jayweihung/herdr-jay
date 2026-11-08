@@ -751,7 +751,7 @@ local function only_trusted(markers, need)
     if trusted(r) then return on_dir(r) end
     if not told[r] then
       told[r] = true
-      vim.notify(("pyright / TypeScript 沒在 %s 啟動：還沒信任這個資料夾（會跑它的程式碼）。信任就 :JayTrust"):format(r), vim.log.levels.INFO)
+      vim.notify(("pyright / TypeScript 沒啟動（K 不會顯示型別）：%s 還沒信任（它們會跑專案的程式碼）。\n要啟用：打 :JayTrust 按 Enter，再打 :e 重開檔案。每個專案只要一次。"):format(r), vim.log.levels.WARN)
     end
   end
 end

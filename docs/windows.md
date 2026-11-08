@@ -326,6 +326,30 @@ Optional, for go-to-definition and errors (skip if Node or Python are not allowe
    herdr-app check "$h\mods\jay-nvim-pick" | Out-Host
    ```
 
+### 5a. Snap hook for Claude Code / snap hook
+
+Lets jay-nvim mark what a Bash command changed in a file **outside** a git repo ([nvim.md §7](nvim.md#7-snapshots-for-bash-edits-optional--bash-改檔的快照選用)).
+Do it after jay-nvim has opened once (§6 step 2), which writes `%USERPROFILE%\.config\jay-nvim\snap_hook.lua`.
+jay-nvim 開過一次後，在 Claude Code 設定加這個 hook（一次就好，之後 jay-nvim 會自己更新 hook 檔）。
+
+1. Back up `%USERPROFILE%\.claude\settings.json` (if it exists).
+2. Merge into it (keep everything else; if `"hooks"` already has `"PreToolUse"`, add this entry to that list).
+   Full paths with forward slashes, because Claude Code may run hooks in PowerShell or Git Bash:
+
+   ```json
+   "hooks": {
+     "PreToolUse": [
+       { "matcher": "Bash", "hooks": [{ "type": "command", "timeout": 15,
+         "command": "nvim -l C:/Users/<you>/.config/jay-nvim/snap_hook.lua" }] }
+     ]
+   }
+   ```
+
+   `nvim` not found by the hook → write nvim.exe's full path, e.g. `"C:/Program Files/Neovim/bin/nvim.exe"` in
+   quotes inside the command: `"\"C:/Program Files/Neovim/bin/nvim.exe\" -l C:/Users/<you>/..."`.
+3. Restart Claude Code (or `/hooks` once). **Check**: §6 step 7 — after Claude changes a file outside the repo with
+   a shell command, `%USERPROFILE%\.cache\jay-nvim\snap\` has a new folder and nvim shows red / green.
+
 ---
 
 ## 6. Test checklist / 實測清單
@@ -345,7 +369,8 @@ the screen and of `:messages` in nvim, note the step number, go on.
 6. Ask Claude to edit a line → the file reloads, old line red `-`, new line green `+`, cursor there.
 7. Ask Claude to change a repo file with a shell command (e.g. `sed -i`) → nvim follows it.
    Then a file **outside** the repo by absolute path → nvim should follow it too; note which path form Claude used
-   (`C:\…`, `C:/…` or `/c/…`).
+   (`C:\…`, `C:/…` or `/c/…`). With the snap hook (§5a): old lines red, new green, and
+   `%USERPROFILE%\.cache\jay-nvim\snap\` has a new folder. Without it the file just reloads.
 8. In nvim `space o` → files Claude touched (newest first) plus git changes; pick one → it opens.
 9. Focus Claude's pane, press `ctrl-shift-j` → focus jumps to nvim and the list opens. `Esc`, then `:set modified?`
    → `nomodified` (nothing typed into the file). Again from insert mode (`i` first).

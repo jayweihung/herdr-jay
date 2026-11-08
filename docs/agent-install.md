@@ -34,6 +34,7 @@ jay 請 agent 幫忙裝：Windows 本機 + 用 ssh 連的 Linux server，全部�
 | 5 | server | Neovim v0.12.6 built from source, and git | [linux-remote.md §3](linux-remote.md#3-neovim-and-git-on-the-server--server-上的-neovim-和-git); server can't download → [§3a](linux-remote.md#3a-server-cant-download--server-不能上網) |
 | 6 | PC (jay clicks) | Settings → Add machine; never run `hc machine add` / `hc machine update` it may suggest, answer **n** to "Copy this hc" | [linux-remote.md §2b](linux-remote.md#2b-add-the-machine--加機器) |
 | 7 | both | linux-remote §5 test, with an agent running on the server | [linux-remote.md §5](linux-remote.md#5-try-jay-nvim-there--試-jay-nvim) |
+| 8 | both | Snap hook: on **each** machine where Claude Code runs (PC, and the server if an agent runs there), after jay-nvim has opened there once, merge the PreToolUse hook into that machine's `~/.claude/settings.json` (keep its other settings; back it up first) | [windows.md §5a](windows.md#5a-snap-hook-for-claude-code--snap-hook), [linux-remote.md §4](linux-remote.md#4-agents-on-the-server--server-上的-agent), [nvim.md §7](nvim.md#7-snapshots-for-bash-edits-optional--bash-改檔的快照選用) |
 
 Server steps run through ssh from the PC, e.g. `ssh <user>@<server> 'bash -lc "…"'`, or in a Herdr tab on that
 machine once step 6 is done. A long build: run it in a Herdr terminal on the server (it survives a dropped ssh).
@@ -46,6 +47,7 @@ PC:      hc --version ; herdr-app --version ; git -C ~/src/herdr-jay describe --
 server:  ~/.local/bin/herdr-core --version ; ~/.local/bin/nvim --version | head -1
 PC:      git -C ~/src/herdr-core describe --tags   (the source both cores were built from)
 PC:      hc machine ls          (the server: connected, same version)
+both:    the PreToolUse command in ~/.claude/settings.json, and whether ~/.cache/jay-nvim/snap/ got a folder
 ```
 
 plus which checklist steps passed / failed (with the error text).

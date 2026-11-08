@@ -179,13 +179,30 @@ Agents on the Windows PC and on the server can sit in different tabs of the same
 
 jay-nvim follows the agent **in the same tab and on the same machine** as the nvim pane.
 
+**Snap hook** (so nvim marks Bash edits outside a repo, [nvim.md §7](nvim.md#7-snapshots-for-bash-edits-optional--bash-改檔的快照選用)):
+after jay-nvim has opened on the server once (§5 step 2 writes `~/.config/jay-nvim/snap_hook.lua`), back up the
+server's `~/.claude/settings.json` and merge in (keep its other settings):
+server 上的 Claude Code 也要加一次 hook（jay-nvim 在 server 開過一次之後）：
+
+```json
+"hooks": {
+  "PreToolUse": [
+    { "matcher": "Bash", "hooks": [{ "type": "command", "timeout": 15,
+      "command": "~/.local/bin/nvim -l ~/.config/jay-nvim/snap_hook.lua" }] }
+  ]
+}
+```
+
+Restart the agent. **Check**: after it changes a file outside the repo with a shell command naming its full path,
+`~/.cache/jay-nvim/snap/` has a new folder.
+
 ---
 
 ## 5. Try jay-nvim there / 試 jay-nvim
 
 1. Open a tab on the server machine in a project folder, start Claude Code there.
 2. With its pane focused: `ctrl-shift-i` (Windows) / `cmd-e` (Mac) → nvim opens **on the server**, beside it.
-3. Ask the agent to read / edit a file → nvim follows; `ctrl-shift-j` / `cmd-o` → the list (alt+o reaches nvim).
+3. Ask the agent to read / edit a file → nvim follows (then add the snap hook, §4); `ctrl-shift-j` / `cmd-o` → the list (alt+o reaches nvim).
 4. `space a c` → comment, `space a s` → sent to the agent.
 5. Only if pyright is on the server (not on a source-only one, step 3): `:JayTrust` once per project.
 

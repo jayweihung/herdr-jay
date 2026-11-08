@@ -9,6 +9,10 @@ Needs: **mods** = copy the two mod folders again (macOS symlinks: nothing) · **
 
 Needs: **mods** (copy both again), **app** (build v0.1.14).
 
+- Install guides now include the **snap hook** step: [windows.md §5a](docs/windows.md#5a-snap-hook-for-claude-code--snap-hook),
+  [linux-remote.md §4](docs/linux-remote.md#4-agents-on-the-server--server-上的-agent), and row 8 of
+  [agent-install.md](docs/agent-install.md). Each machine running Claude Code adds the hook once.
+  安裝文件補上 snap hook：每台跑 Claude Code 的機器加一次。
 - docs/windows.md: build tools reduced to the versions needed; **§8 Updating** now covers everything that gets
   updated — herdr-jay, core on the PC and the Linux server, app, mods, Neovim — in one order. README names the Neovim version.
   更新步驟集中在 §8：PC 和 server 的 core、app、mod、Neovim。

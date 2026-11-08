@@ -32,7 +32,7 @@ jay 請 agent 幫忙裝：Windows 本機 + 用 ssh 連的 Linux server，全部�
 | 3 | PC → server | ssh key; `ssh <user>@<server> echo ok` without a password | [linux-remote.md §1](linux-remote.md#1-ssh-key--ssh-金鑰) |
 | 4 | PC → server | herdr-core at the README tag + patches built on the PC for Linux (`x86_64-unknown-linux-musl`), copied to `~/.local/bin/herdr-core` (+ `hc` link), restarted | [linux-remote.md §2](linux-remote.md#2-herdr-core-for-the-server-built-on-the-pc--server-的-core在-pc-上-build) |
 | 5 | server | Neovim v0.12.6 built from source, and git | [linux-remote.md §3](linux-remote.md#3-neovim-and-git-on-the-server--server-上的-neovim-和-git); server can't download → [§3a](linux-remote.md#3a-server-cant-download--server-不能上網) |
-| 6 | PC (jay clicks) | Settings → Add machine; decline any offer to install hc | [linux-remote.md §2b](linux-remote.md#2b-add-the-machine--加機器) |
+| 6 | PC (jay clicks) | Settings → Add machine; never run `hc machine add` / `hc machine update` it may suggest, answer **n** to "Copy this hc" | [linux-remote.md §2b](linux-remote.md#2b-add-the-machine--加機器) |
 | 7 | both | linux-remote §5 test, with an agent running on the server | [linux-remote.md §5](linux-remote.md#5-try-jay-nvim-there--試-jay-nvim) |
 
 Server steps run through ssh from the PC, e.g. `ssh <user>@<server> 'bash -lc "…"'`, or in a Herdr tab on that
@@ -41,9 +41,10 @@ machine once step 6 is done. A long build: run it in a Herdr terminal on the ser
 ## What to report to jay / 回報
 
 ```
-PC:      hc --version ; herdr-app --version ; git -C %USERPROFILE%\src\herdr-jay describe --tags --always
-server:  ~/.local/bin/hc --version ; ~/.local/bin/nvim --version | head -1
-PC:      git -C %USERPROFILE%\src\herdr-core describe --tags   (the source both cores were built from)
+(PowerShell or Git Bash: `~` is your user folder)
+PC:      hc --version ; herdr-app --version ; git -C ~/src/herdr-jay describe --tags --always
+server:  ~/.local/bin/herdr-core --version ; ~/.local/bin/nvim --version | head -1
+PC:      git -C ~/src/herdr-core describe --tags   (the source both cores were built from)
 PC:      hc machine ls          (the server: connected, same version)
 ```
 

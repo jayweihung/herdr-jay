@@ -61,7 +61,9 @@ there is no `hc` yet. That folder matters: Herdr's "Add machine" and jay-nvim lo
 replacing it, `~/.local/bin/herdr-core server restart` (terminals there keep running).
 放在 `~/.local/bin/herdr-core`（再加一個 `hc` 連結）；Herdr 和 jay-nvim 都在那裡找。
 
-**Check** on the server: `~/.local/bin/hc --version` prints the same version as `hc --version` on the PC.
+**Check** on the server: `~/.local/bin/herdr-core --version` prints the same version as `hc --version` on the PC.
+There must be no other `herdr-core` on the server's PATH (`command -v herdr-core` prints nothing or your
+`~/.local/bin/herdr-core`): Herdr uses one found on PATH before `~/.local/bin`.
 
 **Source only on the server**: the server gets this one program (built by you from source) and Neovim's source
 (step 3); nothing prebuilt from anyone else. Never `hc update` on the server, and on your PC never "Update" the
@@ -73,8 +75,11 @@ machine in Herdr or `hc machine update` (both put the official build there).
 ## 2b. Add the machine / 加機器
 
 In Herdr: **Settings → Add machine** (or the `+` menu), enter `<user>@<server>` (or your ssh config name).
-With step 2 done, Herdr finds the core in `~/.local/bin` and connects. (Without it, Herdr would offer to install
-**the official build** of your version, downloaded from `releases.herdr.dev`: say no, do step 2.)
+With step 2 done, Herdr finds the core and connects.
+**Without it** Herdr says "Couldn't add … Run `hc machine add <target>` in a terminal". **Don't run that**: it asks
+`Copy this hc (…) there? [Y/n]`, plain Enter means yes, and from Windows to Linux it actually **downloads the
+official build** (not yours) onto the server. If you did start it, answer **n**. Do step 2, then add again.
+沒做第 2 步時 Herdr 會叫你跑 `hc machine add`：不要跑（它會下載官方版到 server）；跑了就回答 n。
 If it needs a password, a new host key or something installed, it tells you what to run.
 
 **Check** on your PC: `hc machine ls` shows the machine `connected` and its `version` equals `hc --version`.
@@ -85,7 +90,7 @@ If it needs a password, a new host key or something installed, it tells you what
 
 jay-nvim on a server pane looks for nvim in `~/.local/bin`, `/usr/local/bin`, `/usr/bin` and needs **0.11 or newer**.
 Ubuntu's apt Neovim is older (22.04: 0.6, 24.04: 0.9). Build **Neovim v0.12.6 from source** into your home (no root;
-about 2–10 minutes; needs `gcc`, `make`, `cmake` ≥ 3.16, `git`, `curl`, `tar`; it downloads its libraries as source from
+about 2–10 minutes; needs `gcc`, `make`, `cmake` ≥ 3.16 (built with SSL: it downloads the libraries itself), `git`, `curl`, `tar`; it downloads its libraries as source from
 `github.com` / `raw.githubusercontent.com`). In a server terminal (a Herdr tab on that machine):
 Neovim 也從原始碼 build（v0.12.6），裝在家目錄，不用 root。
 
@@ -110,7 +115,7 @@ ln -sf ~/.local/opt/nvim/bin/nvim ~/.local/bin/nvim
 ~/.local/bin/nvim --version | head -1
 ```
 
-From the pack ([3a](#3a-server-cant-download--server-不能上網)): skip the first three lines and use `cd ~/hp/neovim` instead
+From the pack ([3a](#3a-server-cant-download--server-不能上網)): run `mkdir -p ~/.local/bin`, skip the first three lines and use `cd ~/hp/neovim` instead
 of `cd ~/src/neovim`; the libraries are already there, nothing is downloaded.
 Only source goes in: Neovim's libraries are source tarballs (libuv, LuaJIT, luv, lpeg, unibilium, utf8proc,
 tree-sitter and its parsers); its translations are off, so no gettext. Neovim's own repo holds a few `.zip` / `.tar`
@@ -158,7 +163,7 @@ mkdir -p ~/hp && tar -xzf ~/nvim-pack.tgz -C ~/hp && cd ~/hp/neovim
 git -c core.fileMode=true -c core.symlinks=true reset -q --hard
 ```
 
-Then step 3's block from `cd ~/hp/neovim` on (skip its first three lines). The `core.autocrlf=false` keeps the
+Then `mkdir -p ~/.local/bin` and step 3's block from `cd ~/hp/neovim` on (skip its first three lines). The `core.autocrlf=false` keeps the
 Linux line endings Neovim's build scripts need.
 Checked: Neovim v0.12.6 builds with the network blocked from these 14 files (on macOS); the PowerShell part has not
 run on Windows yet.
@@ -182,7 +187,7 @@ jay-nvim follows the agent **in the same tab and on the same machine** as the nv
 2. With its pane focused: `ctrl-shift-i` (Windows) / `cmd-e` (Mac) → nvim opens **on the server**, beside it.
 3. Ask the agent to read / edit a file → nvim follows; `ctrl-shift-j` / `cmd-o` → the list (alt+o reaches nvim).
 4. `space a c` → comment, `space a s` → sent to the agent.
-5. Python: `:JayTrust` once per project for pyright.
+5. Only if pyright is on the server (not on a source-only one, step 3): `:JayTrust` once per project.
 
 Bring jay the results like the Windows checklist (photos, `:messages`, and `hc machine ls` on the PC).
 
@@ -193,14 +198,16 @@ Bring jay the results like the Windows checklist (photos, `:messages`, and `hc m
 | What you see / 看到什麼 | Why / 原因 | Fix / 怎麼修 |
 |---|---|---|
 | Add machine asks for a password / fails to log in | no key login | step 1; `ssh <user>@<server> echo ok` must work with no prompt |
-| Herdr offers to install hc on the server | the server has no core in `~/.local/bin` | say no; step 2 |
-| `hc --version` on the server fails: "cannot execute binary file" / "Exec format error" | built for the wrong CPU or OS | build for `x86_64-unknown-linux-musl` (ARM server: `aarch64-…`), step 2 |
+| "Couldn't add … run `hc machine add`", or a `Copy this hc … there? [Y/n]` prompt | no core on the server | don't run it / answer **n** (it downloads the official build); step 2 |
+| `hc machine ls` says "needs an hc update: hc machine update …" | the server's core is a different version | **don't** run that (it installs the official build); build the PC's tag for Linux and copy it (step 2) |
+| `herdr-core --version` on the server fails: "cannot execute binary file" / "Exec format error" | built for the wrong CPU or OS | build for `x86_64-unknown-linux-musl` (ARM server: `aarch64-…`), step 2 |
 | Machine version differs from your PC's `hc --version` | one side updated | build the same tag for Windows and Linux, copy again (step 2) |
 | Adding the machine starts a download | Herdr found no core on the server and fetches the official one | cancel; do step 2 first (nothing is downloaded when the core is in `~/.local/bin`) |
 | "nvim not found on <server>" | nvim not in `~/.local/bin` | step 3 |
+| Neovim build: a library download fails (`cmake.deps`, SSL / "unsupported protocol") | cmake without SSL, or a host blocked | ask IT for a cmake with SSL, or use [3a](#3a-server-cant-download--server-不能上網) (nothing downloaded) |
 | Neovim build: `cmake: command not found` / "CMake 3.16 or higher is required" | no or old cmake | ask IT for cmake ≥ 3.16; then `rm -rf build .deps` (pack: keep `.deps/build/downloads`, delete the rest of `.deps`) and build again |
 | Neovim build from the pack tries to download | a library file is missing or has another name | on the PC the count must be 14 (step 3a); copy the pack again |
 | "jay-nvim needs Neovim 0.11 or newer" | apt's old nvim found first | step 3 (`~/.local/bin` is searched first) |
 | "找不到 hc" in nvim on the server | core not in `~/.local/bin` | step 2 |
 | nvim never follows the agent | the agent runs on the PC, not on the server (or in another tab) | step 4 |
-| Machine shows `disconnected` after a while | ssh dropped (VPN, sleep) | Herdr reconnects; terminals on the server keep running |
+| Machine shows `unreachable` (or `connecting`) after a while | ssh dropped (VPN, sleep) | Herdr reconnects; terminals on the server keep running |

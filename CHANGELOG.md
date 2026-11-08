@@ -19,14 +19,10 @@ Needs: **mods** (copy both again), **app** (build v0.1.14).
   (`include.path` / `includeIf`) or in `config.worktree`; nvim's own `git status` in such a repo ran them. Now
   read with `--includes --show-scope`. 修正：別人的 repo 用 include 藏的 git filter 會被執行。
 
-- docs/linux-remote.md §2a: a server that can't download builds offline from one pack made on the PC
-  (Rust / Zig official toolchains, herdr-core + every Rust and Zig library as source, `cargo build --offline`).
-  server 不能上網時的離線 build。
-
 - Herdr app v0.1.14 (`2405bf3`; core stays v0.1.19). No default key changes; the mod API change (exec timeout) doesn't
   affect these mods. First tag checked on both OSes will be `for-herdr-v0.1.14-r1`.
 - New [docs/linux-remote.md](docs/linux-remote.md): a Linux server as a Herdr machine over ssh (key login, herdr-core
-  built from source on the server with a memory cap, Neovim 0.11+ in `~/.local/bin`, agents on the server).
+  built on the PC for Linux and copied, Neovim built on the server, agents on the server).
 - New [docs/agent-install.md](docs/agent-install.md): runbook for a coding agent installing PC + server. jay-nvim also finds `~/.local/bin/herdr-core`.
 
 - nvim opens in the focused pane's folder (it could start in the space's folder).

@@ -645,8 +645,14 @@ local py_root = { "pyproject.toml", "ruff.toml", "setup.py", ".git" } -- backend
 for name, c in pairs({
   pyright = { cmd = { "pyright-langserver", "--stdio" }, filetypes = { "python" }, root_markers = py_root },
   ruff = { cmd = { "ruff", "server" }, filetypes = { "python" }, root_markers = py_root },
-  ts_ls = { cmd = { "typescript-language-server", "--stdio" }, root_markers = { "tsconfig.json", "package.json", ".git" },
-    filetypes = { "javascript", "javascriptreact", "typescript", "typescriptreact" } },
+  -- Only where the project has its own TypeScript (node_modules/typescript): the server needs its tsserver, and a
+  -- global TypeScript 7 (the Go rewrite) ships none, so elsewhere it fails to start with an error popup.
+  ts_ls = { cmd = { "typescript-language-server", "--stdio" },
+    filetypes = { "javascript", "javascriptreact", "typescript", "typescriptreact" },
+    root_dir = function(b, on_dir)
+      local r = vim.fs.root(b, { "tsconfig.json", "package.json", ".git" })
+      if r and vim.uv.fs_stat(r .. "/node_modules/typescript/lib/tsserver.js") then on_dir(r) end
+    end },
 }) do
   if vim.fn.executable(c.cmd[1]) == 1 then vim.lsp.config(name, c); vim.lsp.enable(name) end
 end

@@ -9,6 +9,10 @@ Needs: **mods** = copy the two mod folders again (macOS symlinks: nothing) · **
 
 Needs: **mods** (copy again; both mods changed together — use them as a pair).
 
+- History rewritten once (2026-11-08) to remove session links from old commit messages; file contents unchanged.
+  The old tag `for-herdr-v0.1.13` was re-created on the rewritten commit (the one exception to "tags never move").
+  A clone from before: `git fetch --force --tags && git reset --hard origin/main` (or clone again).
+
 - jay-nvim-pick always sends alt+o (`<M-o>`); finds the pane by a marker argv item, not the word "jay-nvim".
 - Comments go only to known coding agents (never a shell / ssh / REPL), in this tab (by tab id); long lines cut.
 - `:JayTrust` refuses home and above; git runs with `core.fsmonitor` off.

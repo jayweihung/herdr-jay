@@ -20,10 +20,10 @@ Each set applies on top of exactly that official release tag.
 
 Step by step with checks: [docs/macos.md](../docs/macos.md), [docs/windows.md](../docs/windows.md).
 
-macOS / Linux:
+macOS (zsh), from the repo, on the tag the patch folder is named after:
 
 ```sh
-git checkout v0.1.19                      # the tag the patch folder is named after
+git checkout v0.1.19
 git submodule update --init --recursive
 git -c user.name=me -c user.email=me@local am -3 ~/src/herdr-jay/patches/herdr-core/v0.1.19/*.patch
 ```

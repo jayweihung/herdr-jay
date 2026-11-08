@@ -5,6 +5,18 @@ Newest first. Each entry says what you need to do on your machine.
 Needs: **mods** = copy the two mod folders again (macOS symlinks: nothing) · **core** / **app** = rebuild ·
 **keys** = see [docs/keys.md](docs/keys.md).
 
+## 2026-11-08 (review 2)
+
+Needs: **mods** (copy again; both mods changed together — use them as a pair).
+
+- jay-nvim-pick always sends alt+o (`<M-o>`); finds the pane by a marker argv item, not the word "jay-nvim".
+- Comments go only to known coding agents (never a shell / ssh / REPL), in this tab (by tab id); long lines cut.
+- `:JayTrust` refuses home and above; git runs with `core.fsmonitor` off.
+- Windows: programs under your home (scoop, npm) are found again; paths compared ignoring case everywhere;
+  `C:\Program Files\…` and `/c/…` paths in Bash commands.
+- Neovim older than 0.11 now says so instead of a Lua error; re-sourcing doesn't double timers.
+- docs: zsh-safe macOS commands, safer update blocks (macOS and Windows), Windows TLS / PATH / SDK notes.
+
 ## 2026-11-08
 
 Needs: **mods**, and **core** (apply `patches/herdr-core/v0.1.19`).

@@ -40,14 +40,16 @@ Everything else here can be installed per user. No admin → ask IT for
 "Visual Studio 2022 Build Tools with **Desktop development with C++**" and "LLVM".
 沒有管理員權限：請 IT 裝「Visual Studio 2022 Build Tools（勾 Desktop development with C++）」和「LLVM」。
 
-**Network / 網路**: the build downloads source code and libraries (not programs) from these hosts.
+**Network / 網路**: installing and building downloads from these hosts.
 If something is blocked, give IT this list. Behind a proxy: `setx HTTPS_PROXY http://proxy:port` (new windows; the ConPTY download uses the system proxy instead).
-build 時會從這些網站下載；被擋就把清單給 IT。
+安裝和 build 時會從這些網站下載；被擋就把清單給 IT。
 
 - `github.com`, `codeload.github.com`, `objects.githubusercontent.com`, `release-assets.githubusercontent.com`
   (Herdr, Ghostty, git dependencies, ConPTY, Neovim / LLVM downloads)
-- `index.crates.io`, `static.crates.io` (Rust libraries), `static.rust-lang.org` (rustup)
+- `cdn.winget.microsoft.com`, `aka.ms`, `download.visualstudio.microsoft.com` (winget, Visual Studio Build Tools)
+- `win.rustup.rs`, `static.rust-lang.org` (rustup, Rust), `index.crates.io`, `static.crates.io` (Rust libraries)
 - `deps.files.ghostty.org`, `ziglang.org` (Zig packages)
+- optional LSP tools (step 4): `registry.npmjs.org`, `pypi.org`, `files.pythonhosted.org`
 
 **Time and disk / 時間和空間**: the first build of each repo takes a long time (tens of minutes on a laptop)
 and several GB. Windows Defender scanning makes it much slower: ask IT to exclude `%USERPROFILE%\src`
@@ -57,6 +59,7 @@ and `%USERPROFILE%\.cargo` if allowed.
 
 ```powershell
 git config --global core.longpaths true
+git config --global http.sslBackend schannel        # company TLS inspection: use Windows' certificate store
 New-Item -ItemType Directory -Force "$env:USERPROFILE\src" | Out-Null
 ```
 
@@ -79,8 +82,8 @@ Or on GitHub **Code → Download ZIP**, extract into `%USERPROFILE%\src` and ren
 | Git for Windows | step 0 | `git --version` |
 | Visual Studio 2022 Build Tools (**admin**) | `winget install Microsoft.VisualStudio.2022.BuildTools --override "--passive --wait --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"` | see below |
 | Rust | `winget install Rustlang.Rustup`, then **in a new PowerShell**: `rustup toolchain install 1.95.0` and `rustup default 1.95.0` | `rustc --version` → `rustc 1.95.0` |
-| Zig **0.16.0** | `winget install zig.zig --version 0.16.0`, or unzip `zig-x86_64-windows-0.16.0.zip` from ziglang.org into `%LOCALAPPDATA%\Programs`, rename the folder `zig-x86_64-windows-0.16.0` to `zig` (it must directly contain `zig.exe`) and add `%LOCALAPPDATA%\Programs\zig` to PATH (see [Add to PATH](#add-a-folder-to-path)) | `zig version` → `0.16.0` |
-| LLVM (only for the app; **admin**) | `winget install LLVM.LLVM`, then `setx LIBCLANG_PATH "C:\Program Files\LLVM\bin"` | `Test-Path "$env:LIBCLANG_PATH\libclang.dll"` → `True` |
+| Zig **0.16.0** | `winget install zig.zig --version 0.16.0`, or download `zig-x86_64-windows-0.16.0.zip` from ziglang.org and unzip it as below (no admin) | `zig version` → `0.16.0` |
+| LLVM (only for the app; **admin**) | `winget install LLVM.LLVM`, then `setx LIBCLANG_PATH "C:\Program Files\LLVM\bin"` (no admin: see below) | `Test-Path "$env:LIBCLANG_PATH\libclang.dll"` → `True` |
 | just | `winget install Casey.Just` | `just --version` |
 
 Build Tools check: this prints a folder; nothing printed = the C++ part is missing
@@ -90,9 +93,25 @@ Build Tools check: this prints a folder; nothing printed = the C++ part is missi
 & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
 ```
 
+Zig without winget: unzip with PowerShell (Explorer's "Extract All" adds an extra folder level), then add
+`%LOCALAPPDATA%\Programs\zig-x86_64-windows-0.16.0` to PATH ([Add to PATH](#add-a-folder-to-path)); that folder must
+directly contain `zig.exe`:
+
+```powershell
+Expand-Archive "$env:USERPROFILE\Downloads\zig-x86_64-windows-0.16.0.zip" "$env:LOCALAPPDATA\Programs"
+Test-Path "$env:LOCALAPPDATA\Programs\zig-x86_64-windows-0.16.0\zig.exe"     # must be True
+```
+
 LLVM without admin: download `clang+llvm-<version>-x86_64-pc-windows-msvc.tar.xz` from
-<https://github.com/llvm/llvm-project/releases>, extract it (`tar -xf <file>`) into `%LOCALAPPDATA%\Programs`, and
-`setx LIBCLANG_PATH "<that folder>\bin"`.
+<https://github.com/llvm/llvm-project/releases>, then (replace `<file>` and `<version>`):
+
+```powershell
+tar -xf "$env:USERPROFILE\Downloads\<file>" -C "$env:LOCALAPPDATA\Programs"
+setx LIBCLANG_PATH "$env:LOCALAPPDATA\Programs\clang+llvm-<version>-x86_64-pc-windows-msvc\bin"
+```
+
+If `tar` can't open the `.xz` file, extract it with 7-Zip, or ask IT.
+`tar` 解不開 `.xz` 就用 7-Zip，或請 IT 幫忙。
 
 winget notes: `winget` not found → install "App Installer" from the Microsoft Store, or use each tool's own
 installer / the company software center. First run asks to accept terms: add
@@ -105,10 +124,15 @@ Rust must be the **MSVC** kind (the Windows default): `rustup show` lists `x86_6
 Per user, no admin, adds it only once. Change the first line to the folder you are adding:
 
 ```powershell
-$add = "$env:LOCALAPPDATA\Programs\zig"
-$p = [Environment]::GetEnvironmentVariable("Path", "User")
-if (("$p" -split ";") -notcontains $add) { [Environment]::SetEnvironmentVariable("Path", (("$p".TrimEnd(";"), $add) -join ";").TrimStart(";"), "User") }
+$add = "$env:LOCALAPPDATA\Programs\zig-x86_64-windows-0.16.0"
+$k = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey("Environment", $true)
+$p = [string]$k.GetValue("Path", "", "DoNotExpandEnvironmentNames")
+if (($p -split ";") -notcontains $add) { $k.SetValue("Path", (($p.TrimEnd(";"), $add) -join ";").TrimStart(";"), "ExpandString"); [Environment]::SetEnvironmentVariable("HERDR_JAY_X", "1", "User"); [Environment]::SetEnvironmentVariable("HERDR_JAY_X", $null, "User") }
+$k.Close()
 ```
+
+It keeps entries like `%USERPROFILE%\…` as they are; the last two calls on the long line only tell Explorer that
+PATH changed (so new windows see it).
 
 If PowerShell refuses ("method invocation is supported only on core types"), or simply to do it by hand:
 `rundll32 sysdm.cpl,EditEnvironmentVariables` → your user **Path** → **New** → paste the folder → OK.
@@ -123,11 +147,15 @@ Install the core **before** the app: an app that finds no core offers to downloa
 
 ```powershell
 Set-Location "$env:USERPROFILE\src"
-git clone --recurse-submodules https://github.com/herdrdev/herdr-core.git
+git clone --recurse-submodules --shallow-submodules https://github.com/herdrdev/herdr-core.git
 Set-Location herdr-core
 git checkout v0.1.19
+git rev-parse --short HEAD                          # must be 06793ed (README versions table)
 git submodule update --init --recursive
 ```
+
+A fresh clone gets the right commit. An older clone: run `git fetch --tags --force` before `git checkout`.
+舊的 clone 要先 `git fetch --tags --force`。
 
 **jay's patches / jay 的修改** — there is one for core v0.1.19; apply it so the build is the same as jay's
 (it matters on a Mac, harmless on Windows). `$j` = the herdr-jay folder from step 0:
@@ -135,7 +163,8 @@ git submodule update --init --recursive
 ```powershell
 $j = "$env:USERPROFILE\src\herdr-jay"
 $pd = "$j\patches\herdr-core\v0.1.19"
-if (Test-Path $pd) { git -c user.name=me -c user.email=me@local am (Get-ChildItem "$pd\*.patch" | Sort-Object Name).FullName } else { "no patches" }
+$ps = @(Get-ChildItem "$pd\*.patch" -ErrorAction SilentlyContinue | Sort-Object Name).FullName
+if ($ps) { git -c user.name=me -c user.email=me@local am -3 $ps } else { "no patches" }
 ```
 
 If `git am` stops with an error: `git am --abort` and bring the message to jay.
@@ -160,7 +189,8 @@ if you had no `hc`. No admin needed.
 
 - **ConPTY download blocked**: get `Microsoft.Windows.Console.ConPTY.1.24.260710001.nupkg` from
   github.com/microsoft/terminal releases (tag `v1.24.11911.0`) some other way, copy it to
-  `$env:TEMP\hc-conpty-1.24.260710001.zip` (that exact name), and run `just install` again: the script uses it and
+  `"$([IO.Path]::GetTempPath())hc-conpty-1.24.260710001.zip"` (that exact name; e.g.
+  `Copy-Item <file> "$([IO.Path]::GetTempPath())hc-conpty-1.24.260710001.zip"`), and run `just install` again: the script uses it and
   still checks its hash.
 - **"running scripts is disabled on this system"**, or no ConPTY at all — by hand.
   The core then uses Windows' own ConPTY, which drops some terminal answers (programs may act up a little):
@@ -183,14 +213,18 @@ Later updates by hand, while it runs: `hc update --from target\release\herdr-cor
 
 ```powershell
 Set-Location "$env:USERPROFILE\src"
-git clone --recurse-submodules https://github.com/herdrdev/herdr-app.git
+git clone --recurse-submodules --shallow-submodules https://github.com/herdrdev/herdr-app.git
 Set-Location herdr-app
 git checkout v0.1.13
+git rev-parse --short HEAD                          # must be 93b097f (README versions table)
 git submodule update --init --recursive
 $j = "$env:USERPROFILE\src\herdr-jay"
-$pd = "$j\patches\herdr-app\v0.1.13"            # none today
-if (Test-Path $pd) { git -c user.name=me -c user.email=me@local am (Get-ChildItem "$pd\*.patch" | Sort-Object Name).FullName } else { "no patches" }
+$pd = "$j\patches\herdr-app\v0.1.13"                # none today
+$ps = @(Get-ChildItem "$pd\*.patch" -ErrorAction SilentlyContinue | Sort-Object Name).FullName
+if ($ps) { git -c user.name=me -c user.email=me@local am -3 $ps } else { "no patches" }
 ```
+
+As in step 2: an older clone needs `git fetch --tags --force` before `git checkout`.
 
 ```powershell
 just install
@@ -224,16 +258,22 @@ jay-nvim 不會幫你裝 Neovim，要 **0.11 以上**：
 
 - `winget install Neovim.Neovim` (an MSI for all users: may need admin)
 - `scoop install neovim` (per user; needs scoop, which itself needs scripts allowed)
-- no admin, no winget: download `nvim-win64.zip` from <https://github.com/neovim/neovim/releases>, unzip into
-  `%LOCALAPPDATA%\Programs` (gives `nvim-win64\bin\nvim.exe`), add `%LOCALAPPDATA%\Programs\nvim-win64\bin` to PATH
+- no admin, no winget: download `nvim-win64.zip` from <https://github.com/neovim/neovim/releases>, unzip it with
+  `Expand-Archive "$env:USERPROFILE\Downloads\nvim-win64.zip" "$env:LOCALAPPDATA\Programs"` (gives
+  `nvim-win64\bin\nvim.exe`; not Explorer's "Extract All", which adds an extra folder level), and add
+  `%LOCALAPPDATA%\Programs\nvim-win64\bin` to PATH ([Add to PATH](#add-a-folder-to-path))
 - or IT / the software center ("Neovim")
 
 **Check** (new PowerShell): `nvim --version` → first line `NVIM v0.11` or newer.
 
+**Claude Code**: `claude --version` must work in a new PowerShell (it needs Git for Windows from step 0).
+If it is missing, install it the way your company allows.
+`claude --version` 要能跑；沒有就照公司允許的方式裝。
+
 Optional, for go-to-definition and errors (skip if Node or Python are not allowed; jay-nvim works without them)
 選用（LSP），公司不准裝 Node / Python 就跳過：
 
-- Python: `npm i -g pyright`, `pip install ruff` (then `ruff --version` must work in a new PowerShell; if not, add pip's
+- Python: `npm i -g pyright`, `py -m pip install --user ruff` (then `ruff --version` must work in a new PowerShell; if not, add pip's
   `Scripts` folder to PATH)
 - TypeScript: `npm i -g typescript-language-server`; it starts only in projects that have `node_modules\typescript`
 
@@ -250,8 +290,11 @@ Optional, for go-to-definition and errors (skip if Node or Python are not allowe
    $h = "$env:USERPROFILE\.config\herdr-app"
    New-Item -ItemType Directory -Force "$h\mods" | Out-Null
    Copy-Item -Recurse -Force "$j\mods\jay-nvim", "$j\mods\jay-nvim-pick" "$h\mods\"
-   git -C $j describe --tags --always > "$h\mods\jay-nvim\.herdr-jay"   # which herdr-jay you copied
+   Set-Content -Encoding ascii "$h\mods\jay-nvim\.herdr-jay" (git -C $j describe --tags --always --match "for-herdr-v*-r*")   # which herdr-jay you copied
    ```
+
+   Got herdr-jay as a ZIP (no git)? Use this instead for the last line:
+   `Set-Content -Encoding ascii "$h\mods\jay-nvim\.herdr-jay" "zip $(Get-Date -Format yyyy-MM-dd)"`
 
    (A different home only if you set `HERDR_APP_HOME` or `XDG_CONFIG_HOME`.)
 3. Add the keys / 加按鍵:
@@ -332,6 +375,8 @@ Here: install and Windows.
 | Build: Zig errors | wrong Zig | `zig version` must be `0.16.0` |
 | Build: path too long / file not found deep in `vendor` | 260-char limit | step 0: `core.longpaths`, short folder |
 | Build: download / TLS errors | network blocked | step 0 host list to IT; `HTTPS_PROXY` |
+| `SSL certificate problem: unable to get local issuer certificate` | company TLS inspection | `git config --global http.sslBackend schannel` |
+| Build: "Failed to find fxc.exe" | Windows SDK missing | Visual Studio Installer → Modify → tick a **Windows 11 SDK** |
 
 Anything else: copy the exact error text (a photo is fine) and bring it to jay.
 其他狀況：把錯誤訊息原文抄下來（拍照也行）帶回家。
@@ -352,7 +397,7 @@ Windows 只跟 herdr-jay：只 build README 版本表裡的版本。順序：her
 $j = "$env:USERPROFILE\src\herdr-jay"; $h = "$env:USERPROFILE\.config\herdr-app"
 hc --version
 herdr-app --version | Out-Host
-git -C $j describe --tags --always
+git -C $j describe --tags --always --match "for-herdr-v*-r*"
 Get-Content "$h\mods\jay-nvim\.herdr-jay"
 ```
 
@@ -370,21 +415,24 @@ If the README table names a tag for your Herdr (`for-herdr-v<app>-r<N>`), `git c
 
 ### 8.2 Core, then app
 
-Only if the README table lists a newer version. Set the two lines at the top (the versions from the table), run,
-then again for `herdr-app`:
+Only if the README table lists a newer version. In the first line replace `<version from the README table>` with
+that version (e.g. `v0.1.20`), run, then again with `$repo = "herdr-app"` and the app version.
+Paste each block with **Ctrl+V as one block** (not right-click, not line by line).
+第一行換成 README 表裡的版本；整段用 Ctrl+V 一次貼上（不要右鍵、不要一行一行貼）。
 
 ```powershell
-$repo = "herdr-core"; $tag = "v0.1.20"              # then: $repo = "herdr-app"; $tag = "<app version from the table>"
+$repo = "herdr-core"; $tag = "<version from the README table>"     # then: $repo = "herdr-app"; $tag = "<app version>"
 $j = "$env:USERPROFILE\src\herdr-jay"
-Set-Location "$env:USERPROFILE\src\$repo"
-git am --abort 2>$null                              # leftovers from an earlier failed try
-git fetch --tags --force
-git checkout --force $tag
-git submodule update --init --recursive
 $rd = "$j\patches\$repo"; $pd = "$rd\$tag"
-if ((Test-Path $rd) -and -not (Test-Path $pd)) { throw "herdr-jay has no patches for $repo $tag yet: stay on your version" }
-if (Test-Path $pd) { git -c user.name=me -c user.email=me@local am -3 (Get-ChildItem "$pd\*.patch" | Sort-Object Name).FullName } else { "no patches" }
+if ((Test-Path $rd) -and -not (Test-Path $pd)) { "STOP: herdr-jay has no patches for $repo $tag yet: stay on your version" } else {
+  Set-Location "$env:USERPROFILE\src\$repo"; git am --abort 2>$null; git fetch --tags --force; git checkout --force $tag
+  git submodule update --init --recursive
+  $ps = @(Get-ChildItem "$pd\*.patch" -ErrorAction SilentlyContinue | Sort-Object Name).FullName
+  if ($ps) { git -c user.name=me -c user.email=me@local am -3 $ps } else { "no patches" } }
 ```
+
+If it printed `STOP`, nothing changed: stay on your version. If `git am` printed an error, **don't run `just install`**;
+see the rollback below. 印出 `STOP` 或 `git am` 出錯，就**不要** `just install`。
 
 For the app, also check it fits the core: `Get-Content distribution\core-version` must be ≤ `hc --version`.
 
@@ -406,7 +454,7 @@ Remove the old folders first so deleted files don't linger:
 $j = "$env:USERPROFILE\src\herdr-jay"; $h = "$env:USERPROFILE\.config\herdr-app"
 Remove-Item -Recurse -Force "$h\mods\jay-nvim", "$h\mods\jay-nvim-pick" -ErrorAction SilentlyContinue
 Copy-Item -Recurse -Force "$j\mods\jay-nvim", "$j\mods\jay-nvim-pick" "$h\mods\"
-git -C $j describe --tags --always > "$h\mods\jay-nvim\.herdr-jay"
+Set-Content -Encoding ascii "$h\mods\jay-nvim\.herdr-jay" (git -C $j describe --tags --always --match "for-herdr-v*-r*")
 herdr-app check "$h\mods\jay-nvim" | Out-Host
 herdr-app check "$h\mods\jay-nvim-pick" | Out-Host
 ```

@@ -30,7 +30,9 @@ Needs **Neovim 0.11 or newer**, `git`, and `hc` on the machine where the pane op
 - **File tree** on the right (netrw), without git-ignored files (the ignore list comes from the repo nvim started in);
   the shown file is highlighted.
 - **Comments to the agent**: comment a line or a selection, list, delete, and send them all to the agent with
-  `hc send`. Control characters are removed before sending, so file text can't act as keys in the agent's terminal.
+  `hc send`. Control characters are removed before sending, so file text can't act as keys in the agent's terminal;
+  quoted lines are cut at 200 characters. Only known coding agents (Claude Code, Codex, Gemini, opencode, pi, aider,
+  …) count as agents — never a shell, ssh or a REPL, where the quoted lines would run as commands.
   Comment spans and message shape follow [herdr-nvim](https://github.com/ChmaraX/herdr-nvim) (MIT).
 - **Files the agent touched**: a list of files the agent read or edited, newest first, plus files git shows as changed.
 - **Language servers**: go to definition, hover, errors — see [3](#3-language-servers-and-trust--語言伺服器和信任).
@@ -76,10 +78,12 @@ Started only if installed on that machine (never as root):
 A cloned repo or a pull request can be someone else's code; follow mode opens files without asking. So the two servers
 that run project code start only in folders listed in `~/.config/jay-nvim/trust` (one folder per line; subfolders
 count). The first time, nvim tells you; `:JayTrust` adds the current project (or `:JayTrust <folder>`), then reopen the file.
+It refuses your home folder or anything above it (that would trust every project).
 會跑專案程式碼的兩個伺服器，只在你信任的資料夾啟動；第一次會提示，打 `:JayTrust` 就好。
 
 Programs are always run by full path; on Windows never from the project folder (Windows would otherwise run a
-`git.exe` or `ruff.exe` sitting in it).
+`git.exe` or `ruff.exe` sitting in it). Every git nvim runs has `core.fsmonitor` off, so `git status` in a repo
+can't start a hook set in that repo's config.
 
 ## 4. macOS vs Windows / 兩個系統的差別
 
@@ -94,7 +98,7 @@ One `nvim.js` for both; all OS differences sit in its PLATFORM section ([5](#5-h
 | Paths | as they are | one spelling (`C:/x/y`), case ignored when comparing |
 | Paths in Bash commands | `/abs/path` | `C:\x`, `C:/x`, `/c/x` |
 | Agent running as root | optional handoff ([6](#6-agent-running-as-root-unix-optional--agent-用-root-跑選用)) | not available |
-| Pick key nvim receives | `<D-o>` | `<M-o>` |
+| Pick key nvim receives | `<M-o>` (alt+o) | `<M-o>` (alt+o) |
 
 On Windows, start the agent in the folder the tab was opened in (no `cd` first): that is how jay-nvim finds its
 session. Two Claude Codes in the same folder may get mixed up.
@@ -106,17 +110,20 @@ mods/jay-nvim/
   main.js     picks the launcher: Windows + a pane on this computer → windows.js, otherwise unix.js
   unix.js     macOS / Linux / other machines: /bin/sh, root handoff
   windows.js  Windows: .init.lua + :source
+  mark.js     the argv item both launchers pass, so jay-nvim-pick finds the pane
   nvim.js     the Lua (one string, NVIM_INIT), run by nvim on the machine where the pane opens
                 PLATFORM  every OS difference, in one table P (nothing below tests the OS)
                 then: reload + diff, swap-file heads-up, tree, agent + follow, comments, keys, LSP, mouse
 mods/jay-nvim-pick/
-  main.js     finds the pane by "jay-nvim" in its argv, focuses it, sends super+o (macOS) / alt+o
+  main.js     finds the pane by the argv item `let g:jay_nvim = 1`, focuses it, sends alt+o (nvim: <M-o>)
 ```
 
 `nvim.js` stays a single file: the unix launcher puts the whole Lua on one command line, and a root-side copy can be
 pinned by its sha256.
 
 ## 6. Agent running as root (unix, optional) / agent 用 root 跑（選用）
+
+Linux only in practice: the runtime dir it passes is `$XDG_RUNTIME_DIR` (`/run/user/<uid>`), which macOS doesn't have.
 
 When the agent beside the pane runs under `sudo`, its session log is root's, so jay-nvim exits with code 77. If
 `~/.config/jay-nvim/handoff` holds an absolute path, the pane then runs `sudo <that path> <pane id> <runtime dir>`.
@@ -147,7 +154,7 @@ OS-specific problems (install, PATH, keys) are in each install guide. These are 
 
 | What you see / 看到什麼 | Why / 原因 | Fix / 怎麼修 |
 |---|---|---|
-| Lua error about `vim.lsp.config` or `vim.system` | Neovim older than 0.11 | install a newer Neovim |
+| "jay-nvim needs Neovim 0.11 or newer" | Neovim older than 0.11 (e.g. Ubuntu's apt) | install a newer Neovim (the official release or a PPA) |
 | "找不到 hc" inside nvim | `hc` not found | install Herdr core; check `hc --version` |
 | nvim never follows the agent | agent isn't Claude Code, nothing read yet, or follow is off | `space a f`; on Windows see [4](#4-macos-vs-windows--兩個系統的差別) |
 | "pyright / TypeScript 沒在 … 啟動" | folder not trusted | `:JayTrust`, then reopen the file |

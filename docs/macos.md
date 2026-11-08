@@ -21,8 +21,10 @@ with the same patches applied; the result is the same). Checked on Apple Silicon
 
 ## 1. Tools / 工具（一次）
 
+Command Line Tools (clang, git, the macOS SDK; full Xcode not needed), then the rest:
+
 ```sh
-xcode-select --install                 # Command Line Tools: clang, git, the macOS SDK (full Xcode not needed)
+xcode-select --install
 brew install just zig@0.16 rustup neovim
 ```
 
@@ -31,7 +33,7 @@ brew install just zig@0.16 rustup neovim
 PATH. Add all three once, then open a **new terminal**:
 
 ```sh
-echo 'export PATH="$HOME/.local/bin:$(brew --prefix zig@0.16)/bin:$(brew --prefix rustup)/bin:$PATH"' >> ~/.zprofile
+echo 'export PATH="$HOME/.local/bin:/opt/homebrew/opt/zig@0.16/bin:/opt/homebrew/opt/rustup/bin:$PATH"' >> ~/.zprofile
 ```
 
 ```sh
@@ -43,7 +45,10 @@ rustup toolchain install 1.95.0 && rustup default 1.95.0
 
 **Remove an official Herdr first** (same app id, and it updates itself over yours):
 `brew uninstall --cask herdr-app`, or delete `/Applications/Herdr.app` / `~/Applications/Herdr.app` installed from the DMG.
-先移除官方版 Herdr。
+Also an official core: `brew uninstall herdr-core` if Homebrew has it; after step 2, `which -a hc` must show only
+`~/.local/bin/hc` (the installer keeps an existing `~/.local/bin/hc`; if `ls -l ~/.local/bin/hc` doesn't point into
+`~/.local/share/herdr-core`, delete it and run step 2 again).
+先移除官方版 Herdr（和官方 core）。
 
 ```sh
 mkdir -p ~/src && cd ~/src
@@ -67,8 +72,10 @@ git submodule update --init --recursive
 **jay's patches** — needed: core v0.1.19 has one (without it the build fails with only the Command Line Tools,
 because Ghostty tries to build an Xcode framework):
 
+If this folder exists, apply it:
+
 ```sh
-ls ~/src/herdr-jay/patches/herdr-core/v0.1.19/          # exists = apply
+ls ~/src/herdr-jay/patches/herdr-core/v0.1.19/
 git -c user.name=me -c user.email=me@local am -3 ~/src/herdr-jay/patches/herdr-core/v0.1.19/*.patch
 ```
 
@@ -97,9 +104,11 @@ git clone --recurse-submodules https://github.com/herdrdev/herdr-app.git
 cd herdr-app
 git checkout v0.1.13
 git submodule update --init --recursive
-ls ~/src/herdr-jay/patches/herdr-app/v0.1.13/ 2>/dev/null   # nothing today; if it exists, git am like step 2
+ls ~/src/herdr-jay/patches/herdr-app/v0.1.13/ 2>/dev/null
 just install
 ```
+
+The `ls` shows nothing today (no app patches); if that folder ever exists, `git am` it like step 2 before `just install`.
 
 Installs `~/Applications/Herdr.app` (ad-hoc signed) and `~/.local/bin/herdr-app`. A self-built app never updates itself.
 
@@ -194,23 +203,26 @@ Build only the versions in the [README versions table](../README.md#versions--�
 What you have now: `hc --version`, `herdr-app --version`, `git -C ~/src/herdr-jay describe --tags --always`.
 
 ```sh
-cd ~/src/herdr-jay && git checkout main && git pull    # or: git checkout for-herdr-v<app>-r<N> if the README names one
+cd ~/src/herdr-jay && git checkout main && git pull
 ```
 
-Core, then the same for the app (`repo=herdr-app tag=<app version>`), only if the table lists a newer version:
+If the README names a tag for your Herdr (`for-herdr-v<app>-r<N>`), check that out instead of staying on `main`.
+
+Core, then the same for the app (`repo=herdr-app`), only if the table lists a newer version. Set `tag` to the
+version from the table. The block applies jay's patches if there are any and installs only when they applied
+(terminals keep running):
 
 ```sh
-repo=herdr-core tag=v0.1.20                            # from the README table
+repo=herdr-core tag=vX.Y.Z
 cd ~/src/$repo
-git am --abort 2>/dev/null                             # leftovers from an earlier failed try
+git am --abort 2>/dev/null
 git fetch --tags --force
 git checkout --force $tag
 git submodule update --init --recursive
 rd=~/src/herdr-jay/patches/$repo; pd=$rd/$tag
 if [ -d "$rd" ] && [ ! -d "$pd" ]; then echo "no patches for $repo $tag yet: stay on your version"
 else
-  [ -d "$pd" ] && git -c user.name=me -c user.email=me@local am -3 "$pd"/*.patch
-  just install                                         # terminals keep running
+  { [ ! -d "$pd" ] || git -c user.name=me -c user.email=me@local am -3 "$pd"/*.patch; } && just install
 fi
 ```
 

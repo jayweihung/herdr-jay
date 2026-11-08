@@ -14,6 +14,6 @@ Windows `"ctrl-shift-i": "mod.open:jay-nvim"`, `"ctrl-shift-j": "mod.open:jay-nv
 Needs Neovim 0.11+, git and Herdr's `hc` on the machine where the pane opens.
 
 Files: `main.js` (picks the launcher), `unix.js` (macOS / Linux / other machines), `windows.js` (Windows),
-`nvim.js` (the Lua; OS differences in its PLATFORM section).
+`mark.js` (argv marker jay-nvim-pick looks for), `nvim.js` (the Lua; OS differences in its PLATFORM section).
 
 License: Apache 2.0 (see the repo's LICENSE). Comment spans and message shape follow herdr-nvim (MIT, ChmaraX/herdr-nvim).

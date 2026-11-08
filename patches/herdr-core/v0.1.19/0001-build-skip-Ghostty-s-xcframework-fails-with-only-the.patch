@@ -1,0 +1,36 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: jayweihung <3034830+jayweihung@users.noreply.github.com>
+Date: Sun, 8 Nov 2026 22:54:54 +0800
+Subject: [PATCH] build: skip Ghostty's xcframework (fails with only the
+ Command Line Tools)
+
+Ghostty builds the xcframework whenever xcodebuild is on PATH; with only the
+Command Line Tools /usr/bin/xcodebuild exists but fails. herdr-app's
+ghostty-sys already passes -Demit-xcframework=false; do the same here.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ crates/ghostty-vt/build.rs | 10 +++++++++-
+ 1 file changed, 9 insertions(+), 1 deletion(-)
+
+diff --git a/crates/ghostty-vt/build.rs b/crates/ghostty-vt/build.rs
+index 77cc17d..1d95dfd 100644
+--- a/crates/ghostty-vt/build.rs
++++ b/crates/ghostty-vt/build.rs
+@@ -31,7 +31,15 @@ fn main() {
+     let mut build = Command::new(&zig);
+     // Baseline CPU, never this machine's: hc is copied to other machines
+     // (releases, `hc machine add`), whose CPUs may lack this one's features.
+-    build.current_dir(&src).args(["build", "-Demit-lib-vt", "-Doptimize=ReleaseFast", "-Dcpu=baseline"]);
++    // Only the static library is linked. Ghostty builds the xcframework whenever it finds
++    // xcodebuild, and with only the Command Line Tools /usr/bin/xcodebuild exists but fails.
++    build.current_dir(&src).args([
++        "build",
++        "-Demit-lib-vt",
++        "-Demit-xcframework=false",
++        "-Doptimize=ReleaseFast",
++        "-Dcpu=baseline",
++    ]);
+     if let Some(path) = clean_path {
+         build.env("PATH", path);
+     }

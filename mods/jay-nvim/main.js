@@ -20,14 +20,15 @@ done
 echo "nvim not found on $(hostname)"; read _`;
 
 // Windows: no /bin/sh, and a command line holds at most 32767 characters (the Lua is longer), so the Lua goes
-// to a hidden file in this mod's folder (it exists; hidden files don't hot-reload the mod) and nvim sources it. nvim.exe must be on PATH (winget / scoop / the installer).
+// to a hidden file in this mod's folder (it exists; hidden files don't hot-reload the mod) and nvim runs it with dofile. nvim.exe must be on PATH (winget / scoop / the installer).
 // Only for a pane on this computer: a space on another machine is Linux or macOS, reached the other way.
 async function openWindows() {
   const sep = appHome().includes("\\") ? "\\" : "/";
   const file = [appHome(), "mods", "jay-nvim", ".init.lua"].join(sep);
   const old = await readTextFile(file);
   if (old !== NVIM_INIT) await writeTextFile(file, NVIM_INIT, old);
-  run("terminal.open", { argv: ["nvim", "-S", file], place: "right", name: "nvim" });
+  // dofile, not -S: :source would read "#" and "%" in the path as Vim filename specials.
+  run("terminal.open", { argv: ["nvim", "-c", `lua dofile([==[${file}]==])`], place: "right", name: "nvim" });
 }
 
 function localSpace() {

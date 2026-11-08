@@ -16,7 +16,7 @@ Neovim in a pane beside your coding agent, inside [Herdr](https://github.com/her
 
 ## Install / 安裝
 
-Copy both folders into your Herdr home's `mods/` (macOS / Linux: `~/.config/herdr-app/mods/`):
+Copy (or symlink) both folders into your Herdr home's `mods/` (macOS / Linux: `~/.config/herdr-app/mods/`, Windows: `%USERPROFILE%\.config\herdr-app\mods\`). Full steps: [macOS](../../docs/macos.md), [Windows](../../docs/windows.md).
 
 - `jay-nvim` — opens the pane (`mod.open:jay-nvim`)
 - `jay-nvim-pick` — `cmd-o`: focus the jay-nvim pane in this tab and open the "files the agent touched" list
@@ -46,13 +46,13 @@ are free and side by side. Pick others if you like; check Herdr's defaults first
 The files list: `jay-nvim-pick` presses `cmd-o` (`<D-o>`) in nvim on macOS and `alt-o` (`<M-o>`) on Windows / Linux.
 Inside nvim, `<leader>o` (space, then o) works everywhere.
 
-Needs on each machine where the pane opens: `nvim` (≥ 0.10) and `hc` on a usual path
+Needs on each machine where the pane opens: `nvim` (≥ 0.11) and `hc` on a usual path
 (`~/.local/bin`, `/opt/homebrew/bin`, `/usr/local/bin`, `/usr/bin`). LSP servers are optional.
 
 Windows (**experimental, not yet tested on a real Windows machine**): `nvim.exe` must be on `PATH`
 (e.g. `winget install Neovim.Neovim`), plus `git`, and `hc` on `PATH` for following the agent and sending comments.
 Because a Windows command line holds at most 32767 characters and the Lua is longer, jay-nvim writes it to
-`mods/jay-nvim/.init.lua` in your Herdr home and starts `nvim -S` on it. Running an agent as root (handoff) is
+`mods/jay-nvim/.init.lua` in your Herdr home and has nvim run it (`lua dofile`). Running an agent as root (handoff) is
 not supported on Windows. LSP servers: `npm i -g pyright typescript-language-server typescript`, `pip install ruff`
 (or scoop / winget equivalents). See also [docs/windows.md](../../docs/windows.md).
 

@@ -9,18 +9,35 @@ Each set applies on top of exactly that official release tag.
 **No folder for a repo = no changes to it**: build the official tag as is.
 沒有某個 repo 的資料夾＝沒改它，直接 build 官方版本。
 
+## What is here now / 目前有的修改
+
+| Repo / tag | Patch | Why |
+|---|---|---|
+| herdr-core v0.1.19 | `0001-build-skip-Ghostty-s-xcframework…` | lets core build on a Mac with only the Command Line Tools (herdr-app already does this); harmless on Windows |
+| herdr-app v0.1.13 | none | |
+
 ## Apply / 套用
 
+Step by step with checks: [docs/macos.md](../docs/macos.md), [docs/windows.md](../docs/windows.md).
+
+macOS / Linux:
+
 ```sh
-git clone --recurse-submodules https://github.com/herdrdev/herdr-app.git
-cd herdr-app
-git checkout v0.1.13                      # the tag the patch folder is named after
+git checkout v0.1.19                      # the tag the patch folder is named after
 git submodule update --init --recursive
-git am /path/to/herdr-jay/patches/herdr-app/v0.1.13/*.patch
+git -c user.name=me -c user.email=me@local am ~/src/herdr-jay/patches/herdr-core/v0.1.19/*.patch
 ```
 
-Then build as the official README says. Same for `herdr-core`.
-If `git am` fails, your checkout isn't that exact tag: `git am --abort`, check out the tag, try again.
+Windows (PowerShell does not expand `*.patch` for git):
+
+```powershell
+$j = "$env:USERPROFILE\src\herdr-jay"
+git -c user.name=me -c user.email=me@local am (Get-ChildItem "$j\patches\herdr-core\v0.1.19\*.patch" | Sort-Object Name).FullName
+```
+
+The `-c user.name=… user.email=…` only lets `git am` record the commit on a machine where git has no name set.
+If `git am` fails: `git am --abort`, make sure you are on exactly that tag, try again.
+Note: upstream sometimes moves a release tag a few CI/test commits later; the patches apply to either.
 
 ## License
 

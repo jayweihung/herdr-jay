@@ -20,13 +20,14 @@ jayweihung 的 Herdr 通用 mod 與設定。
 
 ## Install / 安裝
 
-1. Get this repo (`git clone` or download ZIP).
-2. Copy each folder under `mods/` into your Herdr home's `mods/` folder
-   (macOS / Linux: `~/.config/herdr-app/mods/`; Windows: `%USERPROFILE%\.config\herdr-app\mods\`).
-3. Add the keys for your OS (below) to `keys.json`. Herdr loads mods and keys by itself. Run `herdr-app check <mod folder>` to verify.
+Build Herdr from the official source plus `patches/`, then install the mods. Step by step, with checks and troubleshooting:
+從官方原始碼＋`patches/` build Herdr，再裝 mod。完整步驟（含檢查、疑難排解）：
 
-**Windows, step by step** (build Herdr, Neovim, install, troubleshooting): [docs/windows.md](docs/windows.md).
-Windows 完整步驟（build Herdr、裝 Neovim、安裝、出問題怎麼辦）：[docs/windows.md](docs/windows.md)。
+- **macOS**: [docs/macos.md](docs/macos.md)
+- **Windows**: [docs/windows.md](docs/windows.md)
+
+Needs Neovim **0.11 or newer**. Never run plain `hc update` (it swaps in the official core).
+需要 Neovim **0.11 以上**。不要跑 `hc update`（會換回官方 core）。
 
 ## Mac vs Windows / Mac 和 Windows 的差別
 
@@ -38,7 +39,7 @@ The same mod folders work on both; nothing to switch. Each computer has its own 
 | Herdr home | `~/.config/herdr-app` | `%USERPROFILE%\.config\herdr-app` |
 | Open nvim | `cmd-e` | `ctrl-shift-i` |
 | Files the agent touched | `cmd-o` | `ctrl-shift-j` |
-| How nvim starts | `/bin/sh` finds nvim, Lua passed on the command line | `nvim -S mods\jay-nvim\.init.lua` (written by the mod) |
+| How nvim starts | `/bin/sh` finds nvim, Lua passed on the command line | the mod writes `mods\jay-nvim\.init.lua`, nvim runs it (`dofile`) |
 | Agent running as root (handoff) | optional | not available |
 
 The mod checks the OS itself (`window().platform`); nvim checks it with `has("win32")`.
@@ -46,7 +47,7 @@ mod 自己判斷是哪個系統，不用設定。
 
 ## Compatibility / 相容版本
 
-Made for Herdr app v0.1.13 / core v0.1.19. **Use `main`** for now: the tag `for-herdr-v0.1.13` is older (no Windows
+Made for Herdr app v0.1.13 / core v0.1.19 (with the core patch in `patches/`). **Use `main`** for now: the tag `for-herdr-v0.1.13` is older (no Windows
 support). From now on, a `for-herdr-vX.Y.Z` tag is added only after both macOS and Windows have been checked on that release.
 目前請用 `main`；舊 tag `for-herdr-v0.1.13` 沒有 Windows 支援。之後的 tag 都是 Mac 和 Windows 都驗過才打。
 

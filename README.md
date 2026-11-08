@@ -24,6 +24,8 @@ jayweihung 的 Herdr 通用 mod 與設定。
    (macOS / Linux: `~/.config/herdr-app/mods/`; Windows: check `herdr-app status` / Herdr settings for the home folder).
 3. Herdr loads it by itself. Run `herdr-app check <mod folder>` to verify.
 
+Windows: see [docs/windows.md](docs/windows.md) (build Herdr from the official source, install these mods; text only).
+
 ## Compatibility / 相容版本
 
 Tested with Herdr app v0.1.13. Tags `for-herdr-vX.Y.Z` mark versions checked against that Herdr release.

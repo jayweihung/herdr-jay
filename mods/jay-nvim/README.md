@@ -43,13 +43,18 @@ are free and side by side. Pick others if you like; check Herdr's defaults first
 為什麼選這兩個：Herdr 在 Windows/Linux 的預設已經用掉 `ctrl-shift-e`／`ctrl-shift-o`（往下／往右分割），
 `ctrl-e`／`ctrl-o` 是 shell 和 nvim 自己要用的（行尾、跳回）。`ctrl-shift-i`／`ctrl-shift-j` 沒人用，又剛好相鄰。
 
-Note: `cmd-o` inside the pane (the files list) is a macOS key sent to nvim as `<D-o>`; on Windows use `<leader>o`
-(space, then o) inside nvim, or `ctrl-shift-j` from anywhere in the tab.
+The files list: `jay-nvim-pick` presses `cmd-o` (`<D-o>`) in nvim on macOS and `alt-o` (`<M-o>`) on Windows / Linux.
+Inside nvim, `<leader>o` (space, then o) works everywhere.
 
 Needs on each machine where the pane opens: `nvim` (≥ 0.10) and `hc` on a usual path
 (`~/.local/bin`, `/opt/homebrew/bin`, `/usr/local/bin`, `/usr/bin`). LSP servers are optional.
 
-Windows: not supported yet (the launcher uses `/bin/sh`).
+Windows (**experimental, not yet tested on a real Windows machine**): `nvim.exe` must be on `PATH`
+(e.g. `winget install Neovim.Neovim`), plus `git`, and `hc` on `PATH` for following the agent and sending comments.
+Because a Windows command line holds at most 32767 characters and the Lua is longer, jay-nvim writes it to
+`mods/jay-nvim/.init.lua` in your Herdr home and starts `nvim -S` on it. Running an agent as root (handoff) is
+not supported on Windows. LSP servers: `npm i -g pyright typescript-language-server typescript`, `pip install ruff`
+(or scoop / winget equivalents). See also [docs/windows.md](../../docs/windows.md).
 
 ## Agent running as root (optional) / agent 用 root 跑（選用）
 

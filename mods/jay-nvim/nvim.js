@@ -9,6 +9,10 @@
 // - lsp: go to definition, hover and lint errors from whichever servers this machine has (not as root)
 export const NVIM_INIT = String.raw`-- autoread would reload before FileChangedShell fires, leaving nothing to diff against
 vim.o.autoread = false
+-- Windows: no HOME, no uid, ';' between PATH entries, no pgrep / sudo.
+local WIN = vim.fn.has("win32") == 1
+local HOME = vim.env.HOME or vim.env.USERPROFILE or ""
+local function is_root() return not WIN and vim.uv.getuid() == 0 end
 local api, ns, old = vim.api, vim.api.nvim_create_namespace("jay-nvim-changes"), {}
 api.nvim_create_autocmd("FileChangedShell", { callback = function(a)
   if vim.v.fcs_reason == "deleted" then vim.v.fcs_choice = "ask" return end
@@ -169,7 +173,7 @@ end })
 if vim.g.mapleader == nil then vim.g.mapleader = " " end
 local JN = {}
 _G.JN = JN
-local home = vim.env.HOME
+local home = HOME
 local SHELLS = { bash = 1, sh = 1, zsh = 1, fish = 1, dash = 1, ksh = 1, nvim = 1 }
 
 local function hc_bin()
@@ -225,7 +229,7 @@ local function session_log(t)
   local pid = type(info) == "table" and info.foreground and info.foreground.pid
   -- An agent under sudo: Herdr runs as you and reports no foreground. Walk the pane's process tree
   -- for the first pid with a session file in our ~/.claude (root's nvim finds root's claude; yours finds none).
-  if not pid and type(info) == "table" and info.pid then
+  if not pid and not WIN and type(info) == "table" and info.pid then
     local todo = { tostring(info.pid) }
     while not pid and #todo > 0 do
       for c in (vim.system({ "pgrep", "-P", table.remove(todo, 1) }, { text = true }):wait().stdout or ""):gmatch("%d+") do
@@ -244,19 +248,19 @@ end
 -- An agent started under sudo: hc can't see its foreground and its log is root's.
 -- This nvim then exits 77 and main.js runs the configured handoff command (README), which should run root's own copy of this Lua.
 local function runs_as_root(t)
-  if vim.uv.getuid() == 0 or t.agent ~= "claude-code" then return false end
+  if WIN or is_root() or t.agent ~= "claude-code" then return false end
   local info = hc({ "get", t.address })
   return type(info) == "table" and not info.foreground and info.pid ~= nil
     and vim.system({ "pgrep", "-u", "0", "-P", tostring(info.pid) }):wait().code == 0
 end
 -- A new pane has no "where" in hc ls for its first seconds, so keep asking for 10s until a claude-code agent shows up.
 local root_probe, root_tries = vim.uv.new_timer(), 0
-root_probe:start(0, 1000, vim.schedule_wrap(function()
+if not WIN then root_probe:start(0, 1000, vim.schedule_wrap(function()
   root_tries = root_tries + 1
   local agent = (JN.agents() or {})[1]
   if agent and runs_as_root(agent) then vim.cmd("cquit 77") end
   if (agent and agent.agent == "claude-code") or root_tries >= 10 then root_probe:stop() end
-end))
+end)) end
 
 -- Bytes of the log from offset "from" (or the last "bytes") to the end.
 local function read_log(log, bytes, from)
@@ -318,7 +322,7 @@ end
 local PATHS = "/[^%s'\"<>|;&()]+" -- absolute paths in a command line
 -- What a file held before a Bash call ran, kept by snap_hook.sh (a PreToolUse hook): the call reaches the log only
 -- after it ran (root's agent), so nvim cannot keep it itself. Diffed against for a file outside a repo (no HEAD)
-local SNAP = (os.getenv("HOME") or "") .. "/.cache/jay-nvim/snap/"
+local SNAP = HOME .. "/.cache/jay-nvim/snap/"
 local function snap_of(ids, p)
   for _, id in ipairs(ids) do -- parallel calls: the first one that named the file saw it before any of them ran
     local f = SNAP .. id .. "/" .. vim.fn.sha256(p)
@@ -617,6 +621,7 @@ end
 local map = vim.keymap.set
 map("n", "<leader>o", JN.pick, { desc = "agent 讀過／改過的檔" })
 map("n", "<D-o>", JN.pick, { desc = "agent 讀過／改過的檔" })
+map("n", "<M-o>", JN.pick, { desc = "agent 讀過／改過的檔" }) -- jay-nvim-pick on Windows / Linux (no cmd key)
 map("n", "<leader>ac", function() JN.comment(vim.fn.line("."), vim.fn.line(".")) end, { desc = "註解這行" })
 function JN.comment_sel()
   local a, b = vim.fn.line("v"), vim.fn.line(".")
@@ -633,8 +638,8 @@ map("n", "<leader>af", JN.toggle_follow, { desc = "跟著 agent 開檔（開／�
 -- and pyright / typescript-language-server are node scripts that need node on it.
 -- A server not installed on this machine is skipped. Keys are nvim's defaults (K, grr, grn, gra, [d ]d) plus gd.
 -- Never as root: the servers load code from the project (tsserver from its node_modules), which you can write.
-if vim.uv.getuid() ~= 0 then
-vim.env.PATH = table.concat({ (vim.env.HOME or "") .. "/.local/bin", "/opt/homebrew/bin", "/usr/local/bin", vim.env.PATH or "" }, ":")
+if not is_root() then
+if not WIN then vim.env.PATH = table.concat({ HOME .. "/.local/bin", "/opt/homebrew/bin", "/usr/local/bin", vim.env.PATH or "" }, ":") end
 vim.diagnostic.config({ virtual_text = true, severity_sort = true })
 local py_root = { "pyproject.toml", "ruff.toml", "setup.py", ".git" } -- backend/ruff.toml makes backend/ the root, so "from app..." resolves
 for name, c in pairs({

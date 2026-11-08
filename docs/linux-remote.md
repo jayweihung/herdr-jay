@@ -9,7 +9,8 @@ Not yet run on a real company server: note what differs and bring it to jay.
 | Step / 步驟 | |
 |---|---|
 | [1](#1-ssh-key--ssh-金鑰) | ssh key (once) / ssh 金鑰 |
-| [2](#2-add-the-machine--加機器) | Add the machine (Herdr installs its core there) / 加機器 |
+| [2](#2-herdr-core-on-the-server-built-from-source--server-上自己-build-core) | herdr-core on the server, built from source / server 上自己 build core |
+| [2b](#2b-add-the-machine--加機器) | Add the machine / 加機器 |
 | [3](#3-neovim-and-git-on-the-server--server-上的-neovim-和-git) | Neovim and git on the server |
 | [4](#4-agents-on-the-server--server-上的-agent) | Agents on the server |
 | [5](#5-try-jay-nvim-there--試-jay-nvim) | Try jay-nvim there |
@@ -42,22 +43,78 @@ On macOS the same with `ssh-keygen -t ed25519` and `ssh-copy-id <user>@<server>`
 
 ---
 
-## 2. Add the machine / 加機器
+## 2. herdr-core on the server, built from source / server 上自己 build core
+
+Like macOS and Windows, the server runs herdr-core **built from the official source** at the tag in the
+[README versions table](../README.md#versions--版本), plus `patches/herdr-core/<tag>/` — no root. Run this in a
+terminal **on the server** (ssh in from step 1, or let an agent there do it: [agent-install.md](agent-install.md)).
+跟 Mac、Windows 一樣，server 上的 core 也從官方原始碼 build（不用 root）。
+
+Needs about 3 GB free disk in your home and 2–3 GB RAM while building (10–30 minutes). On a busy shared server
+the build below runs at the lowest priority with a memory cap, so it can't push the server's own services out.
+
+Tools, once (Rust 1.95.0 and Zig 0.16.0 in your home; git and a C compiler `cc` must already be there):
+
+```sh
+curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain 1.95.0 --no-modify-path
+cd ~ && curl -fLO https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz
+echo "70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00  zig-x86_64-linux-0.16.0.tar.xz" | sha256sum -c
+mkdir -p ~/.local/opt && tar -xJf zig-x86_64-linux-0.16.0.tar.xz -C ~/.local/opt && rm zig-x86_64-linux-0.16.0.tar.xz
+```
+
+Then in every shell that builds (or put it in `~/.profile`):
+
+```sh
+export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$HOME/.local/opt/zig-x86_64-linux-0.16.0:$PATH"
+```
+
+**Check**: `rustc --version` → `1.95.0`, `zig version` → `0.16.0`, `cc --version` works.
+
+Source and jay's patches (the tag from the README table; herdr-jay is cloned beside it):
+
+```sh
+mkdir -p ~/src && cd ~/src
+[ -d herdr-jay ] || git clone https://github.com/jayweihung/herdr-jay.git
+git -C herdr-jay pull --ff-only
+[ -d herdr-core ] || git clone https://github.com/herdrdev/herdr-core.git
+cd herdr-core && git am --abort 2>/dev/null; git fetch --tags --force && git checkout --force v0.1.19
+git submodule update --init --recursive --depth 1
+git rev-parse --short HEAD
+ls ~/src/herdr-jay/patches/herdr-core/v0.1.19/*.patch && git -c user.name=me -c user.email=me@local am -3 ~/src/herdr-jay/patches/herdr-core/v0.1.19/*.patch
+```
+
+`git rev-parse` must print `06793ed`. (The one patch today only matters on macOS; it is applied so every machine
+builds the same source.)
+
+Build at low priority with a memory cap, then install into `~/.local/bin` and restart the core there (its terminals
+keep running; a Herdr window connected to it reconnects):
+
+```sh
+cd ~/src/herdr-core
+cap="systemd-run --user --scope -q -p MemoryMax=4G -p CPUWeight=10"; $cap true 2>/dev/null || cap=""
+$cap nice -n 19 cargo build --release --locked -j 2
+install -m 755 target/release/herdr-core ~/.local/bin/herdr-core.new && mv -f ~/.local/bin/herdr-core.new ~/.local/bin/herdr-core
+[ -e ~/.local/bin/hc ] || ln -s herdr-core ~/.local/bin/hc
+~/.local/bin/herdr-core server restart
+~/.local/bin/hc --version
+```
+
+**Check**: the last line prints `hc 0.1.19`. If the build is killed (memory cap): run the build line again with
+`-j 1`. A server without `systemd-run --user` builds without the cap (still lowest priority).
+
+**Updating**: same block with the new tag from the README table. Never `hc update` on the server, and on your PC
+never "Update" the machine in Herdr or `hc machine update` (both put the official build there).
+
+---
+
+## 2b. Add the machine / 加機器
 
 In Herdr: **Settings → Add machine** (or the `+` menu), enter `<user>@<server>` (or your ssh config name).
-If the server has no herdr-core, Herdr offers to install it: it takes **the official build of the same version as
-your core** for Linux, downloads it on your PC and copies it over ssh into `~/.local/bin` on the server (the
-server needs no internet). If it needs a password, a new host key or something installed, it tells you what to run.
-Herdr 會把同版本的官方 Linux core 從你電腦傳上去，裝在 server 的 `~/.local/bin`。
-
-Your PC must reach the release download hosts (`github.com`, `objects.githubusercontent.com`,
-`release-assets.githubusercontent.com`: already in the Windows host list).
-
-Self-built core on the server instead (same public source, like the PC): later, if jay wants it — needs Rust 1.95.0
-and Zig 0.16.0 on the server; ask jay first.
+With step 2 done, Herdr finds the core in `~/.local/bin` and connects. (Without it, Herdr would offer to install
+**the official build** of your version, downloaded from `releases.herdr.dev`: say no, do step 2.)
+If it needs a password, a new host key or something installed, it tells you what to run.
 
 **Check** on your PC: `hc machine ls` shows the machine `connected` and its `version` equals `hc --version`.
-After you update your own core, update the server's too: `hc machine update <name>` (terminals keep running).
 
 ---
 
@@ -112,10 +169,13 @@ Bring jay the results like the Windows checklist (photos, `:messages`, and `hc m
 | What you see / 看到什麼 | Why / 原因 | Fix / 怎麼修 |
 |---|---|---|
 | Add machine asks for a password / fails to log in | no key login | step 1; `ssh <user>@<server> echo ok` must work with no prompt |
-| "hc … has no release to download" | your core is self-built at a version without an official Linux release | ask jay |
+| Herdr offers to install hc on the server | the server has no core in `~/.local/bin` | say no; step 2 |
+| Build killed / "signal: 9" | memory cap hit | build again with `-j 1` |
+| `zig` / `rustc` not found | PATH line not set in this shell | step 2, the `export PATH` line |
+| Machine version differs from your PC's `hc --version` | one side updated | build the same tag on both (README table) |
 | Download fails while adding | the PC can't reach GitHub's release hosts | host list to IT (Windows guide step 0) |
 | "nvim not found on <server>" | nvim not in `~/.local/bin` | step 3 |
 | "jay-nvim needs Neovim 0.11 or newer" | apt's old nvim found first | step 3 (`~/.local/bin` is searched first) |
-| "找不到 hc" in nvim on the server | core not in `~/.local/bin` | re-add the machine, or `hc machine update <name>` |
+| "找不到 hc" in nvim on the server | core not in `~/.local/bin` | step 2 |
 | nvim never follows the agent | the agent runs on the PC, not on the server (or in another tab) | step 4 |
 | Machine shows `disconnected` after a while | ssh dropped (VPN, sleep) | Herdr reconnects; terminals on the server keep running |

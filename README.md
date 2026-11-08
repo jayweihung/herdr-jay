@@ -15,6 +15,7 @@ jayweihung 的 Herdr 通用 mod 與設定。
 |---|---|
 | **macOS** install, update, troubleshooting / Mac 安裝 | [docs/macos.md](docs/macos.md) |
 | **Windows** install, update, troubleshooting, test checklist / Windows 安裝 | [docs/windows.md](docs/windows.md) |
+| **For a coding agent** installing it all (PC + Linux server) / 給幫忙安裝的 agent | [docs/agent-install.md](docs/agent-install.md) |
 | **Linux server** as a Herdr machine over ssh / Linux server 當遠端機器 | [docs/linux-remote.md](docs/linux-remote.md) |
 | **jay-nvim** features, keys, macOS vs Windows, security / nvim 功能 | [docs/nvim.md](docs/nvim.md) |
 | New Herdr default keys per release / 各版新增的預設按鍵 | [docs/keys.md](docs/keys.md) |

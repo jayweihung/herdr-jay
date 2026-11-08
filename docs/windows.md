@@ -31,6 +31,7 @@ Add `| Out-Host` (as below) to see its output in order.
 
 A **Linux server** to work on over ssh (agents there, jay-nvim there): after this guide, see
 [docs/linux-remote.md](linux-remote.md).
+An agent doing the install for you: [docs/agent-install.md](agent-install.md).
 
 ---
 

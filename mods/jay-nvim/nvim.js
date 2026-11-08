@@ -584,10 +584,12 @@ end
 
 function JN.message(cwd)
   local list = resolved()
-  local prefix = cwd and (cwd:gsub("/$", "") .. "/")
+  local function slash(p) return WIN and (p:gsub("\\", "/"):lower()) or p end -- Windows: \ or /, any case
+  local prefix = cwd and (slash(cwd):gsub("/$", "") .. "/")
   local lines = { "從編輯器來的註解：", "" }
   for i, c in ipairs(list) do
-    local file = prefix and c.file:sub(1, #prefix) == prefix and c.file:sub(#prefix + 1) or c.file
+    local f = slash(c.file)
+    local file = prefix and f:sub(1, #prefix) == prefix and c.file:sub(#prefix + 1) or c.file
     table.insert(lines, ("%d. %s:%s"):format(i, file, c.l1 == c.l2 and c.l1 or (c.l1 .. "-" .. c.l2)))
     for _, s in ipairs(vim.api.nvim_buf_get_lines(c.n.buf, c.l1 - 1, math.min(c.l2, c.l1 + 2), false)) do
       table.insert(lines, "   > " .. s)

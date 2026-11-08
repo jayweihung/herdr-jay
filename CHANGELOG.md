@@ -9,6 +9,12 @@ Needs: **mods** = copy the two mod folders again (macOS symlinks: nothing) · **
 
 Needs: **mods** (copy both again), **app** (build v0.1.14).
 
+- docs/linux-remote.md: **source only on the server**. Compilers: plan A (the company's Rust / Zig) or plan B (the
+  official ones in your home). Zig packages: the prebuilt test / sample files a few of them carry (sentry, breakpad,
+  gettext, imgui) are deleted before building. Neovim v0.12.6 is built from source (needs `cmake`), also from the
+  offline pack, which now holds only the packages a Linux build needs. pip `ruff` / `pyright` marked not for a
+  source-only server. 公司 server 只用原始碼：編譯器分方案 A／B，Neovim 改從原始碼 build。
+- docs/windows.md: IT allow-list also names `%TEMP%\hc-local-*` (the core install script runs from there).
 - Security fix (jay-nvim): the git guard missed filters set in a file the repo's `.git/config` includes
   (`include.path` / `includeIf`) or in `config.worktree`; nvim's own `git status` in such a repo ran them. Now
   read with `--includes --show-scope`. 修正：別人的 repo 用 include 藏的 git filter 會被執行。

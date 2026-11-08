@@ -393,7 +393,7 @@ Here: install and Windows.
 | nvim never follows Claude | Claude started after a `cd`, or two Claudes in one folder | start Claude in the tab's own folder (step 6.2) |
 | Herdr shows a core setup screen | no core found, or older than the app needs | **don't press Install / Update there** (it installs the official core); do step 2 (or 8), then reopen Herdr |
 | "running scripts is disabled on this system" | company script policy | the **by hand** parts of steps 2 and 3 |
-| "This app has been blocked" / herdr-app.exe or a build step won't start | AppLocker / WDAC / SmartScreen | ask IT to allow `%LOCALAPPDATA%\Programs\herdr-*`, `%USERPROFILE%\src\*\target`, `%TEMP%\hc-install-*` (the core install runs the new exe from there), `%LOCALAPPDATA%\Programs\zig-*`, `%LOCALAPPDATA%\Programs\nvim-win64`, `%USERPROFILE%\.cargo\bin`; or use the by-hand part of step 2 (no `%TEMP%`) |
+| "This app has been blocked" / herdr-app.exe or a build step won't start | AppLocker / WDAC / SmartScreen | ask IT to allow `%LOCALAPPDATA%\Programs\herdr-*`, `%USERPROFILE%\src\*\target`, `%TEMP%\hc-local-*` and `%TEMP%\hc-install-*` (the core install runs its script and the new exe from there), `%LOCALAPPDATA%\Programs\zig-*`, `%LOCALAPPDATA%\Programs\nvim-win64`, `%USERPROFILE%\.cargo\bin`; or use the by-hand part of step 2 (no `%TEMP%`) |
 | Build: `libclang` not found | LLVM missing or `LIBCLANG_PATH` unset | step 1, LLVM row; new PowerShell |
 | Build: `link.exe` not found | Build Tools without C++ | step 1, vswhere check |
 | Build: Zig errors | wrong Zig | `zig version` must be `0.16.0` |

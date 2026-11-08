@@ -46,7 +46,14 @@ mod 自己判斷是哪個系統，不用設定。
 
 ## Compatibility / 相容版本
 
-Tested with Herdr app v0.1.13. Tags `for-herdr-vX.Y.Z` mark versions checked against that Herdr release.
+Made for Herdr app v0.1.13 / core v0.1.19. **Use `main`** for now: the tag `for-herdr-v0.1.13` is older (no Windows
+support). From now on, a `for-herdr-vX.Y.Z` tag is added only after both macOS and Windows have been checked on that release.
+目前請用 `main`；舊 tag `for-herdr-v0.1.13` 沒有 Windows 支援。之後的 tag 都是 Mac 和 Windows 都驗過才打。
+
+## Settings / 設定
+
+jay keeps Herdr's defaults except `"appearance": "dark"` in `settings.json` (or Herdr Settings → Appearance → Dark).
+除了深色外觀，其他都是 Herdr 預設。
 
 ## License
 

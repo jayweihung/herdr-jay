@@ -10,6 +10,7 @@ Not yet run on a real company server: note what differs and bring it to jay.
 |---|---|
 | [1](#1-ssh-key--ssh-金鑰) | ssh key (once) / ssh 金鑰 |
 | [2](#2-herdr-core-on-the-server-built-from-source--server-上自己-build-core) | herdr-core on the server, built from source / server 上自己 build core |
+| [2a](#2a-server-cant-download--server-不能上網) | Server can't download: build offline from a pack / server 不能上網：離線 build |
 | [2b](#2b-add-the-machine--加機器) | Add the machine / 加機器 |
 | [3](#3-neovim-and-git-on-the-server--server-上的-neovim-和-git) | Neovim and git on the server |
 | [4](#4-agents-on-the-server--server-上的-agent) | Agents on the server |
@@ -71,7 +72,7 @@ for h in sh.rustup.rs static.rust-lang.org index.crates.io static.crates.io zigl
 
 A MISSING command: ask IT to install it (Ubuntu: `gcc`, `git`, `curl`, `xz-utils`). A BLOCKED host: ask IT to allow
 it, or set the company proxy first (`export https_proxy=http://<proxy>:<port>`). If the server can't get out at all,
-bring it to jay (the build then has to happen elsewhere and only the binary is copied).
+use [2a](#2a-server-cant-download--server-不能上網): everything comes as one pack of sources from your PC.
 
 Tools, once (Rust 1.95.0 and Zig 0.16.0 in your home):
 
@@ -124,6 +125,92 @@ install -m 755 target/release/herdr-core ~/.local/bin/herdr-core.new && mv -f ~/
 
 **Updating**: same block with the new tag from the README table. Never `hc update` on the server, and on your PC
 never "Update" the machine in Herdr or `hc machine update` (both put the official build there).
+
+---
+
+## 2a. Server can't download / server 不能上網
+
+If the check in step 2 says BLOCKED and IT won't open it, prepare **one pack** on your PC (it can reach the internet)
+and copy it to the server with `scp`. The server then needs only `gcc`, `git`, `tar`, `xz` — no network at all.
+server 連不出去時：在 PC 上把所有東西打包，scp 過去，server 完全不用上網。
+
+What is in the pack / 包裡有什麼:
+
+| | What | Source code? |
+|---|---|---|
+| Rust 1.95.0 | the official Linux toolchain installer (`rust-1.95.0-x86_64-unknown-linux-gnu.tar.xz`, ~200 MB), installs into your home | built by the Rust project from `rustc-1.95.0-src.tar.xz` (same site) |
+| Zig 0.16.0 | the official Linux toolchain (`zig-x86_64-linux-0.16.0.tar.xz`) | built from `zig-0.16.0.tar.xz` (same site) |
+| herdr-core | the source at the README tag, with Ghostty | yes |
+| Rust libraries | every crate herdr-core uses (`cargo vendor`, ~50 MB) | yes |
+| Zig libraries | every package Ghostty uses (`zig build --fetch=all` → `vendor/ghostty/zig-pkg`, ~550 MB) | yes |
+| herdr-jay | patches | yes (text) |
+| Neovim | the official Linux build (step 3) | — |
+
+All libraries are shipped as **source** and compiled on the server. Rust and Zig themselves come as the official
+builds: compiling the compilers is not practical on a server with only gcc (Rust needs an older Rust plus LLVM,
+cmake and Python; Zig needs LLVM and cmake; hours each). Download their source tarballs too if you want to read them.
+函式庫都是原始碼、在 server 上編；Rust、Zig 這兩個編譯器本身用官方編好的（自己編要 LLVM、cmake、好幾個小時，不實際）。
+
+**On the PC** (Windows, PowerShell; needs Git, Rust and Zig from [windows.md](windows.md) step 1). A short folder,
+because Windows trips over long paths:
+
+```powershell
+$p = "C:\hp"
+New-Item -ItemType Directory -Force $p | Out-Null; Set-Location $p
+git -c core.autocrlf=false -c core.longpaths=true clone https://github.com/jayweihung/herdr-jay.git
+git -c core.autocrlf=false -c core.longpaths=true clone https://github.com/herdrdev/herdr-core.git
+Set-Location "$p\herdr-core"
+git -c core.autocrlf=false -c core.longpaths=true checkout v0.1.19
+git -c core.autocrlf=false -c core.longpaths=true submodule update --init --recursive --depth 1
+git rev-parse --short HEAD   # must print 06793ed
+New-Item -ItemType Directory -Force .cargo | Out-Null
+cargo vendor --locked --versioned-dirs cargo-vendor | Out-File -Encoding ascii .cargo\config.toml
+Set-Location "$p\herdr-core\vendor\ghostty"
+zig build --fetch=all
+Set-Location $p
+curl.exe -fLO https://static.rust-lang.org/dist/rust-1.95.0-x86_64-unknown-linux-gnu.tar.xz
+curl.exe -fLO https://static.rust-lang.org/dist/rust-1.95.0-x86_64-unknown-linux-gnu.tar.xz.sha256
+curl.exe -fLO https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz
+curl.exe -fLO https://github.com/neovim/neovim/releases/download/stable/nvim-linux-x86_64.tar.gz
+tar -czf "$env:USERPROFILE\herdr-pack.tgz" -C $p .
+scp "$env:USERPROFILE\herdr-pack.tgz" <user>@<server>:
+```
+
+**Check**: `cat C:\hp\herdr-core\.cargo\config.toml` shows `directory = "cargo-vendor"`; the pack is about 1 GB.
+(From a Mac or Linux with internet: the same commands in `sh`, without `.exe` and the `-c core.*` options.)
+
+**On the server**:
+
+```sh
+mkdir -p ~/hp && tar -xzf ~/herdr-pack.tgz -C ~/hp && cd ~/hp
+sha256sum -c rust-1.95.0-x86_64-unknown-linux-gnu.tar.xz.sha256
+echo "70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00  zig-x86_64-linux-0.16.0.tar.xz" | sha256sum -c
+tar -xJf rust-1.95.0-x86_64-unknown-linux-gnu.tar.xz
+rust-1.95.0-x86_64-unknown-linux-gnu/install.sh --prefix="$HOME/.local/rust" --disable-ldconfig
+mkdir -p ~/.local/opt ~/.local/bin && tar -xJf zig-x86_64-linux-0.16.0.tar.xz -C ~/.local/opt
+export PATH="$HOME/.local/bin:$HOME/.local/rust/bin:$HOME/.local/opt/zig-x86_64-linux-0.16.0:$PATH"
+cd ~/hp/herdr-core
+git -c core.fileMode=true -c core.symlinks=true reset -q --hard
+git -c core.fileMode=true -c core.symlinks=true submodule foreach -q git reset -q --hard
+git rev-parse --short HEAD
+git -c user.name=me -c user.email=me@local am -3 ~/hp/herdr-jay/patches/herdr-core/v0.1.19/*.patch
+```
+
+The two `reset` lines put back what Windows loses (Linux file modes and links); the `cargo-vendor` and `zig-pkg`
+folders are not in git and stay. `git rev-parse` must print `06793ed`. Put the `export PATH` line in `~/.profile`
+(use it instead of step 2's line, which points at rustup's `~/.cargo/bin`).
+
+Then step 2's build and install block, with **`--offline`** added to the build line:
+
+```sh
+$cap nice -n 19 cargo build --release --locked --offline -j 2
+```
+
+Neovim (step 3) from the pack: `tar -xzf ~/hp/nvim-linux-x86_64.tar.gz -C ~/.local/opt` and the same link as step 3.
+
+Checked: this pack builds on macOS with the network blocked (no download at build time). Not yet run from a
+Windows-made pack on a real Linux server: note what differs and bring it to jay.
+**Updating**: a new pack for the new tag; delete `~/hp` first. Never `hc update`.
 
 ---
 

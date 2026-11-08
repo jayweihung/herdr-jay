@@ -27,7 +27,7 @@ jay 請 agent 幫忙裝：Windows 本機 + 用 ssh 連的 Linux server，全部�
 | 1 | PC | Windows steps 0–5: Git, tools, herdr-core, herdr-app, Neovim, herdr-jay mods + keys | [windows.md](windows.md) |
 | 2 | PC | Windows step 6 checklist (jay presses the keys; you read the screens / `:messages`) | [windows.md §6](windows.md#6-test-checklist--實測清單) |
 | 3 | PC → server | ssh key; `ssh <user>@<server> echo ok` without a password | [linux-remote.md §1](linux-remote.md#1-ssh-key--ssh-金鑰) |
-| 4 | server (over ssh) | Rust + Zig in home, herdr-core from source at the README tag + patches, install to `~/.local/bin` | [linux-remote.md §2](linux-remote.md#2-herdr-core-on-the-server-built-from-source--server-上自己-build-core) |
+| 4 | server (over ssh) | Rust + Zig in home, herdr-core from source at the README tag + patches, install to `~/.local/bin` | [linux-remote.md §2](linux-remote.md#2-herdr-core-on-the-server-built-from-source--server-上自己-build-core); server can't download → [§2a](linux-remote.md#2a-server-cant-download--server-不能上網) |
 | 5 | server | Neovim 0.11+ and git | [linux-remote.md §3](linux-remote.md#3-neovim-and-git-on-the-server--server-上的-neovim-和-git) |
 | 6 | PC (jay clicks) | Settings → Add machine; decline any offer to install hc | [linux-remote.md §2b](linux-remote.md#2b-add-the-machine--加機器) |
 | 7 | both | linux-remote §5 test, with an agent running on the server | [linux-remote.md §5](linux-remote.md#5-try-jay-nvim-there--試-jay-nvim) |

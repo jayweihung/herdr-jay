@@ -9,6 +9,10 @@ Needs: **mods** = copy the two mod folders again (macOS symlinks: nothing) · **
 
 Needs: **mods** (copy both again), **app** (build v0.1.14).
 
+- docs/linux-remote.md §2a: a server that can't download builds offline from one pack made on the PC
+  (Rust / Zig official toolchains, herdr-core + every Rust and Zig library as source, `cargo build --offline`).
+  server 不能上網時的離線 build。
+
 - Herdr app v0.1.14 (`2405bf3`; core stays v0.1.19). No default key changes; the mod API change (exec timeout) doesn't
   affect these mods. First tag checked on both OSes will be `for-herdr-v0.1.14-r1`.
 - New [docs/linux-remote.md](docs/linux-remote.md): a Linux server as a Herdr machine over ssh (key login, herdr-core

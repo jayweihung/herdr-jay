@@ -51,7 +51,7 @@ Like macOS and Windows, the server runs herdr-core **built from the official sou
 terminal **on the server** (ssh in from step 1, or let an agent there do it: [agent-install.md](agent-install.md)).
 跟 Mac、Windows 一樣，server 上的 core 也從官方原始碼 build（不用 root）。
 
-Needs about 3 GB free disk in your home and 2–3 GB RAM while building (10–30 minutes). On a busy shared server
+Needs about 3 GB free disk in your home and up to 3 GB RAM while building (about 5 minutes on 2 cores; up to 30 on a slow server). On a busy shared server
 the build below runs at the lowest priority with a memory cap, so it can't push the server's own services out.
 
 **What the server needs first / server 要先有的**: Rust and Zig are the two compilers herdr-core is built with
@@ -112,7 +112,7 @@ keep running; a Herdr window connected to it reconnects):
 
 ```sh
 cd ~/src/herdr-core
-cap="systemd-run --user --scope -q -p MemoryMax=4G -p CPUWeight=10"; $cap true 2>/dev/null || cap=""
+cap="systemd-run --user --scope -q -p MemoryMax=3G -p CPUWeight=10"; $cap true 2>/dev/null || cap=""
 $cap nice -n 19 cargo build --release --locked -j 2
 install -m 755 target/release/herdr-core ~/.local/bin/herdr-core.new && mv -f ~/.local/bin/herdr-core.new ~/.local/bin/herdr-core
 [ -e ~/.local/bin/hc ] || ln -s herdr-core ~/.local/bin/hc

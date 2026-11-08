@@ -9,6 +9,10 @@ Needs: **mods** = copy the two mod folders again (macOS symlinks: nothing) · **
 
 Needs: **mods** (copy both again), **app** (build v0.1.14).
 
+- Security fix (jay-nvim): the git guard missed filters set in a file the repo's `.git/config` includes
+  (`include.path` / `includeIf`) or in `config.worktree`; nvim's own `git status` in such a repo ran them. Now
+  read with `--includes --show-scope`. 修正：別人的 repo 用 include 藏的 git filter 會被執行。
+
 - docs/linux-remote.md §2a: a server that can't download builds offline from one pack made on the PC
   (Rust / Zig official toolchains, herdr-core + every Rust and Zig library as source, `cargo build --offline`).
   server 不能上網時的離線 build。

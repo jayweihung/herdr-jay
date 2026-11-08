@@ -83,7 +83,8 @@ It refuses your home folder or anything above it (that would trust every project
 
 Programs are always run by full path; on Windows never from the project folder (Windows would otherwise run a
 `git.exe` or `ruff.exe` sitting in it). Every git nvim runs has `core.fsmonitor` and the repo's own clean / smudge filters off, so `git status` in a
-repo can't start a program set in that repo's `.git/config` (your global filters, e.g. git-lfs, stay).
+repo can't start a program set in that repo's config: `.git/config`, the files it includes (`include.path`,
+`includeIf`) and `config.worktree` (your global filters, e.g. git-lfs, stay; with git older than 2.26 every filter is off).
 
 ## 4. macOS vs Windows / 兩個系統的差別
 

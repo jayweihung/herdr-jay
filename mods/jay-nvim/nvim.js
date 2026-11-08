@@ -135,12 +135,23 @@ local GIT = P.bin("git")
 -- A repo may be someone else's code, and git status / ls-files run what its own .git/config names: the
 -- core.fsmonitor hook, and clean filters (filter.<x>.clean / process, picked by .gitattributes). Reading the config
 -- runs nothing; every git call here switches those off for that repo (its own config only: your global ones, e.g. git-lfs, stay). Only for nvim's own git calls, not :terminal.
+-- The repo's config means .git/config, the files it includes (include.path / includeIf: --local alone skips them)
+-- and config.worktree: --show-scope names all of them "local" or "worktree". A git older than 2.26 has no
+-- --show-scope: then every filter is switched off, yours too (only in nvim's own git calls).
 local function git_guard(dir)
   local out = { "-c", "core.fsmonitor=false" }
-  local r = vim.system({ GIT, "-C", dir, "config", "--local", "--name-only", "--get-regexp", [[^filter\.]] }, { text = true }):wait()
+  local cmd = { GIT, "-C", dir, "config", "--includes", "--show-scope", "--name-only", "--get-regexp", [[^filter\.]] }
+  local r = vim.system(cmd, { text = true }):wait()
+  local scoped = r.code <= 1 -- 1: no filter set anywhere
+  if not scoped then
+    table.remove(cmd, 6)
+    r = vim.system(cmd, { text = true }):wait()
+  end
   local seen = {}
-  for key in (r.stdout or ""):gmatch("[^\n]+") do
-    local name = key:match("^filter%.(.+)%.[^.]+$")
+  for line in (r.stdout or ""):gmatch("[^\n]+") do
+    local scope, key = line:match("^(%S+)\t(.+)$")
+    if not scoped then scope, key = "local", line end
+    local name = (scope == "local" or scope == "worktree") and key:match("^filter%.(.+)%.[^.]+$")
     if name and not seen[name] then
       seen[name] = true
       for _, k in ipairs({ "clean", "smudge", "process" }) do vim.list_extend(out, { "-c", "filter." .. name .. "." .. k .. "=" }) end

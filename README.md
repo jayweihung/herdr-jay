@@ -38,15 +38,15 @@ one was checked.
 
 | herdr-jay | Herdr app | Herdr core | core patches | Checked on macOS | Checked on Windows |
 |---|---|---|---|---|---|
-| `main` (now) | v0.1.13 (`93b097f`) | v0.1.19 (`06793ed`, the moved tag; `git fetch --tags --force`) | `patches/herdr-core/v0.1.19` | 2026-11-08 | not yet |
+| `main` (now) | v0.1.14 (`2405bf3`) | v0.1.19 (`06793ed`, the moved tag; `git fetch --tags --force`) | `patches/herdr-core/v0.1.19` | 2026-11-09 | not yet |
 
-The app needs at least the core in its `distribution/core-version` (v0.1.13: core 0.1.11).
+The app needs at least the core in its `distribution/core-version` (v0.1.14: core 0.1.11).
 
 **Tags** `for-herdr-v<app version>-r<N>` mark a herdr-jay state checked on **both** macOS and Windows. They never
 move; a fix on the same Herdr gets the next `-r`. Take the highest `-r` for your app version. The old tag
-`for-herdr-v0.1.13` (no `-r`) is older and macOS-only; it counts as `-r1`, so the first tag checked on Windows is
-`for-herdr-v0.1.13-r2`: use `main` until it exists.
-tag 一旦打上就不移動；同一版 Herdr 有修正就加 `-r`。舊的 `for-herdr-v0.1.13` 算 `-r1`、沒有 Windows 支援。
+`for-herdr-v0.1.13` (no `-r`) is older and macOS-only. The first tag checked on both is `for-herdr-v0.1.14-r1`:
+use `main` until it exists.
+tag 一旦打上就不移動；同一版 Herdr 有修正就加 `-r`。舊的 `for-herdr-v0.1.13` 沒有 Windows 支援；第一個兩邊都驗過的會是 `for-herdr-v0.1.14-r1`。
 
 Never run plain `hc update`, and don't press Install / Update on Herdr's core screen or run "Update herdr-core":
 they install the official core over yours.

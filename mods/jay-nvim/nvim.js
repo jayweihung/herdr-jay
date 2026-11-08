@@ -410,7 +410,7 @@ if P.sudo_check and not P.root then root_probe:start(0, 1000, vim.schedule_wrap(
   root_tries = root_tries + 1
   local agent = (JN.agents() or {})[1]
   if agent and runs_as_root(agent) then
-    vim.notify("旁邊的 agent 用 root（sudo）在跑：它的紀錄只有 root 讀得到，jay-nvim 不會跟著它開檔", vim.log.levels.WARN)
+    vim.notify("旁邊的 agent 用 root（sudo）在跑：它的紀錄只有 root 讀得到，jay-nvim 讀不到，所以跟不到它讀／改的檔", vim.log.levels.WARN)
   end
   if (agent and agent.agent == "claude-code") or root_tries >= 10 then root_probe:stop() end
 end)) end

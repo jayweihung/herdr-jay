@@ -7,7 +7,10 @@ Needs: **mods** = copy the two mod folders again (macOS symlinks: nothing) · **
 
 ## 2026-11-09
 
-Needs: **mods** (copy both again).
+Needs: **mods** (copy both again), **app** (build v0.1.14).
+
+- Herdr app v0.1.14 (`2405bf3`; core stays v0.1.19). No default key changes; the mod API change (exec timeout) doesn't
+  affect these mods. First tag checked on both OSes will be `for-herdr-v0.1.14-r1`.
 
 - nvim opens in the focused pane's folder (it could start in the space's folder).
 - Root handoff removed: a sudo'd agent beside the pane gets a one-time warning, no follow (docs/nvim.md 6).

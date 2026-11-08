@@ -3,7 +3,7 @@
 Build Herdr from the official source (plus jay's text patches), then install two mods.
 jay's own Mac is built from these same public sources and patches (jay keeps private forks of the two Herdr repos
 with the same patches applied; the result is the same). Checked on Apple Silicon with only the Command Line Tools
-(no full Xcode), Herdr app v0.1.13 and core v0.1.19. Intel Macs are fine too: the official releases are
+(no full Xcode), Herdr app v0.1.14 and core v0.1.19. Intel Macs are fine too: the official releases are
 Apple-Silicon-only, so building from source is the way there.
 從官方原始碼 build Herdr（加上 jay 的文字補丁），再裝兩個 mod。jay 自己的 Mac 就是這樣裝的。
 
@@ -109,13 +109,13 @@ Run from a terminal that has `~/.local/bin` on PATH (step 1): the installer writ
 cd ~/src
 git clone --recurse-submodules https://github.com/herdrdev/herdr-app.git
 cd herdr-app
-git checkout v0.1.13
+git checkout v0.1.14
 git rev-parse --short HEAD
 git submodule update --init --recursive
-ls ~/src/herdr-jay/patches/herdr-app/v0.1.13/ 2>/dev/null
+ls ~/src/herdr-jay/patches/herdr-app/v0.1.14/ 2>/dev/null
 ```
 
-`git rev-parse` must print `93b097f` (an older clone: `git fetch --tags --force` first). The `ls` shows nothing
+`git rev-parse` must print `2405bf3` (an older clone: `git fetch --tags --force` first). The `ls` shows nothing
 today (no app patches); if that folder ever has `.patch` files, `git am` them like step 2 before `just install`.
 
 ```sh
@@ -124,7 +124,7 @@ cd ~/src/herdr-app && just install
 
 Installs `~/Applications/Herdr.app` (ad-hoc signed) and `~/.local/bin/herdr-app`. A self-built app never updates itself.
 
-**Check**: `herdr-app --version` → `herdr-app 0.1.13`. Open it once (`open ~/Applications/Herdr.app`): it creates
+**Check**: `herdr-app --version` → `herdr-app 0.1.14`. Open it once (`open ~/Applications/Herdr.app`): it creates
 `~/.config/herdr-app/` with `keys.json`, `settings.json` and `mods/`. Then `herdr-app status` answers.
 Privacy permissions (microphone, automation…) may have to be granted again after a rebuild.
 

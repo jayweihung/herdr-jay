@@ -13,6 +13,10 @@ git diff v0.1.13 v0.1.14 -- defaults/keys.json defaults/keys.macos.json
 
 (`defaults/keys.macos.json` is macOS, `defaults/keys.json` is Windows / Linux.)
 
+## v0.1.14
+
+No default key changes (macOS and Windows / Linux). The jay-nvim keys are still free. Nothing to add.
+
 ## v0.1.13
 
 Baseline: the jay-nvim keys are free (`cmd-e` / `cmd-o` on macOS, `ctrl-shift-i` / `ctrl-shift-j` on Windows).

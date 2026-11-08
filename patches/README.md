@@ -16,7 +16,7 @@ A tag that needs no patches still gets a folder holding only README.md, so the u
 | Repo / tag | Patch | Why |
 |---|---|---|
 | herdr-core v0.1.19 | `0001-build-skip-Ghostty-s-xcframework…` | lets core build on a Mac with only the Command Line Tools (herdr-app already does this); harmless on Windows |
-| herdr-app v0.1.13 | none | |
+| herdr-app v0.1.14 | none | |
 
 ## Apply / 套用
 

@@ -3,7 +3,7 @@
 Build Herdr from the official source (plus jay's text patches), then copy two mod folders.
 This repo holds only text; the build runs the official projects' own `just install` (PowerShell installers).
 If your company blocks scripts, every `just install` below has a **by hand** version.
-Commands are for **PowerShell**. Checked against Herdr app v0.1.13 and core v0.1.19. Not yet run on a real Windows PC.
+Commands are for **PowerShell**. Checked against Herdr app v0.1.14 and core v0.1.19. Not yet run on a real Windows PC.
 從官方原始碼 build Herdr（加上 jay 的文字補丁），再複製兩個 mod 資料夾。指令都在 **PowerShell** 打。
 公司擋腳本的話，每個 `just install` 下面都有「手動」做法。
 
@@ -233,11 +233,11 @@ Later updates by hand, while it runs: `hc update --from target\release\herdr-cor
 Set-Location "$env:USERPROFILE\src"
 git clone --recurse-submodules --shallow-submodules https://github.com/herdrdev/herdr-app.git
 Set-Location herdr-app
-git checkout v0.1.13
-git rev-parse --short HEAD                          # must be 93b097f (README versions table)
+git checkout v0.1.14
+git rev-parse --short HEAD                          # must be 2405bf3 (README versions table)
 git submodule update --init --recursive
 $j = "$env:USERPROFILE\src\herdr-jay"
-$pd = "$j\patches\herdr-app\v0.1.13"                # none today
+$pd = "$j\patches\herdr-app\v0.1.14"                # none today
 $ps = @(Get-ChildItem "$pd\*.patch" -ErrorAction SilentlyContinue | Sort-Object Name).FullName
 if ($ps) { git -c user.name=me -c user.email=me@local am -3 $ps } else { "no patches" }
 ```
@@ -264,7 +264,7 @@ Copy-Item -Force target\release\herdr-app.exe $a
 Add it to PATH: [Add to PATH](#add-a-folder-to-path) with the first line `$add = "$env:LOCALAPPDATA\Programs\herdr-app"`. No Start-menu entry this way: right-click
 `herdr-app.exe` in Explorer → **Pin to Start**.
 
-**Check**: `herdr-app --version | Out-Host` → `herdr-app 0.1.13`. Then open **Herdr** once from the Start menu:
+**Check**: `herdr-app --version | Out-Host` → `herdr-app 0.1.14`. Then open **Herdr** once from the Start menu:
 it creates `%USERPROFILE%\.config\herdr-app` with `keys.json`, `settings.json` and `mods\`.
 先從開始選單打開 Herdr 一次，它會建立設定目錄。
 

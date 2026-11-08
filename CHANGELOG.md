@@ -11,6 +11,8 @@ Needs: **mods** (copy both again), **app** (build v0.1.14).
 
 - Herdr app v0.1.14 (`2405bf3`; core stays v0.1.19). No default key changes; the mod API change (exec timeout) doesn't
   affect these mods. First tag checked on both OSes will be `for-herdr-v0.1.14-r1`.
+- New [docs/linux-remote.md](docs/linux-remote.md): a Linux server as a Herdr machine over ssh (key login, core
+  installed by Herdr, Neovim 0.11+ in `~/.local/bin`, agents on the server). jay-nvim also finds `~/.local/bin/herdr-core`.
 
 - nvim opens in the focused pane's folder (it could start in the space's folder).
 - Root handoff removed: a sudo'd agent beside the pane gets a one-time warning, no follow (docs/nvim.md 6).

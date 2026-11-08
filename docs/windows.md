@@ -28,6 +28,10 @@ Herdr started from the Start menu afterwards sees the new PATH too.
 Add `| Out-Host` (as below) to see its output in order.
 `herdr-app` 的輸出會跑到提示字元後面，後面加 `| Out-Host` 就正常。
 
+
+A **Linux server** to work on over ssh (agents there, jay-nvim there): after this guide, see
+[docs/linux-remote.md](linux-remote.md).
+
 ---
 
 ## 0. Before you start / 開始前

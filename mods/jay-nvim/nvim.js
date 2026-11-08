@@ -55,7 +55,7 @@ function P.bin(name)
 end
 -- Where hc may be when PATH doesn't have it (Herdr starts panes with a bare PATH).
 P.hc_paths = P.win and { (vim.env.LOCALAPPDATA or "") .. "/Programs/herdr-core/herdr-core.exe" }
-  or { P.home .. "/.local/bin/hc", "/opt/homebrew/bin/hc", "/usr/local/bin/hc" }
+  or { P.home .. "/.local/bin/hc", P.home .. "/.local/bin/herdr-core", "/opt/homebrew/bin/hc", "/usr/local/bin/hc" }
 -- Folders put in front of PATH for language servers (unix: Homebrew and ~/.local/bin; Windows: PATH as it is).
 P.extra_path = not P.win and { P.home .. "/.local/bin", "/opt/homebrew/bin", "/usr/local/bin" } or nil
 P.path_sep = P.win and ";" or ":"

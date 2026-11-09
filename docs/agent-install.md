@@ -20,7 +20,8 @@ jay 請 agent 幫忙裝：Windows 本機 + 用 ssh 連的 Linux server，全部�
   show jay the exact error and the guide's "When something goes wrong" row.
 - **Source only on the server**: herdr-core for the server is built **on the PC** (Linux target) and copied; Neovim
   is built on the server from source. Never put anything prebuilt by others there (no official hc, no Neovim
-  tarball / AppImage, no pip `ruff` / `pyright`).
+  tarball / AppImage, no pip `ruff` / `pyright`). npm's pyright (packed JavaScript, linux-remote §3b) only if jay
+  says the company allows it.
 - **Public repo**: never commit or push to herdr-jay; never write company names, hosts, accounts or IPs into it.
 
 ## Order / 順序

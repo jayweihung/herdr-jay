@@ -13,6 +13,7 @@ Not yet run on a real company server: note what differs and bring it to jay.
 | [2b](#2b-add-the-machine--加機器) | Add the machine / 加機器 |
 | [3](#3-neovim-and-git-on-the-server--server-上的-neovim-和-git) | Neovim and git on the server (built there from source) |
 | [3a](#3a-server-cant-download--server-不能上網) | Server can't download: Neovim from a pack / server 不能上網 |
+| [3b](#3b-python-go-to-definition-pyright-optional--python-跳定義選用) | Python go-to-definition: pyright (optional) / Python 跳定義 |
 | [4](#4-agents-on-the-server--server-上的-agent) | Agents on the server |
 | [5](#5-try-jay-nvim-there--試-jay-nvim) | Try jay-nvim there |
 | [6](#6-when-something-goes-wrong--出問題時) | When something goes wrong / 出問題時 |
@@ -132,10 +133,10 @@ files under `test/` (sample data for its tests, not programs).
 **Check**: the last line prints `NVIM v0.12.6`; `git --version` works (else ask IT for git).
 Updating to a newer Neovim: only when the README says so; the same block with the new tag (`rm -rf build .deps` first).
 
-Optional LSP for Python: the pip packages are prebuilt (`ruff` is a compiled program; `pyright` downloads Node.js),
+Optional LSP for Python: the **pip** packages are prebuilt (`ruff` is a compiled program; `pyright` downloads Node.js),
 so they are **not** for a source-only server. Without them jay-nvim works the same, only without go-to-definition,
-hover types and lint errors.
-Python 的 LSP（ruff、pyright）用 pip 裝的是現成程式，只能用原始碼的 server 不要裝；沒有它們 jay-nvim 照樣能用，只是沒有跳定義和型別提示。
+hover types and lint errors. For go-to-definition see [3b](#3b-python-go-to-definition-pyright-optional--python-跳定義選用) (npm's pyright on the server's own Node).
+Python 的 LSP 用 pip 裝的是現成程式，只能用原始碼的 server 不要裝；要跳定義看 3b。
 
 ---
 
@@ -199,6 +200,70 @@ run on Windows yet.
 
 ---
 
+## 3b. Python go-to-definition: pyright (optional) / Python 跳定義（選用）
+
+Right-click → 跳到定義 / 看型別, `gd`, `K` need **pyright** (ruff only lints; it is not needed for this).
+跳定義、看型別要有 pyright（ruff 只檢查錯誤，不用裝）。
+
+**Ask first**: npm's `pyright` is Microsoft's packed **JavaScript** (no compiled program inside; it runs on the
+server's own Node). It is not plain source: pyright's own build needs `rspack`, which only comes prebuilt, so it
+can't be built from source alone. If the company only allows source, skip this step (jay-nvim works without it).
+先問公司：npm 的 pyright 是微軟打包好的 JavaScript（裡面沒有編好的執行檔，用 server 自己的 Node 跑），不是原始碼；
+pyright 本身沒辦法只用原始碼 build。公司不准的話就跳過這步。
+
+**Needs** Node ≥ 14 on the server (from IT; check `node --version` and `npm --version`).
+
+Server can download (in a server terminal):
+
+```sh
+mkdir -p ~/.local/bin
+npm install -g --prefix ~/.local --omit=optional --no-audit --no-fund pyright@1.1.414
+```
+
+Server can't download: on a machine with internet (PC PowerShell, or any Linux / Mac with `npm`):
+
+```sh
+npm pack pyright@1.1.414                     # writes pyright-1.1.414.tgz (about 4 MB)
+scp pyright-1.1.414.tgz <user>@<server>:
+```
+
+then on the server:
+
+```sh
+sha256sum ~/pyright-1.1.414.tgz              # bf5f473f6167c0d14175492c3263d783b4489a6956e1c06c18e15228e3a3fa42
+mkdir -p ~/.local/bin
+npm install -g --prefix ~/.local --offline --omit=optional --no-audit --no-fund ~/pyright-1.1.414.tgz
+```
+
+**Check**: `~/.local/bin/pyright --version` prints `pyright 1.1.414`. (Tested on a Mac: offline install from the
+`.tgz` with an empty npm cache and no registry; the package has no other dependencies.)
+
+**How to use / 怎麼用**
+
+1. Close the nvim pane and open it again (`ctrl-shift-i`): nvim looks for pyright when it opens.
+   nvim 那格關掉重開（`ctrl-shift-i`），它開的時候才會找 pyright。
+2. Open a `.py` file of the project. The first time nvim says
+   「pyright / TypeScript 沒啟動…還沒信任」: type `:JayTrust` Enter, then `:e` Enter. Once per project
+   (pyright runs the project's Python, so it starts only in folders you trust; [nvim.md §3](nvim.md#3-language-servers-and-trust--語言伺服器和信任)).
+   第一次會說「還沒信任」：打 `:JayTrust` 按 Enter，再打 `:e` 按 Enter。每個專案一次。
+3. Then, on a name:
+   - **right-click** → 跳到定義 / 看型別 / 找所有用到的地方 / 改名 (Shift + right-click is Herdr's own menu);
+   - or keys: `gd` go to definition, `K` its type, `grr` every use, `ctrl-o` jump back;
+   - rest the mouse on a name: its type pops up.
+   在名稱上按右鍵選「跳到定義」，或按 `gd`；`ctrl-o` 跳回來；滑鼠停在名稱上會顯示型別。
+4. Check it runs: `:checkhealth vim.lsp` lists `pyright` under active clients.
+
+| What you see / 看到什麼 | Why / 原因 | Fix / 怎麼修 |
+|---|---|---|
+| Right-click shows Herdr's menu (or nvim's English one), not the Chinese one | this nvim wasn't opened by jay-nvim, or the pane didn't get the `herdr.right-click=program` label | open nvim with `ctrl-shift-i`, not by typing `nvim`; `:lua print(JN ~= nil, vim.env.HC_TERMINAL_ID)` must print `true` and an id |
+| The menu is there but 跳到定義 / 看型別 are grey | pyright not running here | no pyright (Check above), or not trusted (step 2) |
+| `:checkhealth vim.lsp`: pyright exits, "env: node: No such file" | `node` not on the pane's PATH | ask IT where node is; it must be in `/usr/bin`, `/usr/local/bin` or `~/.local/bin` |
+| `npm install` tries the network with `--offline` | an old npm, or the `.tgz` name differs | use the full path to the `.tgz`; `npm --version` ≥ 7 |
+
+**Updating**: only when the README says so; the same steps with the new version.
+
+---
+
 ## 4. Agents on the server / server 上的 agent
 
 An agent that should work on the server's files runs **on the server**: open a tab on that machine and start it
@@ -235,7 +300,7 @@ Restart the agent. **Check**: after it changes a file outside the repo with a sh
 2. With its pane focused: `ctrl-shift-i` (Windows) / `cmd-e` (Mac) → nvim opens **on the server**, beside it.
 3. Ask the agent to read / edit a file → nvim follows (then add the snap hook, §4); `ctrl-shift-j` / `cmd-o` → the list (alt+o reaches nvim).
 4. `space a c` → comment, `space a s` → sent to the agent.
-5. Only if pyright is on the server (not on a source-only one, step 3): `:JayTrust` once per project.
+5. Only if pyright is on the server ([3b](#3b-python-go-to-definition-pyright-optional--python-跳定義選用)): `:JayTrust` once per project, then right-click a name → 跳到定義.
 
 Bring jay the results like the Windows checklist (photos, `:messages`, and `hc machine ls` on the PC).
 

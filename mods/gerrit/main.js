@@ -284,6 +284,11 @@ export default class Gerrit extends View {
         this.me = a && { _account_id: a._account_id, name: who(a) };
       }
       data.self = c.auth ? this.me ?? null : null;
+      if (!this.version || this.versionOf !== c.url) { // once per address: shown under the title
+        this.version = await this.get("/config/server/version").catch(() => null);
+        this.versionOf = c.url;
+      }
+      data.version = this.version;
       const secs = this.sectionsFor(c);
       const q = secs.map((s) => `q=${encodeURIComponent(`${s.query} limit:${s.limit ?? LIMIT}`)}`).join("&");
       let lists;
@@ -420,7 +425,7 @@ export default class Gerrit extends View {
     const btn = (id, label, fn) => div().id(id).h(28).px(10).flex().items_center().rounded(6).cursor_pointer().bg(t.raised).text_color(t.foreground)
       .hover((s) => s.bg(t.hover)).on_mouse_down("left", stop).on_click(fn).child(label);
     const inBar = Boolean(find(layout(), TOGGLE)) && !this.inTab;
-    const status = this.err ? `讀不到：${this.err}` : this.busy && !this.at ? "讀取中…" : this.at ? `更新於 ${ago(new Date(this.at).toISOString().replace("T", " ").replace("Z", ""))}` : "";
+    const status = this.err ? `讀不到：${this.err}` : this.busy && !this.at ? "讀取中…" : this.at ? `更新於 ${ago(new Date(this.at).toISOString().replace("T", " ").replace("Z", ""))}${shared(DATA)?.version ? ` · Gerrit ${shared(DATA).version}` : ""}` : "";
     return v_flex().flex_none().border_b(1).border_color(t.border)
       .child(h_flex().px(10).py(6).gap(6).items_center()
         .when(back, (el) => el.child(btn("back", "← 返回", (_e, cx) => {

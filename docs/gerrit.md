@@ -161,5 +161,5 @@ same text as Gerrit's search box), optional `"limit"` (default 25) and `"turn": 
 | A new `gerrit.json` isn't picked up | — | wait 10 seconds or press 重新整理 |
 | Changes to the mod don't show | the old copy is still running | quit and reopen Herdr |
 
-Bring jay: what the panel says (a photo is fine), the Gerrit version (bottom of Gerrit's page, or
+Bring jay: what the panel says (a photo is fine), the Gerrit version (under the panel title, the bottom of Gerrit's page, or
 `<url>/config/server/version`), and whether 輪到你 / notifications appeared. Never send the HTTP password.

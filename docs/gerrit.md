@@ -68,9 +68,11 @@ Until it exists, the panel shows what to write. Create `<home>/.config/herdr-app
 - `poll_seconds`: how often it asks Gerrit (at least 15; default 60).
 - `jenkins` (optional): Jenkins builds on a change's page, see [§6](#6-jenkins-builds--jenkins-build).
 - `sections` (optional): your own sections, see [§4](#4-your-own-sections--自訂分區).
-- `bots` (optional): which accounts are check systems (build, test, lint bots), as a regular expression on the
-  account name, for example `"^ci_"`. Without it the panel guesses: Gerrit service users, and messages that start
-  with `[` or carry a link (never the change's owner). 哪些帳號算「檢查系統」；不寫就用猜的。
+- `bots` (optional, usually not needed): which accounts are check systems (build, test, lint bots), as a regular
+  expression on the account name, for example `"^ci_"`. Without it the panel asks Gerrit: accounts in Gerrit's
+  **Service Users** group are systems; other accounts count only when their message starts with `[` or carries a
+  link (never the change's owner). Set it only if a person's message shows up as a system.
+  通常不用寫：Gerrit 的 Service Users 群組裡的帳號就是系統；有人的留言被誤當成系統時才寫。
 
 The file stays on your PC: it is outside the mod folder, so copying a new mod never touches it, and it is never in
 this repo. Don't share it. The panel reads it again within 10 seconds of a save.
@@ -252,8 +254,7 @@ Only the ▶ button (no build list, no polling; results show under 合併條件 
     "user": "your-jenkins-user",
     "token": "your API token",
     "start_job": "Preflight_Common"
-  },
-  "bots": "^ci_"
+  }
 ```
 
 - `url`: Jenkins's address up to (not including) `/job/…`: what the browser shows before `/job/` or `/view/`.

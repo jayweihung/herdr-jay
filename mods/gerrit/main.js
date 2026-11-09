@@ -50,10 +50,10 @@ const CONFIG_EXAMPLE = `{
 const DEFAULT_SECTIONS = [
   { title: "輪到你", query: "attention:self is:open", turn: true },
   { title: "草稿（WIP）", query: "is:open owner:self is:wip" },
-  { title: "我送出的", query: "is:open owner:self -is:wip -is:ignored" },
-  { title: "等我 review", query: "is:open -owner:self -is:wip -is:ignored reviewer:self" },
-  { title: "CC 我的", query: "is:open -is:ignored -is:wip cc:self" },
-  { title: "最近合併／放棄", query: "is:closed -is:ignored (owner:self OR reviewer:self) -age:4w", closed: true },
+  { title: "我送出的", query: "is:open owner:self -is:wip" },
+  { title: "等我 review", query: "is:open -owner:self -is:wip reviewer:self" },
+  { title: "CC 我的", query: "is:open -is:wip cc:self" },
+  { title: "最近合併／放棄", query: "is:closed (owner:self OR reviewer:self) -age:4w", closed: true },
 ];
 const OPTS = "o=LABELS&o=DETAILED_ACCOUNTS&o=SUBMITTABLE";
 const LIMIT = 25;

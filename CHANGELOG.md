@@ -7,7 +7,7 @@ Needs: **mods** = copy the two mod folders again (macOS symlinks: nothing) · **
 
 ## 2026-11-10
 
-- **Gerrit panel sits with the other panels**: a **Gerrit** button in the tab bar (number = changes waiting for you) opens and closes it, and keeps checking and notifying while it's closed. A panel still docked outside shows a **移到上排** button that moves it there (on Herdr's own layout it first makes `main-jay`). Header buttons are bigger. Needs **gerrit** (copy `mods/gerrit`), restart Herdr, press 移到上排 once.
+- **Gerrit panel sits with the other panels**: a **Gerrit** button in the tab bar (number = changes waiting for you) opens and closes it, and keeps checking and notifying while it's closed. A panel still docked outside shows a **移到上排** button that moves it there (on Herdr's own layout it first makes `main-jay`). Header buttons are bigger. Fixed: on Gerrit 3.14+ four default sections said 讀不到 (`-is:ignored` no longer exists there; dropped). Needs **gerrit** (copy `mods/gerrit`), restart Herdr, press 移到上排 once.
 
 ## 2026-11-09
 

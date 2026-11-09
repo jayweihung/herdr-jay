@@ -111,6 +111,7 @@ function voteValue(t, v) {
 export default class Gerrit extends View {
   init(_p, cx) {
     this.role = blockProps()?.role ?? "panel";
+    if (this.role !== "toggle") this.replyState(); // input state can't be made while drawing
     this.collapsed = new Set(JSON.parse(this.load("collapsed") ?? '["最近合併／放棄"]'));
     this.seen = JSON.parse(this.load("seen") ?? "null"); // change id -> updated; null until the first poll
     this.nextAt = 0;
@@ -209,7 +210,7 @@ export default class Gerrit extends View {
     }
   }
 
-  // The reply box and the votes picked for the open change (sent together, like Gerrit's REPLY dialog).
+  // Made in init (never in render). The reply box and the votes picked for the open change (sent together, like Gerrit's REPLY dialog).
   replyState() {
     if (!this.reply) {
       this.reply = TextareaState.new({ placeholder: "寫回覆（可以空白，只送分數）", rows: 3 });

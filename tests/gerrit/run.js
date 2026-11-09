@@ -246,7 +246,23 @@ test("render: list, setup, change page, diff and the tab-bar button draw without
   render(g);
   g.diff = { path: "Makefile", open: new Set(), data: { content: [{ ab: ["a"] }, { a: ["b"], b: ["c"] }] } }; render(g);
   g.lineBox = { key: "b:2", side: "b", line: 2, state: textState() }; render(g);
+  g.diff = null; g.detail.change.reviewers = { REVIEWER: [ME], CC: [ALICE] }; g.addingPeople = true; g.found = [ALICE]; render(g); // people box open
   H.props = { role: "toggle" }; const t = new G(); t.init({}, { timer: { every() {} }, spawn: () => {} }); render(t);
+});
+
+test("people: find by name, add as reviewer or CC (moving is the same call), remove", async (G) => {
+  setConfig(LOGIN); const g = freshView(G);
+  gerrit([["GET", /^\/a\/accounts\/\?suggest/, (r) => [200, r.query.get("q") === "ali" ? [ALICE] : []]],
+    ["POST", /^\/a\/changes\/7\/reviewers$/, [200, {}]], ["POST", /^\/a\/changes\/7\/reviewers\/1000003\/delete$/, [204, ""]], ["GET", /^\/a\/changes\/7\//, [200, {}]]]);
+  g.detail = { change: change(7) }; g.openId = g.detail.change.id;
+  g.peopleState().set_value(" ali "); await g.findPeople(cx);
+  assert.deepEqual(g.found, [ALICE]); assert.equal(seen[0].query.get("q"), "ali");
+  await g.addPerson(change(7), ALICE, "CC", cx);
+  assert.deepEqual(seen.find((r) => r.method === "POST").body, { reviewer: "1000003", state: "CC" });
+  assert.deepEqual(g.found, []); assert.equal(g.peopleState().value(), "", "box cleared after adding");
+  await g.removePerson(change(7), ALICE, cx);
+  assert.ok(seen.some((r) => r.method === "POST" && r.path === "/a/changes/7/reviewers/1000003/delete"));
+  g.peopleState().set_value("nobody"); await g.findPeople(cx); assert.match(g.actErr, /找不到「nobody」/);
 });
 
 // ---------- run ----------

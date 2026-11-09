@@ -94,7 +94,7 @@ project · branch · owner, unresolved comments (留言 N), each label as Gerrit
 rejected, `+1` / `-1`; `CR` = Code-Review, `V` = Verified: the capital letters of the name), the size (XS < 10
 changed lines, S < 50, M < 250, L < 1000, XL) and when it last changed.
 
-**Click a change** → its page: whose turn it is, the votes and who gave them (labels nobody voted on and that aren't
+**Click a change** → its page: whose turn it is, its **Reviewer** and **CC** people, the votes and who gave them (labels nobody voted on and that aren't
 required are left out), the comment threads (unresolved first; 整體留言 = patchset-level), the files of the latest
 patch set (+/−, comments per file), the commit message (first lines; click for all), every patch set (and if it was
 only a rebase), and the change log. **← 返回** goes back.
@@ -115,6 +115,11 @@ red, added green, unchanged runs folded to 「⋯ N 行沒改（點開）」, th
   drafts, as Gerrit's SEND does);
 - **✅ 合併（Submit）** when the change can be submitted: press once, it turns red 「再按一次確認合併」, press again
   within 4 seconds.
+- **Reviewer／CC**: **＋ 加 Reviewer／CC** opens a box: type part of a name, username or email, press 🔍 找人, then
+  **加 Reviewer** or **加 CC** next to the right person. Next to each name, **→CC** / **→Reviewer** moves them;
+  **✕** removes them (only shown on your own changes, and for yourself: Gerrit allows only that without admin rights).
+  在細節頁上面加人：打名字按「找人」，再按「加 Reviewer」或「加 CC」。
+- Each label you may vote on (e.g. Code-Review, Build, Verified) has its full name above its own row of buttons.
 - Under each comment thread: **✓ Done** and **Ack** reply and mark it resolved in one press; **💬 回覆** opens a box
   with 送出並解決 / 送出（不解決）/ 取消.
 回覆、給分、合併都在細節頁最上面；留言串下面有 Done／Ack／回覆。合併要按兩次。

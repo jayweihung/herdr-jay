@@ -75,8 +75,8 @@ const size = (c) => {
   const n = (c.insertions ?? 0) + (c.deletions ?? 0);
   return n < 10 ? "XS" : n < 50 ? "S" : n < 250 ? "M" : n < 1000 ? "L" : "XL";
 };
-// "Code-Review" -> "CR", "Verified" -> "V"
-const abbr = (name) => (name.match(/[A-Z]/g) ?? [name[0]]).join("");
+// "Code-Review" -> "CR", "Verified" -> "V", "Build" -> "B"; any case ("code-review" -> "CR")
+const abbr = (name) => String(name).split(/[-_ ]+/).filter(Boolean).map((w) => w[0].toUpperCase()).join("") || String(name);
 
 function b64(text) {
   const bytes = [];
@@ -117,7 +117,7 @@ function voteValue(t, v) {
 export default class Gerrit extends View {
   init(_p, cx) {
     this.role = blockProps()?.role ?? "panel";
-    if (this.role !== "toggle") this.replyState(); // input state can't be made while drawing
+    if (this.role !== "toggle") { this.replyState(); this.peopleState(); } // input state can't be made while drawing
     // props {open: "<change id or number>", diff: "<file path>"}: start on that change (and file), e.g. in a tab of its own
     const start = blockProps() ?? {};
     this.inTab = Boolean(start.open); // a copy started on a change (its own tab): the panel's width isn't its business
@@ -221,6 +221,81 @@ export default class Gerrit extends View {
       this.sending = null;
       cx.notify();
     }
+  }
+
+  // Made in init (never in render). The box to find someone to add as reviewer or CC.
+  peopleState() {
+    if (!this.people) this.people = TextareaState.new({ placeholder: "名字、帳號或 email", rows: 1 });
+    return this.people;
+  }
+
+  // Gerrit's account suggestions (like the box in its REPLY dialog).
+  async findPeople(cx) {
+    const q = this.peopleState().value().trim();
+    if (!q) { this.found = []; cx.notify(); return; }
+    this.finding = true; this.actErr = null; cx.notify();
+    try {
+      this.cfg = await this.readConfig();
+      this.found = (await this.get(`/accounts/?suggest&q=${encodeURIComponent(q)}&n=8&o=DETAILS`)) ?? [];
+      if (!this.found.length) this.actErr = `找不到「${q}」`;
+    } catch (e) { this.actErr = String(e.message ?? e); this.found = []; }
+    finally { this.finding = false; cx.notify(); }
+  }
+
+  // state: "REVIEWER" or "CC". Moving someone between the two is the same call.
+  async addPerson(c, account, state, cx) {
+    const ok = await this.act(`person-${account._account_id}`, () => this.req("POST", `/changes/${cid(c)}/reviewers`, { reviewer: String(account._account_id), state }), cx);
+    if (ok) { this.found = []; this.peopleState().set_value(""); }
+  }
+
+  async removePerson(c, account, cx) {
+    await this.act(`person-${account._account_id}`, () => this.req("POST", `/changes/${cid(c)}/reviewers/${account._account_id}/delete`, { notify: "OWNER" }), cx);
+  }
+
+  // Reviewer and CC rows of a change's page, with + 加人 (search, then 加 Reviewer / 加 CC) and ✕ to remove.
+  peopleRows(t, z, c) {
+    const out = [];
+    const can = Boolean(shared(SAFE_CFG)?.auth) && c.status === "NEW";
+    const busy = Boolean(this.sending);
+    const att = new Set(Object.keys(c.attention_set ?? {}).map(String));
+    const row = (label, list, other) => h_flex().id(`people-${label}`).gap(6).flex_wrap().items_center().text_size(z - 1)
+      .child(div().w(72).flex_none().text_color(t.muted).child(label))
+      .children(list.length ? list.map((a) => h_flex().id(`p-${label}-${a._account_id}`).gap(4).items_center().px(6).py(1).rounded(4).bg(t.raised)
+        .child(div().text_color(att.has(String(a._account_id)) ? t.blocked : t.foreground).child(who(a)))
+        .when(can && a._account_id !== c.owner?._account_id, (el) => el
+          .child(div().id(`p-move-${a._account_id}`).px(3).rounded(3).text_color(t.accent).cursor_pointer().hover((st) => st.bg(t.hover))
+            .on_mouse_down("left", stop).on_click((_e, cx) => { if (!busy) cx.spawn(async (cx) => this.addPerson(c, a, other, cx)); })
+            .child(other === "CC" ? "→CC" : "→Reviewer"))
+          // Gerrit lets the owner remove anyone and you remove yourself (others need an admin's Remove Reviewer right)
+          .when(c.owner?._account_id === this.self?._account_id || a._account_id === this.self?._account_id, (el) => el.child(div().id(`p-del-${a._account_id}`).px(3).rounded(3).text_color(t.muted).cursor_pointer().hover((st) => st.bg(t.hover))
+            .on_mouse_down("left", stop).on_click((_e, cx) => { if (!busy) cx.spawn(async (cx) => this.removePerson(c, a, cx)); })
+            .child("✕"))))) : [div().text_color(t.dim).child("沒有")]);
+    const rv = c.reviewers ?? {};
+    out.push(row("Reviewer", (rv.REVIEWER ?? []).filter((a) => a._account_id !== c.owner?._account_id), "CC"));
+    out.push(row("CC", rv.CC ?? [], "REVIEWER"));
+    if (!can) return out;
+    if (!this.addingPeople) {
+      out.push(h_flex().child(this.big(t, z, "people-open", "＋ 加 Reviewer／CC", { on: (cx) => { this.addingPeople = true; this.found = []; cx.notify(); } })));
+      return out;
+    }
+    const box = v_flex().gap(6).p(8).rounded(8).bg(t.chrome).border_1().border_color(t.border)
+      .child(h_flex().gap(6).items_center()
+        .child(div().id("people-box").flex_1().h(34).px(6).flex().items_center().rounded(6).bg(t.background).border_1().border_color(t.input)
+          .cursor_text().on_mouse_down("left", stop)
+          .child(Textarea.new(this.peopleState()).w_full().text_size(z).text_color(t.foreground)))
+        .child(this.big(t, z, "people-find", this.finding ? "找…" : "🔍 找人", { kind: "primary", off: this.finding, on: (cx) => cx.spawn(async (cx) => this.findPeople(cx)) }))
+        .child(this.big(t, z, "people-close", "關閉", { on: (cx) => { this.addingPeople = false; this.found = []; cx.notify(); } })));
+    for (const a of this.found ?? []) {
+      box.child(h_flex().id(`found-${a._account_id}`).gap(6).items_center().flex_wrap()
+        .child(v_flex().flex_1().min_w(120)
+          .child(div().text_size(z).child(who(a)))
+          .child(div().text_size(z - 2).text_color(t.muted).child([a.username, a.email].filter(Boolean).join(" · ") || `#${a._account_id}`)))
+        .child(this.big(t, z, `add-r-${a._account_id}`, "加 Reviewer", { off: busy, on: (cx) => cx.spawn(async (cx) => this.addPerson(c, a, "REVIEWER", cx)) }))
+        .child(this.big(t, z, `add-c-${a._account_id}`, "加 CC", { off: busy, on: (cx) => cx.spawn(async (cx) => this.addPerson(c, a, "CC", cx)) })));
+    }
+    if (this.actErr) box.child(div().text_size(z - 1).text_color(t.ansi1).whitespace_normal().child(this.actErr));
+    out.push(box);
+    return out;
   }
 
   // Made in init (never in render). The reply box and the votes picked for the open change (sent together, like Gerrit's REPLY dialog).
@@ -356,7 +431,7 @@ export default class Gerrit extends View {
 
   async openChange(c, cx, quiet) {
     if (!quiet || this.openId !== c.id) {
-      if (this.openId !== c.id) { this.picked = {}; this.threadReply = null; this.armed = null; this.actErr = null; this.reply?.set_value(""); }
+      if (this.openId !== c.id) { this.picked = {}; this.threadReply = null; this.armed = null; this.actErr = null; this.reply?.set_value(""); this.addingPeople = false; this.found = []; }
       this.openId = c.id;
       this.detail = { change: c, loading: true };
       cx.notify();
@@ -662,8 +737,9 @@ export default class Gerrit extends View {
     for (const [name, vals] of Object.entries(open ? c.permitted_labels ?? {} : {})) {
       const mine = Number((c.labels?.[name]?.all ?? []).find((v) => v._account_id === me)?.value ?? 0);
       const picked = this.picked?.[name];
-      const row = h_flex().gap(4).items_center()
-        .child(div().w(56).flex_none().text_size(z - 1).text_color(t.muted).truncate().child(abbr(name)));
+      // the label's full name above its buttons (Code-Review, Build, Verified …), as Gerrit's REPLY dialog
+      card.child(div().text_size(z - 1).text_color(t.muted).child(name));
+      const row = h_flex().gap(4).items_center();
       for (const raw of vals) {
         const v = Number(raw);
         const sel = picked != null ? picked === v : mine === v;
@@ -752,6 +828,10 @@ export default class Gerrit extends View {
     if (att.length) body.child(h_flex().gap(6).flex_wrap().text_size(z - 1)
       .child(div().text_color(t.muted).child("輪到："))
       .children(att.map((a, i) => div().id(`att-${i}`).px(6).rounded(4).bg(t.raised).text_color(a.account?._account_id === this.self?._account_id ? t.blocked : t.foreground).child(who(a.account)))));
+
+    // People: reviewers and CC (Gerrit's REVIEWERS / CC), add, move, remove
+    body.child(title("Reviewer／CC"));
+    for (const r of this.peopleRows(t, z, c)) body.child(r);
 
     // Labels and who voted
     // Like Gerrit's submit requirements: labels someone voted on, or ones the change needs; optional unvoted ones stay out.

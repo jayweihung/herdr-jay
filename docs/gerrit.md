@@ -19,6 +19,7 @@ bring it to jay.
 | [5](#5-when-something-goes-wrong--出問題時) | When something goes wrong / 出問題時 |
 | [6](#6-jenkins-builds--jenkins-build) | Jenkins builds / Jenkins build |
 | [7](#7-ask-an-agent--問-agent) | Ask an agent / 問 agent |
+| [8](#8-a-gerrit-agent-step-by-step--gerrit-agent-安裝步驟) | A Gerrit agent, step by step / Gerrit agent 安裝步驟 |
 
 ---
 
@@ -312,4 +313,87 @@ Optional, in `gerrit.json`:
 
 The request is only text typed into that agent: what it may do on Gerrit is up to the agent and its MCP settings.
 送出去的只是文字；agent 能在 Gerrit 做什麼，看它自己的設定。
+
+## 8. A Gerrit agent, step by step / Gerrit agent 安裝步驟
+
+For 問 agent's presets the agent needs Gerrit tools. This sets up Claude Code with the open-source
+[gerrit-mcp-server](https://gerrit.googlesource.com/gerrit-mcp-server) (Apache-2.0), started from the panel's
+**＋ 開 gerrit agent**. Same steps on Windows and macOS; Windows commands are PowerShell. It needs Claude Code and
+git already installed, and the PC must reach the internet (or the company's mirror) once: `uv` downloads the
+server's Python packages on first start. Ask before installing on a company PC.
+給「問 agent」用的 Gerrit agent：Claude Code + gerrit-mcp-server。Windows 指令是 PowerShell。公司電腦先問過再裝。
+
+**1. uv** (runs the server; installs Python for it):
+
+```powershell
+winget install --id=astral-sh.uv -e          # Windows; then open a new terminal
+```
+```sh
+brew install uv                               # macOS
+```
+
+**2. The server** (source, into your src folder):
+
+```powershell
+git clone https://gerrit.googlesource.com/gerrit-mcp-server "$env:USERPROFILE\src\gerrit-mcp-server"   # Windows
+```
+```sh
+git clone https://gerrit.googlesource.com/gerrit-mcp-server ~/src/gerrit-mcp-server                    # macOS
+```
+
+**3. Its settings**: which Gerrit, and the same user and HTTP password as `gerrit.json` (§2). The file:
+Windows `%LOCALAPPDATA%\gerrit-mcp\gerrit_config.json`, macOS `~/Library/Application Support/gerrit-mcp/gerrit_config.json`.
+
+```powershell
+New-Item -ItemType Directory -Force "$env:LOCALAPPDATA\gerrit-mcp" | Out-Null
+notepad "$env:LOCALAPPDATA\gerrit-mcp\gerrit_config.json"     # Windows: paste the JSON below, save
+```
+
+```json
+{
+  "default_gerrit_base_url": "https://gerrit.example.com/",
+  "gerrit_hosts": [
+    {
+      "name": "My Gerrit",
+      "external_url": "https://gerrit.example.com/",
+      "authentication": { "type": "http_basic", "username": "your-gerrit-username", "auth_token": "your HTTP password" }
+    }
+  ]
+}
+```
+
+The URL ends with `/` and is the same in both places. Like `gerrit.json`, the file stays on your PC; don't share it.
+
+**4. A folder for the agent** (it starts there; keep it empty):
+
+```powershell
+New-Item -ItemType Directory -Force "$env:USERPROFILE\gerrit-agent" | Out-Null   # Windows
+```
+```sh
+mkdir -p ~/gerrit-agent                                                           # macOS
+```
+
+**5. The start button**: add to `gerrit.json` (Windows paths with `/`):
+
+```json
+  "agent": {
+    "name": "gerrit",
+    "start": ["claude", "--plugin-dir", "C:/Users/you/src/gerrit-mcp-server"],
+    "cwd": "C:/Users/you/gerrit-agent"
+  }
+```
+
+(macOS: `"/Users/you/src/gerrit-mcp-server"` and `"/Users/you/gerrit-agent"`.) Quit and reopen Herdr.
+
+**6. Try it**: open a change in the panel → **＋ 開 gerrit agent**. The first start takes a minute (uv installs the
+packages). In that agent type `/mcp`: **gerrit** should say connected. If it says the config is missing or wrong,
+type `/gerrit:setup` there, or check step 3. Then pick it in the 問 agent card and press **Review**.
+第一次開要等一分鐘；在 agent 裡打 `/mcp` 看到 gerrit connected 就好了，然後選它、按 Review。
+
+| What you see | Fix |
+|---|---|
+| `uv` not found (Windows) | open a new terminal after step 1, or reopen Herdr |
+| uv can't download (proxy / no internet) | ask IT for the company's PyPI mirror; bring jay the text |
+| gerrit not connected, 401 | the HTTP password in step 3 (not your login password) |
+| 「沒送出」 in the card | the agent's pane was closed: pick another, or start it again |
 

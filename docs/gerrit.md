@@ -117,8 +117,15 @@ red, added green, unchanged runs folded to 「⋯ N 行沒改（點開）」, th
   with 送出並解決 / 送出（不解決）/ 取消.
 回覆、給分、合併都在細節頁最上面；留言串下面有 Done／Ack／回覆。合併要按兩次。
 
-**A change in a tab of its own**: `herdr-app do tab.new --name "#7" --mod gerrit --props '{"open":"7"}'`
-(add `"diff":"path/to/file"` to start on that file's diff).
+**A change in a tab of its own** (add `"diff":"path/to/file"` to start on that file's diff):
+
+```sh
+herdr-app do tab.new --name "#7" --mod gerrit --props '{"open":"7"}'          # macOS
+```
+```powershell
+herdr-app do tab.new --name "#7" --mod gerrit --props '{"open":"7"}'          # PowerShell 7.3 or newer (pwsh)
+herdr-app do tab.new --name "#7" --mod gerrit --props '{\"open\":\"7\"}'     # Windows PowerShell 5.1
+```
 
 **Notifications** (only when logged in), at most three per check:
 - 輪到你：#123 … when a change enters 輪到你, with Gerrit's reason;

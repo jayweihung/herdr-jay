@@ -7,7 +7,7 @@
 // A panel with no toggle in the layout polls itself and offers to move into the tab bar.
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex, TextareaState, Textarea } from "gpui-base";
-import { theme, settings, notify, home, readTextFile, run, layout, shared, setShared, props as blockProps } from "herdr";
+import { theme, settings, notify, home, readTextFile, run, layout, shared, setShared, window, props as blockProps } from "herdr";
 
 const TOGGLE = "gerrit-toggle", PANEL = "gerrit-panel";
 const SHIPPED = ["main", "terminals", "win98"]; // Herdr's own layouts: read-only, so moving clones one first
@@ -59,7 +59,7 @@ const OPTS = "o=LABELS&o=DETAILED_ACCOUNTS&o=SUBMITTABLE";
 const LIMIT = 25;
 
 const fs = () => Number(settings().ui_font_size) || 13;
-const mono = () => settings().font_family || "Menlo";
+const mono = () => settings().font_family || (window()?.platform === "windows" ? "Consolas" : "Menlo");
 const stop = (_e, cx) => cx.stop_propagation();
 
 // Gerrit time: "2026-11-09 11:37:51.000000000", UTC.

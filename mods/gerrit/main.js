@@ -34,7 +34,7 @@ function placed(root) {
   if (!bar || !body) return null;
   bar.children.push({ id: TOGGLE, type: "block", content: { mod: "gerrit", props: { role: "toggle" } }, size: { px: 96 } });
   body.children.push({ id: PANEL, type: "column", children: [{ id: "gerrit", type: "block", content: { mod: "gerrit" } }],
-    size: { px: 460 }, min: 340, max: 900 });
+    size: { px: 460 }, min: 340, max: 2400 });
   return tree;
 }
 
@@ -99,6 +99,10 @@ function vote(t, l) {
   if (l.recommended) return { text: `+${l.value ?? 1}`, color: t.ansi2 };
   return null;
 }
+const vim_name = (p) => (p === "/COMMIT_MSG" ? "提交說明" : p);
+// Leading spaces and tabs kept visible (text wraps, so they'd collapse).
+const keepIndent = (l) => String(l ?? "").replace(/^[ \t]+/, (m) => m.replace(/\t/g, "    ").replace(/ /g, "\u00a0"));
+
 function voteValue(t, v) {
   const n = Number(v) || 0;
   return { text: n > 0 ? `+${n}` : String(n), color: n > 0 ? t.ansi2 : t.ansi1 };
@@ -352,11 +356,13 @@ export default class Gerrit extends View {
 
   render(cx) {
     if (this.role === "toggle") return this.renderToggle();
+    try { this.vw = cx.viewport_size()?.width ?? this.vw; } catch {}
     const t = theme(), z = fs(), cfg = shared(SAFE_CFG);
     const root = v_flex().id("gerrit").size_full().bg(t.surface).text_size(z).text_color(t.foreground);
     if (!find(layout(), TOGGLE)) root.child(this.moveBanner(t, z));
     if (!cfg) return root.child(div().p(14).text_color(t.muted).child("讀取 Gerrit 設定…"));
     if (cfg.missing || cfg.error) return root.child(this.setup(t, z, cfg));
+    if (this.openId && this.detail && this.diff) return root.child(this.header(t, z, true)).child(this.renderDiff(t, z));
     if (this.openId && this.detail) return root.child(this.header(t, z, true)).child(this.renderDetail(t, z, cx));
     return root.child(this.header(t, z, false)).child(this.renderList(t, z));
   }
@@ -398,15 +404,28 @@ export default class Gerrit extends View {
     const btn = (id, label, fn) => div().id(id).h(28).px(10).flex().items_center().rounded(6).cursor_pointer().bg(t.raised).text_color(t.foreground)
       .hover((s) => s.bg(t.hover)).on_mouse_down("left", stop).on_click(fn).child(label);
     const inBar = Boolean(find(layout(), TOGGLE));
+    const px = find(layout(), PANEL)?.size?.px ?? 0, wide = px >= this.wideWidth() - 10;
     const status = this.err ? `讀不到：${this.err}` : this.busy && !this.at ? "讀取中…" : this.at ? `更新於 ${ago(new Date(this.at).toISOString().replace("T", " ").replace("Z", ""))}` : "";
     return v_flex().flex_none().border_b(1).border_color(t.border)
       .child(h_flex().px(10).py(6).gap(6).items_center()
-        .when(back, (el) => el.child(btn("back", "← 返回", (_e, cx) => { this.openId = null; this.detail = null; cx.notify(); })))
-        .child(div().flex_1().min_w(0).truncate().font_semibold().child(back ? `#${this.detail.change._number}` : "Gerrit"))
+        .when(back, (el) => el.child(btn("back", "← 返回", (_e, cx) => {
+          if (this.diff) this.diff = null; else { this.openId = null; this.detail = null; }
+          cx.notify();
+        })))
+        .child(div().flex_1().min_w(0).truncate().font_semibold().child(back ? (this.diff ? `#${this.detail.change._number} · ${vim_name(this.diff.path)}` : `#${this.detail.change._number}`) : "Gerrit"))
+        .when(inBar, (el) => el.child(btn("wide", wide ? "⤡ 縮小" : "⤢ 放大", () => this.setWide(!wide))))
         .when(back, (el) => el.child(btn("web", "在瀏覽器開", (_e, cx) => cx.open_url(this.webUrl(this.detail.change)))))
         .when(!back, (el) => el.child(btn("refresh", this.busy ? "更新中…" : "↻ 重新整理", (_e, cx) => { setShared(REFRESH, Date.now()); this.nextAt = 0; cx.notify(); })))
         .when(inBar, (el) => el.child(btn("hide", "✕", () => run("layout.hide", { id: PANEL })))))
       .when(!back && Boolean(status), (el) => el.child(div().px(12).pb(5).text_size(z - 1.5).truncate().text_color(this.err ? t.ansi1 : t.muted).child(status)));
+  }
+
+  // 放大: about two thirds of the window (the window's width is read while drawing).
+  wideWidth() { return Math.max(700, Math.round((this.vw || 1600) * 0.66)); }
+  setWide(on) {
+    const px = find(layout(), PANEL)?.size?.px, wide = this.wideWidth();
+    if (on) { if (px && px < wide - 10) this.save("narrow", String(px)); run("layout.resize", { id: PANEL, px: wide }); }
+    else run("layout.resize", { id: PANEL, px: Number(this.load("narrow")) || 460 });
   }
 
   renderList(t, z) {
@@ -459,6 +478,147 @@ export default class Gerrit extends View {
           h_flex().id(`l-${c._number}-${name}`).gap(1).child(div().text_color(t.dim).child(abbr(name))).child(div().text_color(v.color).when(Boolean(v.strong), (el) => el.font_semibold()).child(v.text)))))
         .child(div().flex_none().w(18).text_color(t.dim).child(size(c)))
         .child(div().flex_none().child(ago(c.updated))));
+  }
+
+  // ---- Diff of one file (latest patch set), comments inline, click a line to comment ----
+  async openDiff(path, cx) {
+    const c = this.detail.change;
+    this.diff = { path, loading: true, open: new Set() };
+    this.lineBox = null;
+    // a diff wants room: widen once, unless already wide
+    if (find(layout(), TOGGLE) && (find(layout(), PANEL)?.size?.px ?? 0) < this.wideWidth() - 10) this.setWide(true);
+    cx.notify();
+    try {
+      this.cfg = await this.readConfig();
+      const d = await this.get(`/changes/${encodeURIComponent(c.id)}/revisions/current/files/${encodeURIComponent(path)}/diff`);
+      if (this.diff?.path === path) this.diff = { ...this.diff, loading: false, data: d };
+    } catch (e) {
+      if (this.diff?.path === path) this.diff = { ...this.diff, loading: false, error: String(e.message ?? e) };
+    }
+    cx.notify();
+  }
+
+  // Gerrit's content chunks → rows; a run of more than 8 unchanged lines folds to 3 + "N 行相同" + 3.
+  diffRows(d, open) {
+    const rows = [];
+    let a = 0, b = 0;
+    (d.content ?? []).forEach((ch, k) => {
+      if (ch.skip) { rows.push({ kind: "skip", n: ch.skip, id: `s${k}` }); a += ch.skip; b += ch.skip; return; }
+      if (ch.ab) {
+        const n = ch.ab.length, first = k === 0, last = k === d.content.length - 1;
+        const keepTop = first ? 0 : 3, keepEnd = last ? 0 : 3;
+        const fold = !open.has(k) && n > keepTop + keepEnd + 2;
+        ch.ab.forEach((text, i) => {
+          a++; b++;
+          if (fold && i >= keepTop && i < n - keepEnd) {
+            if (i === keepTop) rows.push({ kind: "fold", n: n - keepTop - keepEnd, chunk: k, id: `f${k}` });
+            return;
+          }
+          rows.push({ kind: "ctx", a, b, text, id: `c${a}-${b}` });
+        });
+        return;
+      }
+      for (const text of ch.a ?? []) { a++; rows.push({ kind: "del", a, text, id: `d${a}` }); }
+      for (const text of ch.b ?? []) { b++; rows.push({ kind: "add", b, text, id: `n${b}` }); }
+    });
+    return rows;
+  }
+
+  renderDiff(t, z) {
+    const { path, data, loading, error, open } = this.diff;
+    const c = this.detail.change, comments = this.detail.comments ?? {};
+    const body = v_flex().id("diff").flex_1().min_h(0).overflow_y_scrollbar().pb(16);
+    // file navigation: previous / next file of this patch set
+    const cur = Object.values(c.revisions ?? {}).find((r) => r._number === c.revisions?.[c.current_revision]?._number) ?? {};
+    const files = Object.keys(cur.files ?? {});
+    const i = files.indexOf(path);
+    const nav = h_flex().gap(6).px(10).py(6).items_center().border_b(1).border_color(t.border)
+      .child(div().flex_1().min_w(0).text_ellipsis_start().font_family(mono()).text_size(z - 0.5).child(vim_name(path)))
+      .child(this.big(t, z, "prev-file", "↑ 上一個檔", { off: i <= 0, on: (cx) => cx.spawn(async (cx) => this.openDiff(files[i - 1], cx)) }))
+      .child(this.big(t, z, "next-file", "↓ 下一個檔", { off: i < 0 || i >= files.length - 1, on: (cx) => cx.spawn(async (cx) => this.openDiff(files[i + 1], cx)) }));
+    body.child(nav);
+    if (loading) return body.child(div().p(12).text_color(t.muted).child("讀取 diff…"));
+    if (error) return body.child(div().p(12).text_color(t.ansi1).child(`讀不到：${error}`));
+    if (data.binary) return body.child(div().p(12).text_color(t.muted).child("二進位檔，沒有 diff"));
+
+    // comments of this file on the latest patch set, by side and line
+    const psNow = c.revisions?.[c.current_revision]?._number;
+    const all = (comments[path] ?? []).map((m) => ({ path, ...m }));
+    const byId = new Map(all.map((m) => [m.id, m]));
+    const rootOf = (m) => { let r = m, n = 0; while (r.in_reply_to && byId.has(r.in_reply_to) && n++ < 50) r = byId.get(r.in_reply_to); return r; };
+    const threads = new Map();
+    for (const m of all) { const r = rootOf(m); if (!threads.has(r.id)) threads.set(r.id, []); threads.get(r.id).push(m); }
+    const at = new Map(); // "b:12" / "a:3" / "file" -> [thread]
+    for (const ms of threads.values()) {
+      ms.sort((x, y) => when(x.updated) - when(y.updated));
+      const r = ms[0];
+      if (r.patch_set !== psNow && r.side !== "PARENT") continue; // older patch sets: on the change page
+      const key = !r.line ? "file" : `${r.side === "PARENT" ? "a" : "b"}:${r.line}`;
+      if (!at.has(key)) at.set(key, []);
+      at.get(key).push({ root: r, msgs: ms, unresolved: Boolean(ms[ms.length - 1].unresolved) });
+    }
+    const threadCard = (x, k) => v_flex().id(`dt-${k}`).mx(10).my(4).p(8).gap(4).rounded(6).bg(t.raised).text_size(z - 1)
+      .border_l(3).border_color(x.unresolved ? t.blocked : t.ansi2)
+      .children(x.msgs.map((m, j) => v_flex().id(`dt-${k}-${j}`).gap(1)
+        .child(div().text_color(t.muted).child(`${who(m.author)} · ${ago(m.updated)}${j === x.msgs.length - 1 ? (x.unresolved ? " · 未解決" : " · 已解決") : ""}`))
+        .child(div().whitespace_normal().child(String(m.message ?? "").trim()))))
+      .when(Boolean(shared(SAFE_CFG)?.auth) && c.status === "NEW", (el) => el.child(this.threadButtons(t, z, c, x)));
+    (at.get("file") ?? []).forEach((x, k) => body.child(threadCard(x, `file-${k}`)));
+
+    const rows = this.diffRows(data, open);
+    const LIMIT_ROWS = 3000;
+    const can = Boolean(shared(SAFE_CFG)?.auth) && c.status === "NEW";
+    for (const r of rows.slice(0, LIMIT_ROWS)) {
+      if (r.kind === "fold" || r.kind === "skip") {
+        body.child(div().id(`row-${r.id}`).px(12).py(3).text_size(z - 1.5).text_color(t.accent).bg(t.chrome)
+          .when(r.kind === "fold", (el) => el.cursor_pointer().hover((st) => st.bg(t.hover)).on_click((_e, cx) => { open.add(r.chunk); cx.notify(); }))
+          .child(r.kind === "fold" ? `⋯ ${r.n} 行沒改（點開）` : `⋯ ${r.n} 行沒改`));
+        continue;
+      }
+      const side = r.kind === "del" ? "a" : "b", line = side === "a" ? r.a : r.b;
+      const key = `${side}:${line}`;
+      const bg = r.kind === "add" ? t.diff_added ?? null : r.kind === "del" ? t.diff_removed ?? null : null;
+      body.child(h_flex().id(`row-${r.id}`).items_start().font_family(mono()).text_size(z - 1.5)
+        .when(r.kind === "add", (el) => el.bg(bg ?? t.raised)).when(r.kind === "del", (el) => el.bg(bg ?? t.chrome))
+        .when(can, (el) => el.cursor_pointer().hover((st) => st.bg(t.hover)).on_click((_e, cx) => {
+          const st = TextareaState.new({ placeholder: `在第 ${line} 行留言`, rows: 2 });
+          st.set_auto_grow(2, 8); st.set_soft_wrap(true);
+          this.lineBox = { key, side, line, state: st };
+          cx.notify();
+          cx.spawn(async (cx) => { await cx.sleep(50); st.focus(); });
+        }))
+        .child(div().w(38).flex_none().pr(4).text_right().text_color(t.dim).child(r.a ? String(r.a) : ""))
+        .child(div().w(38).flex_none().pr(4).text_right().text_color(t.dim).child(r.b ? String(r.b) : ""))
+        .child(div().w(14).flex_none().font_semibold().text_color(r.kind === "add" ? t.ansi2 : r.kind === "del" ? t.ansi1 : t.dim)
+          .child(r.kind === "add" ? "+" : r.kind === "del" ? "−" : ""))
+        .child(div().flex_1().min_w(0).whitespace_normal().text_color(r.kind === "add" ? t.ansi2 : r.kind === "del" ? t.ansi1 : t.foreground)
+          .child(keepIndent(r.text) || "\u00a0")));
+      (at.get(key) ?? []).forEach((x, k) => body.child(threadCard(x, `${key}-${k}`)));
+      if (this.lineBox?.key === key) body.child(this.lineCommentBox(t, z, c, path));
+    }
+    if (rows.length > LIMIT_ROWS) body.child(div().p(12).text_color(t.muted).child(`檔案太長，只顯示前 ${LIMIT_ROWS} 行；其他按「在瀏覽器開」。`));
+    if (this.actErr) body.child(div().px(12).text_size(z - 1).text_color(t.ansi1).child(`沒送出：${this.actErr}`));
+    return body;
+  }
+
+  // New comment on a line: unresolved by default (a question), or resolved (a note), like Gerrit.
+  lineCommentBox(t, z, c, path) {
+    const { side, line, state } = this.lineBox, busy = Boolean(this.sending);
+    const send = (unresolved) => (cx) => cx.spawn(async (cx) => {
+      const message = state.value().trim();
+      if (!message) return;
+      const cm = { line, message, unresolved, ...(side === "a" ? { side: "PARENT" } : {}) };
+      const ok = await this.act("line", () => this.req("POST", `/changes/${encodeURIComponent(c.id)}/revisions/current/review`,
+        { comments: { [path]: [cm] } }), cx);
+      if (ok) this.lineBox = null;
+    });
+    return v_flex().id("line-box").mx(10).my(4).p(8).gap(6).rounded(6).bg(t.chrome).border_1().border_color(t.accent)
+      .child(div().id("line-box-in").w_full().min_h(52).p(6).rounded(6).bg(t.background).border_1().border_color(t.input)
+        .cursor_text().on_mouse_down("left", stop).child(Textarea.new(state).w_full().text_size(z).text_color(t.foreground)))
+      .child(h_flex().gap(6).flex_wrap()
+        .child(this.big(t, z, "line-send", this.sending === "line" ? "送出中…" : "💬 送出留言（要對方處理）", { kind: "primary", off: busy, on: send(true) }))
+        .child(this.big(t, z, "line-note", "送出（只是備註）", { off: busy, on: send(false) }))
+        .child(this.big(t, z, "line-cancel", "取消", { on: (cx) => { this.lineBox = null; cx.notify(); } })));
   }
 
   // A big button. kind: "primary" (filled), "danger" (armed, red), or plain; on: (cx) => …
@@ -628,7 +788,8 @@ export default class Gerrit extends View {
       body.child(title(`檔案（第 ${cur._number} 版，共 ${files.length} 個）`));
       for (const [path, f] of files) {
         const n = (comments?.[path] ?? []).length;
-        body.child(h_flex().id(`f-${path}`).gap(8).items_center().text_size(z - 1)
+        body.child(h_flex().id(`f-${path}`).gap(8).items_center().text_size(z - 1).px(4).py(3).rounded(5)
+          .cursor_pointer().hover((st) => st.bg(t.hover)).on_click((_e, cx) => cx.spawn(async (cx) => this.openDiff(path, cx)))
           .child(div().flex_none().w(14).text_color(t.muted).child(f.status === "A" ? "+" : f.status === "D" ? "−" : f.status === "R" ? "→" : ""))
           .child(div().flex_1().min_w(0).text_ellipsis_start().font_family(mono()).child(path))
           .when(n > 0, (el) => el.child(div().flex_none().text_color(t.blocked).child(`留言 ${n}`)))

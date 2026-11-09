@@ -4,7 +4,7 @@ A panel on the right of Herdr that shows your Gerrit like Gerrit's own dashboard
 and pops a notification when a change turns to you or someone replies. Same on Windows and macOS.
 Herdr 右邊的 Gerrit 面板：跟 Gerrit 網頁首頁一樣的分區，點一下看細節，輪到你或有人回覆時跳通知。
 
-Status: list, details, notifications, reply / vote / submit, comment-thread replies. Next: Jenkins build progress, then opening a commented line in
+Status: list, details, notifications, reply / vote / submit, comment-thread replies, diffs with line comments. Next: Jenkins build progress, then opening a commented line in
 jay-nvim. Tested against a public Gerrit (3.15) without a login; **logging in and notifications have not run on a real
 company Gerrit yet**: note what differs and bring it to jay.
 
@@ -96,6 +96,14 @@ changed lines, S < 50, M < 250, L < 1000, XL) and when it last changed.
 required are left out), the comment threads (unresolved first; 整體留言 = patchset-level), the files of the latest
 patch set (+/−, comments per file), the commit message (first lines; click for all), every patch set (and if it was
 only a rebase), and the change log. **在瀏覽器開** opens it in Gerrit; **← 返回** goes back.
+
+**Click a file** → its diff (latest patch set against its parent), right in the panel: line numbers, removed lines
+red, added green, unchanged runs folded to 「⋯ N 行沒改（點開）」, the comments under their lines (with Done / Ack /
+回覆), and ↑ 上一個檔 / ↓ 下一個檔. **Click any line** to comment on it: 💬 送出留言（要對方處理）(unresolved) or
+送出（只是備註）(resolved). Opening a diff widens the panel.
+點檔案看 diff（紅刪綠增），留言在那一行下面；點任何一行就能留言。
+
+**⤢ 放大 / ⤡ 縮小** (top right): the panel to about two thirds of the window, and back to your width.
 
 **Reply, vote, submit** (only when logged in), at the top of a change's page, like Gerrit's REPLY dialog:
 - a row of big score buttons per label you may vote on (your current vote is highlighted; press one to pick it,

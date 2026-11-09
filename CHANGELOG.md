@@ -7,6 +7,8 @@ Needs: **mods** = copy the two mod folders again (macOS symlinks: nothing) · **
 
 ## 2026-11-10
 
+- **Gerrit panel: diffs and 放大** ([docs/gerrit.md §3](docs/gerrit.md#3-what-you-see--畫面)): click a file for its diff in the panel (folded unchanged lines, comments inline, previous / next file), click a line to comment; ⤢ 放大 widens the panel to two thirds of the window. A panel moved with 移到上排 before today can only grow to 900 px: press 移到上排 is not offered again, so raise `"max"` of `gerrit-panel` in your layout to 2400 (new moves already do). Needs **gerrit**, restart Herdr.
+
 - **Gerrit panel: reply, vote, submit without the web page** ([docs/gerrit.md §3](docs/gerrit.md#3-what-you-see--畫面)): big score buttons per label, a reply box, 💬 送出回覆 (message + scores + drafts), ✅ 合併 (press twice); under comment threads ✓ Done / Ack / 💬 回覆. Tested against a local Gerrit 3.14. Needs **gerrit**, restart Herdr.
 
 - **jay-nvim follows a root agent through a root view** ([docs/nvim.md §6](docs/nvim.md#6-agent-running-as-root--agent-用-root-跑)): when a root-side hook keeps copies you can read (`index.jsonl` + `blobs/`), name its folder in `~/.config/jay-nvim/root_view` and nvim opens root's file as a read-only copy, marked and at the line. The root-agent notice is one short line (no more "Press ENTER"), kept in `:messages`. Needs **mods**; nothing to do on machines without a root agent.

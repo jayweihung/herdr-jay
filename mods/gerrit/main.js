@@ -50,9 +50,10 @@ const CONFIG_EXAMPLE = `{
 const DEFAULT_SECTIONS = [
   { title: "輪到你", query: "attention:self is:open", turn: true },
   { title: "草稿（WIP）", query: "is:open owner:self is:wip" },
-  { title: "我送出的", query: "is:open owner:self -is:wip" },
-  { title: "等我 review", query: "is:open -owner:self -is:wip reviewer:self" },
-  { title: "CC 我的", query: "is:open -is:wip cc:self" },
+  // Each change shows once: what's your turn is only in 輪到你 (-attention:self below).
+  { title: "我送出的（等對方）", query: "is:open owner:self -is:wip -attention:self" },
+  { title: "我在 review（等對方）", query: "is:open -owner:self -is:wip reviewer:self -attention:self" },
+  { title: "CC 我的", query: "is:open -is:wip cc:self -attention:self" },
   { title: "最近合併／放棄", query: "is:closed (owner:self OR reviewer:self) -age:4w", closed: true },
 ];
 const OPTS = "o=LABELS&o=DETAILED_ACCOUNTS&o=SUBMITTABLE";
@@ -292,7 +293,11 @@ export default class Gerrit extends View {
       } catch (e) {
         // One query this Gerrit doesn't know (attention: needs 3.3+) fails them all: ask one by one.
         lists = [];
-        for (const s of secs) lists.push(await this.get(`/changes/?q=${encodeURIComponent(`${s.query} limit:${s.limit ?? LIMIT}`)}&${OPTS}`).catch((e2) => ({ error: String(e2.message ?? e2) })));
+        // A Gerrit older than 3.3 has no attention set: drop "-attention:self" there (the 輪到你 section itself says why).
+        const one = (q) => this.get(`/changes/?q=${encodeURIComponent(`${q} limit:${LIMIT}`)}&${OPTS}`);
+        for (const s of secs) lists.push(await this.get(`/changes/?q=${encodeURIComponent(`${s.query} limit:${s.limit ?? LIMIT}`)}&${OPTS}`)
+          .catch((e2) => (/attention/i.test(String(e2.message)) && /-attention:self/.test(s.query) ? one(s.query.replace(/\s*-attention:self/g, "")) : Promise.reject(e2)))
+          .catch((e2) => ({ error: String(e2.message ?? e2) })));
         if (lists.every((l) => l.error)) throw e;
       }
       data.sections = secs.map((s, i) => ({ ...s, items: Array.isArray(lists[i]) ? lists[i] : [], error: lists[i]?.error ?? null }));

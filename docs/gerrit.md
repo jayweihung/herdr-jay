@@ -77,15 +77,17 @@ Sections, like Gerrit's dashboard (click a title to fold it; the fold is remembe
 
 | Section | Gerrit's name | Means |
 |---|---|---|
-| 輪到你 | Your Turn | changes waiting for **you now** (Gerrit's attention set, 3.3+): someone replied, uploaded or voted |
+| 輪到你 | Your Turn | changes waiting for **you now** (Gerrit's attention set, 3.3+): someone asked you, replied or voted |
 | 草稿（WIP） | Work in progress | your changes marked WIP |
-| 我送出的 | Outgoing reviews | your open changes |
-| 等我 review | Incoming reviews | open changes where you are a reviewer (whether or not it's your turn) |
+| 我送出的（等對方） | Outgoing reviews | your open changes, waiting for someone else |
+| 我在 review（等對方） | Incoming reviews | changes you review where you already answered: waiting for the owner |
 | CC 我的 | CCed on | open changes you are CC'd on |
 | 最近合併／放棄 | Recently submitted | closed in the last 4 weeks, yours or reviewed by you (folded at first) |
 
-輪到你 vs 等我 review: 等我 review lists every change you review; 輪到你 only those waiting on you right now. After
-you reply, the change leaves 輪到你 but stays in 等我 review until it's merged.
+Each change shows in **one** section: one that is your turn is only under 輪到你 (Gerrit's own dashboard lists it twice).
+When you answer, it moves to 「等對方」; when they answer, it comes back. On a Gerrit older than 3.3 (no attention set) the
+other sections list everything as before.
+每個 change 只出現一次：輪到你的只在「輪到你」；你回了就移到「等對方」，對方回了又回來。
 
 Each change is two lines: number and subject (with WIP, 私人, 合併衝突, 可以送出, 已合併, 已放棄 tags), then
 project · branch · owner, unresolved comments (留言 N), each label as Gerrit shows it (`CR✓` approved, `CR✗`

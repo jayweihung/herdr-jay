@@ -7,6 +7,8 @@ Needs: **mods** = copy the two mod folders again (macOS symlinks: nothing) · **
 
 ## 2026-11-10
 
+- **Gerrit panel: each change in one section** ([docs/gerrit.md §3](docs/gerrit.md#3-what-you-see--畫面)): 輪到你 no longer repeats under the others, which are now 我送出的（等對方）and 我在 review（等對方）. The 在瀏覽器開 button is gone (long diffs load more in place). Needs **gerrit**, restart Herdr.
+
 - **Gerrit panel: diffs** ([docs/gerrit.md §3](docs/gerrit.md#3-what-you-see--畫面)): click a file for its diff in the panel (red / green rows, folded unchanged lines, comments inline, previous / next file), click a line to comment. The change page reads like Gerrit's: files, comments, then reply / vote. No width limit (drag the edge; a panel moved with 移到上排 before today: delete `"max"` of `gerrit-panel` in your layout). `props {open, diff}` starts a copy on a change. Fixed: projects with a "/" in the name (change id escaped twice: details, diffs and every reply failed with 404). Needs **gerrit**, restart Herdr.
 
 - **Gerrit panel: reply, vote, submit without the web page** ([docs/gerrit.md §3](docs/gerrit.md#3-what-you-see--畫面)): big score buttons per label, a reply box, 💬 送出回覆 (message + scores + drafts), ✅ 合併 (press twice); under comment threads ✓ Done / Ack / 💬 回覆. Tested against a local Gerrit 3.14. Needs **gerrit**, restart Herdr.

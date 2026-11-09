@@ -58,6 +58,15 @@ const DEFAULT_SECTIONS = [
 ];
 const OPTS = "o=LABELS&o=DETAILED_ACCOUNTS&o=SUBMITTABLE";
 const SEARCH_LIMIT = 50;
+// Jenkins: "a/b" -> "job/a/job/b"; a path that already says job/ (or view/…/job/…) is kept
+const jobPath = (j) => (/(^|\/)job\//.test(j) ? String(j).replace(/^\/+|\/+$/g, "") : String(j).split("/").filter(Boolean).map((x) => `job/${encodeURIComponent(x)}`).join("/"));
+const jobName = (j) => decodeURIComponent(String(j).replace(/\/+$/, "").split("/").pop());
+const mins = (ms) => { const m = Math.round(ms / 60000); return m < 1 ? "不到 1 分" : m < 90 ? `${m} 分` : `${Math.floor(m / 60)} 小時 ${m % 60} 分`; };
+const param = (b, name) => (b.actions ?? []).flatMap((a) => a?.parameters ?? []).find((p) => p?.name === name)?.value;
+// UTF-8 byte length (Jenkins counts log offsets in bytes) and a form body, without TextEncoder / URLSearchParams
+const utf8len = (s) => { let n = 0; for (const ch of s) { const c = ch.codePointAt(0); n += c < 0x80 ? 1 : c < 0x800 ? 2 : c < 0x10000 ? 3 : 4; } return n; };
+const formBody = (o) => Object.entries(o).map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`).join("&");
+const JENKINS_BUILDS = 200; // newest builds of each job looked through for a change
 // "123", "#123", or a Gerrit link (…/c/project/+/123, …/#/c/123/, …/123/2) -> 123; anything else -> null
 function changeNumber(text) {
   const s = String(text).trim();
@@ -152,6 +161,13 @@ export default class Gerrit extends View {
       if (Date.now() >= this.nextAt) this.poll(cx);
     });
     cx.timer.every(30000, (cx) => cx.notify()); // keep "幾分前" fresh
+    // Jenkins builds of the open change: every 10 s while one runs or waits, else every minute
+    if (this.role !== "toggle") cx.timer.every(1000, (cx) => {
+      const c = this.detail?.change;
+      if (!c?._number || !this.cfg?.jenkins || this.jk?.loading) return;
+      if (this.jk?.change !== c._number || Date.now() >= (this.jk.nextAt ?? 0)) this.loadJenkins(c, cx);
+      else if (this.jk.builds?.some((b) => b.building)) cx.notify(); // the progress bar moves
+    });
   }
 
   // One copy asks Gerrit: the tab-bar button when the layout has one, else the panel itself.
@@ -311,6 +327,154 @@ export default class Gerrit extends View {
       b("abandon", armed ? "再按一次確認放棄" : "🗑 放棄（Abandon）", armed ? "danger" : undefined);
     }
     return row;
+  }
+
+  // ---- Jenkins: builds of this change (a job parameter holds the change number), start one, follow its log ----
+  jenkinsCfg() {
+    const j = this.cfg?.jenkins;
+    if (!j?.url) return null;
+    return { ...j, url: String(j.url).replace(/\/+$/, ""), jobs: [].concat(j.jobs ?? []), param: j.change_param ?? "GERRIT_CHANGE" };
+  }
+
+  // Only ever to the configured Jenkins address: the token goes nowhere else.
+  async jreq(method, path, body) {
+    const j = this.jenkinsCfg();
+    const headers = {};
+    if (j.user && j.token) headers.Authorization = `Basic ${b64(`${j.user}:${j.token}`)}`;
+    const init = { method, headers };
+    if (body != null) { headers["Content-Type"] = "application/x-www-form-urlencoded"; init.body = body; }
+    const r = await fetch(`${j.url}/${path.replace(/^\/+/, "")}`, init);
+    const text = await r.text();
+    if (!r.ok) {
+      const why = r.status === 401 ? "帳號或 API token 不對（401）" : r.status === 403 ? "沒有權限（403）" : r.status === 404 ? "找不到（404）：job 名稱或網址不對" : `HTTP ${r.status}`;
+      throw new Error(why);
+    }
+    return text;
+  }
+
+  async loadJenkins(c, cx) {
+    const j = this.jenkinsCfg();
+    if (!j || !j.jobs.length) return;
+    const n = String(c._number);
+    const prev = this.jk?.change === c._number ? this.jk : null;
+    this.jk = { ...(prev ?? { change: c._number }), loading: true };
+    try {
+      const has = (b) => String(param(b, j.param) ?? "").split(/[\s,]+/).includes(n);
+      const tree = `builds[number,building,result,duration,estimatedDuration,timestamp,actions[parameters[name,value]]]{0,${JENKINS_BUILDS}}`;
+      const lists = await Promise.all(j.jobs.map(async (job) => {
+        const d = JSON.parse(await this.jreq("GET", `${jobPath(job)}/api/json?tree=${encodeURIComponent(tree)}`));
+        return (d.builds ?? []).filter(has).map((b) => ({ ...b, job, path: `${jobPath(job)}/${b.number}` }));
+      }));
+      const builds = lists.flat().sort((a, b) => b.timestamp - a.timestamp).slice(0, 5);
+      const names = new Set([...j.jobs, j.start_job].filter(Boolean).map(jobName));
+      const q = JSON.parse(await this.jreq("GET", `queue/api/json?tree=${encodeURIComponent("items[id,why,inQueueSince,task[name],actions[parameters[name,value]]]")}`).catch(() => "{}"));
+      const queue = (q.items ?? []).filter((it) => names.has(it.task?.name) && has(it));
+      // tell when a build you were watching finishes
+      for (const b of builds) {
+        const was = prev?.builds?.find((x) => x.path === b.path);
+        if (was?.building && !b.building) notify({ title: `${jobName(b.job)} ${b.result === "SUCCESS" ? "成功" : b.result === "FAILURE" ? "失敗" : b.result ?? "結束"}：#${c._number}`,
+          body: c.subject ?? "", level: b.result === "SUCCESS" ? "info" : "warning", timeout: 10000 });
+      }
+      const busy = builds.some((b) => b.building) || queue.length > 0 || (this.jk.startedAt && Date.now() - this.jk.startedAt < 120000);
+      this.jk = { ...this.jk, builds, queue, error: null, at: Date.now(), nextAt: Date.now() + (busy ? 10000 : 60000) };
+      for (const b of builds) if (this.jk.logs?.[b.path]?.open && (b.building || this.jk.logs[b.path].building)) await this.tailLog(b, cx, true);
+    } catch (e) {
+      this.jk = { ...this.jk, error: String(e.message ?? e), nextAt: Date.now() + 60000 };
+    } finally {
+      this.jk = { ...this.jk, loading: false };
+      cx.notify();
+    }
+  }
+
+  // ▶ the start job with this change number (a parameterized job's buildWithParameters; 201 = queued)
+  async startJenkins(c, cx) {
+    const j = this.jenkinsCfg();
+    if (!j?.start_job || this.jk?.starting) return;
+    this.jk = { ...(this.jk ?? { change: c._number }), starting: true, error: null };
+    cx.notify();
+    try {
+      const form = formBody({ ...(j.start_params ?? {}), [j.param]: String(c._number) });
+      await this.jreq("POST", `${jobPath(j.start_job)}/buildWithParameters`, form);
+      this.jk = { ...this.jk, startedAt: Date.now(), nextAt: Date.now() + 3000 };
+    } catch (e) {
+      this.jk = { ...this.jk, error: `沒送出：${e.message ?? e}` };
+    } finally {
+      this.jk = { ...this.jk, starting: false };
+      cx.notify();
+    }
+  }
+
+  // The end of a build's log, kept up to date while it runs: the whole text once, then only what was added.
+  async tailLog(b, cx, quiet) {
+    const logs = (this.jk.logs ??= {});
+    const L = logs[b.path] ?? { text: "", bytes: 0 };
+    logs[b.path] = { ...L, open: true, loading: !quiet };
+    if (!quiet) cx.notify();
+    try {
+      const add = L.bytes ? await this.jreq("GET", `${b.path}/logText/progressiveText?start=${L.bytes}`) : await this.jreq("GET", `${b.path}/consoleText`);
+      const text = (L.text + add).split("\n").slice(-200).join("\n");
+      logs[b.path] = { open: true, text, bytes: L.bytes + utf8len(add), building: b.building };
+    } catch (e) {
+      logs[b.path] = { ...L, open: true, error: String(e.message ?? e) };
+    }
+    cx.notify();
+  }
+
+  jenkinsCard(t, z, c) {
+    const j = this.jenkinsCfg();
+    if (!j || !j.jobs.length) return null;
+    const jk = this.jk?.change === c._number ? this.jk : null;
+    const card = v_flex().id("jenkins").gap(6).p(10).rounded(8).bg(t.chrome).border_1().border_color(t.border);
+    const head = h_flex().gap(8).items_center()
+      .child(div().flex_1().min_w(0).truncate().text_size(z - 1).font_semibold().text_color(t.muted).child(`Jenkins：${j.jobs.map(jobName).join("、")}`));
+    if (j.start_job && c.status === "NEW") head.child(this.big(t, z, "jk-start",
+      jk?.starting ? "送出中…" : jk?.startedAt && Date.now() - jk.startedAt < 20000 ? "✓ 已送出" : `▶ 跑 ${jobName(j.start_job)}`,
+      { kind: "primary", off: Boolean(jk?.starting || (jk?.startedAt && Date.now() - jk.startedAt < 20000)), on: (cx) => cx.spawn(async (cx) => this.startJenkins(c, cx)) }));
+    card.child(head);
+    if (!jk || (jk.loading && !jk.at)) return card.child(div().text_size(z - 1).text_color(t.muted).child("讀取 Jenkins…"));
+    if (jk.error) card.child(div().text_size(z - 1).text_color(t.ansi1).whitespace_normal().child(`Jenkins ${jk.error.startsWith("沒送出") ? "" : "讀不到："}${jk.error}`));
+    for (const it of jk.queue ?? []) card.child(h_flex().id(`jq-${it.id}`).gap(8).items_center().text_size(z - 1)
+      .child(div().w(18).flex_none().text_color(t.accent).child("⏳"))
+      .child(div().flex_1().min_w(0).whitespace_normal().child(`${it.task?.name ?? ""} 排隊中 · 等了 ${mins(Date.now() - it.inQueueSince)}${it.why ? ` · ${String(it.why).slice(0, 120)}` : ""}`)));
+    if (!jk.builds?.length && !jk.queue?.length && !jk.error) card.child(div().text_size(z - 1).text_color(t.dim)
+      .child(jk.startedAt && Date.now() - jk.startedAt < 120000 ? "已送出，等 Jenkins 排上…" : `最近 ${JENKINS_BUILDS} 次 build 裡沒有這個 change`));
+    for (const b of jk.builds ?? []) {
+      const res = b.building ? { i: "●", color: t.accent, text: "跑中" } : b.result === "SUCCESS" ? { i: "✓", color: t.ansi2, text: "成功" }
+        : b.result === "FAILURE" ? { i: "✗", color: t.ansi1, text: "失敗" } : b.result === "UNSTABLE" ? { i: "!", color: t.ansi3, text: "不穩定" }
+        : b.result === "ABORTED" ? { i: "⊘", color: t.muted, text: "取消" } : { i: "?", color: t.muted, text: b.result ?? "" };
+      const ran = b.building ? Date.now() - b.timestamp : b.duration;
+      const est = b.estimatedDuration > 0 ? b.estimatedDuration : 0;
+      const others = String(param(b, j.param) ?? "").split(/[\s,]+/).filter((x) => x && x !== String(c._number));
+      const by = param(b, "TRIGGER_BY");
+      const row = v_flex().id(`jb-${b.path}`).gap(3)
+        .child(h_flex().gap(8).items_center().text_size(z - 1)
+          .child(div().w(18).flex_none().font_semibold().text_color(res.color).child(res.i))
+          .child(div().flex_none().font_family(mono()).child(`#${b.number}`))
+          .child(div().flex_1().min_w(0).truncate().text_color(t.muted).child([
+            res.text,
+            b.building ? `跑了 ${mins(ran)}${est ? `／平常 ${mins(est)}` : ""}${est && ran > est ? "（比平常久）" : ""}` : `${mins(ran)} · ${ago(new Date(b.timestamp + (b.duration ?? 0)).toISOString().replace("T", " ").replace("Z", ""))}`,
+            j.jobs.length > 1 ? jobName(b.job) : "", by && by !== "NA" ? by : "", others.length ? `一起跑 ${others.length} 個` : "",
+          ].filter(Boolean).join(" · ")))
+          .child(div().id(`jlog-${b.path}`).flex_none().px(8).h(26).flex().items_center().rounded(5).bg(t.raised).cursor_pointer().hover((st) => st.bg(t.hover))
+            .on_mouse_down("left", stop).on_click((_e, cx) => {
+              const L = jk.logs?.[b.path];
+              if (L?.open) { L.open = false; cx.notify(); } else cx.spawn(async (cx) => this.tailLog(b, cx));
+            })
+            .child(jk.logs?.[b.path]?.open ? "收起 log" : "📜 log")));
+      if (b.building && est) {
+        const pct = Math.min(0.99, ran / est);
+        // a bar as wide as the panel: the filled part grows by the share done, the empty part by the rest
+        row.child(h_flex().id(`jbar-${b.path}`).ml(26).h(6).rounded(3).bg(t.raised)
+          .child(div().h(6).rounded(3).bg(ran > est ? t.ansi3 : t.accent).flex_grow(Math.max(0.01, pct)))
+          .child(div().h(6).flex_grow(Math.max(0.0001, 1 - pct))));
+      }
+      const L = jk.logs?.[b.path];
+      if (L?.open) row.child(div().id(`jlogtext-${b.path}`).ml(26).p(6).rounded(5).bg(t.background).font_family(mono()).text_size(z - 2).whitespace_normal()
+        .text_color(L.error ? t.ansi1 : t.foreground)
+        .child(L.loading ? "讀取 log…" : L.error ? `讀不到 log：${L.error}` : (L.text.split("\n").slice(-40).join("\n") || "（還沒有輸出）")));
+      card.child(row);
+    }
+    return card;
   }
 
   // Made in init (never in render). The box to set a change's topic.
@@ -1129,6 +1293,8 @@ export default class Gerrit extends View {
     // What the change needs to merge (Gerrit 3.5+ submit requirements), else the labels and who voted
     const reqs = (c.submit_requirements ?? []).filter((r) => r.status !== "NOT_APPLICABLE");
     if (reqs.length) for (const r of this.requirementRows(t, z, c, reqs)) body.child(r);
+    const jcard = this.jenkinsCard(t, z, c);
+    if (jcard) body.child(jcard);
     const labels = reqs.length ? [] : Object.entries(c.labels ?? {}).filter(([, l]) => !l.optional || (l.all ?? []).some((v) => Number(v.value)));
     if (labels.length) {
       body.child(title("分數"));

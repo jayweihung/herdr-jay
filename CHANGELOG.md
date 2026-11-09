@@ -7,6 +7,7 @@ Needs: **mods** = copy the two mod folders again (macOS symlinks: nothing) · **
 
 ## 2026-11-10
 
+- **Gerrit panel: Jenkins builds** ([docs/gerrit.md §6](docs/gerrit.md#6-jenkins-builds--jenkins-build)): a change's page lists the Jenkins builds that have its number in a parameter: progress (跑了 / 平常), result, queue, the log's last lines live, ▶ to start the job, and a notification when one finishes. Needs **gerrit** (Windows: copy it again), a `jenkins` block in `gerrit.json` with an API token, restart Herdr.
 - **Gerrit panel: 合併條件** on a change's page: Gerrit's submit requirements, what is still missing first (⊘, who voted), passed ones folded when many. Needs **gerrit** (Windows: copy it again), restart Herdr.
 - **Gerrit panel: ← 返回 goes back one page** like a browser: after clicking a topic, a change in 「同一個 topic」, a search result or a file, it returns to the page you were on (before, a topic search had no way back). Needs **gerrit** (Windows: copy it again), restart Herdr.
 - **Gerrit panel: topics** ([docs/gerrit.md §3](docs/gerrit.md#3-what-you-see--畫面)): the topic on a change (click: search it; ✎ set / change / remove) and on list rows; 「同一個 topic」 lists its other changes in any project; with whole-topic submit the merge button says how many it merges. Needs **gerrit** (Windows: copy it again), restart Herdr.

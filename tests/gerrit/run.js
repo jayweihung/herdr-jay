@@ -398,6 +398,60 @@ test("submit requirements: missing first, votes from the labels in the expressio
   render(g);
 });
 
+test("Jenkins: builds whose parameter has the change, queue, start, log tail, token only to the Jenkins address", async (G) => {
+  setConfig({ ...LOGIN, jenkins: { url: "https://ci.test/jk/", user: "me", token: "tk", jobs: ["Preflight"], start_job: "Preflight_Common" } });
+  const g = freshView(G); g.cfg = await g.readConfig();
+  const P = (o) => ({ parameters: Object.entries(o).map(([name, value]) => ({ name, value })) });
+  const now = Date.now();
+  let log = "line 1\nline 2\n";
+  gerrit([]);
+  const gfetch = globalThis.fetch;
+  globalThis.fetch = async (url, init = {}) => {
+    const u = new URL(url);
+    if (u.host !== "ci.test") return gfetch(url, init);
+    seen.push({ method: init.method ?? "GET", raw: url, path: u.pathname, headers: init.headers ?? {}, body: init.body });
+    const ok = (body, status = 200) => ({ ok: status < 300, status, text: async () => body });
+    if (u.pathname === "/jk/job/Preflight/api/json") return ok(JSON.stringify({ builds: [
+      { number: 12, building: true, timestamp: now - 600000, estimatedDuration: 1800000, actions: [P({ GERRIT_CHANGE: "7,66", TRIGGER_BY: "jay" }), {}] },
+      { number: 11, building: false, result: "FAILURE", timestamp: now - 7200000, duration: 480000, actions: [P({ GERRIT_CHANGE: "77" })] },
+      { number: 10, building: false, result: "SUCCESS", timestamp: now - 9000000, duration: 2700000, actions: [{}, P({ GERRIT_CHANGE: "7" })] }] }));
+    if (u.pathname === "/jk/queue/api/json") return ok(JSON.stringify({ items: [{ id: 5, why: "Waiting", inQueueSince: now - 60000, task: { name: "Preflight" }, actions: [P({ GERRIT_CHANGE: "7" })] },
+      { id: 6, why: "x", inQueueSince: now, task: { name: "Other" }, actions: [P({ GERRIT_CHANGE: "7" })] }] }));
+    if (u.pathname === "/jk/job/Preflight_Common/buildWithParameters") return ok("", 201);
+    if (u.pathname === "/jk/job/Preflight/12/consoleText") return ok(log);
+    if (u.pathname === "/jk/job/Preflight/12/logText/progressiveText") return ok(Buffer.from(log).subarray(Number(u.searchParams.get("start"))).toString());
+    return ok("nope", 404);
+  };
+  try {
+    const c7 = change(7, { revisions: {} });
+    g.detail = { change: c7, comments: {} }; g.openId = c7.id;
+    await g.loadJenkins(c7, cx);
+    assert.equal(g.jk.error, null);
+    assert.deepEqual(g.jk.builds.map((b) => b.number), [12, 10], "7 is in \"7,66\" and \"7\", not in \"77\"");
+    assert.deepEqual(g.jk.queue.map((q) => q.id), [5], "only the configured jobs' queue");
+    assert.ok(seen.filter((r) => r.raw.startsWith("https://ci.test/")).every((r) => r.headers.Authorization === `Basic ${Buffer.from("me:tk").toString("base64")}`));
+    assert.ok(!seen.some((r) => !r.raw.startsWith("https://ci.test/jk/") && r.headers.Authorization?.includes(Buffer.from("me:tk").toString("base64"))), "the token goes only to Jenkins");
+    await g.startJenkins(c7, cx);
+    const post = seen.find((r) => r.method === "POST");
+    assert.equal(post.path, "/jk/job/Preflight_Common/buildWithParameters"); assert.equal(post.body, "GERRIT_CHANGE=7");
+    const b12 = g.jk.builds[0];
+    await g.tailLog(b12, cx); assert.equal(g.jk.logs[b12.path].text, "line 1\nline 2\n"); assert.equal(g.jk.logs[b12.path].bytes, 14);
+    log += "第三行\n"; await g.tailLog(b12, cx, true);
+    assert.ok(seen.at(-1).raw.endsWith("/logText/progressiveText?start=14"), "only what was added");
+    assert.equal(g.jk.logs[b12.path].text, "line 1\nline 2\n第三行\n"); assert.equal(g.jk.logs[b12.path].bytes, 14 + 10, "UTF-8 bytes");
+    render(g);
+    // the build finishing is told once
+    H.notes = []; g.jk.builds[0] = { ...b12, building: true };
+    const fin = globalThis.fetch; globalThis.fetch = async (url, init) => (url.includes("/job/Preflight/api/json")
+      ? { ok: true, status: 200, text: async () => JSON.stringify({ builds: [{ number: 12, building: false, result: "SUCCESS", timestamp: now - 600000, duration: 900000, actions: [P({ GERRIT_CHANGE: "7" })] }] }) } : fin(url, init));
+    await g.loadJenkins(c7, cx); assert.equal(H.notes.length, 1); assert.match(H.notes[0].title, /Preflight 成功：#7/);
+    globalThis.fetch = fin;
+    // a wrong token says so
+    globalThis.fetch = async () => ({ ok: false, status: 401, text: async () => "" });
+    g.jk.nextAt = 0; await g.loadJenkins(c7, cx); assert.match(g.jk.error, /API token 不對（401）/); render(g);
+  } finally { globalThis.fetch = gfetch; }
+});
+
 // ---------- run ----------
 const G = await loadMod();
 let fail = 0;

@@ -4,7 +4,7 @@ A panel on the right of Herdr that shows your Gerrit like Gerrit's own dashboard
 and pops a notification when a change turns to you or someone replies. Same on Windows and macOS.
 Herdr 右邊的 Gerrit 面板：跟 Gerrit 網頁首頁一樣的分區，點一下看細節，輪到你或有人回覆時跳通知。
 
-Status: list, search, details, notifications, reply / vote / submit, reviewers / CC, rebase / abandon / WIP, comparing patch sets, topics, comment-thread replies, diffs with line comments. Next: Jenkins build progress, then opening a commented line in
+Status: list, search, details, notifications, reply / vote / submit, reviewers / CC, rebase / abandon / WIP, comparing patch sets, topics, Jenkins builds, comment-thread replies, diffs with line comments. Next: opening a commented line in
 jay-nvim. Tested against a public Gerrit (3.15) without a login; **logging in and notifications have not run on a real
 company Gerrit yet**: note what differs and bring it to jay.
 
@@ -15,6 +15,7 @@ company Gerrit yet**: note what differs and bring it to jay.
 | [3](#3-what-you-see--畫面) | What you see / 畫面 |
 | [4](#4-your-own-sections--自訂分區) | Your own sections / 自訂分區 |
 | [5](#5-when-something-goes-wrong--出問題時) | When something goes wrong / 出問題時 |
+| [6](#6-jenkins-builds--jenkins-build) | Jenkins builds / Jenkins build |
 
 ---
 
@@ -201,3 +202,52 @@ install, no Herdr, no Gerrit: a fake Gerrit answers). Every line must say `ok`.
 
 Bring jay: what the panel says (a photo is fine), the Gerrit version (under the panel title, the bottom of Gerrit's page, or
 `<url>/config/server/version`), and whether 輪到你 / notifications appeared. Never send the HTTP password.
+
+## 6. Jenkins builds / Jenkins build
+
+For a Jenkins that doesn't post its build links on the change (it votes later, or a bot account does), the panel asks
+Jenkins itself: which builds of your job have this change number in a parameter. A change's page then shows a
+**Jenkins** card under 合併條件:
+
+- each recent build of the change (newest 5): ● 跑中 with **跑了 12 分／平常 32 分** and a progress bar (Jenkins's
+  own estimate: the usual time of that job), or ✓ 成功 / ✗ 失敗 / ⊘ 取消 with how long it took and when; who started
+  it (`TRIGGER_BY`) and 「一起跑 N 個」 when several changes ran in the same build;
+- builds still waiting: ⏳ 排隊中 with how long and Jenkins's reason;
+- **📜 log**: the last 40 lines of that build's log, following it while it runs (only what was added is fetched);
+- **▶ 跑 …**: starts your start job with this change number (as the Jenkins form would), then shows it queue and run;
+- a notification when a build you are watching finishes (成功 / 失敗).
+
+It checks every 10 seconds while something runs or waits, else every minute, only while a change's page is open.
+
+Add to `gerrit.json`:
+
+```json
+  "jenkins": {
+    "url": "https://jenkins.example.com/ci",
+    "user": "your-jenkins-user",
+    "token": "from Jenkins: your name (top right) → Security → API Token → Add new token",
+    "jobs": ["Preflight"],
+    "start_job": "Preflight_Common",
+    "change_param": "GERRIT_CHANGE"
+  }
+```
+
+- `url`: Jenkins's address up to (not including) `/job/…`: what the browser shows before `/job/` or `/view/`.
+- `user` / `token`: your Jenkins login name and an **API token**, never your login password. The token is sent only
+  to `url`.
+- `jobs`: the job(s) that do the real work and carry the change number (a job in a folder: `"folder/name"`).
+- `start_job` (optional): the job that the ▶ button starts with `change_param` = the change number; leave it out for
+  no button. `"start_params": { "NAME": "value" }` adds other parameters.
+- `change_param`: the parameter holding the change number(s) (several are fine: `123,456`). Default `GERRIT_CHANGE`.
+
+To find the names: open the job in the browser and add `/api/json?tree=builds[number,actions[parameters[name,value]]]{0,3}`
+to its address; the parameter with the change number is the one for `change_param`. If the job you start only
+dispatches (it ends in seconds), its log names the job it triggers: that one goes in `jobs`.
+找名稱：在 job 網址後面加上面那段看參數；按下去只跑幾秒的 job 只是分派，它 log 裡寫的那個 job 才放 `jobs`。
+
+| What you see / 看到什麼 | Why / 原因 | Fix / 怎麼修 |
+|---|---|---|
+| Jenkins 讀不到：帳號或 API token 不對（401） | wrong `user` / `token`, or the token was deleted | make a new API token |
+| Jenkins 讀不到：找不到（404） | `url` or a job name is wrong | open `url` + `/job/<name>/api/json` in the browser |
+| 最近 200 次 build 裡沒有這個 change | it never ran, or long ago, or `change_param` is not the right parameter | check with the address above |
+| No Jenkins card | no `jenkins` in `gerrit.json`, or no `jobs` | — |

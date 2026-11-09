@@ -246,7 +246,9 @@ Add to `gerrit.json`:
 - `url`: Jenkins's address up to (not including) `/job/…`: what the browser shows before `/job/` or `/view/`.
 - `user` / `token`: your Jenkins login name and an **API token**, never your login password. The token is sent only
   to `url`.
-- `jobs`: the job(s) that do the real work and carry the change number (a job in a folder: `"folder/name"`).
+- `jobs` (optional): the job(s) that do the real work and carry the change number (a job in a folder:
+  `"folder/name"`). Leave it out to have **only the ▶ button**: nothing is polled, and how the run goes shows under
+  合併條件 from the systems' own messages (§3). 不寫 `jobs` 就只有 ▶ 按鈕，結果看合併條件下面的系統留言。
 - `start_job` (optional): the job that the ▶ button starts with `change_param` = the change number; leave it out for
   no button. `"start_params": { "NAME": "value" }` adds other parameters.
 - `change_param`: the parameter holding the change number(s) (several are fine: `123,456`). Default `GERRIT_CHANGE`.

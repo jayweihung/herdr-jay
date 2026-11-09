@@ -421,7 +421,7 @@ export default class Gerrit extends View {
   async startJenkins(c, cx) {
     const j = this.jenkinsCfg();
     if (!j?.start_job || this.jk?.starting) return;
-    this.jk = { ...(this.jk ?? { change: c._number }), starting: true, error: null };
+    this.jk = { ...(this.jk?.change === c._number ? this.jk : { change: c._number }), starting: true, error: null };
     cx.notify();
     try {
       const form = formBody({ ...(j.start_params ?? {}), [j.param]: String(c._number) });
@@ -453,15 +453,21 @@ export default class Gerrit extends View {
 
   jenkinsCard(t, z, c) {
     const j = this.jenkinsCfg();
-    if (!j || !j.jobs.length) return null;
+    if (!j || (!j.jobs.length && !j.start_job)) return null;
+    if (!j.jobs.length && c.status !== "NEW") return null;
     const jk = this.jk?.change === c._number ? this.jk : null;
     const card = v_flex().id("jenkins").gap(6).p(10).rounded(8).bg(t.chrome).border_1().border_color(t.border);
     const head = h_flex().gap(8).items_center()
-      .child(div().flex_1().min_w(0).truncate().text_size(z - 1).font_semibold().text_color(t.muted).child(`Jenkins：${j.jobs.map(jobName).join("、")}`));
+      .child(div().flex_1().min_w(0).truncate().text_size(z - 1).font_semibold().text_color(t.muted).child(j.jobs.length ? `Jenkins：${j.jobs.map(jobName).join("、")}` : "Jenkins"));
     if (j.start_job && c.status === "NEW") head.child(this.big(t, z, "jk-start",
       jk?.starting ? "送出中…" : jk?.startedAt && Date.now() - jk.startedAt < 20000 ? "✓ 已送出" : `▶ 跑 ${jobName(j.start_job)}`,
       { kind: "primary", off: Boolean(jk?.starting || (jk?.startedAt && Date.now() - jk.startedAt < 20000)), on: (cx) => cx.spawn(async (cx) => this.startJenkins(c, cx)) }));
     card.child(head);
+    // only the start button (no "jobs" to watch): the systems' messages under 合併條件 tell how it goes
+    if (!j.jobs.length) return card
+      .when(Boolean(jk?.error), (el) => el.child(div().text_size(z - 1).text_color(t.ansi1).whitespace_normal().child(`Jenkins ${jk.error}`)))
+      .when(Boolean(jk?.startedAt && !jk?.error), (el) => el.child(div().text_size(z - 1).text_color(t.muted).whitespace_normal()
+        .child(`${ago(new Date(jk.startedAt).toISOString().replace("T", " ").replace("Z", ""))}送出；結果會出現在上面的合併條件`)));
     if (!jk || (jk.loading && !jk.at)) return card.child(div().text_size(z - 1).text_color(t.muted).child("讀取 Jenkins…"));
     if (jk.error) card.child(div().text_size(z - 1).text_color(t.ansi1).whitespace_normal().child(`Jenkins ${jk.error.startsWith("沒送出") ? "" : "讀不到："}${jk.error}`));
     for (const it of jk.queue ?? []) card.child(h_flex().id(`jq-${it.id}`).gap(8).items_center().text_size(z - 1)

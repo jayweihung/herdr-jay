@@ -441,6 +441,35 @@ test("check systems: bot messages on the current patch set under the requirement
   assert.deepEqual(g.systemsOf(c).map((s) => s.name).sort(), ["ci_build", "ci_test"], "gerrit.json bots picks the accounts");
 });
 
+test("Jenkins with only start_job: a ▶ button, no build polling, the POST carries the change", async (G) => {
+  setConfig({ ...LOGIN, jenkins: { url: "https://ci.test/jk", user: "me", token: "tk", start_job: "Preflight_Common", start_params: { TRIGGER_BY: "NA" } } });
+  const g = freshView(G); g.cfg = await g.readConfig();
+  gerrit([]);
+  const gfetch = globalThis.fetch, posts = [];
+  globalThis.fetch = async (url, init = {}) => {
+    const u = new URL(url);
+    if (u.host !== "ci.test") return gfetch(url, init);
+    posts.push({ path: u.pathname, method: init.method, body: init.body, auth: (init.headers ?? {}).Authorization });
+    return { ok: true, status: 201, text: async () => "" };
+  };
+  try {
+    const c7 = change(7, { revisions: {}, status: "NEW" });
+    g.detail = { change: c7, comments: {} }; g.openId = c7.id;
+    await g.loadJenkins(c7, cx);
+    assert.equal(posts.length, 0, "nothing to watch, nothing asked");
+    assert.ok(g.jenkinsCard(globalThis.__stubs.theme(), 13, c7), "the card with the button is there");
+    await g.startJenkins(c7, cx);
+    assert.equal(posts.length, 1);
+    assert.equal(posts[0].path, "/jk/job/Preflight_Common/buildWithParameters");
+    assert.equal(posts[0].method, "POST");
+    assert.match(posts[0].body, /GERRIT_CHANGE=7/); assert.match(posts[0].body, /TRIGGER_BY=NA/);
+    assert.ok(posts[0].auth?.startsWith("Basic "));
+    assert.ok(g.jk.startedAt && !g.jk.error);
+    render(g);
+    assert.equal(g.jenkinsCard(globalThis.__stubs.theme(), 13, change(8, { revisions: {}, status: "MERGED" })), null, "no button on a merged change");
+  } finally { globalThis.fetch = gfetch; }
+});
+
 test("Jenkins: builds whose parameter has the change, queue, start, log tail, token only to the Jenkins address", async (G) => {
   setConfig({ ...LOGIN, jenkins: { url: "https://ci.test/jk/", user: "me", token: "tk", jobs: ["Preflight"], start_job: "Preflight_Common" } });
   const g = freshView(G); g.cfg = await g.readConfig();

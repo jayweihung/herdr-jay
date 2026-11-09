@@ -7,6 +7,7 @@ Needs: **mods** = copy the two mod folders again (macOS symlinks: nothing) · **
 
 ## 2026-11-10
 
+- **Gerrit panel: check systems under 合併條件**: the bots that report back to Gerrit (build, test, any system, Jenkins or not) show under the requirement they vote on, from their messages on the latest patch set: ⏳ running for how long / ✓ / ✗, the message's first line and its links (click to open in the browser). Optional `bots` in `gerrit.json` names the accounts. Needs **gerrit** (Windows: copy it again), restart Herdr.
 - **Gerrit panel: Jenkins builds** ([docs/gerrit.md §6](docs/gerrit.md#6-jenkins-builds--jenkins-build)): a change's page lists the Jenkins builds that have its number in a parameter: progress (跑了 / 平常), result, queue, the log's last lines live, ▶ to start the job, and a notification when one finishes. Needs **gerrit** (Windows: copy it again), a `jenkins` block in `gerrit.json` with an API token, restart Herdr.
 - **Gerrit panel: 合併條件** on a change's page: Gerrit's submit requirements, what is still missing first (⊘, who voted), passed ones folded when many. Needs **gerrit** (Windows: copy it again), restart Herdr.
 - **Gerrit panel: ← 返回 goes back one page** like a browser: after clicking a topic, a change in 「同一個 topic」, a search result or a file, it returns to the page you were on (before, a topic search had no way back). Needs **gerrit** (Windows: copy it again), restart Herdr.

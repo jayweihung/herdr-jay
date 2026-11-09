@@ -68,6 +68,9 @@ Until it exists, the panel shows what to write. Create `<home>/.config/herdr-app
 - `poll_seconds`: how often it asks Gerrit (at least 15; default 60).
 - `jenkins` (optional): Jenkins builds on a change's page, see [§6](#6-jenkins-builds--jenkins-build).
 - `sections` (optional): your own sections, see [§4](#4-your-own-sections--自訂分區).
+- `bots` (optional): which accounts are check systems (build, test, lint bots), as a regular expression on the
+  account name, for example `"^ci_"`. Without it the panel guesses: Gerrit service users, and messages that start
+  with `[` or carry a link (never the change's owner). 哪些帳號算「檢查系統」；不寫就用猜的。
 
 The file stays on your PC: it is outside the mod folder, so copying a new mod never touches it, and it is never in
 this repo. Don't share it. The panel reads it again within 10 seconds of a save.
@@ -107,7 +110,11 @@ sections; **清除** brings them back.
 
 **Click a change** → its page: whose turn it is, its **Reviewer** and **CC** people, **合併條件** (Gerrit 3.5+
 submit requirements: 「還差 N 項」 with ⊘ and who voted on each, the passed ones folded to 「✓ 已通過 N 項（點開）」
-when there are many; older Gerrit: the votes and who gave them (labels nobody voted on and that aren't
+when there are many. **Check systems** show under the requirement they vote on: any system that reports back to
+Gerrit (Jenkins or not) by a message on the latest patch set, with its state guessed from the message and its votes
+(⏳ 跑了 N 分 / ✓ 通過 / ✗ 失敗), the message's first line and its links (click 🔗 to open in your browser). A system
+that has not voted yet, or votes on no requirement, shows under 「其他檢查」. 不管背後是不是 Jenkins，只要系統會回
+Gerrit 留言，就會顯示在它負責的那個條件下面；older Gerrit: the votes and who gave them (labels nobody voted on and that aren't
 required are left out), the comment threads (unresolved first; 整體留言 = patchset-level), the files of the latest
 patch set (+/−, comments per file), the commit message (first lines; click for all), every patch set (and if it was
 only a rebase), and the change log. **← 返回** goes back one page, like a browser: from a topic search back to the

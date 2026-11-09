@@ -52,6 +52,7 @@ globalThis.__stubs = {
   notify: (n) => H.notes.push(n), home: () => H.home,
   readTextFile: async (p) => readFileSync(p, "utf8"),
   run: (name, args) => H.runs.push([name, args]), layout: () => H.layout,
+  process: { run: async (cmd, args) => { H.opened.push([cmd, ...args]); return { code: 0, stdout: "", stderr: "" }; } },
   shared: (k) => H.store[k], setShared: (k, v) => { H.store[k] = v; }, props: () => H.props,
 };
 
@@ -60,6 +61,7 @@ function loadMod() {
   let src = readFileSync(MOD, "utf8");
   src = src.replace(/^import\s*\{([^}]*)\}\s*from\s*"(gpui-kit|gpui-base|herdr)";\s*$/gm, (_m, names) =>
     `const {${names.replace(/\s+as\s+/g, ": ")}} = globalThis.__stubs;`);
+  src = src.replace(/^import process from "process";$/m, "const process = globalThis.__stubs.process;");
   const dir = mkdtempSync(join(tmpdir(), "gerrit-test-"));
   const f = join(dir, "main.mjs");
   writeFileSync(f, src);
@@ -396,6 +398,47 @@ test("submit requirements: missing first, votes from the labels in the expressio
   g.showPassed = c.id;
   assert.equal(g.requirementRows(globalThis.__stubs.theme(), 13, c, c.submit_requirements.filter((r) => r.status !== "NOT_APPLICABLE")).length, 1 + 10);
   render(g);
+});
+
+test("check systems: bot messages on the current patch set under the requirement they vote on, links open", async (G) => {
+  setConfig(LOGIN); const g = freshView(G);
+  H.store["gerrit.cfg.v1"] = { url: "https://gerrit.test", auth: true };
+  H.layout = { id: "root", children: [{ id: "gerrit-toggle" }] };
+  H.opened = [];
+  const bot = (id, name) => ({ _account_id: id, name, username: name });
+  const CI = bot(50, "ci_build"), TEST = bot(51, "ci_test"), LINT = bot(52, "ci_lint");
+  const m = (author, ps, message, date = "2026-11-10 01:00:00.000000000") => ({ author, _revision_number: ps, date, message });
+  const req = (name, status) => ({ name, status, submittability_expression_result: { expression: `label:${name}=MAX` } });
+  const c = change(11, { current_revision: "b", revisions: { a: { _number: 1 }, b: { _number: 2 } },
+    labels: { Build: { all: [{ ...CI, value: 2 }] }, Test: { all: [] } },
+    submit_requirements: [req("Build", "SATISFIED"), req("Test", "UNSATISFIED")],
+    messages: [
+      m(TEST, 1, "Patch Set 1: Test+2\n\n[Test Farm] Test result : PASS"),
+      m(ALICE, 2, "Patch Set 2:\n\nlooks fine"),
+      m(CI, 2, "Patch Set 2:\n\n. [Preflight(Linux)][PF_ID: X-1] ... Starts ... Details: https://ci.example.com/pf/change.html?change=11"),
+      m(CI, 2, "Patch Set 2: Build+2\n\n[Preflight(Linux)][PF_ID: X-1]<< Build PASS >>\nDashboard url: https://ci.example.com/pf/change.html?change=11"),
+      m(TEST, 2, "Patch Set 2:\n\n[PF_ID: X-1]Here is a new job with this change registered to test"),
+      m(LINT, 2, "Patch Set 2:\n\n[Lint] Started https://lint.example.com/run/7"),
+    ] });
+  g.openId = c.id; g.detail = { change: c, comments: {} };
+  const sys = g.systemsOf(c);
+  const by = Object.fromEntries(sys.map((s) => [s.name, s]));
+  assert.deepEqual(Object.keys(by).sort(), ["ci_build", "ci_lint", "ci_test"], "Alice's comment is no system");
+  assert.equal(by.ci_build.state, "pass"); assert.equal(by.ci_build.tag, "Preflight(Linux)");
+  assert.deepEqual(by.ci_build.links, ["https://ci.example.com/pf/change.html?change=11"], "the same link once");
+  assert.equal(by.ci_test.state, "run", "patch set 1's PASS does not count for patch set 2");
+  assert.deepEqual(by.ci_test.labels, ["Test"], "but it says which label the system votes on");
+  assert.equal(by.ci_lint.state, "run");
+  const rows = g.requirementRows(globalThis.__stubs.theme(), 13, c, c.submit_requirements);
+  // title, Test (missing) + its running system, Build (passed; its system is done so hidden), "其他檢查" + lint
+  assert.equal(rows.length, 1 + 2 + 1 + 2);
+  render(g);
+  await g.openLink("https://ci.example.com/x");
+  assert.deepEqual(H.opened.at(-1), ["/usr/bin/open", "https://ci.example.com/x"]);
+  await g.openLink("file:///etc/passwd");
+  assert.equal(H.opened.length, 1, "only web links open");
+  g.cfg = { ...g.cfg, bots: "^ci_(build|test)$" };
+  assert.deepEqual(g.systemsOf(c).map((s) => s.name).sort(), ["ci_build", "ci_test"], "gerrit.json bots picks the accounts");
 });
 
 test("Jenkins: builds whose parameter has the change, queue, start, log tail, token only to the Jenkins address", async (G) => {

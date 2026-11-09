@@ -358,6 +358,28 @@ test("topic: other changes of the topic, whole-topic submit warning, set / clear
   assert.equal(g.detail, null); assert.equal(g.search.q, 'topic:"cart total"'); assert.equal(g.search.items.length, 3);
 });
 
+test("← 返回 goes back one page: list → change → its topic → another change → a file, and back again", async (G) => {
+  setConfig(LOGIN); const g = freshView(G);
+  const full = (n) => change(n, { topic: "t", current_revision: "s", revisions: { s: { _number: 1, files: { "a.py": {} } } } });
+  gerrit([["GET", /^\/a\/changes\/(\d+)\/detail/, (r) => [200, full(Number(r.path.split("/")[3]))]], ["GET", /^\/a\/changes\/\d+\/(comments|submitted_together)/, [200, {}]],
+    ["GET", /^\/a\/changes\/\d+\/revisions\/\w+\/files\/a\.py\/diff/, [200, { content: [{ b: ["x"] }] }]],
+    ["GET", /^\/a\/changes\/\?q=/, [200, [full(6), full(7)]]]]);
+  const where = () => g.diff ? `diff ${g.detail.change._number}` : g.detail ? `change ${g.detail.change._number}` : g.search ? `search ${g.search.q}` : "list";
+  g.remember(); await g.openChange(change(6), cx);                 // click a row in the list
+  g.searchFor('topic:"t"', cx); await new Promise((r) => setTimeout(r, 0)); // click the topic
+  assert.equal(where(), 'search topic:"t"'); render(g);
+  g.remember(); await g.openChange(change(7), cx);                 // click #7 in the results
+  g.remember(); await g.openDiff("a.py", cx);                      // click a file
+  const back = [];
+  for (let i = 0; i < 5; i++) { back.push(where()); g.goBack(cx); render(g); }
+  assert.deepEqual(back, ["diff 7", "change 7", 'search topic:"t"', "change 6", "list"]);
+  assert.equal(g.searchState().value(), "", "the search box shows the page's own text");
+  assert.equal(where(), "list");
+  // started on a change (its own tab): nothing remembered, back still goes up a level
+  const h = freshView(G); await h.openChange(change(6), cx); await h.openDiff("a.py", cx);
+  h.goBack(cx); assert.equal(h.diff, null); h.goBack(cx); assert.equal(h.detail, null);
+});
+
 // ---------- run ----------
 const G = await loadMod();
 let fail = 0;

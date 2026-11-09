@@ -103,7 +103,9 @@ sections; **清除** brings them back.
 **Click a change** → its page: whose turn it is, its **Reviewer** and **CC** people, the votes and who gave them (labels nobody voted on and that aren't
 required are left out), the comment threads (unresolved first; 整體留言 = patchset-level), the files of the latest
 patch set (+/−, comments per file), the commit message (first lines; click for all), every patch set (and if it was
-only a rebase), and the change log. **← 返回** goes back.
+only a rebase), and the change log. **← 返回** goes back one page, like a browser: from a topic search back to the
+change you clicked it on, from a change opened in 「同一個 topic」 back to the one before, from a diff back to the
+change, up to the lists. 返回會回到上一頁（跟瀏覽器一樣）。
 
 Drag the panel's edge to make it as wide as you like (no limit).
 

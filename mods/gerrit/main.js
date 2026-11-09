@@ -244,9 +244,32 @@ export default class Gerrit extends View {
   }
 
   // A number or a pasted Gerrit link opens that change; anything else is a Gerrit search (same text as its search box).
+  // ---- Where you've been: ← 返回 goes back one page, like a browser ----
+  remember() {
+    (this.history ??= []).push({ openId: this.openId, detail: this.detail, diff: this.diff, search: this.search, cmp: this.cmp, cmpFiles: this.cmpFiles, q: this.searchState().value() });
+    if (this.history.length > 30) this.history.shift();
+  }
+
+  goBack(cx) {
+    const h = this.history?.pop();
+    // what was being typed or picked belongs to the page being left
+    this.picked = {}; this.threadReply = null; this.armed = null; this.actErr = null; this.reply?.set_value("");
+    this.addingPeople = false; this.found = []; this.editTopic = false; this.lineBox = null;
+    if (!h) { // nothing remembered (e.g. started on a change): one level up
+      if (this.diff) this.diff = null; else { this.openId = null; this.detail = null; }
+      cx.notify();
+      return;
+    }
+    Object.assign(this, { openId: h.openId, detail: h.detail, diff: h.diff, search: h.search, cmp: h.cmp, cmpFiles: h.cmpFiles });
+    this.searchState().set_value(h.q ?? "");
+    cx.notify();
+    if (h.detail?.change && !h.detail.error && !h.diff) cx.spawn(async (cx) => this.openChange(h.detail.change, cx, true)); // may have changed meanwhile
+  }
+
   async runSearch(cx) {
     const q = this.searchState().value().trim();
     if (!q) { this.search = null; cx.notify(); return; }
+    if (this.search?.q !== q) this.remember();
     const n = changeNumber(q);
     if (n) { this.search = null; this.searchState().set_value(""); await this.openChange({ _number: n, id: String(n) }, cx); return; }
     this.search = { q, loading: true, items: [] };
@@ -307,8 +330,10 @@ export default class Gerrit extends View {
   }
 
   searchFor(q, cx) {
-    this.openId = null; this.detail = null; this.diff = null;
+    this.remember();
     this.searchState().set_value(q);
+    this.openId = null; this.detail = null; this.diff = null;
+    this.search = { q, loading: true, items: [] }; // already remembered: runSearch won't again for the same text
     cx.spawn(async (cx) => this.runSearch(cx));
   }
 
@@ -353,7 +378,7 @@ export default class Gerrit extends View {
     const labels = Object.entries(o.labels ?? {}).map(([name, l]) => [name, vote(t, l)]).filter(([, v]) => v);
     return h_flex().id(`rel-${o._number}`).gap(8).items_center().px(4).py(3).rounded(5).text_size(z - 1)
       .cursor_pointer().hover((st) => st.bg(t.hover)).on_mouse_down("left", stop)
-      .on_click((_e, cx) => cx.spawn(async (cx) => this.openChange(o, cx)))
+      .on_click((_e, cx) => { this.remember(); cx.spawn(async (cx) => this.openChange(o, cx)); })
       .child(div().flex_none().font_family(mono()).text_color(t.muted).child(String(o._number)))
       .child(v_flex().flex_1().min_w(0)
         .child(div().truncate().child(o.subject))
@@ -609,7 +634,7 @@ export default class Gerrit extends View {
     if (cfg.missing || cfg.error) return root.child(this.setup(t, z, cfg));
     if (this.openId && this.detail && this.diff) return root.child(this.header(t, z, true)).child(this.renderDiff(t, z));
     if (this.openId && this.detail) return root.child(this.header(t, z, true)).child(this.renderDetail(t, z, cx));
-    return root.child(this.header(t, z, false)).child(this.searchBar(t, z)).child(this.renderList(t, z));
+    return root.child(this.header(t, z, Boolean(this.history?.length))).child(this.searchBar(t, z)).child(this.renderList(t, z));
   }
 
   // The tab-bar button: "Gerrit" plus how many changes wait for you; click shows / hides the panel.
@@ -652,16 +677,13 @@ export default class Gerrit extends View {
     const status = this.err ? `讀不到：${this.err}` : this.busy && !this.at ? "讀取中…" : this.at ? `更新於 ${ago(new Date(this.at).toISOString().replace("T", " ").replace("Z", ""))}${shared(DATA)?.version ? ` · Gerrit ${shared(DATA).version}` : ""}` : "";
     return v_flex().flex_none().border_b(1).border_color(t.border)
       .child(h_flex().px(10).py(6).gap(6).items_center()
-        .when(back, (el) => el.child(btn("back", "← 返回", (_e, cx) => {
-          if (this.diff) this.diff = null;
-          else { this.openId = null; this.detail = null; }
-          cx.notify();
-        })))
-        .child(div().flex_1().min_w(0).truncate().font_semibold().child(back ? (this.diff ? `#${this.detail.change._number ?? "…"} · ${vim_name(this.diff.path)}` : `#${this.detail.change._number ?? "…"}`) : "Gerrit"))
+        .when(back, (el) => el.child(btn("back", "← 返回", (_e, cx) => this.goBack(cx))))
+        .child(div().flex_1().min_w(0).truncate().font_semibold().child(
+          this.detail && this.diff ? `#${this.detail.change._number ?? "…"} · ${vim_name(this.diff.path)}` : this.detail ? `#${this.detail.change._number ?? "…"}` : "Gerrit"))
 
-        .when(!back, (el) => el.child(btn("refresh", this.busy ? "更新中…" : "↻ 重新整理", (_e, cx) => { setShared(REFRESH, Date.now()); this.nextAt = 0; cx.notify(); })))
+        .when(!this.detail, (el) => el.child(btn("refresh", this.busy ? "更新中…" : "↻ 重新整理", (_e, cx) => { setShared(REFRESH, Date.now()); this.nextAt = 0; cx.notify(); })))
         .when(inBar, (el) => el.child(btn("hide", "✕", () => run("layout.hide", { id: PANEL })))))
-      .when(!back && Boolean(status), (el) => el.child(div().px(12).pb(5).text_size(z - 1.5).truncate().text_color(this.err ? t.ansi1 : t.muted).child(status)));
+      .when(!this.detail && Boolean(status), (el) => el.child(div().px(12).pb(5).text_size(z - 1.5).truncate().text_color(this.err ? t.ansi1 : t.muted).child(status)));
   }
 
   searchBar(t, z) {
@@ -721,7 +743,7 @@ export default class Gerrit extends View {
     const unresolved = c.unresolved_comment_count ?? 0;
     return v_flex().id(`c-${s.title}-${c._number}`).px(12).py(6).gap(2).border_b(1).border_color(t.border)
       .cursor_pointer().hover((st) => st.bg(t.hover))
-      .on_click((_e, cx) => { cx.spawn(async (cx) => this.openChange(c, cx)); })
+      .on_click((_e, cx) => { this.remember(); cx.spawn(async (cx) => this.openChange(c, cx)); })
       .child(h_flex().gap(6).items_center()
         .child(div().flex_none().font_family(mono()).text_size(z - 1).text_color(t.muted).child(String(c._number)))
         .child(div().flex_1().min_w(0).truncate().child(c.subject))
@@ -1106,7 +1128,7 @@ export default class Gerrit extends View {
       for (const [path, f] of files) {
         const n = (comments?.[path] ?? []).length;
         body.child(h_flex().id(`f-${path}`).gap(8).items_center().text_size(z - 1).px(4).py(3).rounded(5)
-          .cursor_pointer().hover((st) => st.bg(t.hover)).on_click((_e, cx) => cx.spawn(async (cx) => this.openDiff(path, cx)))
+          .cursor_pointer().hover((st) => st.bg(t.hover)).on_click((_e, cx) => { this.remember(); cx.spawn(async (cx) => this.openDiff(path, cx)); })
           .child(div().flex_none().w(14).text_color(t.muted).child(f.status === "A" ? "+" : f.status === "D" ? "−" : f.status === "R" ? "→" : ""))
           .child(div().flex_1().min_w(0).text_ellipsis_start().font_family(mono()).child(vim_name(path)))
           .when(n > 0, (el) => el.child(div().flex_none().text_color(t.blocked).child(`留言 ${n}`)))

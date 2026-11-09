@@ -243,6 +243,19 @@ Add to `gerrit.json`:
   }
 ```
 
+Only the ▶ button (no build list, no polling; results show under 合併條件 from the systems' messages):
+只要 ▶ 按鈕（不看 build 進度）：
+
+```json
+  "jenkins": {
+    "url": "https://jenkins.example.com/ci",
+    "user": "your-jenkins-user",
+    "token": "your API token",
+    "start_job": "Preflight_Common"
+  },
+  "bots": "^ci_"
+```
+
 - `url`: Jenkins's address up to (not including) `/job/…`: what the browser shows before `/job/` or `/view/`.
 - `user` / `token`: your Jenkins login name and an **API token**, never your login password. The token is sent only
   to `url`.

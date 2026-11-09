@@ -7,7 +7,7 @@
 // A panel with no toggle in the layout polls itself and offers to move into the tab bar.
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex, TextareaState, Textarea, InputState, Input } from "gpui-base";
-import { theme, settings, notify, home, readTextFile, run, layout, shared, setShared, window, agents, props as blockProps } from "herdr";
+import { theme, settings, notify, home, readTextFile, run, layout, shared, setShared, window, agents, hc as herdrHc, props as blockProps } from "herdr";
 import process from "process";
 
 const TOGGLE = "gerrit-toggle", PANEL = "gerrit-panel";
@@ -128,10 +128,6 @@ const AGENT_PROMPTS = [
   { label: "幫我回覆", text: "用 Gerrit MCP 讀 change {change}（{url}）還沒解決的留言，幫我草擬每一則的回覆給我看，我說可以才送出。" },
 ];
 const fillPrompt = (text, vars) => String(text).replace(/\{(\w+)\}/g, (m, k) => (vars[k] != null ? String(vars[k]) : m));
-// hc: on PATH, else where Herdr core installs it.
-const hcPaths = () => window()?.platform === "windows"
-  ? ["hc.exe", `${home()}\\AppData\\Local\\Programs\\herdr-core\\hc.exe`]
-  : ["hc", `${home()}/.local/bin/hc`, "/usr/local/bin/hc", "/opt/homebrew/bin/hc"];
 // Gerrit's size column: XS < 10 lines, S < 50, M < 250, L < 1000, XL.
 const size = (c) => {
   const n = (c.insertions ?? 0) + (c.deletions ?? 0);
@@ -406,15 +402,13 @@ export default class Gerrit extends View {
     const text = fillPrompt(p.text, this.promptVars(c));
     this.ask = { sending: p.label };
     cx.notify();
+    // Herdr's own hc(): it reaches the running core (a bare `hc` from the app has no terminal's environment
+    // and tries to start a core of its own).
     let err = null;
-    for (const hc of [this.agentCfg().hc, ...hcPaths()].filter(Boolean)) {
-      try {
-        const out = await process.run(hc, ["send", target.address, text]);
-        if (out?.code === 0) { err = null; break; }
-        err = String(out?.stderr || out?.stdout || `exit ${out?.code}`).trim().slice(0, 200);
-        if (!/not found|no such file|cannot find/i.test(err)) break;
-      } catch (e) { err = String(e?.message ?? e); }
-    }
+    try {
+      const out = await herdrHc(["send", target.address, text]);
+      if (out?.code !== 0) err = String(out?.stderr || out?.stdout || `exit ${out?.code}`).trim().slice(0, 200);
+    } catch (e) { err = String(e?.message ?? e); }
     this.ask = err ? { error: `沒送出：${err}` } : { sent: p.label, to: target.title || target.tab_name || target.address, at: Date.now() };
     if (!err) try { run("agent.focus", { terminal: target.address }); } catch {}
     cx.notify();

@@ -54,6 +54,7 @@ globalThis.__stubs = {
   run: (name, args) => H.runs.push([name, args]), layout: () => H.layout,
   process: { run: async (cmd, args) => { H.opened.push([cmd, ...args]); return { code: 0, stdout: "", stderr: "" }; } },
   agents: () => H.agents ?? [],
+  hc: async (args) => { H.opened.push(["hc", ...args]); return { code: 0, stdout: "", stderr: "" }; },
   shared: (k) => H.store[k], setShared: (k, v) => { H.store[k] = v; }, props: () => H.props,
 };
 

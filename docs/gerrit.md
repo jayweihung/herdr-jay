@@ -305,7 +305,6 @@ Optional, in `gerrit.json`:
   `{branch}` `{subject}` `{topic}` `{gerrit}`.
 - `start` (a command, as a list) adds **＋ 開 gerrit agent**, which opens it in a pane on the right; `name` is that
   pane's name, and an agent with that name is picked first. `cwd` is where it starts.
-- `hc` is looked up on PATH, then in Herdr core's install folder; set `"hc": "<path>"` if it's elsewhere.
 
 The request is only text typed into that agent: what it may do on Gerrit is up to the agent and its MCP settings.
 送出去的只是文字；agent 能在 Gerrit 做什麼，看它自己的設定。

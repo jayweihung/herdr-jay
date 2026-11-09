@@ -2,9 +2,41 @@
 // a change's details on click, and a notification when a change turns to you or someone replies.
 // Reads Gerrit's REST API with fetch. Settings (address, user, HTTP password) live in
 // <home>/.config/herdr-app/gerrit.json, outside this folder, so updating the mod never touches them.
+// Roles (props.role): the panel (default) and "toggle", the tab-bar button that shows or hides the layout's
+// "gerrit-panel" (like the CI and git buttons). The toggle polls and shares the lists; the panel draws them.
+// A panel with no toggle in the layout polls itself and offers to move into the tab bar.
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { theme, settings, notify, home, readTextFile } from "herdr";
+import { theme, settings, notify, home, readTextFile, run, layout, shared, setShared, props as blockProps } from "herdr";
+
+const TOGGLE = "gerrit-toggle", PANEL = "gerrit-panel";
+const SHIPPED = ["main", "terminals", "win98"]; // Herdr's own layouts: read-only, so moving clones one first
+const DATA = "gerrit.data.v1", SAFE_CFG = "gerrit.cfg.v1", BUSY = "gerrit.busy", REFRESH = "gerrit.refresh";
+function find(node, id) {
+  if (node?.id === id) return node;
+  for (const c of node?.children ?? []) { const f = find(c, id); if (f) return f; }
+  return null;
+}
+function parentOf(node, test) {
+  for (const c of node?.children ?? []) {
+    if (test(c)) return node;
+    const p = parentOf(c, test);
+    if (p) return p;
+  }
+  return null;
+}
+// The layout with this mod as a tab-bar button + a panel in the work area (like the git button), the stray dock removed.
+function placed(root) {
+  const strip = (n) => ({ ...n, children: n.children?.filter((c) => c.content?.mod !== "gerrit").map(strip) });
+  const tree = strip(JSON.parse(JSON.stringify(root)));
+  const bar = parentOf(tree, (c) => c.content?.mod === "tabs");
+  const body = parentOf(tree, (c) => c.content?.tab != null);
+  if (!bar || !body) return null;
+  bar.children.push({ id: TOGGLE, type: "block", content: { mod: "gerrit", props: { role: "toggle" } }, size: { px: 96 } });
+  body.children.push({ id: PANEL, type: "column", children: [{ id: "gerrit", type: "block", content: { mod: "gerrit" } }],
+    size: { px: 460 }, min: 340, max: 900 });
+  return tree;
+}
 
 const CONFIG = () => `${home().replace(/\\/g, "/")}/.config/herdr-app/gerrit.json`;
 const CONFIG_EXAMPLE = `{
@@ -74,11 +106,46 @@ function voteValue(t, v) {
 
 export default class Gerrit extends View {
   init(_p, cx) {
+    this.role = blockProps()?.role ?? "panel";
     this.collapsed = new Set(JSON.parse(this.load("collapsed") ?? '["最近合併／放棄"]'));
     this.seen = JSON.parse(this.load("seen") ?? "null"); // change id -> updated; null until the first poll
     this.nextAt = 0;
-    cx.timer.every(1000, (cx) => { if (Date.now() >= this.nextAt) this.poll(cx); });
+    this.refreshSeen = shared(REFRESH) ?? 0;
+    cx.timer.every(1000, (cx) => {
+      if (!this.polls()) {
+        // Redraw when the polling copy shares something new.
+        const k = `${shared(DATA)?.at}|${shared(DATA)?.err}|${this.busy}|${JSON.stringify(shared(SAFE_CFG))}`;
+        if (k !== this.drawn) { this.drawn = k; cx.notify(); }
+        return;
+      }
+      const r = shared(REFRESH) ?? 0;
+      if (r !== this.refreshSeen) { this.refreshSeen = r; this.nextAt = 0; }
+      if (Date.now() >= this.nextAt) this.poll(cx);
+    });
     cx.timer.every(30000, (cx) => cx.notify()); // keep "幾分前" fresh
+  }
+
+  // One copy asks Gerrit: the tab-bar button when the layout has one, else the panel itself.
+  polls() { return this.role === "toggle" || !find(layout(), TOGGLE); }
+  get sections() { return shared(DATA)?.sections; }
+  get err() { return shared(DATA)?.err ?? null; }
+  get at() { return shared(DATA)?.at ?? null; }
+  get busy() { return Boolean(shared(BUSY)); }
+  get self() { return shared(DATA)?.self ?? null; }
+
+  async moveIntoBar(cx) {
+    this.moveErr = null;
+    let name = shared("layout");
+    if (SHIPPED.includes(name)) {
+      // Herdr's own layout can't change shape: work on a copy of it (once; later moves reuse the copy).
+      const as = `${name}-jay`;
+      try { await run("layout.clone", { name, as }); } catch { await run("layout.switch", { name: as }); }
+      await cx.sleep(800);
+      name = shared("layout");
+    }
+    const tree = placed(layout());
+    if (!tree) { this.moveErr = "這個版面沒有上排分頁列，沒辦法自動放；請把 docs/gerrit.md 的版面說明給 agent。"; cx.notify(); return; }
+    await run("layout.set", { layout: tree });
   }
 
   load(k) { try { return localStorage.getItem(`gerrit.${k}`); } catch { return null; } }
@@ -117,13 +184,21 @@ export default class Gerrit extends View {
   }
 
   async poll(cx) {
-    if (this.busy) return;
-    this.busy = true;
+    if (this.polling) return;
+    this.polling = true;
+    setShared(BUSY, true);
+    const data = { ...(shared(DATA) ?? {}) };
     try {
       this.cfg = await this.readConfig();
-      if (this.cfg.missing || this.cfg.error) { this.nextAt = Date.now() + 10000; return; }
-      if (this.cfg.auth && !this.self) this.self = await this.get("/accounts/self").catch(() => null);
-      const secs = this.sectionsFor(this.cfg);
+      const c = this.cfg;
+      setShared(SAFE_CFG, { missing: Boolean(c.missing), error: c.error ?? null, url: c.url ?? null, auth: Boolean(c.auth) });
+      if (c.missing || c.error) { this.nextAt = Date.now() + 10000; return; }
+      if (c.auth && !this.me) {
+        const a = await this.get("/accounts/self").catch(() => null);
+        this.me = a && { _account_id: a._account_id, name: who(a) };
+      }
+      data.self = c.auth ? this.me ?? null : null;
+      const secs = this.sectionsFor(c);
       const q = secs.map((s) => `q=${encodeURIComponent(`${s.query} limit:${s.limit ?? LIMIT}`)}`).join("&");
       let lists;
       try {
@@ -135,24 +210,26 @@ export default class Gerrit extends View {
         for (const s of secs) lists.push(await this.get(`/changes/?q=${encodeURIComponent(`${s.query} limit:${s.limit ?? LIMIT}`)}&${OPTS}`).catch((e2) => ({ error: String(e2.message ?? e2) })));
         if (lists.every((l) => l.error)) throw e;
       }
-      this.sections = secs.map((s, i) => ({ ...s, items: Array.isArray(lists[i]) ? lists[i] : [], error: lists[i]?.error ?? null }));
-      this.err = null;
-      this.at = Date.now();
-      await this.tell();
+      data.sections = secs.map((s, i) => ({ ...s, items: Array.isArray(lists[i]) ? lists[i] : [], error: lists[i]?.error ?? null }));
+      data.err = null;
+      data.at = Date.now();
+      await this.tell(data.sections, data.self);
     } catch (e) {
-      this.err = String(e.message ?? e);
+      data.err = String(e.message ?? e);
     } finally {
-      this.busy = false;
-      this.nextAt = Date.now() + Math.max(15, Number(this.cfg?.poll_seconds) || 60) * 1000;
+      setShared(DATA, data);
+      setShared(BUSY, false);
+      this.polling = false;
+      if (!(this.cfg?.missing || this.cfg?.error)) this.nextAt = Date.now() + Math.max(15, Number(this.cfg?.poll_seconds) || 60) * 1000;
       cx.notify();
     }
   }
 
   // Notify like Gerrit's mail: a change turned to you, or someone else replied / voted. Nothing on the first poll.
-  async tell() {
+  async tell(sections, self) {
     const now = {};
     const turn = new Set();
-    for (const s of this.sections) for (const c of s.items) {
+    for (const s of sections) for (const c of s.items) {
       now[c.id] = c.updated;
       if (s.turn) turn.add(c.id);
     }
@@ -161,9 +238,9 @@ export default class Gerrit extends View {
     this.seen = now;
     this.save("seen", JSON.stringify(now));
     this.save("turn", JSON.stringify([...turn]));
-    if (!before || !this.self) return; // without a login there is no "you": nothing to tell
+    if (!before || !self) return; // without a login there is no "you": nothing to tell
     let sent = 0;
-    const all = new Map(this.sections.flatMap((s) => s.items.map((c) => [c.id, c])));
+    const all = new Map(sections.flatMap((s) => s.items.map((c) => [c.id, c])));
     for (const [id, c] of all) {
       if (sent >= 3) break;
       const newTurn = turn.has(id) && !turnBefore.has(id);
@@ -172,11 +249,12 @@ export default class Gerrit extends View {
       try {
         const msgs = await this.get(`/changes/${encodeURIComponent(id)}/messages`);
         const last = msgs[msgs.length - 1];
-        if (!newTurn && last && this.self && last.author?._account_id === this.self._account_id) continue; // my own reply
+        if (!newTurn && last && last.author?._account_id === self._account_id) continue; // my own reply
         if (last) line = `${who(last.author)}：${String(last.message ?? "").split("\n").filter(Boolean).slice(0, 2).join(" ")}`;
       } catch {}
-      const reason = newTurn ? (c.attention_set?.[this.self?._account_id]?.reason ?? "").replace(/<GERRIT_ACCOUNT_\d+>/g, "有人") : "";
-      notify({ title: `${newTurn ? "輪到你" : "Gerrit 有新動態"}：#${c._number} ${c.subject}`, body: line || reason || c.project, level: newTurn ? "warning" : "info", timeout: 10000 });
+      const reason = newTurn ? (c.attention_set?.[self._account_id]?.reason ?? "").replace(/<GERRIT_ACCOUNT_\d+>/g, "有人") : "";
+      notify({ title: `${newTurn ? "輪到你" : "Gerrit 有新動態"}：#${c._number} ${c.subject}`, body: line || reason || c.project, level: newTurn ? "warning" : "info", timeout: 10000,
+        action: { name: "layout.show", args: { id: PANEL } } });
       sent++;
     }
   }
@@ -186,6 +264,7 @@ export default class Gerrit extends View {
     this.detail = { change: c, loading: true };
     cx.notify();
     try {
+      this.cfg = await this.readConfig(); // the panel's own copy (the button may be the one polling)
       const id = encodeURIComponent(c.id);
       const [d, comments] = await Promise.all([
         this.get(`/changes/${id}/detail?o=ALL_REVISIONS&o=CURRENT_FILES&o=CURRENT_COMMIT&o=DETAILED_LABELS&o=MESSAGES&o=SUBMITTABLE`),
@@ -198,36 +277,64 @@ export default class Gerrit extends View {
     cx.notify();
   }
 
-  webUrl(c) { return `${this.cfg.url}/c/${c.project}/+/${c._number}`; }
+  webUrl(c) { return `${shared(SAFE_CFG)?.url}/c/${c.project}/+/${c._number}`; }
 
   render(cx) {
-    const t = theme(), z = fs();
+    if (this.role === "toggle") return this.renderToggle();
+    const t = theme(), z = fs(), cfg = shared(SAFE_CFG);
     const root = v_flex().id("gerrit").size_full().bg(t.surface).text_size(z).text_color(t.foreground);
-    if (!this.cfg) return root.child(div().p(14).text_color(t.muted).child("讀取 Gerrit 設定…"));
-    if (this.cfg.missing || this.cfg.error) return root.child(this.setup(t, z));
+    if (!find(layout(), TOGGLE)) root.child(this.moveBanner(t, z));
+    if (!cfg) return root.child(div().p(14).text_color(t.muted).child("讀取 Gerrit 設定…"));
+    if (cfg.missing || cfg.error) return root.child(this.setup(t, z, cfg));
     if (this.openId && this.detail) return root.child(this.header(t, z, true)).child(this.renderDetail(t, z, cx));
     return root.child(this.header(t, z, false)).child(this.renderList(t, z));
   }
 
-  setup(t, z) {
+  // The tab-bar button: "Gerrit" plus how many changes wait for you; click shows / hides the panel.
+  renderToggle() {
+    const t = theme(), node = find(layout(), PANEL), on = node && !node.hidden;
+    const turn = (this.sections ?? []).filter((s) => s.turn).reduce((n, s) => n + s.items.length, 0);
+    const badge = this.err ? div().text_color(t.ansi1).child("!")
+      : turn ? div().px(5).rounded(8).text_size(11).font_semibold().bg(t.blocked).text_color(t.background).child(String(turn)) : null;
+    return h_flex().size_full().pr(6).items_center().bg(t.chrome).border_b(1).border_color(t.border)
+      .child(h_flex().id("toggle-gerrit").h(26).px(8).gap(5).flex_none().items_center().rounded(6)
+        .text_size(12).bg(on ? t.selected : t.chrome).text_color(on ? t.foreground : t.muted)
+        .hover((st) => st.bg(t.hover)).on_mouse_down("left", stop)
+        .on_click(() => run("layout.toggle", { id: PANEL }))
+        .child("Gerrit")
+        .when(Boolean(badge), (el) => el.child(badge)));
+  }
+
+  moveBanner(t, z) {
+    return v_flex().flex_none().px(12).py(10).gap(6).bg(t.raised).border_b(1).border_color(t.border)
+      .child(div().text_size(z - 1).text_color(t.muted).child(this.moveErr ?? "這個面板還在版面最外面。按下面的按鈕，會跟其他面板一樣放進上排（上面一顆 Gerrit 按鈕，按了開關面板）。"))
+      .child(div().id("move").h(32).px(14).flex_none().flex().items_center().justify_center().rounded(6).cursor_pointer()
+        .font_semibold().bg(t.solid).text_color(t.solid_foreground).hover((st) => st.opacity(0.88))
+        .on_mouse_down("left", stop).on_click((_e, cx) => cx.spawn(async (cx) => this.moveIntoBar(cx)))
+        .child("移到上排"));
+  }
+
+  setup(t, z, cfg) {
     return v_flex().p(14).gap(8).overflow_y_scrollbar()
       .child(div().font_semibold().child("Gerrit 還沒設定"))
-      .child(div().text_color(this.cfg.error ? t.ansi1 : t.muted).child(this.cfg.error ?? `建立這個檔（用文字編輯器），存檔後 10 秒內會自己讀到：`))
+      .child(div().text_color(cfg.error ? t.ansi1 : t.muted).child(cfg.error ?? `建立這個檔（用文字編輯器），存檔後 10 秒內會自己讀到：`))
       .child(div().font_family(mono()).text_size(z - 1).child(CONFIG()))
       .child(div().font_family(mono()).text_size(z - 1.5).p(8).rounded(6).bg(t.raised).child(CONFIG_EXAMPLE))
       .child(div().text_size(z - 1).text_color(t.muted).child("HTTP 密碼不是登入密碼：在 Gerrit 網頁右上角 → Settings → HTTP Credentials 產生。這個檔只在你的電腦上，不會進 repo。"));
   }
 
   header(t, z, back) {
-    const btn = (id, label, fn) => div().id(id).px(8).py(2).rounded(4).cursor_pointer().text_color(t.muted).hover((s) => s.bg(t.hover))
-      .on_mouse_down("left", stop).on_click(fn).child(label);
+    const btn = (id, label, fn) => div().id(id).h(28).px(10).flex().items_center().rounded(6).cursor_pointer().bg(t.raised).text_color(t.foreground)
+      .hover((s) => s.bg(t.hover)).on_mouse_down("left", stop).on_click(fn).child(label);
+    const inBar = Boolean(find(layout(), TOGGLE));
     const status = this.err ? `讀不到：${this.err}` : this.busy && !this.at ? "讀取中…" : this.at ? `更新於 ${ago(new Date(this.at).toISOString().replace("T", " ").replace("Z", ""))}` : "";
     return v_flex().flex_none().border_b(1).border_color(t.border)
       .child(h_flex().px(10).py(6).gap(6).items_center()
         .when(back, (el) => el.child(btn("back", "← 返回", (_e, cx) => { this.openId = null; this.detail = null; cx.notify(); })))
         .child(div().flex_1().min_w(0).truncate().font_semibold().child(back ? `#${this.detail.change._number}` : "Gerrit"))
         .when(back, (el) => el.child(btn("web", "在瀏覽器開", (_e, cx) => cx.open_url(this.webUrl(this.detail.change)))))
-        .when(!back, (el) => el.child(btn("refresh", this.busy ? "更新中…" : "重新整理", (_e, cx) => { this.nextAt = 0; cx.notify(); }))))
+        .when(!back, (el) => el.child(btn("refresh", this.busy ? "更新中…" : "↻ 重新整理", (_e, cx) => { setShared(REFRESH, Date.now()); this.nextAt = 0; cx.notify(); })))
+        .when(inBar, (el) => el.child(btn("hide", "✕", () => run("layout.hide", { id: PANEL })))))
       .when(!back && Boolean(status), (el) => el.child(div().px(12).pb(5).text_size(z - 1.5).truncate().text_color(this.err ? t.ansi1 : t.muted).child(status)));
   }
 

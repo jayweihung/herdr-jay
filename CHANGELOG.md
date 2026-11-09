@@ -5,6 +5,10 @@ Newest first. Each entry says what you need to do on your machine.
 Needs: **mods** = copy the two mod folders again (macOS symlinks: nothing) · **core** / **app** = rebuild ·
 **keys** = see [docs/keys.md](docs/keys.md).
 
+## 2026-11-10
+
+- **Gerrit panel sits with the other panels**: a **Gerrit** button in the tab bar (number = changes waiting for you) opens and closes it, and keeps checking and notifying while it's closed. A panel still docked outside shows a **移到上排** button that moves it there (on Herdr's own layout it first makes `main-jay`). Header buttons are bigger. Needs **gerrit** (copy `mods/gerrit`), restart Herdr, press 移到上排 once.
+
 ## 2026-11-09
 
 Needs: **mods** (copy both again), **app** (build v0.1.14), and once per machine running Claude Code: the snap hook in its settings.

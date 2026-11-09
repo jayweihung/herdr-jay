@@ -34,9 +34,15 @@ herdr-app check "$h\mods\gerrit" | Out-Host
 
 **macOS**: `ln -s ~/src/herdr-jay/mods/gerrit ~/.config/herdr-app/mods/gerrit`, then `herdr-app check ~/.config/herdr-app/mods/gerrit`.
 
-The first time Herdr sees the folder it docks the panel on the right of your layout (400 px; drag its edge to resize).
+The first time Herdr sees the folder it docks the panel at the far right of the window, outside the work area. The
+panel then shows a big **移到上排** button: press it once and the panel moves next to the other panels: a **Gerrit**
+button in the tab bar (with how many changes wait for you) opens and closes it, and the button keeps checking Gerrit
+while the panel is closed. On Herdr's own layout (main) it first makes your copy `main-jay` and switches to it.
+第一次會出現在視窗最右邊（版面外面），面板上有一顆「移到上排」大按鈕，按一次就會放進上排：上面多一顆 Gerrit 按鈕
+（數字是輪到你的數量），按了開關面板；面板關著也會繼續檢查、通知。
+
 Updating later: the same copy (Windows) or nothing (macOS link); then quit and reopen Herdr.
-第一次會自己出現在右邊。更新：Windows 再複製一次，Mac 不用；然後關掉 Herdr 再開。
+更新：Windows 再複製一次，Mac 不用；然後關掉 Herdr 再開。
 
 ## 2. Settings file / 設定檔
 

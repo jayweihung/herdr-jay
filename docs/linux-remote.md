@@ -220,17 +220,23 @@ mkdir -p ~/.local/bin
 npm install -g --prefix ~/.local --omit=optional --no-audit --no-fund pyright@1.1.414
 ```
 
-Server can't download: on a machine with internet (PC PowerShell, or any Linux / Mac with `npm`):
+Server can't reach npm: get the same file (`pyright-1.1.414.tgz`, about 4 MB) one of these ways, then copy it to the
+server's home. server 連不到 npm：用下面任一種拿到同一個檔，再複製到 server 的家目錄。
 
-```sh
-npm pack pyright@1.1.414                     # writes pyright-1.1.414.tgz (about 4 MB)
-scp pyright-1.1.414.tgz <user>@<server>:
-```
+- **From herdr-jay's release** (an unchanged copy of npm's file; the server or the PC only needs GitHub):
+  從 herdr-jay 的 Release 下載（跟 npm 上的一模一樣）：
+  ```sh
+  curl -fLO https://github.com/jayweihung/herdr-jay/releases/download/pyright-1.1.414/pyright-1.1.414.tgz
+  ```
+  (PowerShell: `curl.exe -fLO …` the same URL; or open the URL in a browser.)
+- **From npm** on any machine that has it: `npm pack pyright@1.1.414`.
+
+Then, if it isn't on the server yet: `scp pyright-1.1.414.tgz <user>@<server>:`
 
 then on the server:
 
 ```sh
-sha256sum ~/pyright-1.1.414.tgz              # bf5f473f6167c0d14175492c3263d783b4489a6956e1c06c18e15228e3a3fa42
+sha256sum ~/pyright-1.1.414.tgz              # must be bf5f473f6167c0d14175492c3263d783b4489a6956e1c06c18e15228e3a3fa42
 mkdir -p ~/.local/bin
 npm install -g --prefix ~/.local --offline --omit=optional --no-audit --no-fund ~/pyright-1.1.414.tgz
 ```

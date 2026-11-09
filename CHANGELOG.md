@@ -7,6 +7,7 @@ Needs: **mods** = copy the two mod folders again (macOS symlinks: nothing) · **
 
 ## 2026-11-10
 
+- **Gerrit panel: name the ▶ button**: `"start_label": "Preflight"` in the `jenkins` block shows 「▶ Preflight」. Needs **gerrit** (Windows: copy it again), restart Herdr.
 - **Gerrit panel: ▶ Preflight without watching Jenkins**: a `jenkins` block with `start_job` and no `jobs` gives only the start button (the results come back as messages under 合併條件). Needs **gerrit** (Windows: copy it again), restart Herdr.
 - **Gerrit panel: check systems under 合併條件**: the bots that report back to Gerrit (build, test, any system, Jenkins or not) show under the requirement they vote on, from their messages on the latest patch set: ⏳ running for how long / ✓ / ✗, the message's first line and its links (click to open in the browser). Optional `bots` in `gerrit.json` names the accounts. Needs **gerrit** (Windows: copy it again), restart Herdr.
 - **Gerrit panel: Jenkins builds** ([docs/gerrit.md §6](docs/gerrit.md#6-jenkins-builds--jenkins-build)): a change's page lists the Jenkins builds that have its number in a parameter: progress (跑了 / 平常), result, queue, the log's last lines live, ▶ to start the job, and a notification when one finishes. Needs **gerrit** (Windows: copy it again), a `jenkins` block in `gerrit.json` with an API token, restart Herdr.

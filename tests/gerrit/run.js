@@ -458,6 +458,11 @@ test("Jenkins with only start_job: a ▶ button, no build polling, the POST carr
     await g.loadJenkins(c7, cx);
     assert.equal(posts.length, 0, "nothing to watch, nothing asked");
     assert.ok(g.jenkinsCard(globalThis.__stubs.theme(), 13, c7), "the card with the button is there");
+    assert.equal(g.jenkinsCfg().start_label, undefined);
+    g.cfg = { ...g.cfg, jenkins: { ...g.cfg.jenkins, start_label: "Preflight" } };
+    const labels = []; const big = g.big; g.big = (t, z, id, label, o) => { labels.push(label); return big.call(g, t, z, id, label, o); };
+    g.jenkinsCard(globalThis.__stubs.theme(), 13, c7); g.big = big;
+    assert.deepEqual(labels, ["▶ Preflight"], "start_label names the button");
     await g.startJenkins(c7, cx);
     assert.equal(posts.length, 1);
     assert.equal(posts[0].path, "/jk/job/Preflight_Common/buildWithParameters");

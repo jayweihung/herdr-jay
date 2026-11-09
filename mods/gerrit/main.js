@@ -460,7 +460,7 @@ export default class Gerrit extends View {
     const head = h_flex().gap(8).items_center()
       .child(div().flex_1().min_w(0).truncate().text_size(z - 1).font_semibold().text_color(t.muted).child(j.jobs.length ? `Jenkins：${j.jobs.map(jobName).join("、")}` : "Jenkins"));
     if (j.start_job && c.status === "NEW") head.child(this.big(t, z, "jk-start",
-      jk?.starting ? "送出中…" : jk?.startedAt && Date.now() - jk.startedAt < 20000 ? "✓ 已送出" : `▶ 跑 ${jobName(j.start_job)}`,
+      jk?.starting ? "送出中…" : jk?.startedAt && Date.now() - jk.startedAt < 20000 ? "✓ 已送出" : j.start_label ? `▶ ${j.start_label}` : `▶ 跑 ${jobName(j.start_job)}`,
       { kind: "primary", off: Boolean(jk?.starting || (jk?.startedAt && Date.now() - jk.startedAt < 20000)), on: (cx) => cx.spawn(async (cx) => this.startJenkins(c, cx)) }));
     card.child(head);
     // only the start button (no "jobs" to watch): the systems' messages under 合併條件 tell how it goes

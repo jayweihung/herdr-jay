@@ -253,7 +253,8 @@ Only the ▶ button (no build list, no polling; results show under 合併條件 
     "url": "https://jenkins.example.com/ci",
     "user": "your-jenkins-user",
     "token": "your API token",
-    "start_job": "Preflight_Common"
+    "start_job": "Preflight_Common",
+    "start_label": "Preflight"
   }
 ```
 
@@ -264,7 +265,8 @@ Only the ▶ button (no build list, no polling; results show under 合併條件 
   `"folder/name"`). Leave it out to have **only the ▶ button**: nothing is polled, and how the run goes shows under
   合併條件 from the systems' own messages (§3). 不寫 `jobs` 就只有 ▶ 按鈕，結果看合併條件下面的系統留言。
 - `start_job` (optional): the job that the ▶ button starts with `change_param` = the change number; leave it out for
-  no button. `"start_params": { "NAME": "value" }` adds other parameters.
+  no button. `"start_params": { "NAME": "value" }` adds other parameters. `"start_label": "Preflight"` names the
+  button 「▶ Preflight」 (default: 「▶ 跑 <job>」). 按鈕名稱用 `start_label` 改。
 - `change_param`: the parameter holding the change number(s) (several are fine: `123,456`). Default `GERRIT_CHANGE`.
 
 To find the names: open the job in the browser and add `/api/json?tree=builds[number,actions[parameters[name,value]]]{0,3}`

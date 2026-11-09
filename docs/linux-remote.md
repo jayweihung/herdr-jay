@@ -242,7 +242,8 @@ npm install -g --prefix ~/.local --offline --omit=optional --no-audit --no-fund 
 ```
 
 **Check**: `~/.local/bin/pyright --version` prints `pyright 1.1.414`. (Tested on a Mac: offline install from the
-`.tgz` with an empty npm cache and no registry; the package has no other dependencies.)
+`.tgz` with an empty npm cache and no registry, with Node 26 / npm 11 and with Node 18 / npm 9.2.0; the package has no other
+dependencies. npm 9 itself needs Node ≥ 14.17, so any server with npm 9 is new enough.)
 
 **How to use / 怎麼用**
 

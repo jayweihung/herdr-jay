@@ -95,7 +95,7 @@ changed lines, S < 50, M < 250, L < 1000, XL) and when it last changed.
 **Click a change** → its page: whose turn it is, the votes and who gave them (labels nobody voted on and that aren't
 required are left out), the comment threads (unresolved first; 整體留言 = patchset-level), the files of the latest
 patch set (+/−, comments per file), the commit message (first lines; click for all), every patch set (and if it was
-only a rebase), and the change log. **在瀏覽器開** opens it in Gerrit; **← 返回** goes back.
+only a rebase), and the change log. **← 返回** goes back.
 
 Drag the panel's edge to make it as wide as you like (no limit).
 

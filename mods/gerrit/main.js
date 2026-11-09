@@ -365,7 +365,6 @@ export default class Gerrit extends View {
     cx.notify();
   }
 
-  webUrl(c) { return `${shared(SAFE_CFG)?.url}/c/${c.project}/+/${c._number}`; }
 
   render(cx) {
     if (this.role === "toggle") return this.renderToggle();
@@ -426,7 +425,6 @@ export default class Gerrit extends View {
         })))
         .child(div().flex_1().min_w(0).truncate().font_semibold().child(back ? (this.diff ? `#${this.detail.change._number ?? "…"} · ${vim_name(this.diff.path)}` : `#${this.detail.change._number ?? "…"}`) : "Gerrit"))
 
-        .when(back, (el) => el.child(btn("web", "在瀏覽器開", (_e, cx) => cx.open_url(this.webUrl(this.detail.change)))))
         .when(!back, (el) => el.child(btn("refresh", this.busy ? "更新中…" : "↻ 重新整理", (_e, cx) => { setShared(REFRESH, Date.now()); this.nextAt = 0; cx.notify(); })))
         .when(inBar, (el) => el.child(btn("hide", "✕", () => run("layout.hide", { id: PANEL })))))
       .when(!back && Boolean(status), (el) => el.child(div().px(12).pb(5).text_size(z - 1.5).truncate().text_color(this.err ? t.ansi1 : t.muted).child(status)));
@@ -577,7 +575,7 @@ export default class Gerrit extends View {
     (at.get("file") ?? []).forEach((x, k) => body.child(threadCard(x, `file-${k}`)));
 
     const rows = this.diffRows(data, open);
-    const LIMIT_ROWS = 3000;
+    const LIMIT_ROWS = this.diff.limit ?? 3000;
     const can = Boolean(shared(SAFE_CFG)?.auth) && c.status === "NEW";
     for (const r of rows.slice(0, LIMIT_ROWS)) {
       if (r.kind === "fold" || r.kind === "skip") {
@@ -606,7 +604,9 @@ export default class Gerrit extends View {
       (at.get(key) ?? []).forEach((x, k) => body.child(threadCard(x, `${key}-${k}`)));
       if (this.lineBox?.key === key) body.child(this.lineCommentBox(t, z, c, path));
     }
-    if (rows.length > LIMIT_ROWS) body.child(div().p(12).text_color(t.muted).child(`檔案太長，只顯示前 ${LIMIT_ROWS} 行；其他按「在瀏覽器開」。`));
+    if (rows.length > LIMIT_ROWS) body.child(h_flex().p(12).gap(10).items_center()
+      .child(div().text_color(t.muted).child(`還有 ${rows.length - LIMIT_ROWS} 行`))
+      .child(this.big(t, z, "more-rows", "再顯示 3000 行", { on: (cx) => { this.diff.limit = LIMIT_ROWS + 3000; cx.notify(); } })));
     if (this.actErr) body.child(div().px(12).text_size(z - 1).text_color(t.ansi1).child(`沒送出：${this.actErr}`));
     return body;
   }

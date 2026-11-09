@@ -435,6 +435,7 @@ What gets updated, and where / 要更新的東西：
 | Herdr app | PC | build the README tag + patches (8.2) | the README table names a new app |
 | jay-nvim mods | PC (they open nvim on the server too) | copy the two folders (8.4) | the CHANGELOG says **mods** |
 | Neovim | PC (Windows build) and the server (**built on the server** from source) | new version (8.5) | only when the README says so (needs ≥ 0.11) |
+| pyright (optional) | the server | [linux-remote.md §3b](linux-remote.md#3b-python-go-to-definition-pyright-optional--python-跳定義選用) with the new version | only when the README says so |
 | Claude Code snap hook | wherever jay-nvim runs | nothing: jay-nvim rewrites it | — |
 
 Windows follows **herdr-jay**, never upstream directly: build only the versions in the

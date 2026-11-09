@@ -45,6 +45,9 @@ one was checked.
 The app needs at least the core in its `distribution/core-version` (v0.1.14: core 0.1.11).
 Neovim: **v0.12.6** (the Linux server builds this tag from source; anything ≥ 0.11 works with jay-nvim).
 Neovim：server 從原始碼 build v0.12.6；0.11 以上都能用。
+pyright (optional, Python go-to-definition on the server): **1.1.414**, npm's package on the server's Node
+([linux-remote.md §3b](docs/linux-remote.md#3b-python-go-to-definition-pyright-optional--python-跳定義選用); also on the release `pyright-1.1.414`).
+pyright（選用，server 上的 Python 跳定義）：1.1.414。
 
 **Tags** `for-herdr-v<app version>-r<N>` mark a herdr-jay state checked on **both** macOS and Windows. They never
 move; a fix on the same Herdr gets the next `-r`. Take the highest `-r` for your app version. The old tag

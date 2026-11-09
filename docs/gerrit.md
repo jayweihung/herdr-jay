@@ -97,13 +97,14 @@ required are left out), the comment threads (unresolved first; 整體留言 = pa
 patch set (+/−, comments per file), the commit message (first lines; click for all), every patch set (and if it was
 only a rebase), and the change log. **在瀏覽器開** opens it in Gerrit; **← 返回** goes back.
 
+Drag the panel's edge to make it as wide as you like (no limit).
+
 **Click a file** → its diff (latest patch set against its parent), right in the panel: line numbers, removed lines
 red, added green, unchanged runs folded to 「⋯ N 行沒改（點開）」, the comments under their lines (with Done / Ack /
 回覆), and ↑ 上一個檔 / ↓ 下一個檔. **Click any line** to comment on it: 💬 送出留言（要對方處理）(unresolved) or
-送出（只是備註）(resolved). Opening a diff widens the panel.
+送出（只是備註）(resolved).
 點檔案看 diff（紅刪綠增），留言在那一行下面；點任何一行就能留言。
 
-**⤢ 放大 / ⤡ 縮小** (top right): the panel to about two thirds of the window, and back to your width.
 
 **Reply, vote, submit** (only when logged in), at the top of a change's page, like Gerrit's REPLY dialog:
 - a row of big score buttons per label you may vote on (your current vote is highlighted; press one to pick it,
@@ -115,6 +116,9 @@ red, added green, unchanged runs folded to 「⋯ N 行沒改（點開）」, th
 - Under each comment thread: **✓ Done** and **Ack** reply and mark it resolved in one press; **💬 回覆** opens a box
   with 送出並解決 / 送出（不解決）/ 取消.
 回覆、給分、合併都在細節頁最上面；留言串下面有 Done／Ack／回覆。合併要按兩次。
+
+**A change in a tab of its own**: `herdr-app do tab.new --name "#7" --mod gerrit --props '{"open":"7"}'`
+(add `"diff":"path/to/file"` to start on that file's diff).
 
 **Notifications** (only when logged in), at most three per check:
 - 輪到你：#123 … when a change enters 輪到你, with Gerrit's reason;

@@ -99,6 +99,11 @@ function vote(t, l) {
   if (l.recommended) return { text: `+${l.value ?? 1}`, color: t.ansi2 };
   return null;
 }
+// A faint wash of a theme color (#rrggbb → #rrggbbaa); anything else is used as is.
+const tint = (c, a = "24") => (typeof c === "string" && /^#[0-9a-f]{6}$/i.test(c) ? c + a : c);
+// A change in a URL: its number when known (Gerrit's "id" is already escaped, project%2Fsub~123: escaping it
+// again breaks every project with a "/" in its name); else the id as given, escaped once.
+const cid = (c) => (c?._number != null ? String(c._number) : encodeURIComponent(decodeURIComponent(String(c?.id ?? ""))));
 const vim_name = (p) => (p === "/COMMIT_MSG" ? "提交說明" : p);
 // Leading spaces and tabs kept visible (text wraps, so they'd collapse).
 const keepIndent = (l) => String(l ?? "").replace(/^[ \t]+/, (m) => m.replace(/\t/g, "    ").replace(/ /g, "\u00a0"));
@@ -112,6 +117,13 @@ export default class Gerrit extends View {
   init(_p, cx) {
     this.role = blockProps()?.role ?? "panel";
     if (this.role !== "toggle") this.replyState(); // input state can't be made while drawing
+    // props {open: "<change id or number>", diff: "<file path>"}: start on that change (and file), e.g. in a tab of its own
+    const start = blockProps() ?? {};
+    this.inTab = Boolean(start.open); // a copy started on a change (its own tab): the panel's width isn't its business
+    if (this.role !== "toggle" && start.open) cx.spawn(async (cx) => {
+      await this.openChange({ id: String(start.open) }, cx);
+      if (start.diff && this.detail && !this.detail.error) await this.openDiff(String(start.diff), cx);
+    });
     this.collapsed = new Set(JSON.parse(this.load("collapsed") ?? '["最近合併／放棄"]'));
     this.seen = JSON.parse(this.load("seen") ?? "null"); // change id -> updated; null until the first poll
     this.nextAt = 0;
@@ -224,7 +236,7 @@ export default class Gerrit extends View {
     const message = this.replyState().value().trim();
     const labels = { ...(this.picked ?? {}) };
     if (!message && !Object.keys(labels).length) { this.actErr = "沒有要送的：寫點回覆或選個分數"; cx.notify(); return; }
-    const ok = await this.act("reply", () => this.req("POST", `/changes/${encodeURIComponent(c.id)}/revisions/current/review`,
+    const ok = await this.act("reply", () => this.req("POST", `/changes/${cid(c)}/revisions/current/review`,
       { ...(message ? { message } : {}), ...(Object.keys(labels).length ? { labels } : {}), drafts: "PUBLISH_ALL_REVISIONS" }), cx);
     if (ok) { this.reply.set_value(""); this.picked = {}; cx.notify(); }
   }
@@ -237,7 +249,7 @@ export default class Gerrit extends View {
     if (last.range) cm.range = last.range;
     if (last.side) cm.side = last.side;
     const ok = await this.act(`th-${x.root.id}`, () => this.req("POST",
-      `/changes/${encodeURIComponent(c.id)}/revisions/${last.patch_set}/review`, { comments: { [last.path]: [cm] } }), cx);
+      `/changes/${cid(c)}/revisions/${last.patch_set}/review`, { comments: { [last.path]: [cm] } }), cx);
     if (ok && this.threadReply?.id === x.root.id) this.threadReply = null;
   }
 
@@ -247,7 +259,7 @@ export default class Gerrit extends View {
       cx.spawn(async (cx) => { await cx.sleep(4100); cx.notify(); });
       return;
     }
-    await this.act("submit", () => this.req("POST", `/changes/${encodeURIComponent(c.id)}/submit`, {}), cx);
+    await this.act("submit", () => this.req("POST", `/changes/${cid(c)}/submit`, {}), cx);
   }
 
   sectionsFor(c) {
@@ -320,7 +332,7 @@ export default class Gerrit extends View {
       if (!newTurn && (!before[id] || before[id] === c.updated)) continue;
       let line = "";
       try {
-        const msgs = await this.get(`/changes/${encodeURIComponent(id)}/messages`);
+        const msgs = await this.get(`/changes/${cid(c)}/messages`);
         const last = msgs[msgs.length - 1];
         if (!newTurn && last && last.author?._account_id === self._account_id) continue; // my own reply
         if (last) line = `${who(last.author)}：${String(last.message ?? "").split("\n").filter(Boolean).slice(0, 2).join(" ")}`;
@@ -341,7 +353,7 @@ export default class Gerrit extends View {
     }
     try {
       this.cfg = await this.readConfig(); // the panel's own copy (the button may be the one polling)
-      const id = encodeURIComponent(c.id);
+      const id = cid(c);
       const [d, comments] = await Promise.all([
         this.get(`/changes/${id}/detail?o=ALL_REVISIONS&o=CURRENT_FILES&o=CURRENT_COMMIT&o=DETAILED_LABELS&o=MESSAGES&o=SUBMITTABLE`),
         this.get(`/changes/${id}/comments`).catch(() => ({})),
@@ -357,7 +369,6 @@ export default class Gerrit extends View {
 
   render(cx) {
     if (this.role === "toggle") return this.renderToggle();
-    try { this.vw = cx.viewport_size()?.width ?? this.vw; } catch {}
     const t = theme(), z = fs(), cfg = shared(SAFE_CFG);
     const root = v_flex().id("gerrit").size_full().bg(t.surface).text_size(z).text_color(t.foreground);
     if (!find(layout(), TOGGLE)) root.child(this.moveBanner(t, z));
@@ -404,29 +415,21 @@ export default class Gerrit extends View {
   header(t, z, back) {
     const btn = (id, label, fn) => div().id(id).h(28).px(10).flex().items_center().rounded(6).cursor_pointer().bg(t.raised).text_color(t.foreground)
       .hover((s) => s.bg(t.hover)).on_mouse_down("left", stop).on_click(fn).child(label);
-    const inBar = Boolean(find(layout(), TOGGLE));
-    const px = find(layout(), PANEL)?.size?.px ?? 0, wide = px >= this.wideWidth() - 10;
+    const inBar = Boolean(find(layout(), TOGGLE)) && !this.inTab;
     const status = this.err ? `讀不到：${this.err}` : this.busy && !this.at ? "讀取中…" : this.at ? `更新於 ${ago(new Date(this.at).toISOString().replace("T", " ").replace("Z", ""))}` : "";
     return v_flex().flex_none().border_b(1).border_color(t.border)
       .child(h_flex().px(10).py(6).gap(6).items_center()
         .when(back, (el) => el.child(btn("back", "← 返回", (_e, cx) => {
-          if (this.diff) this.diff = null; else { this.openId = null; this.detail = null; }
+          if (this.diff) this.diff = null;
+          else { this.openId = null; this.detail = null; }
           cx.notify();
         })))
-        .child(div().flex_1().min_w(0).truncate().font_semibold().child(back ? (this.diff ? `#${this.detail.change._number} · ${vim_name(this.diff.path)}` : `#${this.detail.change._number}`) : "Gerrit"))
-        .when(inBar, (el) => el.child(btn("wide", wide ? "⤡ 縮小" : "⤢ 放大", () => this.setWide(!wide))))
+        .child(div().flex_1().min_w(0).truncate().font_semibold().child(back ? (this.diff ? `#${this.detail.change._number ?? "…"} · ${vim_name(this.diff.path)}` : `#${this.detail.change._number ?? "…"}`) : "Gerrit"))
+
         .when(back, (el) => el.child(btn("web", "在瀏覽器開", (_e, cx) => cx.open_url(this.webUrl(this.detail.change)))))
         .when(!back, (el) => el.child(btn("refresh", this.busy ? "更新中…" : "↻ 重新整理", (_e, cx) => { setShared(REFRESH, Date.now()); this.nextAt = 0; cx.notify(); })))
         .when(inBar, (el) => el.child(btn("hide", "✕", () => run("layout.hide", { id: PANEL })))))
       .when(!back && Boolean(status), (el) => el.child(div().px(12).pb(5).text_size(z - 1.5).truncate().text_color(this.err ? t.ansi1 : t.muted).child(status)));
-  }
-
-  // 放大: about two thirds of the window (the window's width is read while drawing).
-  wideWidth() { return Math.max(700, Math.round((this.vw || 1600) * 0.66)); }
-  setWide(on) {
-    const px = find(layout(), PANEL)?.size?.px, wide = this.wideWidth();
-    if (on) { if (px && px < wide - 10) this.save("narrow", String(px)); run("layout.resize", { id: PANEL, px: wide }); }
-    else run("layout.resize", { id: PANEL, px: Number(this.load("narrow")) || 460 });
   }
 
   renderList(t, z) {
@@ -486,12 +489,10 @@ export default class Gerrit extends View {
     const c = this.detail.change;
     this.diff = { path, loading: true, open: new Set() };
     this.lineBox = null;
-    // a diff wants room: widen once, unless already wide
-    if (find(layout(), TOGGLE) && (find(layout(), PANEL)?.size?.px ?? 0) < this.wideWidth() - 10) this.setWide(true);
     cx.notify();
     try {
       this.cfg = await this.readConfig();
-      const d = await this.get(`/changes/${encodeURIComponent(c.id)}/revisions/current/files/${encodeURIComponent(path)}/diff`);
+      const d = await this.get(`/changes/${cid(c)}/revisions/current/files/${encodeURIComponent(path)}/diff`);
       if (this.diff?.path === path) this.diff = { ...this.diff, loading: false, data: d };
     } catch (e) {
       if (this.diff?.path === path) this.diff = { ...this.diff, loading: false, error: String(e.message ?? e) };
@@ -533,10 +534,19 @@ export default class Gerrit extends View {
     const cur = Object.values(c.revisions ?? {}).find((r) => r._number === c.revisions?.[c.current_revision]?._number) ?? {};
     const files = Object.keys(cur.files ?? {});
     const i = files.indexOf(path);
-    const nav = h_flex().gap(6).px(10).py(6).items_center().border_b(1).border_color(t.border)
-      .child(div().flex_1().min_w(0).text_ellipsis_start().font_family(mono()).text_size(z - 0.5).child(vim_name(path)))
-      .child(this.big(t, z, "prev-file", "↑ 上一個檔", { off: i <= 0, on: (cx) => cx.spawn(async (cx) => this.openDiff(files[i - 1], cx)) }))
-      .child(this.big(t, z, "next-file", "↓ 下一個檔", { off: i < 0 || i >= files.length - 1, on: (cx) => cx.spawn(async (cx) => this.openDiff(files[i + 1], cx)) }));
+    const f = cur.files?.[path] ?? {};
+    const navBtn = (id, label, off, to) => div().id(id).h(28).px(10).flex().items_center().rounded(6).text_size(z - 1)
+      .bg(t.raised).text_color(off ? t.dim : t.foreground)
+      .when(!off, (el) => el.cursor_pointer().hover((st) => st.bg(t.hover)).on_mouse_down("left", stop).on_click((_e, cx) => cx.spawn(async (cx) => this.openDiff(to, cx))))
+      .child(label);
+    const nav = h_flex().gap(8).px(12).py(6).items_center().border_b(1).border_color(t.border).text_size(z - 1)
+      .child(div().text_color(t.muted).child(files.length > 1 ? `第 ${i + 1}／${files.length} 個檔` : "這個 change 只有這個檔"))
+      .child(div().font_family(mono()).text_color(t.ansi2).child(f.lines_inserted ? `+${f.lines_inserted}` : ""))
+      .child(div().font_family(mono()).text_color(t.ansi1).child(f.lines_deleted ? `−${f.lines_deleted}` : ""))
+      .child(div().flex_1())
+      .when(files.length > 1, (el) => el
+        .child(navBtn("prev-file", "↑ 上一個檔", i <= 0, files[i - 1]))
+        .child(navBtn("next-file", "↓ 下一個檔", i < 0 || i >= files.length - 1, files[i + 1])));
     body.child(nav);
     if (loading) return body.child(div().p(12).text_color(t.muted).child("讀取 diff…"));
     if (error) return body.child(div().p(12).text_color(t.ansi1).child(`讀不到：${error}`));
@@ -578,9 +588,8 @@ export default class Gerrit extends View {
       }
       const side = r.kind === "del" ? "a" : "b", line = side === "a" ? r.a : r.b;
       const key = `${side}:${line}`;
-      const bg = r.kind === "add" ? t.diff_added ?? null : r.kind === "del" ? t.diff_removed ?? null : null;
-      body.child(h_flex().id(`row-${r.id}`).items_start().font_family(mono()).text_size(z - 1.5)
-        .when(r.kind === "add", (el) => el.bg(bg ?? t.raised)).when(r.kind === "del", (el) => el.bg(bg ?? t.chrome))
+      body.child(h_flex().id(`row-${r.id}`).items_start().font_family(mono()).text_size(z - 0.5).py(1)
+        .when(r.kind === "add", (el) => el.bg(tint(t.ansi2))).when(r.kind === "del", (el) => el.bg(tint(t.ansi1)))
         .when(can, (el) => el.cursor_pointer().hover((st) => st.bg(t.hover)).on_click((_e, cx) => {
           const st = TextareaState.new({ placeholder: `在第 ${line} 行留言`, rows: 2 });
           st.set_auto_grow(2, 8); st.set_soft_wrap(true);
@@ -592,7 +601,7 @@ export default class Gerrit extends View {
         .child(div().w(38).flex_none().pr(4).text_right().text_color(t.dim).child(r.b ? String(r.b) : ""))
         .child(div().w(14).flex_none().font_semibold().text_color(r.kind === "add" ? t.ansi2 : r.kind === "del" ? t.ansi1 : t.dim)
           .child(r.kind === "add" ? "+" : r.kind === "del" ? "−" : ""))
-        .child(div().flex_1().min_w(0).whitespace_normal().text_color(r.kind === "add" ? t.ansi2 : r.kind === "del" ? t.ansi1 : t.foreground)
+        .child(div().flex_1().min_w(0).whitespace_normal().text_color(t.foreground)
           .child(keepIndent(r.text) || "\u00a0")));
       (at.get(key) ?? []).forEach((x, k) => body.child(threadCard(x, `${key}-${k}`)));
       if (this.lineBox?.key === key) body.child(this.lineCommentBox(t, z, c, path));
@@ -609,7 +618,7 @@ export default class Gerrit extends View {
       const message = state.value().trim();
       if (!message) return;
       const cm = { line, message, unresolved, ...(side === "a" ? { side: "PARENT" } : {}) };
-      const ok = await this.act("line", () => this.req("POST", `/changes/${encodeURIComponent(c.id)}/revisions/current/review`,
+      const ok = await this.act("line", () => this.req("POST", `/changes/${cid(c)}/revisions/current/review`,
         { comments: { [path]: [cm] } }), cx);
       if (ok) this.lineBox = null;
     });
@@ -628,7 +637,7 @@ export default class Gerrit extends View {
     const fg = off ? t.dim : kind === "primary" ? t.solid_foreground : kind === "danger" ? t.background : t.foreground;
     return div().id(id).h(34).px(14).flex().items_center().justify_center().rounded(7).text_size(z).font_semibold()
       .when(Boolean(grow), (el) => el.flex_1()).when(!grow, (el) => el.flex_none())
-      .bg(bg).text_color(fg).border_1().border_color(active ? t.accent : "transparent")
+      .bg(bg).text_color(fg).border_1().border_color(active ? t.accent : bg)
       .when(!off, (el) => el.cursor_pointer().hover((st) => st.opacity(0.85)).on_mouse_down("left", stop).on_click((_e, cx) => on?.(cx)))
       .child(label);
   }
@@ -652,7 +661,7 @@ export default class Gerrit extends View {
         row.child(div().id(`pick-${name}-${v}`).h(32).flex_1().min_w(34).flex().items_center().justify_center().rounded(6)
           .font_semibold().text_size(z).cursor_pointer()
           .bg(sel ? (v === 0 ? t.selected : color) : t.raised).text_color(sel && v !== 0 ? t.background : color)
-          .border_1().border_color(sel && picked != null ? t.accent : "transparent")
+          .border_1().border_color(sel && picked != null ? t.accent : sel ? (v === 0 ? t.selected : color) : t.raised)
           .hover((st) => st.opacity(0.85)).on_mouse_down("left", stop)
           .on_click((_e, cx) => {
             this.picked = { ...(this.picked ?? {}) };
@@ -721,13 +730,12 @@ export default class Gerrit extends View {
     const { change: c, comments, loading, error } = this.detail;
     const body = v_flex().id("detail").flex_1().min_h(0).overflow_y_scrollbar().px(12).py(10).gap(10);
     body.child(v_flex().gap(4)
-      .child(div().font_semibold().text_size(z + 1).whitespace_normal().child(c.subject))
+      .child(div().font_semibold().text_size(z + 1).whitespace_normal().child(String(c.subject ?? (error ? "" : "讀取中…"))))
       .child(h_flex().gap(6).flex_wrap().items_center().children(this.chips(t, z, c))
-        .child(div().text_size(z - 1).text_color(t.muted).child(`${c.project} · ${c.branch} · ${who(c.owner)} · 更新 ${ago(c.updated)}`))));
+        .when(Boolean(c.project), (el) => el.child(div().text_size(z - 1).text_color(t.muted).child(`${c.project} · ${c.branch} · ${who(c.owner)} · 更新 ${ago(c.updated)}`)))));
     if (loading) return body.child(div().text_color(t.muted).child("讀取中…"));
     if (error) return body.child(div().text_color(t.ansi1).child(`讀不到：${error}`));
     const title = (text) => div().pt(4).text_size(z - 1).font_semibold().text_color(t.muted).child(text);
-    if (shared(SAFE_CFG)?.auth) body.child(this.actions(t, z, c));
 
     // Attention set: whose turn it is
     const att = Object.values(c.attention_set ?? {});
@@ -753,6 +761,23 @@ export default class Gerrit extends View {
 
     const revs = Object.entries(c.revisions ?? {}).map(([sha, r]) => ({ sha, ...r })).sort((a, b) => b._number - a._number);
     const cur = revs.find((r) => r.sha === c.current_revision) ?? revs[0];
+
+    // Files of the current patch set, with comment counts
+    const files = Object.entries(cur?.files ?? {});
+    if (files.length) {
+      body.child(title(`檔案（第 ${cur._number} 版，共 ${files.length} 個）`));
+      for (const [path, f] of files) {
+        const n = (comments?.[path] ?? []).length;
+        body.child(h_flex().id(`f-${path}`).gap(8).items_center().text_size(z - 1).px(4).py(3).rounded(5)
+          .cursor_pointer().hover((st) => st.bg(t.hover)).on_click((_e, cx) => cx.spawn(async (cx) => this.openDiff(path, cx)))
+          .child(div().flex_none().w(14).text_color(t.muted).child(f.status === "A" ? "+" : f.status === "D" ? "−" : f.status === "R" ? "→" : ""))
+          .child(div().flex_1().min_w(0).text_ellipsis_start().font_family(mono()).child(path))
+          .when(n > 0, (el) => el.child(div().flex_none().text_color(t.blocked).child(`留言 ${n}`)))
+          .child(div().flex_none().font_family(mono()).text_color(t.ansi2).child(f.lines_inserted ? `+${f.lines_inserted}` : ""))
+          .child(div().flex_none().font_family(mono()).text_color(t.ansi1).child(f.lines_deleted ? `−${f.lines_deleted}` : ""))
+          .child(div().flex_none().text_color(t.muted).child("›")));
+      }
+    }
 
     // Comment threads (replies follow in_reply_to), unresolved first, like Gerrit's Comments tab
     const byId = new Map();
@@ -783,21 +808,7 @@ export default class Gerrit extends View {
         .child(all ? "只看未解決的" : `還有 ${list.length - shown.length} 串已解決的，點一下看`));
     }
 
-    // Files of the current patch set, with comment counts
-    const files = Object.entries(cur?.files ?? {});
-    if (files.length) {
-      body.child(title(`檔案（第 ${cur._number} 版，共 ${files.length} 個）`));
-      for (const [path, f] of files) {
-        const n = (comments?.[path] ?? []).length;
-        body.child(h_flex().id(`f-${path}`).gap(8).items_center().text_size(z - 1).px(4).py(3).rounded(5)
-          .cursor_pointer().hover((st) => st.bg(t.hover)).on_click((_e, cx) => cx.spawn(async (cx) => this.openDiff(path, cx)))
-          .child(div().flex_none().w(14).text_color(t.muted).child(f.status === "A" ? "+" : f.status === "D" ? "−" : f.status === "R" ? "→" : ""))
-          .child(div().flex_1().min_w(0).text_ellipsis_start().font_family(mono()).child(path))
-          .when(n > 0, (el) => el.child(div().flex_none().text_color(t.blocked).child(`留言 ${n}`)))
-          .child(div().flex_none().font_family(mono()).text_color(t.ansi2).child(f.lines_inserted ? `+${f.lines_inserted}` : ""))
-          .child(div().flex_none().font_family(mono()).text_color(t.ansi1).child(f.lines_deleted ? `−${f.lines_deleted}` : "")));
-      }
-    }
+    if (shared(SAFE_CFG)?.auth) body.child(title("回覆、給分")).child(this.actions(t, z, c));
 
     // Commit message: the first lines, click for all
     const msg = String(cur?.commit?.message ?? "").trim();
@@ -813,7 +824,7 @@ export default class Gerrit extends View {
     if (revs.length) {
       body.child(title(`版本（共 ${revs.length} 版）`));
       revs.forEach((r) => body.child(h_flex().id(`ps-${r._number}`).gap(8).text_size(z - 1)
-        .child(div().w(42).flex_none().font_family(mono()).text_color(r.sha === c.current_revision ? t.foreground : t.muted).child(`第 ${r._number} 版`))
+        .child(div().w(64).flex_none().font_family(mono()).text_color(r.sha === c.current_revision ? t.foreground : t.muted).child(`第 ${r._number} 版`))
         .child(div().flex_1().min_w(0).truncate().text_color(t.muted).child(`${who(r.uploader)} · ${ago(r.created)}${r.kind && r.kind !== "REWORK" ? ` · ${r.kind === "TRIVIAL_REBASE" ? "只是 rebase" : r.kind === "NO_CODE_CHANGE" ? "程式沒變" : r.kind === "NO_CHANGE" ? "沒有改變" : r.kind}` : ""}`))));
     }
 

@@ -6,7 +6,7 @@
 // "gerrit-panel" (like the CI and git buttons). The toggle polls and shares the lists; the panel draws them.
 // A panel with no toggle in the layout polls itself and offers to move into the tab bar.
 import { View, div } from "gpui-kit";
-import { v_flex, h_flex } from "gpui-base";
+import { v_flex, h_flex, TextareaState, Textarea } from "gpui-base";
 import { theme, settings, notify, home, readTextFile, run, layout, shared, setShared, props as blockProps } from "herdr";
 
 const TOGGLE = "gerrit-toggle", PANEL = "gerrit-panel";
@@ -164,17 +164,85 @@ export default class Gerrit extends View {
   }
 
   // GET a REST path; with a user it goes through /a/ (authenticated). Strips Gerrit's )]}' prefix.
-  async get(path) {
+  get(path) { return this.req("GET", path); }
+  // A write (POST/PUT/DELETE with a JSON body) needs the login: only /a/ takes Basic auth.
+  async req(method, path, json) {
     const c = this.cfg;
     const headers = { Accept: "application/json" };
     if (c.auth) headers.Authorization = `Basic ${b64(`${c.user}:${c.http_password}`)}`;
-    const r = await fetch(`${c.url}${c.auth ? "/a" : ""}${path}`, { headers });
+    if (method !== "GET" && !c.auth) throw new Error("要先在 gerrit.json 填帳號和 HTTP 密碼才能回覆、給分");
+    const init = { method, headers };
+    if (json !== undefined) { headers["Content-Type"] = "application/json; charset=UTF-8"; init.body = JSON.stringify(json); }
+    const r = await fetch(`${c.url}${c.auth ? "/a" : ""}${path}`, init);
     const body = await r.text();
     if (!r.ok) {
       const why = r.status === 401 ? "帳號或 HTTP 密碼不對（401）" : r.status === 403 ? "沒有權限（403）" : `HTTP ${r.status}`;
       throw new Error(`${why}${body && r.status !== 401 ? `：${body.trim().split("\n")[0].slice(0, 120)}` : ""}`);
     }
-    return JSON.parse(body.replace(/^\)\]\}'\n?/, ""));
+    const text = body.replace(/^\)\]\}'\n?/, "");
+    return text.trim() ? JSON.parse(text) : null;
+  }
+
+  // Run a write, then reread the change and tell the polling copy to refresh the lists.
+  async act(key, fn, cx) {
+    if (this.sending) return;
+    this.sending = key;
+    this.actErr = null;
+    cx.notify();
+    try {
+      this.cfg = await this.readConfig();
+      await fn();
+      this.armed = null;
+      setShared(REFRESH, Date.now());
+      if (this.detail) await this.openChange(this.detail.change, cx, true);
+      return true;
+    } catch (e) {
+      this.actErr = String(e.message ?? e);
+      return false;
+    } finally {
+      this.sending = null;
+      cx.notify();
+    }
+  }
+
+  // The reply box and the votes picked for the open change (sent together, like Gerrit's REPLY dialog).
+  replyState() {
+    if (!this.reply) {
+      this.reply = TextareaState.new({ placeholder: "寫回覆（可以空白，只送分數）", rows: 3 });
+      this.reply.set_auto_grow(3, 10);
+      this.reply.set_soft_wrap(true);
+    }
+    return this.reply;
+  }
+
+  async sendReply(c, cx) {
+    const message = this.replyState().value().trim();
+    const labels = { ...(this.picked ?? {}) };
+    if (!message && !Object.keys(labels).length) { this.actErr = "沒有要送的：寫點回覆或選個分數"; cx.notify(); return; }
+    const ok = await this.act("reply", () => this.req("POST", `/changes/${encodeURIComponent(c.id)}/revisions/current/review`,
+      { ...(message ? { message } : {}), ...(Object.keys(labels).length ? { labels } : {}), drafts: "PUBLISH_ALL_REVISIONS" }), cx);
+    if (ok) { this.reply.set_value(""); this.picked = {}; cx.notify(); }
+  }
+
+  // Reply in a comment thread: on the patch set and spot of its last comment, like Gerrit's quick replies.
+  async replyThread(c, x, message, resolve, cx) {
+    const last = x.msgs[x.msgs.length - 1];
+    const cm = { in_reply_to: last.id, message, unresolved: !resolve };
+    if (last.line) cm.line = last.line;
+    if (last.range) cm.range = last.range;
+    if (last.side) cm.side = last.side;
+    const ok = await this.act(`th-${x.root.id}`, () => this.req("POST",
+      `/changes/${encodeURIComponent(c.id)}/revisions/${last.patch_set}/review`, { comments: { [last.path]: [cm] } }), cx);
+    if (ok && this.threadReply?.id === x.root.id) this.threadReply = null;
+  }
+
+  async submit(c, cx) {
+    if (this.armed !== `submit-${c.id}` || Date.now() - this.armedAt > 4000) {
+      this.armed = `submit-${c.id}`; this.armedAt = Date.now(); cx.notify();
+      cx.spawn(async (cx) => { await cx.sleep(4100); cx.notify(); });
+      return;
+    }
+    await this.act("submit", () => this.req("POST", `/changes/${encodeURIComponent(c.id)}/submit`, {}), cx);
   }
 
   sectionsFor(c) {
@@ -259,10 +327,13 @@ export default class Gerrit extends View {
     }
   }
 
-  async openChange(c, cx) {
-    this.openId = c.id;
-    this.detail = { change: c, loading: true };
-    cx.notify();
+  async openChange(c, cx, quiet) {
+    if (!quiet || this.openId !== c.id) {
+      if (this.openId !== c.id) { this.picked = {}; this.threadReply = null; this.armed = null; this.actErr = null; this.reply?.set_value(""); }
+      this.openId = c.id;
+      this.detail = { change: c, loading: true };
+      cx.notify();
+    }
     try {
       this.cfg = await this.readConfig(); // the panel's own copy (the button may be the one polling)
       const id = encodeURIComponent(c.id);
@@ -390,6 +461,101 @@ export default class Gerrit extends View {
         .child(div().flex_none().child(ago(c.updated))));
   }
 
+  // A big button. kind: "primary" (filled), "danger" (armed, red), or plain; on: (cx) => …
+  big(t, z, id, label, { kind, on, off, active, grow } = {}) {
+    const bg = off ? t.raised : kind === "primary" ? t.solid : kind === "danger" ? t.ansi1 : active ? t.selected : t.raised;
+    const fg = off ? t.dim : kind === "primary" ? t.solid_foreground : kind === "danger" ? t.background : t.foreground;
+    return div().id(id).h(34).px(14).flex().items_center().justify_center().rounded(7).text_size(z).font_semibold()
+      .when(Boolean(grow), (el) => el.flex_1()).when(!grow, (el) => el.flex_none())
+      .bg(bg).text_color(fg).border_1().border_color(active ? t.accent : "transparent")
+      .when(!off, (el) => el.cursor_pointer().hover((st) => st.opacity(0.85)).on_mouse_down("left", stop).on_click((_e, cx) => on?.(cx)))
+      .child(label);
+  }
+
+  // What you can do on a change, like Gerrit's REPLY dialog: a score per label you may vote on, a message, send.
+  actions(t, z, c) {
+    const me = this.self?._account_id;
+    const busy = Boolean(this.sending);
+    const card = v_flex().gap(8).p(10).rounded(8).bg(t.chrome).border_1().border_color(t.border);
+    const open = c.status === "NEW";
+    // Score rows: Gerrit's permitted_labels, your current vote highlighted, the picked one filled.
+    for (const [name, vals] of Object.entries(open ? c.permitted_labels ?? {} : {})) {
+      const mine = Number((c.labels?.[name]?.all ?? []).find((v) => v._account_id === me)?.value ?? 0);
+      const picked = this.picked?.[name];
+      const row = h_flex().gap(4).items_center()
+        .child(div().w(56).flex_none().text_size(z - 1).text_color(t.muted).truncate().child(abbr(name)));
+      for (const raw of vals) {
+        const v = Number(raw);
+        const sel = picked != null ? picked === v : mine === v;
+        const color = v > 0 ? t.ansi2 : v < 0 ? t.ansi1 : t.muted;
+        row.child(div().id(`pick-${name}-${v}`).h(32).flex_1().min_w(34).flex().items_center().justify_center().rounded(6)
+          .font_semibold().text_size(z).cursor_pointer()
+          .bg(sel ? (v === 0 ? t.selected : color) : t.raised).text_color(sel && v !== 0 ? t.background : color)
+          .border_1().border_color(sel && picked != null ? t.accent : "transparent")
+          .hover((st) => st.opacity(0.85)).on_mouse_down("left", stop)
+          .on_click((_e, cx) => {
+            this.picked = { ...(this.picked ?? {}) };
+            if (v === mine) delete this.picked[name]; else this.picked[name] = v;
+            cx.notify();
+          })
+          .child(v > 0 ? `+${v}` : String(v)));
+      }
+      card.child(row);
+    }
+    if (open) {
+      card.child(div().id("reply-box").w_full().min_h(64).p(6).rounded(6).bg(t.background).border_1().border_color(t.input)
+        .cursor_text().on_mouse_down("left", stop)
+        .child(Textarea.new(this.replyState()).w_full().text_size(z).text_color(t.foreground)));
+      const n = Object.keys(this.picked ?? {}).length;
+      const row = h_flex().gap(6).flex_wrap()
+        .child(this.big(t, z, "send", this.sending === "reply" ? "送出中…" : n ? `💬 送出回覆和 ${n} 個分數` : "💬 送出回覆",
+          { kind: "primary", grow: true, off: busy, on: (cx) => cx.spawn(async (cx) => this.sendReply(c, cx)) }));
+      if (c.submittable) {
+        const armed = this.armed === `submit-${c.id}` && Date.now() - this.armedAt <= 4000;
+        row.child(this.big(t, z, "submit", this.sending === "submit" ? "合併中…" : armed ? "再按一次確認合併" : "✅ 合併（Submit）",
+          { kind: armed ? "danger" : undefined, off: busy, on: (cx) => cx.spawn(async (cx) => this.submit(c, cx)) }));
+      }
+      card.child(row);
+    } else {
+      card.child(div().text_size(z - 1).text_color(t.muted).child(c.status === "MERGED" ? "已合併：只能看。" : "已放棄：只能看。"));
+    }
+    if (this.actErr) card.child(div().text_size(z - 1).text_color(t.ansi1).whitespace_normal().child(`沒送出：${this.actErr}`));
+    return card;
+  }
+
+  // Under a thread: Done / Ack resolve it in one press (Gerrit's quick replies); 回覆 opens a box.
+  threadButtons(t, z, c, x) {
+    const key = `th-${x.root.id}`, busy = Boolean(this.sending), mine = this.threadReply?.id === x.root.id;
+    const small = (id, label, on, kind) => div().id(id).h(30).px(12).flex().items_center().justify_center().rounded(6)
+      .text_size(z - 0.5).font_semibold().flex_none()
+      .bg(busy ? t.raised : kind === "primary" ? t.solid : t.background).text_color(busy ? t.dim : kind === "primary" ? t.solid_foreground : t.foreground)
+      .border_1().border_color(t.border)
+      .when(!busy, (el) => el.cursor_pointer().hover((st) => st.opacity(0.85)).on_mouse_down("left", stop).on_click((_e, cx) => on(cx)))
+      .child(label);
+    const send = (msg, resolve) => (cx) => cx.spawn(async (cx) => this.replyThread(c, x, msg, resolve, cx));
+    if (mine) {
+      const st = this.threadReply.state;
+      return v_flex().gap(6).pt(4)
+        .child(div().id(`${key}-box`).w_full().min_h(56).p(6).rounded(6).bg(t.background).border_1().border_color(t.input)
+          .cursor_text().on_mouse_down("left", stop).child(Textarea.new(st).w_full().text_size(z).text_color(t.foreground)))
+        .child(h_flex().gap(6).flex_wrap()
+          .child(small(`${key}-send-r`, this.sending === key ? "送出中…" : "送出並解決", (cx) => { const v = st.value().trim(); if (v) send(v, true)(cx); }, "primary"))
+          .child(small(`${key}-send`, "送出（不解決）", (cx) => { const v = st.value().trim(); if (v) send(v, false)(cx); }))
+          .child(small(`${key}-cancel`, "取消", (cx) => { this.threadReply = null; cx.notify(); })));
+    }
+    return h_flex().gap(6).pt(4).flex_wrap()
+      .when(x.unresolved, (el) => el
+        .child(small(`${key}-done`, this.sending === key ? "送出中…" : "✓ Done", send("Done", true), "primary"))
+        .child(small(`${key}-ack`, "Ack", send("Ack", true))))
+      .child(small(`${key}-reply`, "💬 回覆", (cx) => {
+        const st = TextareaState.new({ placeholder: "回覆這串留言", rows: 2 });
+        st.set_auto_grow(2, 8); st.set_soft_wrap(true);
+        this.threadReply = { id: x.root.id, state: st };
+        cx.notify();
+        cx.spawn(async (cx) => { await cx.sleep(50); st.focus(); });
+      }));
+  }
+
   renderDetail(t, z, cx) {
     const { change: c, comments, loading, error } = this.detail;
     const body = v_flex().id("detail").flex_1().min_h(0).overflow_y_scrollbar().px(12).py(10).gap(10);
@@ -400,6 +566,7 @@ export default class Gerrit extends View {
     if (loading) return body.child(div().text_color(t.muted).child("讀取中…"));
     if (error) return body.child(div().text_color(t.ansi1).child(`讀不到：${error}`));
     const title = (text) => div().pt(4).text_size(z - 1).font_semibold().text_color(t.muted).child(text);
+    if (shared(SAFE_CFG)?.auth) body.child(this.actions(t, z, c));
 
     // Attention set: whose turn it is
     const att = Object.values(c.attention_set ?? {});
@@ -448,7 +615,8 @@ export default class Gerrit extends View {
           .child(div().flex_none().text_color(x.unresolved ? t.blocked : t.ansi2).child(x.unresolved ? "未解決" : "已解決")))
         .children(x.msgs.map((m, k) => v_flex().id(`th-${i}-${k}`).gap(1)
           .child(div().text_color(t.muted).child(`${who(m.author)} · 第 ${m.patch_set} 版 · ${ago(m.updated)}`))
-          .child(div().whitespace_normal().child(String(m.message ?? "").trim()))))));
+          .child(div().whitespace_normal().child(String(m.message ?? "").trim()))))
+        .when(Boolean(shared(SAFE_CFG)?.auth) && c.status === "NEW", (el) => el.child(this.threadButtons(t, z, c, x)))));
       if (list.length > shown.length || all) body.child(div().id("more-comments").text_size(z - 1).text_color(t.accent).cursor_pointer()
         .on_click((_e, cx) => { this.allComments = all ? null : c.id; cx.notify(); })
         .child(all ? "只看未解決的" : `還有 ${list.length - shown.length} 串已解決的，點一下看`));

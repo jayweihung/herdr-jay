@@ -4,7 +4,7 @@ A panel on the right of Herdr that shows your Gerrit like Gerrit's own dashboard
 and pops a notification when a change turns to you or someone replies. Same on Windows and macOS.
 Herdr 右邊的 Gerrit 面板：跟 Gerrit 網頁首頁一樣的分區，點一下看細節，輪到你或有人回覆時跳通知。
 
-Status: step 1 of 3 (list, details, notifications). Next: Jenkins build progress, then opening a commented line in
+Status: list, details, notifications, reply / vote / submit, comment-thread replies. Next: Jenkins build progress, then opening a commented line in
 jay-nvim. Tested against a public Gerrit (3.15) without a login; **logging in and notifications have not run on a real
 company Gerrit yet**: note what differs and bring it to jay.
 
@@ -96,6 +96,17 @@ changed lines, S < 50, M < 250, L < 1000, XL) and when it last changed.
 required are left out), the comment threads (unresolved first; 整體留言 = patchset-level), the files of the latest
 patch set (+/−, comments per file), the commit message (first lines; click for all), every patch set (and if it was
 only a rebase), and the change log. **在瀏覽器開** opens it in Gerrit; **← 返回** goes back.
+
+**Reply, vote, submit** (only when logged in), at the top of a change's page, like Gerrit's REPLY dialog:
+- a row of big score buttons per label you may vote on (your current vote is highlighted; press one to pick it,
+  press your current one to drop the pick);
+- a box for the message, and **💬 送出回覆** sends the message and the picked scores together (and publishes your
+  drafts, as Gerrit's SEND does);
+- **✅ 合併（Submit）** when the change can be submitted: press once, it turns red 「再按一次確認合併」, press again
+  within 4 seconds.
+- Under each comment thread: **✓ Done** and **Ack** reply and mark it resolved in one press; **💬 回覆** opens a box
+  with 送出並解決 / 送出（不解決）/ 取消.
+回覆、給分、合併都在細節頁最上面；留言串下面有 Done／Ack／回覆。合併要按兩次。
 
 **Notifications** (only when logged in), at most three per check:
 - 輪到你：#123 … when a change enters 輪到你, with Gerrit's reason;

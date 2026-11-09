@@ -110,7 +110,7 @@ One `nvim.js` for both; all OS differences sit in its PLATFORM section ([5](#5-h
 | Finding the agent's session | the pane's process (`~/.claude/sessions/<pid>.json`) | the live Claude Code session in the pane's start folder (agents run inside pwsh) |
 | Paths | as they are | one spelling (`C:/x/y`), case ignored when comparing |
 | Paths in Bash commands | `/abs/path` | `C:\x`, `C:/x`, `/c/x` |
-| Agent running as root | a warning, no follow ([6](#6-agent-running-as-root--agent-用-root-跑)) | — |
+| Agent running as root | follows root's copies if a root view is set up, else a one-line note ([6](#6-agent-running-as-root--agent-用-root-跑)) | — |
 | Pick key nvim receives | `<M-o>` (alt+o) | `<M-o>` (alt+o) |
 
 On Windows, start the agent in the folder the tab was opened in (no `cd` first): that is how jay-nvim finds its
@@ -140,6 +140,21 @@ When the agent beside the pane runs under `sudo`, its session log is root's: jay
 and doesn't follow that agent (everything else works). There is no root mode on purpose: an editor running as root
 that any program running as you can type into (`hc keys`) would be a root door.
 旁邊的 agent 用 sudo 跑時，jay-nvim 讀不到它的紀錄，只提示一次、不跟著開檔；故意不提供 root 模式。
+
+**Root view (optional).** If something on the machine, run by root, keeps copies of what the root agent read or
+changed where you can read them, jay-nvim follows those instead. jay-nvim itself never installs or runs that part;
+it only reads:
+
+- `<dir>/index.jsonl`: one JSON line per touch: `{"t": <unix time>, "tool": "Read"|"Edit"|"Write"|"Bash"|…,
+  "path": "/abs/path", "before": "<sha256>"|null, "after": "<sha256>", "line": <n>|null}`;
+- `<dir>/blobs/<sha256>`: the file's content at that moment.
+
+Put `<dir>` as the only line of `~/.config/jay-nvim/root_view` (as you, on that machine). Then the file shows as
+`root:/abs/path` in a read-only buffer (colors, but no language server or plugins), the change marked against
+`before`, the title bar saying 「root 的檔，複本，唯讀」, the cursor on `line`. The tree moves to the folder only if
+you can open it. Without the file, a root agent gets the one-line note 「root 的 agent：跟不到（沒有 root_view）」.
+有 root 端的複本（root 讀過／改過的檔複製一份給你看）時，在 `~/.config/jay-nvim/root_view` 寫它的資料夾，jay-nvim
+就跟著開那份複本（唯讀）；沒有就只提示一行，不會停在「Press ENTER」。
 
 ## 7. Snapshots for Bash edits (optional) / Bash 改檔的快照（選用）
 

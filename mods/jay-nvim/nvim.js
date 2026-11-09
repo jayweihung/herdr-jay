@@ -496,16 +496,84 @@ local function runs_as_root(t)
   return type(info) == "table" and not info.foreground and info.pid ~= nil
     and vim.system({ "pgrep", "-u", "0", "-P", tostring(info.pid) }):wait().code == 0
 end
+-- Root view: a root-side hook (not part of jay-nvim) may keep copies of what a root agent read or changed, readable
+-- by you: <dir>/index.jsonl, one JSON record per touch {t, tool, path, before, after, line}, and <dir>/blobs/<sha256>
+-- holding a file's content. <dir> is the one line of ~/.config/jay-nvim/root_view (none: a root agent can't be
+-- followed). nvim only reads them: a copy opens read-only, never as the real file.
+local function root_view_dir()
+  local f = io.open(HOME .. "/.config/jay-nvim/root_view", "r")
+  local d = f and vim.trim(f:read("*l") or "")
+  if f then f:close() end
+  return d and d ~= "" and vim.uv.fs_access(d .. "/index.jsonl", "R") and d or nil
+end
 -- A new pane has no "where" in hc ls for its first seconds, so keep asking for 10s until a claude-code agent shows up.
+-- One short line (a long one stops nvim at "Press ENTER" in a narrow pane).
 local root_probe, root_tries = new_timer(), 0
 if P.sudo_check and not P.root then root_probe:start(0, 1000, vim.schedule_wrap(function()
   root_tries = root_tries + 1
   local agent = (JN.agents() or {})[1]
   if agent and runs_as_root(agent) then
-    vim.notify("旁邊的 agent 用 root（sudo）在跑：它的紀錄只有 root 讀得到，jay-nvim 讀不到，所以跟不到它讀／改的檔", vim.log.levels.WARN)
+    vim.api.nvim_echo({ { root_view_dir() and "root 的 agent：跟它留的複本（唯讀）" or "root 的 agent：跟不到（沒有 root_view）", "WarningMsg" } }, false, {})
   end
   if (agent and agent.agent == "claude-code") or root_tries >= 10 then root_probe:stop() end
 end)) end
+
+-- The root view's records since the last tick: the newest touch, as a follow item, or nil.
+local function blob(dir, sha)
+  if type(sha) ~= "string" or not sha:match("^%x+$") then return nil end
+  local f = io.open(dir .. "/blobs/" .. sha, "rb")
+  if not f then return nil end
+  local text = f:read("*a")
+  f:close()
+  return vim.split((text:gsub("\r?\n$", "")), "\r?\n", { trimempty = false })
+end
+local function scan_root(s)
+  local st = vim.uv.fs_stat(s.log)
+  if not st or st.size == s.pos then return end
+  if s.pos and st.size < s.pos then s.pos = nil end -- index started over
+  local from = s.pos or math.max(0, st.size - 64 * 1024)
+  local h = io.open(s.log, "rb")
+  if not h then return end
+  h:seek("set", from)
+  local text = h:read("*a") or ""
+  h:close()
+  local cut = text:match(".*()\n")
+  if not cut then return end
+  s.pos = from + cut
+  local it
+  for _, l in ipairs(vim.split(text:sub(1, cut - 1), "\n", { plain = true })) do
+    local ok, r = pcall(vim.json.decode, l)
+    if ok and type(r) == "table" and type(r.path) == "string" and r.path:sub(1, 1) == "/" and type(r.after) == "string" then
+      local changed = type(r.before) == "string" and r.before ~= r.after or r.before == vim.NIL or r.before == nil and r.tool == "Write"
+      it = { path = r.path, root = { dir = s.dir, after = r.after, before = r.before ~= vim.NIL and r.before or nil },
+        tag = r.tool == "Read" and "讀" or r.tool == "Write" and "寫" or changed and "改" or "讀",
+        line = tonumber(r.line) }
+    end
+  end
+  return it, st.mtime
+end
+
+-- Show a root view item: a read-only scratch buffer "root:<path>" with the copy, marked against the copy before.
+local function show_root(it)
+  local name = "root:" .. it.path
+  local b = vim.fn.bufnr("^" .. vim.fn.escape(name, "\\^$.*~[]") .. "$")
+  if b < 1 then
+    b = vim.api.nvim_create_buf(true, true)
+    vim.api.nvim_buf_set_name(b, name)
+    vim.bo[b].buftype, vim.bo[b].bufhidden, vim.bo[b].swapfile, vim.bo[b].modeline = "nofile", "hide", false, false
+  end
+  local lines = blob(it.root.dir, it.root.after) or { "（複本讀不到：" .. it.root.after .. "）" }
+  vim.bo[b].modifiable, vim.bo[b].readonly = true, false
+  vim.api.nvim_buf_set_lines(b, 0, -1, false, lines)
+  vim.bo[b].modifiable, vim.bo[b].readonly, vim.bo[b].modified = false, true, false
+  -- colors only: a filetype would start language servers and ftplugins on root's file
+  local ft = vim.filetype.match({ filename = it.path, contents = lines })
+  if ft then vim.bo[b].syntax = ft end
+  vim.api.nvim_set_current_buf(b)
+  local before = it.tag == "寫" and {} or it.root.before and it.root.before ~= it.root.after and blob(it.root.dir, it.root.before)
+  if before then mark(b, before) else vim.api.nvim_buf_clear_namespace(b, ns, 0, -1) end
+  return b
+end
 
 -- Bytes of the log from offset "from" (or the last "bytes") to the end.
 local function read_log(log, bytes, from)
@@ -682,7 +750,16 @@ local function follow_tick()
     for _, t in ipairs(JN.agents() or {}) do
       local log = session_log(t)
       -- kept by log, so a missed lookup does not reread an agent's tail
-      if log then follow.state[log] = follow.state[log] or { log = log, cmd = "", ids = {} }; follow.logs[log] = t end
+      if log then follow.state[log] = follow.state[log] or { log = log, cmd = "", ids = {} }; follow.logs[log] = t
+      else
+        -- a root agent: its log is root's; follow the root view instead, when there is one
+        local dir = t.agent == "claude-code" and root_view_dir()
+        if dir and runs_as_root(t) then
+          local idx = dir .. "/index.jsonl"
+          follow.state[idx] = follow.state[idx] or { log = idx, dir = dir, root = true }
+          follow.logs[idx] = t
+        end
+      end
     end
   end
   local w = edit_win()
@@ -690,7 +767,8 @@ local function follow_tick()
   if vim.bo[vim.api.nvim_win_get_buf(w)].modified then return end
   local it, newest
   for log, t in pairs(follow.logs) do
-    local got, mt = scan(follow.state[log])
+    local s = follow.state[log]
+    local got, mt = (s.root and scan_root or scan)(s)
     -- two agents in one tick: the one whose log was written last
     if got and (not newest or mt.sec > newest.sec or (mt.sec == newest.sec and mt.nsec > newest.nsec)) then
       it, newest, follow.who = got, mt, t
@@ -699,7 +777,7 @@ local function follow_tick()
   if not it then return end -- no dedup: the agent touching the same file again brings you back to it
   follow.last = it
   local dir = norm(vim.fs.dirname(it.path))
-  for _, nw in ipairs(tree_wins()) do -- the tree shows the file's folder
+  for _, nw in ipairs(it.root and not vim.uv.fs_access(dir, "X") and {} or tree_wins()) do -- the tree shows the file's folder
     -- re-root the tree there: under the old root, netrw would only set curdir and leave a deep folder collapsed.
     -- Checked on the tree itself, not "folder changed": a rebuilt tree (a new :Lexplore) starts back at cwd
     if P.key((norm(tostring(vim.w[nw].netrw_treetop)):gsub("/$", ""))) ~= P.key(dir) then
@@ -723,10 +801,12 @@ local function follow_tick()
     end
   end
   vim.api.nvim_win_call(w, function()
-    if P.key(vim.fn.expand("%:p")) ~= P.key(it.path) then vim.cmd.edit(vim.fn.fnameescape(it.path)) end
+    if it.root then
+      it.buf = show_root(it)
+    elseif P.key(vim.fn.expand("%:p")) ~= P.key(it.path) then vim.cmd.edit(vim.fn.fnameescape(it.path)) end
     -- Outside a git repo, unmarked: a Write is all new; a Bash edit diffs against what the file held before the call
     local b = vim.api.nvim_get_current_buf()
-    local before = it.tag == "寫" and {} or it.before
+    local before = not it.root and (it.tag == "寫" and {} or it.before)
     if before and #vim.api.nvim_buf_get_extmarks(b, ns, 0, -1, { limit = 1 }) == 0 and not head_lines(b) then mark(b, before) end
     local at = it.line or (it.tag == "改" and edit_line(b, it.edit))
     if at then -- a Read's offset goes to the top, an edited line to the middle
@@ -750,7 +830,9 @@ function JN.bar()
   local name = vim.fn.expand("%:~:.")
   if name == "" then return "" end
   local it = follow.last
-  local tag = it and P.key(it.path) == P.key(vim.fn.expand("%:p")) and ("  agent " .. it.tag .. "  ") or ""
+  local here = it and (it.root and it.buf == vim.api.nvim_get_current_buf() or not it.root and P.key(it.path) == P.key(vim.fn.expand("%:p")))
+  local tag = here and ("  " .. (it.root and "root " or "agent ") .. it.tag .. "  ") or ""
+  if here and it.root then name = it.path .. "（root 的檔，複本，唯讀）" end
   return "%#TabLineSel#" .. tag .. "%#WinBar# " .. name:gsub("%%", "%%%%") .. "%m"
 end
 vim.o.winbar = "%{%v:lua.JN.bar()%}"

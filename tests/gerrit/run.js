@@ -306,6 +306,38 @@ test("change actions: rebase / ready / wip / restore post once, abandon only on 
   await g.changeAction(change(7), "abandon", cx); assert.equal(seen.filter((r) => r.path === "/a/changes/7/abandon").length, 1);
 });
 
+test("compare patch sets: files and diff of the picked pair, comments on the right revision", async (G) => {
+  setConfig(LOGIN); const g = freshView(G);
+  gerrit([["GET", /^\/a\/changes\/6\/revisions\/\d+\/files\?base=\d+$/, [200, { "/COMMIT_MSG": { lines_inserted: 1 }, "src/cart.py": { lines_inserted: 28, lines_deleted: 1 } }]],
+    ["GET", /^\/a\/changes\/6\/revisions\/1\/files$/, [200, { "/COMMIT_MSG": {}, "src/cart.py": {} }]],
+    ["GET", /^\/a\/changes\/6\/revisions\/\w+\/files\/src%2Fcart\.py\/diff/, [200, { content: [{ a: ["x"], b: ["y"] }] }]],
+    ["POST", /^\/a\/changes\/6\/revisions\/\d+\/review$/, [200, {}]], ["GET", /^\/a\/changes\/6\//, [200, {}]]]);
+  const c6 = change(6, { current_revision: "s2", revisions: { s1: { _number: 1, files: {} }, s2: { _number: 2, files: { "src/cart.py": {} } } } });
+  g.detail = { change: c6, comments: {} }; g.openId = c6.id;
+  assert.equal(g.comparing(), false); assert.deepEqual(Object.keys(g.shownFiles()), ["src/cart.py"]);
+  await g.setCompare(1, 2, cx);
+  assert.equal(seen.at(-1).raw.endsWith("/a/changes/6/revisions/2/files?base=1"), true);
+  assert.deepEqual(Object.keys(g.shownFiles()), ["/COMMIT_MSG", "src/cart.py"], "commit message counts between two patch sets");
+  await g.openDiff("src/cart.py", cx);
+  assert.ok(seen.at(-1).raw.endsWith("/revisions/2/files/src%2Fcart.py/diff?base=1"), seen.at(-1).raw);
+  // a comment on the left side goes to patch set 1 (no PARENT); on the right to 2
+  for (const [side, rev, extra] of [["a", 1, {}], ["b", 2, {}]]) {
+    g.lineBox = { key: `${side}:1`, side, line: 1, state: textState({ value: "hm" }) };
+    await g.sendLineComment(c6, "src/cart.py", true, cx);
+    const post = seen.filter((r) => r.method === "POST").at(-1);
+    assert.equal(post.path, `/a/changes/6/revisions/${rev}/review`, `${side} side`);
+    assert.deepEqual(post.body, { comments: { "src/cart.py": [{ line: 1, message: "hm", unresolved: true, ...extra }] } });
+  }
+  g.detail = { change: c6, comments: {} }; // sending reloads the change from the fake Gerrit: put it back
+  // Base → 1: no commit message, and Base → latest is the normal view again
+  await g.setCompare(null, 1, cx); assert.deepEqual(Object.keys(g.shownFiles()), ["src/cart.py"]);
+  await g.setCompare(2, 1, cx); assert.deepEqual(g.cmp, { base: null, to: 1 }, "from must be older than to");
+  await g.setCompare(null, 2, cx); assert.equal(g.comparing(), false); assert.equal(g.cmpFiles, null);
+  // draws: picker and a compared diff with a thread from patch set 1 on the left
+  g.detail.comments = { "src/cart.py": [{ id: "k", line: 1, patch_set: 1, author: ALICE, message: "?", unresolved: true, updated: "2026-11-10 01:00:00.000000000" }] };
+  await g.setCompare(1, 2, cx); g.diff = null; render(g); await g.openDiff("src/cart.py", cx); render(g);
+});
+
 // ---------- run ----------
 const G = await loadMod();
 let fail = 0;

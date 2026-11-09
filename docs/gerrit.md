@@ -4,7 +4,7 @@ A panel on the right of Herdr that shows your Gerrit like Gerrit's own dashboard
 and pops a notification when a change turns to you or someone replies. Same on Windows and macOS.
 Herdr 右邊的 Gerrit 面板：跟 Gerrit 網頁首頁一樣的分區，點一下看細節，輪到你或有人回覆時跳通知。
 
-Status: list, search, details, notifications, reply / vote / submit, reviewers / CC, rebase / abandon / WIP, comment-thread replies, diffs with line comments. Next: Jenkins build progress, then opening a commented line in
+Status: list, search, details, notifications, reply / vote / submit, reviewers / CC, rebase / abandon / WIP, comparing patch sets, comment-thread replies, diffs with line comments. Next: Jenkins build progress, then opening a commented line in
 jay-nvim. Tested against a public Gerrit (3.15) without a login; **logging in and notifications have not run on a real
 company Gerrit yet**: note what differs and bring it to jay.
 
@@ -113,6 +113,13 @@ red, added green, unchanged runs folded to 「⋯ N 行沒改（點開）」, th
 送出（只是備註）(resolved).
 點檔案看 diff（紅刪綠增），留言在那一行下面；點任何一行就能留言。
 
+
+**Compare two patch sets** (a change with more than one): the 「比較哪兩版」 box above the files. **從** Base (the
+parent commit) or an older patch set, **到** any patch set; the files list then shows only what differs between the
+two (with the commit message), and clicking a file shows that diff. Comments sit on their side: the left side is
+the 從 patch set, the right the 到 one; a comment you write on the left goes on the 從 patch set. **回到最新版** goes
+back to Base → latest. Useful to see what changed since you last reviewed (從 the patch set you reviewed, 到 the latest).
+比較兩版：選「從」哪一版「到」哪一版，只列兩版之間不同的檔；適合看「我上次看完之後改了什麼」。
 
 **Reply, vote, submit** (only when logged in), at the top of a change's page, like Gerrit's REPLY dialog:
 - a row of big score buttons per label you may vote on (your current vote is highlighted; press one to pick it,

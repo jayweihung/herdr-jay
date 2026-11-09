@@ -501,7 +501,7 @@ export default class Gerrit extends View {
 
   async openChange(c, cx, quiet) {
     if (!quiet || this.openId !== c.id) {
-      if (this.openId !== c.id) { this.picked = {}; this.threadReply = null; this.armed = null; this.actErr = null; this.reply?.set_value(""); this.addingPeople = false; this.found = []; }
+      if (this.openId !== c.id) { this.picked = {}; this.threadReply = null; this.armed = null; this.actErr = null; this.reply?.set_value(""); this.addingPeople = false; this.found = []; this.cmp = null; this.cmpFiles = null; }
       this.openId = c.id;
       this.detail = { change: c, loading: true };
       cx.notify();
@@ -657,14 +657,48 @@ export default class Gerrit extends View {
   }
 
   // ---- Diff of one file (latest patch set), comments inline, click a line to comment ----
+  // Which patch sets are compared: base (null = the parent commit, Gerrit's "Base") → to. Default: Base → latest.
+  psNow() { const c = this.detail?.change; return c?.revisions?.[c.current_revision]?._number ?? null; }
+  compare() { return { base: this.cmp?.base ?? null, to: this.cmp?.to ?? this.psNow() }; }
+  comparing() { const { base, to } = this.compare(); return base != null || to !== this.psNow(); }
+
+  // Pick the two patch sets; the file list of that pair comes from Gerrit (files?base=…).
+  async setCompare(base, to, cx) {
+    const c = this.detail.change;
+    if (base != null && base >= to) base = null; // "from" must be older than "to"
+    this.cmp = { base, to };
+    if (!this.comparing()) { this.cmpFiles = null; cx.notify(); return; }
+    const key = `${base}-${to}`;
+    this.cmpFiles = { key, loading: true };
+    cx.notify();
+    try {
+      this.cfg = await this.readConfig();
+      const files = await this.get(`/changes/${cid(c)}/revisions/${to}/files${base != null ? `?base=${base}` : ""}`);
+      // the commit message counts only between two patch sets (against Base it is all new, as on the change page)
+      if (base == null) delete files?.["/COMMIT_MSG"];
+      if (this.cmpFiles?.key === key) this.cmpFiles = { key, files: files ?? {} };
+    } catch (e) {
+      if (this.cmpFiles?.key === key) this.cmpFiles = { key, error: String(e.message ?? e) };
+    }
+    cx.notify();
+  }
+
+  // Files of what is compared: the latest patch set's from the change page, or the picked pair's.
+  shownFiles() {
+    if (this.comparing()) return this.cmpFiles?.files ?? {};
+    const c = this.detail.change;
+    return c.revisions?.[c.current_revision]?.files ?? {};
+  }
+
   async openDiff(path, cx) {
     const c = this.detail.change;
-    this.diff = { path, loading: true, open: new Set() };
+    const { base, to } = this.compare();
+    this.diff = { path, loading: true, open: new Set(), base, to };
     this.lineBox = null;
     cx.notify();
     try {
       this.cfg = await this.readConfig();
-      const d = await this.get(`/changes/${cid(c)}/revisions/current/files/${encodeURIComponent(path)}/diff`);
+      const d = await this.get(`/changes/${cid(c)}/revisions/${this.comparing() ? to : "current"}/files/${encodeURIComponent(path)}/diff${base != null ? `?base=${base}` : ""}`);
       if (this.diff?.path === path) this.diff = { ...this.diff, loading: false, data: d };
     } catch (e) {
       if (this.diff?.path === path) this.diff = { ...this.diff, loading: false, error: String(e.message ?? e) };
@@ -703,16 +737,18 @@ export default class Gerrit extends View {
     const c = this.detail.change, comments = this.detail.comments ?? {};
     const body = v_flex().id("diff").flex_1().min_h(0).overflow_y_scrollbar().pb(16);
     // file navigation: previous / next file of this patch set
-    const cur = Object.values(c.revisions ?? {}).find((r) => r._number === c.revisions?.[c.current_revision]?._number) ?? {};
-    const files = Object.keys(cur.files ?? {});
+    const shown = this.shownFiles();
+    const files = Object.keys(shown);
     const i = files.indexOf(path);
-    const f = cur.files?.[path] ?? {};
+    const f = shown[path] ?? {};
+    const pair = this.diff.base != null || this.diff.to !== this.psNow()
+      ? `${this.diff.base != null ? `第 ${this.diff.base} 版` : "Base"} → 第 ${this.diff.to} 版 · ` : "";
     const navBtn = (id, label, off, to) => div().id(id).h(28).px(10).flex().items_center().rounded(6).text_size(z - 1)
       .bg(t.raised).text_color(off ? t.dim : t.foreground)
       .when(!off, (el) => el.cursor_pointer().hover((st) => st.bg(t.hover)).on_mouse_down("left", stop).on_click((_e, cx) => cx.spawn(async (cx) => this.openDiff(to, cx))))
       .child(label);
     const nav = h_flex().gap(8).px(12).py(6).items_center().border_b(1).border_color(t.border).text_size(z - 1)
-      .child(div().text_color(t.muted).child(files.length > 1 ? `第 ${i + 1}／${files.length} 個檔` : "這個 change 只有這個檔"))
+      .child(div().text_color(t.muted).child(`${pair}${files.length > 1 ? `第 ${i + 1}／${files.length} 個檔` : "只有這個檔"}`))
       .child(div().font_family(mono()).text_color(t.ansi2).child(f.lines_inserted ? `+${f.lines_inserted}` : ""))
       .child(div().font_family(mono()).text_color(t.ansi1).child(f.lines_deleted ? `−${f.lines_deleted}` : ""))
       .child(div().flex_1())
@@ -725,7 +761,7 @@ export default class Gerrit extends View {
     if (data.binary) return body.child(div().p(12).text_color(t.muted).child("二進位檔，沒有 diff"));
 
     // comments of this file on the latest patch set, by side and line
-    const psNow = c.revisions?.[c.current_revision]?._number;
+    const { base: dBase, to: dTo } = this.diff;
     const all = (comments[path] ?? []).map((m) => ({ path, ...m }));
     const byId = new Map(all.map((m) => [m.id, m]));
     const rootOf = (m) => { let r = m, n = 0; while (r.in_reply_to && byId.has(r.in_reply_to) && n++ < 50) r = byId.get(r.in_reply_to); return r; };
@@ -735,8 +771,11 @@ export default class Gerrit extends View {
     for (const ms of threads.values()) {
       ms.sort((x, y) => when(x.updated) - when(y.updated));
       const r = ms[0];
-      if (r.patch_set !== psNow && r.side !== "PARENT") continue; // older patch sets: on the change page
-      const key = !r.line ? "file" : `${r.side === "PARENT" ? "a" : "b"}:${r.line}`;
+      // right side: comments on "to"; left side: on the parent of "to" (Base) or on the "from" patch set
+      const right = r.patch_set === dTo && r.side !== "PARENT";
+      const left = dBase == null ? r.patch_set === dTo && r.side === "PARENT" : r.patch_set === dBase && r.side !== "PARENT";
+      if (!right && !left) continue; // other patch sets: on the change page
+      const key = !r.line ? "file" : `${left ? "a" : "b"}:${r.line}`;
       if (!at.has(key)) at.set(key, []);
       at.get(key).push({ root: r, msgs: ms, unresolved: Boolean(ms[ms.length - 1].unresolved) });
     }
@@ -786,16 +825,22 @@ export default class Gerrit extends View {
   }
 
   // New comment on a line: unresolved by default (a question), or resolved (a note), like Gerrit.
+  // The left side is the "from" patch set when comparing two, else the parent of "to".
+  async sendLineComment(c, path, unresolved, cx) {
+    const { side, line, state } = this.lineBox;
+    const message = state.value().trim();
+    if (!message) return;
+    const { base, to } = this.diff;
+    const rev = side === "a" && base != null ? base : to ?? "current";
+    const cm = { line, message, unresolved, ...(side === "a" && base == null ? { side: "PARENT" } : {}) };
+    const ok = await this.act("line", () => this.req("POST", `/changes/${cid(c)}/revisions/${rev}/review`,
+      { comments: { [path]: [cm] } }), cx);
+    if (ok) this.lineBox = null;
+  }
+
   lineCommentBox(t, z, c, path) {
-    const { side, line, state } = this.lineBox, busy = Boolean(this.sending);
-    const send = (unresolved) => (cx) => cx.spawn(async (cx) => {
-      const message = state.value().trim();
-      if (!message) return;
-      const cm = { line, message, unresolved, ...(side === "a" ? { side: "PARENT" } : {}) };
-      const ok = await this.act("line", () => this.req("POST", `/changes/${cid(c)}/revisions/current/review`,
-        { comments: { [path]: [cm] } }), cx);
-      if (ok) this.lineBox = null;
-    });
+    const { state } = this.lineBox, busy = Boolean(this.sending);
+    const send = (unresolved) => (cx) => cx.spawn(async (cx) => this.sendLineComment(c, path, unresolved, cx));
     return v_flex().id("line-box").mx(10).my(4).p(8).gap(6).rounded(6).bg(t.chrome).border_1().border_color(t.accent)
       .child(div().id("line-box-in").w_full().min_h(52).p(6).rounded(6).bg(t.background).border_1().border_color(t.input)
         .cursor_text().on_mouse_down("left", stop).child(Textarea.new(state).w_full().text_size(z).text_color(t.foreground)))
@@ -803,6 +848,27 @@ export default class Gerrit extends View {
         .child(this.big(t, z, "line-send", this.sending === "line" ? "送出中…" : "💬 送出留言（要對方處理）", { kind: "primary", off: busy, on: send(true) }))
         .child(this.big(t, z, "line-note", "送出（只是備註）", { off: busy, on: send(false) }))
         .child(this.big(t, z, "line-cancel", "取消", { on: (cx) => { this.lineBox = null; cx.notify(); } })));
+  }
+
+  // 比較：從 [Base] [1] [2] … 到 [1] [2] …, like Gerrit's patch set selectors above the files.
+  comparePicker(t, z, nums, base, to) {
+    const pick = (id, label, on, sel, off) => div().id(id).h(30).min_w(44).px(10).flex().items_center().justify_center().rounded(6)
+      .text_size(z - 0.5).font_semibold().bg(sel ? t.selected : t.raised).text_color(off ? t.dim : t.foreground)
+      .border_1().border_color(sel ? t.accent : t.raised)
+      .when(!off && !sel, (el) => el.cursor_pointer().hover((st) => st.bg(t.hover)).on_mouse_down("left", stop)
+        .on_click((_e, cx) => cx.spawn(async (cx) => on(cx))))
+      .child(label);
+    const label = (text) => div().w(28).flex_none().text_size(z - 1).text_color(t.muted).child(text);
+    const from = h_flex().gap(4).flex_wrap().items_center().child(label("從"))
+      .child(pick("cmp-from-base", "Base", (cx) => this.setCompare(null, to, cx), base == null))
+      .children(nums.filter((n) => n < Math.max(...nums)).map((n) => pick(`cmp-from-${n}`, `第 ${n} 版`, (cx) => this.setCompare(n, to, cx), base === n, n >= to)));
+    const into = h_flex().gap(4).flex_wrap().items_center().child(label("到"))
+      .children(nums.map((n) => pick(`cmp-to-${n}`, n === Math.max(...nums) ? `第 ${n} 版（最新）` : `第 ${n} 版`, (cx) => this.setCompare(base, n, cx), to === n)));
+    return v_flex().gap(4).p(8).rounded(8).bg(t.chrome).border_1().border_color(t.border)
+      .child(h_flex().items_center()
+        .child(div().flex_1().text_size(z - 1).font_semibold().text_color(t.muted).child("比較哪兩版"))
+        .when(this.comparing(), (el) => el.child(pick("cmp-reset", "回到最新版", (cx) => this.setCompare(null, this.psNow(), cx), false))))
+      .child(from).child(into);
   }
 
   // A big button. kind: "primary" (filled), "danger" (armed, red), or plain; on: (cx) => …
@@ -943,16 +1009,24 @@ export default class Gerrit extends View {
     const revs = Object.entries(c.revisions ?? {}).map(([sha, r]) => ({ sha, ...r })).sort((a, b) => b._number - a._number);
     const cur = revs.find((r) => r.sha === c.current_revision) ?? revs[0];
 
-    // Files of the current patch set, with comment counts
-    const files = Object.entries(cur?.files ?? {});
+    // Files of the current patch set (or of two compared ones), with comment counts
+    const { base, to } = this.compare();
+    if (revs.length > 1) body.child(this.comparePicker(t, z, revs.map((r) => r._number).sort((a, b) => a - b), base, to));
+    const cf = this.comparing() ? this.cmpFiles : null;
+    if (cf?.loading) body.child(div().text_size(z - 1).text_color(t.muted).child("讀取檔案…"));
+    if (cf?.error) body.child(div().text_size(z - 1).text_color(t.ansi1).child(`讀不到：${cf.error}`));
+    const files = Object.entries(this.shownFiles());
+    if (this.comparing() && cf?.files && !files.length) body.child(div().text_size(z - 1).text_color(t.dim).child("這兩版的檔案一樣（例如只是 rebase）"));
     if (files.length) {
-      body.child(title(`檔案（第 ${cur._number} 版，共 ${files.length} 個）`));
+      body.child(title(this.comparing()
+        ? `檔案（${base != null ? `第 ${base} 版` : "Base"} → 第 ${to} 版，${files.length} 個不同）`
+        : `檔案（第 ${cur._number} 版，共 ${files.length} 個）`));
       for (const [path, f] of files) {
         const n = (comments?.[path] ?? []).length;
         body.child(h_flex().id(`f-${path}`).gap(8).items_center().text_size(z - 1).px(4).py(3).rounded(5)
           .cursor_pointer().hover((st) => st.bg(t.hover)).on_click((_e, cx) => cx.spawn(async (cx) => this.openDiff(path, cx)))
           .child(div().flex_none().w(14).text_color(t.muted).child(f.status === "A" ? "+" : f.status === "D" ? "−" : f.status === "R" ? "→" : ""))
-          .child(div().flex_1().min_w(0).text_ellipsis_start().font_family(mono()).child(path))
+          .child(div().flex_1().min_w(0).text_ellipsis_start().font_family(mono()).child(vim_name(path)))
           .when(n > 0, (el) => el.child(div().flex_none().text_color(t.blocked).child(`留言 ${n}`)))
           .child(div().flex_none().font_family(mono()).text_color(t.ansi2).child(f.lines_inserted ? `+${f.lines_inserted}` : ""))
           .child(div().flex_none().font_family(mono()).text_color(t.ansi1).child(f.lines_deleted ? `−${f.lines_deleted}` : ""))

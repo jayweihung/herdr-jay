@@ -303,6 +303,10 @@ Optional, in `gerrit.json`:
 
 - `prompts` replace the presets. Words in braces are filled in: `{change}` `{patchset}` `{url}` `{project}`
   `{branch}` `{subject}` `{topic}` `{gerrit}`.
+- Windows: the same, with the folder written with `/` or doubled `\\` (JSON), e.g.
+  `"cwd": "C:/Users/you/gerrit-agent"`; `"start": ["claude"]` works as in Herdr's own agent menu (Claude Code on
+  PATH). Sending goes through Herdr itself, so nothing else is needed on Windows.
+  Windows 一樣能用：路徑用 `/` 或 `\\`；送出是走 Herdr 本身，不用另外裝東西。
 - `start` (a command, as a list) adds **＋ 開 gerrit agent**, which opens it in a pane on the right; `name` is that
   pane's name, and an agent with that name is picked first. `cwd` is where it starts.
 

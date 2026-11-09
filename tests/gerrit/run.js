@@ -380,6 +380,24 @@ test("← 返回 goes back one page: list → change → its topic → another c
   h.goBack(cx); assert.equal(h.diff, null); h.goBack(cx); assert.equal(h.detail, null);
 });
 
+test("submit requirements: missing first, votes from the labels in the expression, many passed ones fold", async (G) => {
+  setConfig(LOGIN); const g = freshView(G);
+  H.store["gerrit.cfg.v1"] = { url: "https://gerrit.test", auth: true };
+  H.layout = { id: "root", children: [{ id: "gerrit-toggle" }] };
+  const req = (name, status, expr = `label:${name}=MAX AND -label:${name}=MIN`) => ({ name, status, submittability_expression_result: { expression: expr } });
+  const names = ["Code-Review", "Lint-Review", "Verified", "Test", "Build", "Commit-Check", "Coverage-Check", "Style-Check"];
+  const c = change(9, { revisions: {}, labels: { "Code-Review": { all: [{ ...ALICE, value: 1 }] }, Test: { all: [{ ...ME, value: 2 }, { ...ALICE, value: -2 }] }, Build: { all: [] } },
+    submit_requirements: [...names.map((n, i) => req(n, i < 3 ? "UNSATISFIED" : "SATISFIED")), req("Mandatory-Review", "ERROR"), req("Old", "NOT_APPLICABLE"),
+      req("Non-Author-Code-Review", "UNSATISFIED", "label:Code-Review=MAX,user=non_uploader")] });
+  g.openId = c.id; g.detail = { change: c, comments: {} };
+  const rows = g.requirementRows(globalThis.__stubs.theme(), 13, c, c.submit_requirements.filter((r) => r.status !== "NOT_APPLICABLE"));
+  assert.equal(rows.length, 1 + 5 + 1, "title, 5 not passed (3 missing, ERROR, non-author), one folded line for 5 passed");
+  render(g);
+  g.showPassed = c.id;
+  assert.equal(g.requirementRows(globalThis.__stubs.theme(), 13, c, c.submit_requirements.filter((r) => r.status !== "NOT_APPLICABLE")).length, 1 + 10);
+  render(g);
+});
+
 // ---------- run ----------
 const G = await loadMod();
 let fail = 0;

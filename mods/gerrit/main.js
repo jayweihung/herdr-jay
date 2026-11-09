@@ -609,7 +609,7 @@ export default class Gerrit extends View {
       this.cfg = await this.readConfig(); // the panel's own copy (the button may be the one polling)
       const id = cid(c);
       const [d, comments] = await Promise.all([
-        this.get(`/changes/${id}/detail?o=ALL_REVISIONS&o=CURRENT_FILES&o=CURRENT_COMMIT&o=DETAILED_LABELS&o=MESSAGES&o=SUBMITTABLE&o=CHANGE_ACTIONS&o=CURRENT_ACTIONS`),
+        this.get(`/changes/${id}/detail?o=ALL_REVISIONS&o=CURRENT_FILES&o=CURRENT_COMMIT&o=DETAILED_LABELS&o=MESSAGES&o=SUBMITTABLE&o=CHANGE_ACTIONS&o=CURRENT_ACTIONS&o=SUBMIT_REQUIREMENTS`),
         this.get(`/changes/${id}/comments`).catch(() => ({})),
       ]);
       const [topic, together] = await Promise.all([
@@ -972,6 +972,38 @@ export default class Gerrit extends View {
       .child(from).child(into);
   }
 
+  // Submit requirements, like Gerrit's list: the ones still missing first, each with ✓ / ⊘ and the votes on its labels.
+  requirementRows(t, z, c, reqs) {
+    const ok = (r) => r.status === "SATISFIED" || r.status === "OVERRIDDEN" || r.status === "FORCED";
+    const missing = reqs.filter((r) => !ok(r));
+    const out = [div().pt(4).text_size(z - 1).font_semibold().text_color(missing.length ? t.blocked : t.ansi2)
+      .child(c.status !== "NEW" ? "合併條件" : missing.length ? `合併條件：還差 ${missing.length} 項（共 ${reqs.length} 項）` : `合併條件：全部通過（${reqs.length} 項）`)];
+    const labelsOf = (r) => {
+      const names = [...String(r.submittability_expression_result?.expression ?? "").matchAll(/label[:=]\s*"?([\w.-]+?)(?=[=,<>"\s]|$)/g)].map((m) => m[1]);
+      return [...new Set(names.length ? names : [r.name])].filter((n) => c.labels?.[n]);
+    };
+    const passed = reqs.filter(ok);
+    // with many requirements (a company may have 15) the passed ones fold to one line while some are still missing
+    const fold = missing.length > 0 && passed.length > 3 && this.showPassed !== c.id;
+    const shownReqs = fold ? missing : [...missing, ...passed];
+    const foldRow = fold && div().id("req-passed").pl(26).py(1).text_size(z - 1).text_color(t.accent).cursor_pointer().hover((st) => st.bg(t.hover))
+      .on_mouse_down("left", stop).on_click((_e, cx) => { this.showPassed = c.id; cx.notify(); })
+      .child(`✓ 已通過 ${passed.length} 項（點開）`);
+    for (const r of shownReqs) {
+      const votes = labelsOf(r).flatMap((n) => (c.labels[n].all ?? []).filter((v) => Number(v.value)).map((v) => ({ ...v, label: n })));
+      const err = r.status === "ERROR";
+      out.push(h_flex().id(`req-${r.name}`).gap(8).items_start().text_size(z - 1).py(1)
+        .child(div().w(18).flex_none().font_semibold().text_color(ok(r) ? t.ansi2 : err ? t.ansi3 : t.ansi1).child(ok(r) ? "✓" : err ? "!" : "⊘"))
+        .child(div().w(190).flex_none().truncate().text_color(ok(r) ? t.muted : t.foreground).child(r.name))
+        .child(h_flex().flex_1().min_w(0).gap(6).flex_wrap().children(votes.length ? votes.map((v, i) => {
+          const x = voteValue(t, v.value);
+          return h_flex().id(`rv-${r.name}-${i}`).gap(3).child(div().text_color(x.color).font_semibold().child(x.text)).child(div().text_color(t.muted).child(who(v)));
+        }) : [div().text_color(t.dim).child(err ? "Gerrit 算不出來" : ok(r) ? "" : r.name === "No-Unresolved-Comments" ? "還有未解決的留言" : "還沒有人給")])));
+    }
+    if (foldRow) out.push(foldRow);
+    return out;
+  }
+
   // A big button. kind: "primary" (filled), "danger" (armed, red), or plain; on: (cx) => …
   big(t, z, id, label, { kind, on, off, active, grow } = {}) {
     const bg = off ? t.raised : kind === "primary" ? t.solid : kind === "danger" ? t.ansi1 : active ? t.selected : t.raised;
@@ -1094,9 +1126,10 @@ export default class Gerrit extends View {
     body.child(title("Reviewer／CC"));
     for (const r of this.peopleRows(t, z, c)) body.child(r);
 
-    // Labels and who voted
-    // Like Gerrit's submit requirements: labels someone voted on, or ones the change needs; optional unvoted ones stay out.
-    const labels = Object.entries(c.labels ?? {}).filter(([, l]) => !l.optional || (l.all ?? []).some((v) => Number(v.value)));
+    // What the change needs to merge (Gerrit 3.5+ submit requirements), else the labels and who voted
+    const reqs = (c.submit_requirements ?? []).filter((r) => r.status !== "NOT_APPLICABLE");
+    if (reqs.length) for (const r of this.requirementRows(t, z, c, reqs)) body.child(r);
+    const labels = reqs.length ? [] : Object.entries(c.labels ?? {}).filter(([, l]) => !l.optional || (l.all ?? []).some((v) => Number(v.value)));
     if (labels.length) {
       body.child(title("分數"));
       for (const [name, l] of labels) {

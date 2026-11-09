@@ -100,7 +100,9 @@ from anywhere opens that change; anything else is a Gerrit search, the same text
 sections; **清除** brings them back.
 搜尋框：打號碼或貼 Gerrit 網址直接打開；其他字就是 Gerrit 的搜尋語法；按「清除」回到分區。
 
-**Click a change** → its page: whose turn it is, its **Reviewer** and **CC** people, the votes and who gave them (labels nobody voted on and that aren't
+**Click a change** → its page: whose turn it is, its **Reviewer** and **CC** people, **合併條件** (Gerrit 3.5+
+submit requirements: 「還差 N 項」 with ⊘ and who voted on each, the passed ones folded to 「✓ 已通過 N 項（點開）」
+when there are many; older Gerrit: the votes and who gave them (labels nobody voted on and that aren't
 required are left out), the comment threads (unresolved first; 整體留言 = patchset-level), the files of the latest
 patch set (+/−, comments per file), the commit message (first lines; click for all), every patch set (and if it was
 only a rebase), and the change log. **← 返回** goes back one page, like a browser: from a topic search back to the

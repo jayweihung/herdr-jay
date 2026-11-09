@@ -7,6 +7,7 @@ Needs: **mods** = copy the two mod folders again (macOS symlinks: nothing) · **
 
 ## 2026-11-10
 
+- **Gerrit panel: 合併條件** on a change's page: Gerrit's submit requirements, what is still missing first (⊘, who voted), passed ones folded when many. Needs **gerrit** (Windows: copy it again), restart Herdr.
 - **Gerrit panel: ← 返回 goes back one page** like a browser: after clicking a topic, a change in 「同一個 topic」, a search result or a file, it returns to the page you were on (before, a topic search had no way back). Needs **gerrit** (Windows: copy it again), restart Herdr.
 - **Gerrit panel: topics** ([docs/gerrit.md §3](docs/gerrit.md#3-what-you-see--畫面)): the topic on a change (click: search it; ✎ set / change / remove) and on list rows; 「同一個 topic」 lists its other changes in any project; with whole-topic submit the merge button says how many it merges. Needs **gerrit** (Windows: copy it again), restart Herdr.
 - **Gerrit panel: compare two patch sets** ([docs/gerrit.md §3](docs/gerrit.md#3-what-you-see--畫面)): pick 從 (Base or an older patch set) and 到; the files and diffs show only what changed between them, comments on their side. Needs **gerrit** (Windows: copy it again), restart Herdr.

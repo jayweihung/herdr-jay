@@ -9,6 +9,8 @@ Needs: **mods** = copy the two mod folders again (macOS symlinks: nothing) · **
 
 Needs: **mods** (copy both again), **app** (build v0.1.14), and once per machine running Claude Code: the snap hook in its settings.
 
+- **jay-nvim follow fix**: newer Claude Code logs `api-request-blob` records that repeat earlier tool calls; jay-nvim read them as new and jumped back to an older file. Only the agent's own records count now. Needs **mods**.
+- docs: windows.md §4 — Neovim on Windows can be skipped when you only work on a Linux server.
 - **jay-nvim: no trust step** (jay's choice): pyright / TypeScript start in every project, no `:JayTrust` (command removed; `~/.config/jay-nvim/trust` no longer read). They run the project's own Python / TypeScript as you: don't open repos you don't trust. Needs **mods**.
 - docs: [linux-remote.md §3b](docs/linux-remote.md#3b-python-go-to-definition-pyright-optional--python-跳定義選用): Python go-to-definition on the server with npm's pyright 1.1.414 on the server's own Node (online or offline `.tgz`, tested offline on Mac), how to use it (`:JayTrust`, right-click 跳到定義, `gd`, `ctrl-o`) and what to check when the right-click menu is missing. Ask the company first: it is packed JavaScript, not source. The `.tgz` is also on herdr-jay's release `pyright-1.1.414` (same sha256 as npm's).
 - docs: Neovim is built **on the Linux server** (not on the PC like herdr-core) said plainly in linux-remote §3, windows §8, agent-install; §3a can pack the source on any Linux / Mac that can download (tested: 14 files). Company server: built and following.

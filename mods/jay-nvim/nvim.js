@@ -524,9 +524,11 @@ local function paths_in(text, first)
   local lines = vim.split(text or "", "\n", { plain = true })
   for i = #lines, first, -1 do
     local line = lines[i]
-    if line:find('"tool_use"', 1, true) then
+    if line:find('"tool_use"', 1, true) and not line:find('^{"type":"api%-request') then
       local okl, rec = pcall(vim.json.decode, line)
-      local content = okl and type(rec.message) == "table" and rec.message.content
+      -- Only the agent's own turns: newer Claude Code also logs "api-request-blob" records that repeat earlier
+      -- tool calls, and reading those as new made nvim jump back to an older file.
+      local content = okl and type(rec) == "table" and rec.type == "assistant" and type(rec.message) == "table" and rec.message.content
       for j = type(content) == "table" and #content or 0, 1, -1 do
         local c = content[j]
         local path = norm(type(c) == "table" and c.type == "tool_use" and TOOLS[c.name] and type(c.input) == "table" and (c.input.file_path or c.input.notebook_path))

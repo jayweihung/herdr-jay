@@ -261,6 +261,11 @@ it creates `%USERPROFILE%\.config\herdr-app` with `keys.json`, `settings.json` a
 jay-nvim does **not** install Neovim. It needs **Neovim 0.11 or newer** on PATH. Any one of:
 jay-nvim 不會幫你裝 Neovim，要 **0.11 以上**：
 
+**Only working on a Linux server?** Then skip this step: next to a server pane jay-nvim opens nvim **on the server**
+(its own Neovim, [linux-remote.md §3](linux-remote.md#3-neovim-and-git-on-the-server--server-上的-neovim-和-git)), and the snap hook (§5a) is only for a Claude Code running
+on this PC. Windows' Neovim is needed only for nvim beside a **local** Windows pane.
+只在 Linux server 上工作的話可以跳過這步：server 那格旁邊的 nvim 開在 server 上；Windows 的 Neovim 只有本機的格子要用。
+
 - `winget install Neovim.Neovim` (an MSI for all users: may need admin)
 - `scoop install neovim` (per user; needs scoop, which itself needs scripts allowed)
 - no admin, no winget: download `nvim-win64.zip` from <https://github.com/neovim/neovim/releases>, unzip it with

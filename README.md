@@ -18,6 +18,7 @@ jayweihung 的 Herdr 通用 mod 與設定。
 | **For a coding agent** installing it all (PC + Linux server) / 給幫忙安裝的 agent | [docs/agent-install.md](docs/agent-install.md) |
 | **Linux server** as a Herdr machine over ssh / Linux server 當遠端機器 | [docs/linux-remote.md](docs/linux-remote.md) |
 | **jay-nvim** features, keys, macOS vs Windows, security / nvim 功能 | [docs/nvim.md](docs/nvim.md) |
+| **Gerrit panel**: dashboard, change details, notifications / Gerrit 面板 | [docs/gerrit.md](docs/gerrit.md) |
 | New Herdr default keys per release / 各版新增的預設按鍵 | [docs/keys.md](docs/keys.md) |
 | Patches to Herdr's source / 對 Herdr 原始碼的修改 | [patches/README.md](patches/README.md) |
 | What changed in herdr-jay / 更新紀錄 | [CHANGELOG.md](CHANGELOG.md) |
@@ -28,6 +29,7 @@ jayweihung 的 Herdr 通用 mod 與設定。
 |---|---|
 | `mods/jay-nvim` | Neovim beside your agent: follow the agent's files, live diff, file tree, comments to the agent, LSP, mouse |
 | `mods/jay-nvim-pick` | `cmd-o` / `ctrl-shift-j`: jump to the jay-nvim pane and list the files the agent read or edited |
+| `mods/gerrit` | Gerrit beside your agents: 輪到你 / 我送出的 / 等我 review…, a change's votes, comment threads and files, notifications ([docs/gerrit.md](docs/gerrit.md)) |
 | `patches/<repo>/<tag>/` | changes to Herdr's own source (only what a mod can't do), one folder per official tag |
 | `docs/` | the guides above |
 

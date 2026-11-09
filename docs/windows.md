@@ -438,6 +438,7 @@ What gets updated, and where / 要更新的東西：
 | herdr-core | PC (Windows) **and** the Linux server | build the README tag + patches for both, install / copy (8.2, 8.3) | the README table names a new core |
 | Herdr app | PC | build the README tag + patches (8.2) | the README table names a new app |
 | jay-nvim mods | PC (they open nvim on the server too) | copy the two folders (8.4) | the CHANGELOG says **mods** |
+| Gerrit panel (optional) | PC | copy `mods\gerrit` (8.4) | the CHANGELOG says **gerrit** |
 | Neovim | PC (Windows build) and the server (**built on the server** from source) | new version (8.5) | only when the README says so (needs ≥ 0.11) |
 | pyright (optional) | the server | [linux-remote.md §3b](linux-remote.md#3b-python-go-to-definition-pyright-optional--python-跳定義選用) with the new version | only when the README says so |
 | Claude Code snap hook | wherever jay-nvim runs | nothing: jay-nvim rewrites it | — |
@@ -536,6 +537,9 @@ Set-Content -Encoding ascii "$h\mods\jay-nvim\.herdr-jay" (git -C $j describe --
 herdr-app check "$h\mods\jay-nvim" | Out-Host
 herdr-app check "$h\mods\jay-nvim-pick" | Out-Host
 ```
+
+Gerrit panel, only if you installed it ([gerrit.md](gerrit.md)): the same for `mods\gerrit`, then quit and reopen Herdr
+(your `gerrit.json` is outside the folder and stays).
 
 Nothing to copy to the server: jay-nvim hands nvim its Lua each time it opens a pane there. Already open nvim panes
 keep the old version until you close and reopen them. If `check` fails, go back to your previous herdr-jay

@@ -9,6 +9,7 @@ Needs: **mods** = copy the two mod folders again (macOS symlinks: nothing) · **
 
 Needs: **mods** (copy both again), **app** (build v0.1.14), and once per machine running Claude Code: the snap hook in its settings.
 
+- **New: Gerrit panel** (`mods/gerrit`, [docs/gerrit.md](docs/gerrit.md)), step 1: Gerrit's dashboard sections (輪到你, WIP, 我送出的, 等我 review, CC, 最近合併), a change's votes, comment threads, files, commit message, patch sets and log, notifications when it turns to you or someone replies. Settings in `<home>/.config/herdr-app/gerrit.json` (HTTP password). Tested on a public Gerrit without a login only. Needs **gerrit** (copy `mods/gerrit`).
 - **jay-nvim**: the tree lists a file the agent just created when nvim follows it (no closing and reopening). docs: nvim.md says which edits get marks outside a git repo. Needs **mods**.
 - **jay-nvim follow fix**: newer Claude Code logs `api-request-blob` records that repeat earlier tool calls; jay-nvim read them as new and jumped back to an older file. Only the agent's own records count now. Needs **mods**.
 - docs: windows.md §4 — Neovim on Windows can be skipped when you only work on a Linux server.

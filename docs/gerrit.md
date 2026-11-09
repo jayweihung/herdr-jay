@@ -1,0 +1,127 @@
+# Gerrit panel / Gerrit 面板
+
+A panel on the right of Herdr that shows your Gerrit like Gerrit's own dashboard, opens a change's details on click,
+and pops a notification when a change turns to you or someone replies. Same on Windows and macOS.
+Herdr 右邊的 Gerrit 面板：跟 Gerrit 網頁首頁一樣的分區，點一下看細節，輪到你或有人回覆時跳通知。
+
+Status: step 1 of 3 (list, details, notifications). Next: Jenkins build progress, then opening a commented line in
+jay-nvim. Tested against a public Gerrit (3.15) without a login; **logging in and notifications have not run on a real
+company Gerrit yet**: note what differs and bring it to jay.
+
+| | |
+|---|---|
+| [1](#1-install--安裝) | Install / 安裝 |
+| [2](#2-settings-file--設定檔) | Settings file / 設定檔 |
+| [3](#3-what-you-see--畫面) | What you see / 畫面 |
+| [4](#4-your-own-sections--自訂分區) | Your own sections / 自訂分區 |
+| [5](#5-when-something-goes-wrong--出問題時) | When something goes wrong / 出問題時 |
+
+---
+
+## 1. Install / 安裝
+
+The mod is `mods/gerrit` in this repo. It runs on the PC (it talks to Gerrit over HTTPS from there), nothing goes on
+a server.
+
+**Windows** (PowerShell, after `git pull` in herdr-jay):
+
+```powershell
+$j = "$env:USERPROFILE\src\herdr-jay"; $h = "$env:USERPROFILE\.config\herdr-app"
+Remove-Item -Recurse -Force "$h\mods\gerrit" -ErrorAction SilentlyContinue
+Copy-Item -Recurse -Force "$j\mods\gerrit" "$h\mods\"
+herdr-app check "$h\mods\gerrit" | Out-Host
+```
+
+**macOS**: `ln -s ~/src/herdr-jay/mods/gerrit ~/.config/herdr-app/mods/gerrit`, then `herdr-app check ~/.config/herdr-app/mods/gerrit`.
+
+The first time Herdr sees the folder it docks the panel on the right of your layout (400 px; drag its edge to resize).
+Updating later: the same copy (Windows) or nothing (macOS link); then quit and reopen Herdr.
+第一次會自己出現在右邊。更新：Windows 再複製一次，Mac 不用；然後關掉 Herdr 再開。
+
+## 2. Settings file / 設定檔
+
+Until it exists, the panel shows what to write. Create `<home>/.config/herdr-app/gerrit.json`
+(Windows: `%USERPROFILE%\.config\herdr-app\gerrit.json`) with a text editor:
+
+```json
+{
+  "url": "https://gerrit.example.com",
+  "user": "your-gerrit-username",
+  "http_password": "from Gerrit: Settings → HTTP Credentials → Generate",
+  "poll_seconds": 60
+}
+```
+
+- `url`: the address you open Gerrit at, without a trailing `/` (if Gerrit lives under a path, include it:
+  `https://host/gerrit`).
+- `user` / `http_password`: Gerrit's **HTTP password**, not your login password. In Gerrit: your avatar (top right) →
+  Settings → HTTP Credentials → Generate new password. 不是登入密碼，是 Gerrit 設定頁產生的 HTTP 密碼。
+- `poll_seconds`: how often it asks Gerrit (at least 15; default 60).
+
+The file stays on your PC: it is outside the mod folder, so copying a new mod never touches it, and it is never in
+this repo. Don't share it. The panel reads it again within 10 seconds of a save.
+這個檔只在你的電腦上，更新 mod 不會蓋掉它；不要給別人。
+
+Without `user` / `http_password` it reads Gerrit anonymously (only public changes, no "you": no 輪到你, no
+notifications).
+
+## 3. What you see / 畫面
+
+Sections, like Gerrit's dashboard (click a title to fold it; the fold is remembered):
+
+| Section | Gerrit's name | Means |
+|---|---|---|
+| 輪到你 | Your Turn | changes waiting for **you now** (Gerrit's attention set, 3.3+): someone replied, uploaded or voted |
+| 草稿（WIP） | Work in progress | your changes marked WIP |
+| 我送出的 | Outgoing reviews | your open changes |
+| 等我 review | Incoming reviews | open changes where you are a reviewer (whether or not it's your turn) |
+| CC 我的 | CCed on | open changes you are CC'd on |
+| 最近合併／放棄 | Recently submitted | closed in the last 4 weeks, yours or reviewed by you (folded at first) |
+
+輪到你 vs 等我 review: 等我 review lists every change you review; 輪到你 only those waiting on you right now. After
+you reply, the change leaves 輪到你 but stays in 等我 review until it's merged.
+
+Each change is two lines: number and subject (with WIP, 私人, 合併衝突, 可以送出, 已合併, 已放棄 tags), then
+project · branch · owner, unresolved comments (留言 N), each label as Gerrit shows it (`CR✓` approved, `CR✗`
+rejected, `+1` / `-1`; `CR` = Code-Review, `V` = Verified: the capital letters of the name), the size (XS < 10
+changed lines, S < 50, M < 250, L < 1000, XL) and when it last changed.
+
+**Click a change** → its page: whose turn it is, the votes and who gave them (labels nobody voted on and that aren't
+required are left out), the comment threads (unresolved first; 整體留言 = patchset-level), the files of the latest
+patch set (+/−, comments per file), the commit message (first lines; click for all), every patch set (and if it was
+only a rebase), and the change log. **在瀏覽器開** opens it in Gerrit; **← 返回** goes back.
+
+**Notifications** (only when logged in), at most three per check:
+- 輪到你：#123 … when a change enters 輪到你, with Gerrit's reason;
+- Gerrit 有新動態：#123 … when a change in any section changed and the last message isn't yours.
+Nothing on the first check after Herdr starts (it only learns what's there).
+
+## 4. Your own sections / 自訂分區
+
+Add `"sections"` to `gerrit.json` to replace the default ones. Each has a `title` and a Gerrit search `query` (the
+same text as Gerrit's search box), optional `"limit"` (default 25) and `"turn": true` to notify like 輪到你:
+
+```json
+  "sections": [
+    { "title": "輪到你", "query": "attention:self is:open", "turn": true },
+    { "title": "我的專案", "query": "is:open project:my/project -is:wip" },
+    { "title": "今天合併", "query": "is:merged owner:self -age:1d", "limit": 10 }
+  ]
+```
+
+## 5. When something goes wrong / 出問題時
+
+| What you see / 看到什麼 | Why / 原因 | Fix / 怎麼修 |
+|---|---|---|
+| 「Gerrit 還沒設定」 | no `gerrit.json`, or it isn't valid JSON | §2; the panel shows the JSON error |
+| 讀不到：帳號或 HTTP 密碼不對（401） | wrong user or HTTP password (or the login password was used) | generate a new HTTP password (§2) |
+| 讀不到：沒有權限（403） | that account can't use the REST API | ask the Gerrit admins |
+| 讀不到： … certificate / SSL / TLS | the company's own HTTPS certificate isn't trusted by the PC | ask IT to install the company root certificate on the PC; bring jay the exact text |
+| 讀不到： … (a network error) | the PC can't reach Gerrit (VPN, proxy) | open the same `url` in the browser on that PC; bring jay the text |
+| 輪到你: 這個 Gerrit 太舊 | Gerrit older than 3.3 has no attention set | the other sections still work; or replace the sections (§4) |
+| `url` works in the browser but the panel says 404 | Gerrit under a path, or a typo | `url` must be what the browser shows before `/dashboard/…` or `/c/…` |
+| A new `gerrit.json` isn't picked up | — | wait 10 seconds or press 重新整理 |
+| Changes to the mod don't show | the old copy is still running | quit and reopen Herdr |
+
+Bring jay: what the panel says (a photo is fine), the Gerrit version (bottom of Gerrit's page, or
+`<url>/config/server/version`), and whether 輪到你 / notifications appeared. Never send the HTTP password.

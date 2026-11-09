@@ -481,6 +481,29 @@ test("ask an agent: only agents the start button opened are listed; a preset pro
   H.agents = [];
 });
 
+test("ask an agent: presets ask for Chinese; ✎ edits them (saved for every copy), 還原預設 brings the built-in ones back", async (G) => {
+  setConfig(LOGIN); const g = freshView(G); g.cfg = await g.readConfig();
+  const builtIn = g.agentCfg().prompts;
+  assert.ok(builtIn.every((p) => /繁體中文/.test(p.text)), "every preset asks for Traditional Chinese");
+  g.editPrompts(cx);
+  assert.equal(g.promptEdit.length, builtIn.length);
+  g.promptEdit[0].label.set_value("看一下"); g.promptEdit[0].text.set_value("看 {change}，用中文");
+  g.promptEdit[1].label.set_value("");                    // an empty one is dropped
+  g.promptEdit.push(g.editRow({ label: "新的", text: "x {url}" }));
+  render(g);
+  // press 儲存 the way the button does
+  const rows = g.promptEdit;
+  const list = rows.map((r) => ({ label: r.label.value().trim(), text: r.text.value().trim() })).filter((p) => p.label && p.text);
+  H.store["gerrit.prompts.v1"] = list; g.promptEdit = null;
+  const got = g.agentCfg().prompts.map((p) => p.label);
+  assert.deepEqual(got, ["看一下", builtIn[2].label, builtIn[3].label, "新的"]);
+  g.cfg = { ...g.cfg, agent: { prompts: [{ label: "json", text: "j" }] } };
+  assert.deepEqual(g.agentCfg().prompts.map((p) => p.label)[0], "看一下", "edited in the panel beats gerrit.json");
+  H.store["gerrit.prompts.v1"] = null;
+  assert.deepEqual(g.agentCfg().prompts.map((p) => p.label), ["json"], "還原: gerrit.json's again");
+  render(g);
+});
+
 test("Jenkins with only start_job: a ▶ button, no build polling, the POST carries the change", async (G) => {
   setConfig({ ...LOGIN, jenkins: { url: "https://ci.test/jk", user: "me", token: "tk", start_job: "Preflight_Common", start_params: { TRIGGER_BY: "NA" } } });
   const g = freshView(G); g.cfg = await g.readConfig();

@@ -12,6 +12,7 @@ import process from "process";
 
 const TOGGLE = "gerrit-toggle", PANEL = "gerrit-panel";
 const SHIPPED = ["main", "terminals", "win98"]; // Herdr's own layouts: read-only, so moving clones one first
+const PROMPTS_KEY = "gerrit.prompts.v1"; // presets edited in the panel (✎), over gerrit.json and the built-in ones
 const AGENTS_KEY = "gerrit.agents.v1"; // addresses of agents the start button opened
 const DATA = "gerrit.data.v1", SAFE_CFG = "gerrit.cfg.v1", BUSY = "gerrit.busy", REFRESH = "gerrit.refresh";
 function find(node, id) {
@@ -123,10 +124,10 @@ const shortLink = (url) => {
 };
 // Asking an agent about a change: preset prompts sent to a Herdr agent (e.g. Claude Code with a Gerrit MCP) by `hc send`.
 const AGENT_PROMPTS = [
-  { label: "Review", text: "用 Gerrit MCP review change {change}（{url}，第 {patchset} 版）：讀 diff 和既有留言，列出你看到的問題和建議，先不要在 Gerrit 上留言或給分。" },
-  { label: "整理留言", text: "用 Gerrit MCP 讀 change {change}（{url}）還沒解決的留言，逐條告訴我對方要什麼、要改哪裡。" },
-  { label: "為什麼沒過", text: "用 Gerrit MCP 看 change {change}（{url}）的合併條件和機器人的留言，告訴我還差什麼、哪個檢查失敗、為什麼。" },
-  { label: "幫我回覆", text: "用 Gerrit MCP 讀 change {change}（{url}）還沒解決的留言，幫我草擬每一則的回覆給我看，我說可以才送出。" },
+  { label: "Review", text: "用 Gerrit MCP review change {change}（{url}，第 {patchset} 版）：讀 diff 和既有留言，列出你看到的問題和建議，先不要在 Gerrit 上留言或給分。請用繁體中文回答。" },
+  { label: "整理留言", text: "用 Gerrit MCP 讀 change {change}（{url}）還沒解決的留言，逐條告訴我對方要什麼、要改哪裡。請用繁體中文回答。" },
+  { label: "為什麼沒過", text: "用 Gerrit MCP 看 change {change}（{url}）的合併條件和機器人的留言，告訴我還差什麼、哪個檢查失敗、為什麼。請用繁體中文回答。" },
+  { label: "幫我回覆", text: "用 Gerrit MCP 讀 change {change}（{url}）還沒解決的留言，幫我草擬每一則的回覆給我看，我說可以才送出。請用繁體中文回答。" },
 ];
 const fillPrompt = (text, vars) => String(text).replace(/\{(\w+)\}/g, (m, k) => (vars[k] != null ? String(vars[k]) : m));
 // Gerrit's size column: XS < 10 lines, S < 50, M < 250, L < 1000, XL.
@@ -380,7 +381,9 @@ export default class Gerrit extends View {
   // ---- asking an agent
   agentCfg() {
     const a = this.cfg?.agent ?? {};
-    const prompts = Array.isArray(a.prompts) && a.prompts.length ? a.prompts.filter((p) => p?.label && p?.text) : AGENT_PROMPTS;
+    const ok = (l) => (Array.isArray(l) ? l.filter((p) => p?.label && p?.text) : []);
+    const edited = ok(shared(PROMPTS_KEY)), own = ok(a.prompts);
+    const prompts = edited.length ? edited : own.length ? own : AGENT_PROMPTS;
     return { ...a, prompts, start: Array.isArray(a.start) && a.start.length ? a.start.map(String) : null, name: a.name ?? "gerrit" };
   }
   // Only agents this panel started with the start button (they have the Gerrit tools): any other agent may not,
@@ -440,6 +443,43 @@ export default class Gerrit extends View {
     cx.notify();
   }
 
+  // ✎: edit the presets in the panel (name + text each); kept in shared state, so every copy and restart has them.
+  editRow(p) {
+    const label = InputState.new({ value: p?.label ?? "", placeholder: "按鈕名稱" });
+    const text = TextareaState.new({ value: p?.text ?? "", placeholder: "要 agent 做什麼（{change} {url} {patchset} 會換成這個 change 的）", rows: 3 });
+    text.set_auto_grow(3, 10); text.set_soft_wrap(true);
+    return { label, text };
+  }
+  editPrompts(cx) {
+    this.promptEdit = this.agentCfg().prompts.map((p) => this.editRow(p));
+    cx.notify();
+  }
+  promptEditor(t, z) {
+    const rows = this.promptEdit;
+    const box = v_flex().gap(8)
+      .child(div().text_size(z - 1).text_color(t.muted).whitespace_normal()
+        .child("{change} {url} {patchset} {project} {branch} {subject} {topic} 會換成這個 change 的內容。名稱或內容空白的那一個不會存。"));
+    rows.forEach((r, i) => box.child(v_flex().id(`pe-${i}`).gap(4).p(8).rounded(6).bg(t.raised)
+      .child(h_flex().gap(6).items_center()
+        .child(div().id(`pe-l-${i}`).w(160).h(30).px(6).flex().items_center().rounded(5).bg(t.background).border_1().border_color(t.input)
+          .cursor_text().on_mouse_down("left", stop).child(Input.new(r.label).w_full().text_size(z).text_color(t.foreground)))
+        .child(div().flex_1())
+        .child(this.big(t, z, `pe-del-${i}`, "刪掉", { on: (cx) => { rows.splice(i, 1); cx.notify(); } })))
+      .child(div().id(`pe-t-${i}`).w_full().min_h(64).p(6).rounded(5).bg(t.background).border_1().border_color(t.input)
+        .cursor_text().on_mouse_down("left", stop).child(Textarea.new(r.text).w_full().text_size(z - 0.5).text_color(t.foreground)))));
+    box.child(h_flex().gap(6).flex_wrap()
+      .child(this.big(t, z, "pe-add", "＋ 加一個", { on: (cx) => { rows.push(this.editRow(null)); cx.notify(); } }))
+      .child(div().flex_1())
+      .child(this.big(t, z, "pe-save", "儲存", { kind: "primary", on: (cx) => {
+        const list = rows.map((r) => ({ label: r.label.value().trim(), text: r.text.value().trim() })).filter((p) => p.label && p.text);
+        setShared(PROMPTS_KEY, list.length ? list : null);
+        this.promptEdit = null; cx.notify();
+      } }))
+      .child(this.big(t, z, "pe-reset", "還原預設", { on: (cx) => { setShared(PROMPTS_KEY, null); this.promptEdit = null; cx.notify(); } }))
+      .child(this.big(t, z, "pe-cancel", "取消", { on: (cx) => { this.promptEdit = null; cx.notify(); } })));
+    return box;
+  }
+
   agentCard(t, z, c) {
     const a = this.agentCfg(), list = this.agentList(), picked = this.pickedAgent(list);
     const card = v_flex().id("ask").gap(6).p(10).rounded(8).bg(t.chrome).border_1().border_color(t.border);
@@ -459,9 +499,11 @@ export default class Gerrit extends View {
       : "還沒設定 Gerrit agent：照 docs/gerrit.md §8 裝好 Gerrit MCP，在 gerrit.json 加 agent.start。"));
     if (a.start && !list.length && !this.pendingStart)
       card.child(h_flex().child(this.big(t, z, "ask-start", `＋ 開 ${a.name} agent`, { on: (cx) => this.startAgent(cx) })));
+    if (this.promptEdit) return card.child(this.promptEditor(t, z));
     card.child(h_flex().gap(6).flex_wrap().children(a.prompts.map((p, i) =>
       this.big(t, z, `ask-p-${i}`, this.ask?.sending === p.label ? "送出中…" : p.label,
-        { kind: i === 0 ? "primary" : undefined, off: !picked || Boolean(this.ask?.sending), on: (cx) => cx.spawn(async (cx) => this.askAgent(c, p, cx)) }))));
+        { kind: i === 0 ? "primary" : undefined, off: !picked || Boolean(this.ask?.sending), on: (cx) => cx.spawn(async (cx) => this.askAgent(c, p, cx)) })))
+      .child(this.big(t, z, "ask-edit", "✎ 編輯問題", { on: (cx) => this.editPrompts(cx) })));
     const s = this.ask;
     if (s?.error) card.child(div().text_size(z - 1).text_color(t.ansi1).whitespace_normal().child(s.error));
     else if (s?.sent) card.child(div().text_size(z - 1).text_color(t.ansi2).child(`✓「${s.sent}」已送給 ${s.to}`));

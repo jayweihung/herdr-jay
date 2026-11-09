@@ -289,10 +289,11 @@ A change's page has a **問 agent** card. It offers only the agent its **＋ 開
 Code with the Gerrit tools, §8): any other agent may lack them, and a request it can't do would look like it went
 through. Press a preset and the panel sends that agent a ready-made request about this change with `hc send`, then
 brings it to the front. Presets: **Review**, **整理留言**, **為什麼沒過**, **幫我回覆** (each says not to post or vote
-on Gerrit until you agree). The panel remembers the agents it opened until their pane is closed; without `start` in
+on Gerrit until you agree, and to answer in Traditional Chinese). **✎ 編輯問題** edits them in the panel: each
+button's name and text, add, delete, 儲存, 還原預設 (back to `gerrit.json`'s or the built-in ones). The panel remembers the agents it opened until their pane is closed; without `start` in
 `gerrit.json` the card says how to set one up.
 「問 agent」只列出用「＋ 開 gerrit agent」開出來的 agent（有 Gerrit MCP 的），別的 agent 不列，免得以為送出去就會做。
-選好按預設問題，就用 hc send 把這個 change 的問題送給它。
+選好按預設問題，就用 hc send 把這個 change 的問題送給它；預設都請它用繁體中文回答，按「✎ 編輯問題」可以改。
 
 Optional, in `gerrit.json`:
 

@@ -12,6 +12,7 @@ import process from "process";
 
 const TOGGLE = "gerrit-toggle", PANEL = "gerrit-panel";
 const SHIPPED = ["main", "terminals", "win98"]; // Herdr's own layouts: read-only, so moving clones one first
+const AGENTS_KEY = "gerrit.agents.v1"; // addresses of agents the start button opened
 const DATA = "gerrit.data.v1", SAFE_CFG = "gerrit.cfg.v1", BUSY = "gerrit.busy", REFRESH = "gerrit.refresh";
 function find(node, id) {
   if (node?.id === id) return node;
@@ -189,6 +190,7 @@ export default class Gerrit extends View {
     this.nextAt = 0;
     this.refreshSeen = shared(REFRESH) ?? 0;
     cx.timer.every(1000, (cx) => {
+      if (this.pendingStart) cx.notify(); // watch for the started agent to show up
       if (!this.polls()) {
         // Redraw when the polling copy shares something new.
         const k = `${shared(DATA)?.at}|${shared(DATA)?.err}|${this.busy}|${JSON.stringify(shared(SAFE_CFG))}`;
@@ -381,14 +383,25 @@ export default class Gerrit extends View {
     const prompts = Array.isArray(a.prompts) && a.prompts.length ? a.prompts.filter((p) => p?.label && p?.text) : AGENT_PROMPTS;
     return { ...a, prompts, start: Array.isArray(a.start) && a.start.length ? a.start.map(String) : null, name: a.name ?? "gerrit" };
   }
+  // Only agents this panel started with the start button (they have the Gerrit tools): any other agent may not,
+  // and asking it would look like it worked. Remembered by address in shared state (every copy, survives restarts).
   agentList() {
-    let list = [];
-    try { list = (agents() ?? []).filter((x) => x?.address); } catch {}
-    return list;
+    let all = [];
+    try { all = (agents() ?? []).filter((x) => x?.address); } catch {}
+    let known = Array.isArray(shared(AGENTS_KEY)) ? shared(AGENTS_KEY) : [];
+    const p = this.pendingStart;
+    if (p) {
+      const fresh = all.find((x) => !p.before.includes(x.address));
+      if (fresh) { known = [...known, fresh.address]; this.pendingStart = null; this.agentAddr = fresh.address; }
+      else if (Date.now() - p.at > 90000) { this.pendingStart = null; this.ask = { error: "等了 90 秒，沒看到新的 agent 出現（看一下右邊那格有沒有錯誤）" }; }
+    }
+    const live = known.filter((a) => all.some((x) => x.address === a));
+    if (live.length !== known.length || live.length !== (shared(AGENTS_KEY) ?? []).length) setShared(AGENTS_KEY, live);
+    return all.filter((x) => live.includes(x.address));
   }
   pickedAgent(list) {
     const want = this.agentAddr ?? this.load("agent");
-    return list.find((x) => x.address === want) ?? list.find((x) => x.title === this.agentCfg().name || x.tab_name === this.agentCfg().name) ?? null;
+    return list.find((x) => x.address === want) ?? list[0] ?? null;
   }
   promptVars(c) {
     const cur = c.revisions?.[c.current_revision]?._number ?? "";
@@ -416,7 +429,13 @@ export default class Gerrit extends View {
   startAgent(cx) {
     const a = this.agentCfg();
     if (!a.start) return;
-    try { run("terminal.open", { argv: a.start, name: a.name, place: "right", folder: a.cwd ?? undefined }); this.ask = { started: Date.now() }; }
+    let before = [];
+    try { before = (agents() ?? []).map((x) => x.address); } catch {}
+    try {
+      run("terminal.open", { argv: a.start, name: a.name, place: "right", folder: a.cwd ?? undefined });
+      this.pendingStart = { at: Date.now(), before };
+      this.ask = { started: Date.now() };
+    }
     catch (e) { this.ask = { error: `開不起來：${e?.message ?? e}` }; }
     cx.notify();
   }
@@ -426,7 +445,7 @@ export default class Gerrit extends View {
     const card = v_flex().id("ask").gap(6).p(10).rounded(8).bg(t.chrome).border_1().border_color(t.border);
     card.child(h_flex().gap(8).items_center()
       .child(div().flex_1().min_w(0).text_size(z - 1).font_semibold().text_color(t.muted).child(picked ? `問 agent：${picked.title || picked.tab_name}` : "問 agent")));
-    // which agent: every Herdr agent, the picked one highlighted
+    // which agent: the ones this panel started, the picked one highlighted
     if (list.length) card.child(h_flex().gap(6).flex_wrap().children(list.slice(0, 12).map((x, i) => {
       const on = picked?.address === x.address;
       return div().id(`ask-ag-${i}`).px(8).py(3).rounded(5).text_size(z - 1.5).cursor_pointer()
@@ -434,8 +453,11 @@ export default class Gerrit extends View {
         .on_mouse_down("left", stop).on_click((_e, cx) => { this.agentAddr = x.address; this.save("agent", x.address); this.ask = null; cx.notify(); })
         .child(`${x.title || x.tab_name || x.address}${x.space_name ? ` · ${x.space_name}` : ""}`);
     })));
-    else card.child(div().text_size(z - 1).text_color(t.dim).whitespace_normal().child(a.start ? "還沒有 agent，按下面開一個。" : "Herdr 裡還沒有 agent。開一個 Claude Code（裝好 Gerrit MCP）再回來。"));
-    if (a.start && !list.some((x) => x.title === a.name || x.tab_name === a.name))
+    else card.child(div().text_size(z - 1).text_color(t.dim).whitespace_normal().child(
+      this.pendingStart ? "開啟中…（第一次要等一下）"
+      : a.start ? "還沒有 Gerrit agent：按下面開一個（裝好 Gerrit MCP 的 Claude Code）。"
+      : "還沒設定 Gerrit agent：照 docs/gerrit.md §8 裝好 Gerrit MCP，在 gerrit.json 加 agent.start。"));
+    if (a.start && !list.length && !this.pendingStart)
       card.child(h_flex().child(this.big(t, z, "ask-start", `＋ 開 ${a.name} agent`, { on: (cx) => this.startAgent(cx) })));
     card.child(h_flex().gap(6).flex_wrap().children(a.prompts.map((p, i) =>
       this.big(t, z, `ask-p-${i}`, this.ask?.sending === p.label ? "送出中…" : p.label,

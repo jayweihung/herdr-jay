@@ -285,11 +285,14 @@ dispatches (it ends in seconds), its log names the job it triggers: that one goe
 
 ## 7. Ask an agent / 問 agent
 
-A change's page has a **問 agent** card: pick one of the agents Herdr shows (any machine), press a preset and the
-panel sends it a ready-made request about this change with `hc send`, then brings that agent to the front. The
-agent does the work with whatever it has; the presets assume a Gerrit MCP server in it. Presets:
-**Review**, **整理留言**, **為什麼沒過**, **幫我回覆** (each says not to post or vote on Gerrit until you agree).
-change 細節頁的「問 agent」：選一個 agent，按一下預設問題，就用 hc send 把這個 change 的問題送給它。
+A change's page has a **問 agent** card. It offers only the agent its **＋ 開 gerrit agent** button opened (a Claude
+Code with the Gerrit tools, §8): any other agent may lack them, and a request it can't do would look like it went
+through. Press a preset and the panel sends that agent a ready-made request about this change with `hc send`, then
+brings it to the front. Presets: **Review**, **整理留言**, **為什麼沒過**, **幫我回覆** (each says not to post or vote
+on Gerrit until you agree). The panel remembers the agents it opened until their pane is closed; without `start` in
+`gerrit.json` the card says how to set one up.
+「問 agent」只列出用「＋ 開 gerrit agent」開出來的 agent（有 Gerrit MCP 的），別的 agent 不列，免得以為送出去就會做。
+選好按預設問題，就用 hc send 把這個 change 的問題送給它。
 
 Optional, in `gerrit.json`:
 
@@ -309,7 +312,7 @@ Optional, in `gerrit.json`:
   PATH). Sending goes through Herdr itself, so nothing else is needed on Windows.
   Windows 一樣能用：路徑用 `/` 或 `\\`；送出是走 Herdr 本身，不用另外裝東西。
 - `start` (a command, as a list) adds **＋ 開 gerrit agent**, which opens it in a pane on the right; `name` is that
-  pane's name, and an agent with that name is picked first. `cwd` is where it starts.
+  pane's name. `cwd` is where it starts.
 
 The request is only text typed into that agent: what it may do on Gerrit is up to the agent and its MCP settings.
 送出去的只是文字；agent 能在 Gerrit 做什麼，看它自己的設定。

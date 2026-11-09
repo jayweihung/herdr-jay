@@ -443,30 +443,40 @@ test("check systems: bot messages on the current patch set under the requirement
   assert.deepEqual(g.systemsOf(c).map((s) => s.name).sort(), ["ci_build", "ci_test"], "gerrit.json bots picks the accounts");
 });
 
-test("ask an agent: pick a Herdr agent, a preset prompt filled with the change goes by hc send, then focus it", async (G) => {
+test("ask an agent: only agents the start button opened are listed; a preset prompt goes by hc send, then focus", async (G) => {
   setConfig(LOGIN); const g = freshView(G); g.cfg = await g.readConfig();
-  H.store["gerrit.cfg.v1"] = { url: "https://gerrit.test", auth: true };
+  H.store["gerrit.cfg.v1"] = { url: "https://gerrit.test", auth: true }; delete H.store["gerrit.agents.v1"];
   H.opened = []; H.runs = [];
   const c = change(7, { project: "tools/build", branch: "master", current_revision: "b", revisions: { b: { _number: 3 } } });
   g.openId = c.id; g.detail = { change: c, comments: {} };
-  H.agents = [];
+  g.cfg = { ...g.cfg, agent: { start: ["claude", "--plugin-dir", "/x/gerrit-mcp-server"], name: "gerrit" } };
+  // other agents exist, but none was started here: none is offered, nothing is sent
+  H.agents = [{ address: "t9", title: "coding", tab_name: "x" }];
+  assert.deepEqual(g.agentList(), [], "an agent the panel didn't start is not offered");
   assert.equal(g.pickedAgent(g.agentList()), null);
   render(g);
   await g.askAgent(c, g.agentCfg().prompts[0], cx);
-  assert.match(g.ask.error, /先選/); assert.equal(H.opened.length, 0, "nothing sent without an agent");
-  H.agents = [{ address: "t9", title: "coding", tab_name: "x" }, { address: "t3w", title: "gerrit", tab_name: "Claude Code" }];
-  assert.equal(g.pickedAgent(g.agentList()).address, "t3w", "the one named like agent.name is picked first");
-  g.agentAddr = "t9";
-  assert.equal(g.pickedAgent(g.agentList()).address, "t9");
+  assert.match(g.ask.error, /先選/); assert.equal(H.opened.length, 0, "nothing sent without a Gerrit agent");
+  // start one: the new address that shows up is remembered (shared, so every copy knows it)
+  g.startAgent(cx);
+  assert.deepEqual(H.runs.at(-1), ["terminal.open", { argv: ["claude", "--plugin-dir", "/x/gerrit-mcp-server"], name: "gerrit", place: "right", folder: undefined }]);
+  assert.equal(g.agentList().length, 0, "still starting");
+  H.agents = [...H.agents, { address: "t3w", title: "✳ Claude Code", tab_name: "x" }];
+  assert.deepEqual(g.agentList().map((x) => x.address), ["t3w"]);
+  assert.deepEqual(H.store["gerrit.agents.v1"], ["t3w"]);
+  assert.equal(g.pickedAgent(g.agentList()).address, "t3w", "picked by itself");
   await g.askAgent(c, { label: "R", text: "review {change} ps {patchset} at {url} {nope}" }, cx);
-  assert.deepEqual(H.opened.at(-1), ["hc", "send", "t9", "review 7 ps 3 at https://gerrit.test/c/tools/build/+/7 {nope}"]);
-  assert.deepEqual(H.runs.at(-1), ["agent.focus", { terminal: "t9" }]);
+  assert.deepEqual(H.opened.at(-1), ["hc", "send", "t3w", "review 7 ps 3 at https://gerrit.test/c/tools/build/+/7 {nope}"]);
+  assert.deepEqual(H.runs.at(-1), ["agent.focus", { terminal: "t3w" }]);
   assert.equal(g.ask.sent, "R");
   render(g);
-  g.cfg = { ...g.cfg, agent: { prompts: [{ label: "Mine", text: "x {change}" }], start: ["claude"], name: "gerrit-bot" } };
+  // a fresh copy (another tab) sees it too; when its pane is closed it is forgotten
+  const kept = H.store; const g2 = freshView(G); H.store = kept; g2.cfg = g.cfg;
+  assert.deepEqual(g2.agentList().map((x) => x.address), ["t3w"]);
+  H.agents = [{ address: "t9", title: "coding", tab_name: "x" }];
+  assert.deepEqual(g2.agentList(), []); assert.deepEqual(H.store["gerrit.agents.v1"], []);
+  g.cfg = { ...g.cfg, agent: { prompts: [{ label: "Mine", text: "x {change}" }] } };
   assert.deepEqual(g.agentCfg().prompts.map((p) => p.label), ["Mine"], "gerrit.json prompts replace the presets");
-  g.startAgent(cx);
-  assert.deepEqual(H.runs.at(-1), ["terminal.open", { argv: ["claude"], name: "gerrit-bot", place: "right", folder: undefined }]);
   render(g);
   H.agents = [];
 });
@@ -564,7 +574,7 @@ const G = await loadMod();
 let fail = 0;
 for (const [name, fn] of tests) {
   try { await fn(G); console.log(`ok    ${name}`); }
-  catch (e) { fail++; console.log(`FAIL  ${name}\n      ${String(e.stack ?? e).split("\n").slice(0, 3).join("\n      ")}`); }
+  catch (e) { fail++; console.log(`FAIL  ${name}\n      ${String(e.stack ?? e).split("\n").slice(0, 14).join("\n      ")}`); }
 }
 console.log(`\n${tests.length - fail} ok, ${fail} failed`);
 process.exit(fail ? 1 : 0);

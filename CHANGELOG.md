@@ -9,6 +9,7 @@ Needs: **mods** = copy the two mod folders again (macOS symlinks: nothing) · **
 
 Needs: **mods** (copy both again), **app** (build v0.1.14), and once per machine running Claude Code: the snap hook in its settings.
 
+- **jay-nvim**: the tree lists a file the agent just created when nvim follows it (no closing and reopening). docs: nvim.md says which edits get marks outside a git repo. Needs **mods**.
 - **jay-nvim follow fix**: newer Claude Code logs `api-request-blob` records that repeat earlier tool calls; jay-nvim read them as new and jumped back to an older file. Only the agent's own records count now. Needs **mods**.
 - docs: windows.md §4 — Neovim on Windows can be skipped when you only work on a Linux server.
 - **jay-nvim: no trust step** (jay's choice): pyright / TypeScript start in every project, no `:JayTrust` (command removed; `~/.config/jay-nvim/trust` no longer read). They run the project's own Python / TypeScript as you: don't open repos you don't trust. Needs **mods**.

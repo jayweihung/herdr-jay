@@ -706,6 +706,20 @@ local function follow_tick()
       vim.w[nw].netrw_treetop = nil
       vim.api.nvim_win_call(nw, function() vim.cmd("silent Explore " .. vim.fn.fnameescape(dir)) end)
       tree_width()
+    else
+      -- same folder, but a file the agent just made isn't listed yet: list the folder again (once per file,
+      -- so a git-ignored file, which the tree hides, doesn't relist it every time)
+      local name, shown = vim.fs.basename(it.path), false
+      for _, l in ipairs(vim.api.nvim_buf_get_lines(vim.api.nvim_win_get_buf(nw), 0, -1, false)) do
+        if (l:gsub("^[| ]+", ""):gsub("[*@=/]$", "")) == name then shown = true break end
+      end
+      follow.relisted = follow.relisted or {}
+      if not shown and not follow.relisted[P.key(it.path)] then
+        follow.relisted[P.key(it.path)] = true
+        vim.w[nw].netrw_treetop = nil
+        vim.api.nvim_win_call(nw, function() vim.cmd("silent Explore " .. vim.fn.fnameescape(dir)) end)
+        tree_width()
+      end
     end
   end
   vim.api.nvim_win_call(w, function()

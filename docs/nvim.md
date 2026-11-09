@@ -26,9 +26,13 @@ Needs **Neovim 0.11 or newer**, `git`, and `hc` on the machine where the pane op
   跟著 agent 開檔。
 - **Live reload with a diff**: files the agent edits reload every second; changed lines show like Claude Code's diff
   (red `-` old, green `+` new). Opening a file in a git repo marks what changed since the last commit.
-  agent 改檔時自動重讀，標出改了哪幾行。
+  Outside a git repo there is no older copy to compare with, so only these get marks: changes made while the file is
+  open in nvim, a file the agent wrote new (all `+`), and Bash edits with the snap hook ([7](#7-snapshots-for-bash-edits-optional--bash-改檔的快照選用)).
+  The first jump to a file the agent edited earlier shows no marks there.
+  agent 改檔時自動重讀，標出改了哪幾行。不在 git repo 裡沒有舊版可比：只有開著時的修改、新寫的檔、和有 snap hook 的 Bash 修改有標記。
 - **File tree** on the right (netrw), without git-ignored files (the ignore list comes from the repo nvim started in);
-  the shown file is highlighted.
+  the shown file is highlighted. A file the agent creates appears when nvim follows it there (other new files: `ctrl-l`
+  in the tree).
 - **Comments to the agent**: comment a line or a selection, list, delete, and send them all to the agent with
   `hc send`. Control characters are removed before sending, so file text can't act as keys in the agent's terminal;
   quoted lines are cut at 200 characters. Only known coding agents (Claude Code, Codex, Gemini, opencode, pi, aider,

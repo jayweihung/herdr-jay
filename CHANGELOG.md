@@ -7,6 +7,7 @@ Needs: **mods** = copy the two mod folders again (macOS symlinks: nothing) · **
 
 ## 2026-11-10
 
+- **Gerrit panel: topics** ([docs/gerrit.md §3](docs/gerrit.md#3-what-you-see--畫面)): the topic on a change (click: search it; ✎ set / change / remove) and on list rows; 「同一個 topic」 lists its other changes in any project; with whole-topic submit the merge button says how many it merges. Needs **gerrit** (Windows: copy it again), restart Herdr.
 - **Gerrit panel: compare two patch sets** ([docs/gerrit.md §3](docs/gerrit.md#3-what-you-see--畫面)): pick 從 (Base or an older patch set) and 到; the files and diffs show only what changed between them, comments on their side. Needs **gerrit** (Windows: copy it again), restart Herdr.
 - **Gerrit panel: search, rebase / abandon / WIP** ([docs/gerrit.md §3](docs/gerrit.md#3-what-you-see--畫面)): a search box above the sections (a number or pasted Gerrit link opens the change; other text is a Gerrit search; Enter works), `{"search":"…"}` for a search in its own tab; on a change, Rebase, Ready / WIP, Abandon (press twice) and Restore, shown only when Gerrit allows them. Needs **gerrit** (Windows: copy it again), restart Herdr.
 - **Gerrit panel: Reviewer／CC** on a change's page: see them, add (search by name → 加 Reviewer / 加 CC), move between the two, remove (on your own changes). Score rows show the label's full name (Code-Review, Build, Verified …). Needs **gerrit** (Windows: copy it again), restart Herdr.

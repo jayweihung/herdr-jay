@@ -127,7 +127,7 @@ function voteValue(t, v) {
 export default class Gerrit extends View {
   init(_p, cx) {
     this.role = blockProps()?.role ?? "panel";
-    if (this.role !== "toggle") { this.replyState(); this.peopleState(); this.searchState(); } // input state can't be made while drawing
+    if (this.role !== "toggle") { this.replyState(); this.peopleState(); this.searchState(); this.topicState(); } // input state can't be made while drawing
     // props {open: "<change id or number>", diff: "<file path>"} or {search: "<Gerrit search>"}: start there, e.g. in a tab of its own
     const start = blockProps() ?? {};
     this.inTab = Boolean(start.open || start.search); // a copy started on a change or search (its own tab): the panel's width isn't its business
@@ -288,6 +288,80 @@ export default class Gerrit extends View {
       b("abandon", armed ? "再按一次確認放棄" : "🗑 放棄（Abandon）", armed ? "danger" : undefined);
     }
     return row;
+  }
+
+  // Made in init (never in render). The box to set a change's topic.
+  topicState() {
+    if (!this.topicBox) {
+      this.topicBox = InputState.new({ placeholder: "topic 名稱（空白 = 拿掉）" });
+      this.topicBox.on("submit", (_e, cx) => { const c = this.detail?.change; if (c) cx.spawn(async (cx) => this.setTopic(c, cx)); }); // Enter
+    }
+    return this.topicBox;
+  }
+
+  // PUT topic, or DELETE it when the box is empty.
+  async setTopic(c, cx) {
+    const topic = this.topicState().value().trim();
+    const ok = await this.act("topic", () => (topic ? this.req("PUT", `/changes/${cid(c)}/topic`, { topic }) : this.req("DELETE", `/changes/${cid(c)}/topic`)), cx);
+    if (ok) this.editTopic = false;
+  }
+
+  searchFor(q, cx) {
+    this.openId = null; this.detail = null; this.diff = null;
+    this.searchState().set_value(q);
+    cx.spawn(async (cx) => this.runSearch(cx));
+  }
+
+  // Topic: the name (click = search it), ✎ to change; then the other changes of the topic, like Gerrit's "Same topic".
+  topicRows(t, z, c) {
+    const out = [];
+    const canEdit = Boolean(shared(SAFE_CFG)?.auth) && c.actions?.topic?.enabled === true;
+    const small = (id, label, on) => div().id(id).px(6).rounded(4).cursor_pointer().text_color(t.accent).hover((st) => st.bg(t.hover))
+      .on_mouse_down("left", stop).on_click((_e, cx) => on(cx)).child(label);
+    if (this.editTopic) {
+      out.push(h_flex().id("topic-edit").gap(6).items_center()
+        .child(div().w(72).flex_none().text_size(z - 1).text_color(t.muted).child("Topic"))
+        .child(div().id("topic-box").flex_1().min_w(0).h(34).px(6).flex().items_center().rounded(6).bg(t.background).border_1().border_color(t.input)
+          .cursor_text().on_mouse_down("left", stop)
+          .child(Input.new(this.topicState()).w_full().text_size(z).text_color(t.foreground)))
+        .child(this.big(t, z, "topic-save", this.sending === "topic" ? "存檔中…" : "存", { kind: "primary", off: Boolean(this.sending), on: (cx) => cx.spawn(async (cx) => this.setTopic(c, cx)) }))
+        .child(this.big(t, z, "topic-cancel", "取消", { on: (cx) => { this.editTopic = false; cx.notify(); } })));
+    } else if (c.topic || canEdit) {
+      out.push(h_flex().id("topic").gap(6).items_center().text_size(z - 1)
+        .child(div().w(72).flex_none().text_color(t.muted).child("Topic"))
+        .when(Boolean(c.topic), (el) => el.child(div().id("topic-name").px(6).rounded(4).bg(t.raised).cursor_pointer().hover((st) => st.bg(t.hover))
+          .on_mouse_down("left", stop).on_click((_e, cx) => this.searchFor(`topic:"${c.topic}"`, cx)).child(`🏷 ${c.topic}`)))
+        .when(!c.topic, (el) => el.child(div().text_color(t.dim).child("沒有")))
+        .when(canEdit, (el) => el.child(small("topic-change", c.topic ? "✎ 改" : "＋ 設定", (cx) => {
+          this.topicState().set_value(c.topic ?? ""); this.editTopic = true; cx.notify();
+          cx.spawn(async (cx) => { await cx.sleep(50); this.topicState().focus(); });
+        }))));
+    }
+    const others = this.detail.topic;
+    if (c.topic && others) {
+      const tg = this.detail.together, whole = (tg?.changes?.length ?? 0) > 1;
+      out.push(div().pt(4).text_size(z - 1).font_semibold().text_color(whole ? t.blocked : t.muted)
+        .child(`同一個 topic（另外 ${others.length} 個${whole ? "，合併時會一起送出" : ""}${tg?.non_visible_changes ? `，還有 ${tg.non_visible_changes} 個你看不到` : ""}）`));
+      if (!others.length) out.push(div().text_size(z - 1).text_color(t.dim).child("只有這一個"));
+      for (const o of others) out.push(this.relatedRow(t, z, o));
+    }
+    return out;
+  }
+
+  // One line per related change: number, subject, project, status / scores; click opens it.
+  relatedRow(t, z, o) {
+    const labels = Object.entries(o.labels ?? {}).map(([name, l]) => [name, vote(t, l)]).filter(([, v]) => v);
+    return h_flex().id(`rel-${o._number}`).gap(8).items_center().px(4).py(3).rounded(5).text_size(z - 1)
+      .cursor_pointer().hover((st) => st.bg(t.hover)).on_mouse_down("left", stop)
+      .on_click((_e, cx) => cx.spawn(async (cx) => this.openChange(o, cx)))
+      .child(div().flex_none().font_family(mono()).text_color(t.muted).child(String(o._number)))
+      .child(v_flex().flex_1().min_w(0)
+        .child(div().truncate().child(o.subject))
+        .child(div().truncate().text_size(z - 2).text_color(t.muted).child(`${o.project} · ${o.branch} · ${who(o.owner)}`)))
+      .children(this.chips(t, z, o))
+      .child(h_flex().flex_none().gap(5).font_family(mono()).children(labels.map(([name, v]) =>
+        h_flex().id(`rl-${o._number}-${name}`).gap(1).child(div().text_color(t.dim).child(abbr(name))).child(div().text_color(v.color).child(v.text)))))
+      .child(div().flex_none().text_color(t.muted).child("›"));
   }
 
   // Made in init (never in render). The box to find someone to add as reviewer or CC.
@@ -501,7 +575,7 @@ export default class Gerrit extends View {
 
   async openChange(c, cx, quiet) {
     if (!quiet || this.openId !== c.id) {
-      if (this.openId !== c.id) { this.picked = {}; this.threadReply = null; this.armed = null; this.actErr = null; this.reply?.set_value(""); this.addingPeople = false; this.found = []; this.cmp = null; this.cmpFiles = null; }
+      if (this.openId !== c.id) { this.picked = {}; this.threadReply = null; this.armed = null; this.actErr = null; this.reply?.set_value(""); this.addingPeople = false; this.found = []; this.cmp = null; this.cmpFiles = null; this.editTopic = false; }
       this.openId = c.id;
       this.detail = { change: c, loading: true };
       cx.notify();
@@ -513,7 +587,12 @@ export default class Gerrit extends View {
         this.get(`/changes/${id}/detail?o=ALL_REVISIONS&o=CURRENT_FILES&o=CURRENT_COMMIT&o=DETAILED_LABELS&o=MESSAGES&o=SUBMITTABLE&o=CHANGE_ACTIONS&o=CURRENT_ACTIONS`),
         this.get(`/changes/${id}/comments`).catch(() => ({})),
       ]);
-      if (this.openId === c.id) this.detail = { change: d, comments };
+      const [topic, together] = await Promise.all([
+        // the other changes of its topic (any project), and what a submit would merge with it (whole-topic submit)
+        d.topic ? this.get(`/changes/?q=${encodeURIComponent(`topic:"${d.topic}" limit:${SEARCH_LIMIT}`)}&${OPTS}`).catch(() => null) : null,
+        d.status === "NEW" ? this.get(`/changes/${id}/submitted_together?o=NON_VISIBLE_CHANGES`).catch(() => null) : null,
+      ]);
+      if (this.openId === c.id) this.detail = { change: d, comments, topic: topic && topic.filter((x) => x._number !== d._number), together };
     } catch (e) {
       if (this.openId === c.id) this.detail = { change: c, error: String(e.message ?? e) };
     }
@@ -648,7 +727,7 @@ export default class Gerrit extends View {
         .child(div().flex_1().min_w(0).truncate().child(c.subject))
         .children(this.chips(t, z, c)))
       .child(h_flex().gap(8).items_center().text_size(z - 1.5).text_color(t.muted)
-        .child(div().flex_1().min_w(0).truncate().child(`${c.project} · ${c.branch} · ${who(c.owner)}`))
+        .child(div().flex_1().min_w(0).truncate().child(`${c.project} · ${c.branch} · ${who(c.owner)}${c.topic ? ` · 🏷 ${c.topic}` : ""}`))
         .when(unresolved > 0, (el) => el.child(div().flex_none().text_color(t.blocked).child(`留言 ${unresolved}`)))
         .child(h_flex().flex_none().gap(5).font_family(mono()).children(labels.map(([name, v]) =>
           h_flex().id(`l-${c._number}-${name}`).gap(1).child(div().text_color(t.dim).child(abbr(name))).child(div().text_color(v.color).when(Boolean(v.strong), (el) => el.font_semibold()).child(v.text)))))
@@ -923,7 +1002,7 @@ export default class Gerrit extends View {
           { kind: "primary", grow: true, off: busy, on: (cx) => cx.spawn(async (cx) => this.sendReply(c, cx)) }));
       if (c.submittable) {
         const armed = this.armed === `submit-${c.id}` && Date.now() - this.armedAt <= 4000;
-        row.child(this.big(t, z, "submit", this.sending === "submit" ? "合併中…" : armed ? "再按一次確認合併" : "✅ 合併（Submit）",
+        row.child(this.big(t, z, "submit", this.sending === "submit" ? "合併中…" : armed ? "再按一次確認合併" : (this.detail.together?.changes?.length ?? 0) > 1 ? `✅ 合併（連同 topic 共 ${this.detail.together.changes.length} 個）` : "✅ 合併（Submit）",
           { kind: armed ? "danger" : undefined, off: busy, on: (cx) => cx.spawn(async (cx) => this.submit(c, cx)) }));
       }
       card.child(row);
@@ -985,6 +1064,9 @@ export default class Gerrit extends View {
     if (att.length) body.child(h_flex().gap(6).flex_wrap().text_size(z - 1)
       .child(div().text_color(t.muted).child("輪到："))
       .children(att.map((a, i) => div().id(`att-${i}`).px(6).rounded(4).bg(t.raised).text_color(a.account?._account_id === this.self?._account_id ? t.blocked : t.foreground).child(who(a.account)))));
+
+    // Topic and the other changes of it
+    for (const r of this.topicRows(t, z, c)) body.child(r);
 
     // People: reviewers and CC (Gerrit's REVIEWERS / CC), add, move, remove
     body.child(title("Reviewer／CC"));

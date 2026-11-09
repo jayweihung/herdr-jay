@@ -338,6 +338,26 @@ test("compare patch sets: files and diff of the picked pair, comments on the rig
   await g.setCompare(1, 2, cx); g.diff = null; render(g); await g.openDiff("src/cart.py", cx); render(g);
 });
 
+test("topic: other changes of the topic, whole-topic submit warning, set / clear, click searches it", async (G) => {
+  setConfig(LOGIN); const g = freshView(G);
+  const t6 = change(6, { topic: "cart total", revisions: {}, actions: { topic: { enabled: true } }, submittable: true });
+  gerrit([["GET", /^\/a\/changes\/6\/detail/, [200, t6]], ["GET", /^\/a\/changes\/6\/comments/, [200, {}]],
+    ["GET", /^\/a\/changes\/6\/submitted_together/, [200, { changes: [t6, change(7), change(4)], non_visible_changes: 1 }]],
+    ["GET", /^\/a\/changes\/\?q=/, (r) => [200, r.query.get("q").startsWith('topic:"cart total"') ? [t6, change(7), change(4)] : []]],
+    ["PUT", /^\/a\/changes\/6\/topic$/, [200, "\"x\""]], ["DELETE", /^\/a\/changes\/6\/topic$/, [204, ""]]]);
+  await g.openChange(change(6), cx);
+  assert.deepEqual(g.detail.topic.map((c) => c._number), [7, 4], "the others, not this one");
+  assert.equal(g.detail.together.changes.length, 3);
+  render(g);
+  g.topicState().set_value(" next "); await g.setTopic(g.detail.change, cx);
+  assert.deepEqual(seen.find((r) => r.method === "PUT").body, { topic: "next" });
+  g.editTopic = true; render(g); // the edit box draws
+  g.topicState().set_value(""); await g.setTopic(g.detail.change, cx);
+  assert.ok(seen.some((r) => r.method === "DELETE" && r.path === "/a/changes/6/topic"), "empty = remove the topic");
+  g.searchFor('topic:"cart total"', cx); await new Promise((r) => setTimeout(r, 0));
+  assert.equal(g.detail, null); assert.equal(g.search.q, 'topic:"cart total"'); assert.equal(g.search.items.length, 3);
+});
+
 // ---------- run ----------
 const G = await loadMod();
 let fail = 0;

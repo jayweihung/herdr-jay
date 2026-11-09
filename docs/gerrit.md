@@ -4,7 +4,7 @@ A panel on the right of Herdr that shows your Gerrit like Gerrit's own dashboard
 and pops a notification when a change turns to you or someone replies. Same on Windows and macOS.
 Herdr 右邊的 Gerrit 面板：跟 Gerrit 網頁首頁一樣的分區，點一下看細節，輪到你或有人回覆時跳通知。
 
-Status: list, search, details, notifications, reply / vote / submit, reviewers / CC, rebase / abandon / WIP, comparing patch sets, comment-thread replies, diffs with line comments. Next: Jenkins build progress, then opening a commented line in
+Status: list, search, details, notifications, reply / vote / submit, reviewers / CC, rebase / abandon / WIP, comparing patch sets, topics, comment-thread replies, diffs with line comments. Next: Jenkins build progress, then opening a commented line in
 jay-nvim. Tested against a public Gerrit (3.15) without a login; **logging in and notifications have not run on a real
 company Gerrit yet**: note what differs and bring it to jay.
 
@@ -113,6 +113,13 @@ red, added green, unchanged runs folded to 「⋯ N 行沒改（點開）」, th
 送出（只是備註）(resolved).
 點檔案看 diff（紅刪綠增），留言在那一行下面；點任何一行就能留言。
 
+
+**Topic**: a change's page shows its topic (🏷, also on each row of the lists). Click it to search every change of
+the topic; **✎ 改** / **＋ 設定** (when Gerrit lets you: usually your own changes) changes it, an empty box removes it.
+Under it, 「同一個 topic」 lists the other changes of the topic in any project, click one to open it. When the Gerrit
+merges a whole topic at once (`change.submitWholeTopic`), the title turns red with 「合併時會一起送出」 and the merge
+button says how many it submits: 「✅ 合併（連同 topic 共 N 個）」.
+Topic：點 🏷 搜尋同 topic 全部；下面列同 topic 的其他 change；公司若設定整個 topic 一起合併，合併按鈕會寫共幾個。
 
 **Compare two patch sets** (a change with more than one): the 「比較哪兩版」 box above the files. **從** Base (the
 parent commit) or an older patch set, **到** any patch set; the files list then shows only what differs between the

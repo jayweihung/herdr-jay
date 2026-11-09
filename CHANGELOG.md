@@ -9,6 +9,7 @@ Needs: **mods** = copy the two mod folders again (macOS symlinks: nothing) · **
 
 Needs: **mods** (copy both again), **app** (build v0.1.14), and once per machine running Claude Code: the snap hook in its settings.
 
+- docs: Neovim is built **on the Linux server** (not on the PC like herdr-core) said plainly in linux-remote §3, windows §8, agent-install; §3a can pack the source on any Linux / Mac that can download (tested: 14 files). Company server: built and following.
 - Install guides now include the **snap hook** step: [windows.md §5a](docs/windows.md#5a-snap-hook-for-claude-code--snap-hook),
   [linux-remote.md §4](docs/linux-remote.md#4-agents-on-the-server--server-上的-agent), and row 8 of
   [agent-install.md](docs/agent-install.md). Each machine running Claude Code adds the hook once.

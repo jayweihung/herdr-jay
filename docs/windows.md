@@ -434,7 +434,7 @@ What gets updated, and where / 要更新的東西：
 | herdr-core | PC (Windows) **and** the Linux server | build the README tag + patches for both, install / copy (8.2, 8.3) | the README table names a new core |
 | Herdr app | PC | build the README tag + patches (8.2) | the README table names a new app |
 | jay-nvim mods | PC (they open nvim on the server too) | copy the two folders (8.4) | the CHANGELOG says **mods** |
-| Neovim | PC and the server | new version (8.5) | only when the README says so (needs ≥ 0.11) |
+| Neovim | PC (Windows build) and the server (**built on the server** from source) | new version (8.5) | only when the README says so (needs ≥ 0.11) |
 | Claude Code snap hook | wherever jay-nvim runs | nothing: jay-nvim rewrites it | — |
 
 Windows follows **herdr-jay**, never upstream directly: build only the versions in the
@@ -540,7 +540,7 @@ server 不用複製：jay-nvim 每次開格子都把程式帶過去；開著的 
 ### 8.5 Neovim
 
 Only when the README says so (jay-nvim needs ≥ 0.11). PC: the same way you installed it (step 4: winget / scoop /
-a new `nvim-win64.zip` over the old folder). Server: [linux-remote.md step 3](linux-remote.md#3-neovim-and-git-on-the-server--server-上的-neovim-和-git)
+a new `nvim-win64.zip` over the old folder). Server: **build it on the server** (not on the PC; it only builds on Linux), [linux-remote.md step 3](linux-remote.md#3-neovim-and-git-on-the-server--server-上的-neovim-和-git)
 with the new tag (`rm -rf build .deps` first; from a pack: a new pack). **Check**: `nvim --version` on both.
 
 ### 8.6 Keys, then restart

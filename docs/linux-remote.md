@@ -89,9 +89,17 @@ If it needs a password, a new host key or something installed, it tells you what
 ## 3. Neovim and git on the server / server 上的 Neovim 和 git
 
 jay-nvim on a server pane looks for nvim in `~/.local/bin`, `/usr/local/bin`, `/usr/bin` and needs **0.11 or newer**.
-Ubuntu's apt Neovim is older (22.04: 0.6, 24.04: 0.9). Build **Neovim v0.12.6 from source** into your home (no root;
+Ubuntu's apt Neovim is older (22.04: 0.6, 24.04: 0.9).
+
+**Build Neovim on the server itself, not on the PC.** Unlike herdr-core (step 2: one static program, cross-built on
+the PC), Neovim's build only runs on Linux and links to the server's own system libraries, so it is compiled
+**on the server**, from source. When the server can't download, the PC (or any machine with internet) only fetches the source (3a).
+**Neovim 要在 server 上 build，不是在 PC 上**：core（第 2 步）可以在 PC 上 build 好再複製；Neovim 只能在 Linux 上 build，
+所以把原始碼放到 server，在 server 上編（server 不能上網時，PC 或其他能上網的機器只負責抓原始碼打包，見 3a）。
+
+Build **Neovim v0.12.6 from source** into your home (no root;
 about 2–10 minutes; needs `gcc`, `make`, `cmake` ≥ 3.16 (built with SSL: it downloads the libraries itself), `git`, `curl`, `tar`; it downloads its libraries as source from
-`github.com` / `raw.githubusercontent.com`). In a server terminal (a Herdr tab on that machine):
+`github.com` / `raw.githubusercontent.com`). Everything below runs **in a server terminal** (a Herdr tab on that machine, or `ssh <user>@<server>`):
 Neovim 也從原始碼 build（v0.12.6），裝在家目錄，不用 root。
 
 Check the server has what the build needs (each line must say ok; MISSING → ask IT, Ubuntu: `gcc make cmake git curl`):
@@ -134,6 +142,7 @@ Python 的 LSP（ruff、pyright）用 pip 裝的是現成程式，只能用原�
 ## 3a. Server can't download / server 不能上網
 
 Prepare Neovim's source and its libraries on the PC and copy them over; the server then needs no network.
+The PC only downloads and packs **source**: the build itself still runs on the server (step 3).
 On the PC (PowerShell; the list is read from Neovim's own `cmake.deps\deps.txt`, so versions and checksums are Neovim's):
 在 PC 上把 Neovim 原始碼和它的函式庫抓好，複製到 server，server 不用上網。
 
@@ -156,7 +165,26 @@ tar -czf "$env:USERPROFILE\nvim-pack.tgz" -C $p neovim
 scp "$env:USERPROFILE\nvim-pack.tgz" <user>@<server>:
 ```
 
-On the server, unpack and put back what Windows loses (Linux file modes and links; `.deps` is not in git and stays):
+**Or on any Linux / Mac machine that can download** (e.g. an office server; needs `git`, `curl`, `tar`). Same files:
+也可以在任何能上網的 Linux / Mac（例如辦公室的 server）上抓，再把 `nvim-pack.tgz` 拿到 build 的 server：
+
+```sh
+p=~/hp; mkdir -p "$p" && cd "$p"
+git clone --depth 1 --branch v0.12.6 https://github.com/neovim/neovim.git
+libs=" LIBUV LUAJIT UNIBILIUM LUV LPEG LUA_COMPAT53 UTF8PROC TREESITTER TREESITTER_C TREESITTER_LUA TREESITTER_VIM TREESITTER_VIMDOC TREESITTER_QUERY TREESITTER_MARKDOWN "
+while read -r k u _; do
+  case "$k" in *_URL) n=${k%_URL} ;; *) continue ;; esac
+  case "$libs" in *" $n "*) ;; *) continue ;; esac
+  d="$p/neovim/.deps/build/downloads/$(printf %s "$n" | tr A-Z a-z)"
+  mkdir -p "$d" && curl -fsSL -o "$d/${u##*/}" "$u"
+done < "$p/neovim/cmake.deps/deps.txt"
+find "$p/neovim/.deps/build/downloads" -type f | wc -l     # must be 14
+tar -czf ~/nvim-pack.tgz -C "$p" neovim
+```
+
+Copy `~/nvim-pack.tgz` to the build server's home (`scp`, or however files reach it).
+
+On the server, unpack and put back what Windows loses (Linux file modes and links; `.deps` is not in git and stays; harmless for a pack made on Linux):
 
 ```sh
 mkdir -p ~/hp && tar -xzf ~/nvim-pack.tgz -C ~/hp && cd ~/hp/neovim
@@ -165,7 +193,8 @@ git -c core.fileMode=true -c core.symlinks=true reset -q --hard
 
 Then `mkdir -p ~/.local/bin` and step 3's block from `cd ~/hp/neovim` on (skip its first three lines). The `core.autocrlf=false` keeps the
 Linux line endings Neovim's build scripts need.
-Checked: Neovim v0.12.6 builds with the network blocked from these 14 files (on macOS); the PowerShell part has not
+Checked: Neovim v0.12.6 builds with the network blocked from these 14 files (on macOS). Done for real at the company:
+source fetched on an office Linux server, built on the RD server, jay-nvim follows there. The PowerShell part has not
 run on Windows yet.
 
 ---

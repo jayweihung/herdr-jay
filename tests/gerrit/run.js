@@ -484,7 +484,11 @@ test("ask an agent: only agents the start button opened are listed; a preset pro
 test("ask an agent: presets call the gerrit-panel skills; ✎ edits them (saved for every copy), 還原預設 brings the built-in ones back", async (G) => {
   setConfig(LOGIN); const g = freshView(G); g.cfg = await g.readConfig();
   const builtIn = g.agentCfg().prompts;
-  assert.ok(builtIn.every((p) => /^\/gerrit-panel:[a-z-]+ \{change\} \{patchset\} \{url\}$/.test(p.text)), "every preset calls a gerrit-panel skill");
+  assert.ok(builtIn.every((p) => /^\/gerrit-panel:[a-z-]+ \{change\} \{patchset\} \{url\}( \{requirements\})?$/.test(p.text)), "every preset calls a gerrit-panel skill");
+  const rv = g.promptVars({ _number: 6, project: "demo", mergeable: false,
+    submit_requirements: [{ name: "Code-Review", status: "UNSATISFIED" }, { name: "Verified", status: "SATISFIED" }, { name: "Old", status: "NOT_APPLICABLE" }] });
+  assert.equal(rv.requirements, "（面板看到：合併條件未過：Code-Review；合併衝突）", "why-blocked gets what the panel sees");
+  assert.equal(g.promptVars({ _number: 6, project: "demo" }).requirements, "", "nothing known: nothing added");
   for (const p of builtIn) {
     const name = p.text.match(/^\/gerrit-panel:([a-z-]+)/)[1];
     const md = readFileSync(new URL(`../../agents/gerrit-panel/skills/${name}/SKILL.md`, import.meta.url), "utf8");

@@ -313,7 +313,9 @@ Optional, in `gerrit.json`:
 ```
 
 - `prompts` replace the presets. Words in braces are filled in: `{change}` `{patchset}` `{url}` `{project}`
-  `{branch}` `{subject}` `{topic}` `{gerrit}`.
+  `{branch}` `{subject}` `{topic}` `{gerrit}`, and `{requirements}`: what the panel sees that the Gerrit
+  tools don't return (unmet submit requirements, a conflict), e.g. （面板看到：合併條件未過：Code-Review；合併衝突）.
+  為什麼沒過 sends it, so the agent never has to go around its tools.
 - Windows: the same, with the folder written with `/` or doubled `\\` (JSON), e.g.
   `"cwd": "C:/Users/you/gerrit-agent"`; `"start": ["claude"]` works as in Herdr's own agent menu (Claude Code on
   PATH). Sending goes through Herdr itself, so nothing else is needed on Windows.

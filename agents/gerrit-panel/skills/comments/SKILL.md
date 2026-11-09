@@ -19,4 +19,7 @@ Arguments: `$ARGUMENTS` — the change number, then optionally the patch set and
    - whether the latest patch set already seems to handle it.
 4. End with a short count: N 個未解決，其中 M 個要改程式、K 個只要回答.
 
-Rules: read only (no replies, drafts or votes unless the user then asks); answer in Traditional Chinese.
+Rules:
+- Use only the Gerrit MCP tools. Don't call Gerrit yourself (curl, scripts) and don't open the MCP's
+  gerrit_config.json: it holds the user's password. If a tool doesn't give something, say it can't be seen here.
+- read only (no replies, drafts or votes unless the user then asks); answer in Traditional Chinese.

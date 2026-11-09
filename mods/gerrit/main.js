@@ -128,9 +128,19 @@ const shortLink = (url) => {
 const AGENT_PROMPTS = [
   { label: "Review", text: "/gerrit-panel:review {change} {patchset} {url}" },
   { label: "整理留言", text: "/gerrit-panel:comments {change} {patchset} {url}" },
-  { label: "為什麼沒過", text: "/gerrit-panel:why-blocked {change} {patchset} {url}" },
+  { label: "為什麼沒過", text: "/gerrit-panel:why-blocked {change} {patchset} {url} {requirements}" },
   { label: "幫我回覆", text: "/gerrit-panel:draft-replies {change} {patchset} {url}" },
 ];
+// What the panel knows and the Gerrit MCP doesn't return (submit requirements, conflicts), as one line for a prompt.
+function requirementsText(c) {
+  const reqs = (c.submit_requirements ?? []).filter((r) => r.status !== "NOT_APPLICABLE");
+  const missing = reqs.filter((r) => r.status === "UNSATISFIED" || r.status === "ERROR").map((r) => r.name);
+  const parts = [];
+  if (reqs.length) parts.push(missing.length ? `合併條件未過：${missing.join("、")}` : "合併條件都過了");
+  if (c.mergeable === false) parts.push("合併衝突");
+  if (c.submittable) parts.push("可以送出");
+  return parts.length ? `（面板看到：${parts.join("；")}）` : "";
+}
 const fillPrompt = (text, vars) => String(text).replace(/\{(\w+)\}/g, (m, k) => (vars[k] != null ? String(vars[k]) : m));
 // Gerrit's size column: XS < 10 lines, S < 50, M < 250, L < 1000, XL.
 const size = (c) => {
@@ -413,7 +423,8 @@ export default class Gerrit extends View {
     const cur = c.revisions?.[c.current_revision]?._number ?? "";
     const base = shared(SAFE_CFG)?.url ?? this.cfg?.url ?? "";
     return { change: c._number, patchset: cur, project: c.project, branch: c.branch, subject: c.subject, topic: c.topic ?? "",
-      url: base ? `${String(base).replace(/\/+$/, "")}/c/${c.project}/+/${c._number}` : `#${c._number}`, gerrit: base };
+      url: base ? `${String(base).replace(/\/+$/, "")}/c/${c.project}/+/${c._number}` : `#${c._number}`, gerrit: base,
+      requirements: requirementsText(c) };
   }
   async askAgent(c, p, cx) {
     const target = this.pickedAgent(this.agentList());

@@ -21,6 +21,8 @@ Arguments: `$ARGUMENTS` — the change number, then optionally the patch set and
    - unresolved comments the latest patch set doesn't address yet.
 
 Rules:
+- Use only the Gerrit MCP tools. Don't call Gerrit yourself (curl, scripts) and don't open the MCP's
+  gerrit_config.json: it holds the user's password. If a tool doesn't give something, say it can't be seen here.
 - Read only. Don't post comments, drafts or votes, and don't change the change, unless the user then asks.
 - If a tool fails (not logged in, no such change), say so and stop; don't guess.
 - Answer in Traditional Chinese (code, names and paths stay as they are).

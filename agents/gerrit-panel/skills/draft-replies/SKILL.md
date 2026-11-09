@@ -19,4 +19,7 @@ Arguments: `$ARGUMENTS` — the change number, then optionally the patch set and
 4. Only after the user says which ones are fine: save those with `post_draft_comment` and `in_reply_to` (drafts,
    not published), and say they can review and send them in Gerrit or the Herdr panel.
 
-Rules: never publish comments or vote; never save a draft the user hasn't approved.
+Rules:
+- Use only the Gerrit MCP tools. Don't call Gerrit yourself (curl, scripts) and don't open the MCP's
+  gerrit_config.json: it holds the user's password. If a tool doesn't give something, say it can't be seen here.
+- never publish comments or vote; never save a draft the user hasn't approved.

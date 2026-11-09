@@ -507,13 +507,13 @@ local function root_view_dir()
   return d and d ~= "" and vim.uv.fs_access(d .. "/index.jsonl", "R") and d or nil
 end
 -- A new pane has no "where" in hc ls for its first seconds, so keep asking for 10s until a claude-code agent shows up.
--- One short line (a long one stops nvim at "Press ENTER" in a narrow pane).
+-- One short line (a long one stops nvim at "Press ENTER" in a narrow pane), kept in :messages.
 local root_probe, root_tries = new_timer(), 0
 if P.sudo_check and not P.root then root_probe:start(0, 1000, vim.schedule_wrap(function()
   root_tries = root_tries + 1
   local agent = (JN.agents() or {})[1]
   if agent and runs_as_root(agent) then
-    vim.api.nvim_echo({ { root_view_dir() and "root 的 agent：跟它留的複本（唯讀）" or "root 的 agent：跟不到（沒有 root_view）", "WarningMsg" } }, false, {})
+    vim.api.nvim_echo({ { root_view_dir() and "root 的 agent：跟它留的複本（唯讀）" or "root 的 agent：跟不到（沒有 root_view）", "WarningMsg" } }, true, {})
   end
   if (agent and agent.agent == "claude-code") or root_tries >= 10 then root_probe:stop() end
 end)) end

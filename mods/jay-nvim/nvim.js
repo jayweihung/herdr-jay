@@ -902,55 +902,29 @@ map("n", "<leader>af", JN.toggle_follow, { desc = "跟著 agent 開檔（開／�
 -- and pyright / typescript-language-server are node scripts that need node on it.
 -- A server not installed on this machine is skipped. Keys are nvim's defaults (K, grr, grn, gra, [d ]d) plus gd.
 -- Never as root: the servers load code from the project (tsserver from its node_modules), which you can write.
--- pyright runs the project's Python (its venv) and ts_ls the project's own tsserver: both run the project's code,
--- so they start only in folders you trust (:JayTrust, kept in ~/.config/jay-nvim/trust). ruff only reads files.
+-- pyright runs the project's Python (its venv) and ts_ls the project's own tsserver: both run the project's code.
+-- They start in every project, without asking (jay's choice); ruff only reads files.
 if not P.root then
 if P.extra_path and (vim.env.PATH or ""):sub(1, #P.extra_path[1]) ~= P.extra_path[1] then
   vim.env.PATH = table.concat(vim.list_extend(vim.list_extend({}, P.extra_path), { vim.env.PATH or "" }), P.path_sep)
 end
-local TRUST = HOME .. "/.config/jay-nvim/trust"
-local function trusted(dir)
-  local d = P.key(dir):gsub("/$", "") .. "/"
-  for _, line in ipairs(vim.fn.filereadable(TRUST) == 1 and vim.fn.readfile(TRUST) or {}) do
-    local t = P.key(vim.trim(line)):gsub("/$", "") .. "/"
-    local h = P.key(HOME):gsub("/$", "") .. "/"
-    -- a line for home or above (or a drive) would trust every project: ignored
-    if t ~= "/" and not t:match("^%a:/$") and h:sub(1, #t) ~= t and d:sub(1, #t) == t then return true end
-  end
-end
-local told = {}
-local function only_trusted(markers, need)
+-- No trust step (jay, 2026-11-09): pyright / ts_ls start in any project; they may run that project's code.
+local function project_root(markers, need)
   return function(b, on_dir)
     local r = vim.fs.root(b, markers)
-    if not r or (need and not need(r)) then return end
-    if trusted(r) then return on_dir(r) end
-    if not told[r] then
-      told[r] = true
-      vim.notify(("pyright / TypeScript 沒啟動（K 不會顯示型別）：%s 還沒信任（它們會跑專案的程式碼）。\n要啟用：打 :JayTrust 按 Enter，再打 :e 重開檔案。每個專案只要一次。"):format(r), vim.log.levels.WARN)
-    end
+    if r and (not need or need(r)) then return on_dir(r) end
   end
 end
-vim.api.nvim_create_user_command("JayTrust", function(o)
-  local r = o.args ~= "" and vim.fn.fnamemodify(o.args, ":p") or vim.fs.root(0, { "pyproject.toml", "setup.py", "tsconfig.json", "package.json", ".git" }) or vim.fn.getcwd()
-  local k, h = P.key(r):gsub("/$", ""), P.key(HOME):gsub("/$", "")
-  -- subfolders count: trusting home or a drive would trust every project
-  if k == "" or k:match("^%a:$") or h:sub(1, #k + 1) == k .. "/" or k == h then
-    return vim.notify("不信任 " .. r .. "：這是家目錄或更上層，等於信任所有專案。請在專案資料夾裡打 :JayTrust，或 :JayTrust <專案資料夾>", vim.log.levels.WARN)
-  end
-  vim.fn.mkdir(vim.fs.dirname(TRUST), "p")
-  vim.fn.writefile({ r }, TRUST, "a")
-  vim.notify("已信任 " .. r .. "（重開這個檔就會啟動）")
-end, { nargs = "?", complete = "dir", desc = "信任這個專案：pyright / TypeScript 可以在這裡啟動" })
 vim.diagnostic.config({ virtual_text = true, severity_sort = true })
 local py_root = { "pyproject.toml", "ruff.toml", "setup.py", ".git" } -- backend/ruff.toml makes backend/ the root, so "from app..." resolves
 for name, c in pairs({
-  pyright = { cmd = { "pyright-langserver", "--stdio" }, filetypes = { "python" }, root_dir = only_trusted(py_root) },
+  pyright = { cmd = { "pyright-langserver", "--stdio" }, filetypes = { "python" }, root_dir = project_root(py_root) },
   ruff = { cmd = { "ruff", "server" }, filetypes = { "python" }, root_markers = py_root },
   -- Only where the project has its own TypeScript (node_modules/typescript): the server needs its tsserver, and a
   -- global TypeScript 7 (the Go rewrite) ships none, so elsewhere it fails to start with an error popup.
   ts_ls = { cmd = { "typescript-language-server", "--stdio" },
     filetypes = { "javascript", "javascriptreact", "typescript", "typescriptreact" },
-    root_dir = only_trusted({ "tsconfig.json", "package.json", ".git" },
+    root_dir = project_root({ "tsconfig.json", "package.json", ".git" },
       function(r) return vim.uv.fs_stat(r .. "/node_modules/typescript/lib/tsserver.js") end) },
 }) do
   local exe = P.bin(c.cmd[1]) -- the full path: never a program sitting in the project folder

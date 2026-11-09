@@ -248,10 +248,9 @@ npm install -g --prefix ~/.local --offline --omit=optional --no-audit --no-fund 
 
 1. Close the nvim pane and open it again (`ctrl-shift-i`): nvim looks for pyright when it opens.
    nvim 那格關掉重開（`ctrl-shift-i`），它開的時候才會找 pyright。
-2. Open a `.py` file of the project. The first time nvim says
-   「pyright / TypeScript 沒啟動…還沒信任」: type `:JayTrust` Enter, then `:e` Enter. Once per project
-   (pyright runs the project's Python, so it starts only in folders you trust; [nvim.md §3](nvim.md#3-language-servers-and-trust--語言伺服器和信任)).
-   第一次會說「還沒信任」：打 `:JayTrust` 按 Enter，再打 `:e` 按 Enter。每個專案一次。
+2. Open a `.py` file of the project. pyright starts by itself; nothing to type (no `:JayTrust`).
+   It runs the project's Python, so don't open repos you don't trust ([nvim.md §3](nvim.md#3-language-servers--語言伺服器)).
+   打開 `.py` 檔 pyright 就會自己啟動，不用打任何指令。
 3. Then, on a name:
    - **right-click** → 跳到定義 / 看型別 / 找所有用到的地方 / 改名 (Shift + right-click is Herdr's own menu);
    - or keys: `gd` go to definition, `K` its type, `grr` every use, `ctrl-o` jump back;
@@ -262,7 +261,7 @@ npm install -g --prefix ~/.local --offline --omit=optional --no-audit --no-fund 
 | What you see / 看到什麼 | Why / 原因 | Fix / 怎麼修 |
 |---|---|---|
 | Right-click shows Herdr's menu (or nvim's English one), not the Chinese one | this nvim wasn't opened by jay-nvim, or the pane didn't get the `herdr.right-click=program` label | open nvim with `ctrl-shift-i`, not by typing `nvim`; `:lua print(JN ~= nil, vim.env.HC_TERMINAL_ID)` must print `true` and an id |
-| The menu is there but 跳到定義 / 看型別 are grey | pyright not running here | no pyright (Check above), or not trusted (step 2) |
+| The menu is there but 跳到定義 / 看型別 are grey | pyright not running here | no pyright (Check above); or the file was open before pyright was installed (`:e`) |
 | `:checkhealth vim.lsp`: pyright exits, "env: node: No such file" | `node` not on the pane's PATH | ask IT where node is; it must be in `/usr/bin`, `/usr/local/bin` or `~/.local/bin` |
 | `npm install` tries the network with `--offline` | an old npm, or the `.tgz` name differs | use the full path to the `.tgz`; `npm --version` ≥ 7 |
 
@@ -306,7 +305,7 @@ Restart the agent. **Check**: after it changes a file outside the repo with a sh
 2. With its pane focused: `ctrl-shift-i` (Windows) / `cmd-e` (Mac) → nvim opens **on the server**, beside it.
 3. Ask the agent to read / edit a file → nvim follows (then add the snap hook, §4); `ctrl-shift-j` / `cmd-o` → the list (alt+o reaches nvim).
 4. `space a c` → comment, `space a s` → sent to the agent.
-5. Only if pyright is on the server ([3b](#3b-python-go-to-definition-pyright-optional--python-跳定義選用)): `:JayTrust` once per project, then right-click a name → 跳到定義.
+5. Only if pyright is on the server ([3b](#3b-python-go-to-definition-pyright-optional--python-跳定義選用)): right-click a name → 跳到定義.
 
 Bring jay the results like the Windows checklist (photos, `:messages`, and `hc machine ls` on the PC).
 

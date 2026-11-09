@@ -385,8 +385,7 @@ the screen and of `:messages` in nvim, note the step number, go on.
 9. Focus Claude's pane, press `ctrl-shift-j` → focus jumps to nvim and the list opens. `Esc`, then `:set modified?`
    → `nomodified` (nothing typed into the file). Again from insert mode (`i` first).
 10. `space a c` on a line, type `test`, Enter; `space a l` lists it; `space a s` → Claude gets one message, sent once.
-11. Python file, pyright installed: first a note "pyright / TypeScript 沒啟動（K 不會顯示型別）：… 還沒信任" → `:JayTrust`, reopen the file
-    (`:e`). Rest the mouse on a function name → a type popup after ~0.6 s. Right-click → the Chinese menu
+11. Python file, pyright installed: no note, nothing to type (no `:JayTrust` any more). Rest the mouse on a function name → a type popup after ~0.6 s. Right-click → the Chinese menu
     (Shift + right-click → Herdr's).
 12. Put an error in the Python file → a message shows inline; `gd` on a name → jumps to its definition.
 13. A second jay-nvim (another tab, same file): type in one → a yellow note "… 的 nvim 也開著這個檔".
@@ -397,7 +396,7 @@ the screen and of `:messages` in nvim, note the step number, go on.
 
 ## 7. When something goes wrong / 出問題時
 
-nvim itself (follow, trust, LSP, comments): [docs/nvim.md → 8](nvim.md#8-when-something-goes-wrong--出問題時).
+nvim itself (follow, LSP, comments): [docs/nvim.md → 8](nvim.md#8-when-something-goes-wrong--出問題時).
 Here: install and Windows.
 
 | What you see / 看到什麼 | Why / 原因 | Fix / 怎麼修 |

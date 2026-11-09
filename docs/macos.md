@@ -179,8 +179,8 @@ herdr-app check ~/.config/herdr-app/mods/jay-nvim-pick
 3. Ask Claude to read or edit a file → nvim opens it; edits show red `-` / green `+`.
 4. `cmd-o` → jumps to that nvim and lists the files Claude read or edited. In nvim: `space o`.
 5. Comment a line: `space a c`. Send all comments to Claude: `space a s`.
-6. Python / TypeScript: run `:JayTrust` once per project so pyright / TypeScript start
-   ([why](nvim.md#3-language-servers-and-trust--語言伺服器和信任)).
+6. Python / TypeScript: open a file; pyright / TypeScript start by themselves
+   ([what they run](nvim.md#3-language-servers--語言伺服器)).
 
 All keys and features: [docs/nvim.md](nvim.md). On a space of another machine (Herdr "machines"), the pane opens
 there: that machine needs nvim ≥ 0.11, git and `hc`.
@@ -202,7 +202,7 @@ there: that machine needs nvim ≥ 0.11, git and `hc`.
 | Two Herdrs, or Herdr updates itself | an official app is still installed | step 1, remove it |
 | `hc --version` shows another version than you built | `hc update`, "Update herdr-core" or an official installer ran | step 2 `just install` again |
 
-nvim itself (follow, trust, LSP, comments): [docs/nvim.md → 8](nvim.md#8-when-something-goes-wrong--出問題時).
+nvim itself (follow, LSP, comments): [docs/nvim.md → 8](nvim.md#8-when-something-goes-wrong--出問題時).
 
 ---
 

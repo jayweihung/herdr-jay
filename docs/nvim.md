@@ -10,7 +10,7 @@ Needs **Neovim 0.11 or newer**, `git`, and `hc` on the machine where the pane op
 
 1. [Features](#1-features--功能)
 2. [Keys](#2-keys--按鍵)
-3. [Language servers and trust](#3-language-servers-and-trust--語言伺服器和信任)
+3. [Language servers](#3-language-servers--語言伺服器)
 4. [macOS vs Windows](#4-macos-vs-windows--兩個系統的差別)
 5. [How it is built](#5-how-it-is-built--程式結構)
 6. [Agent running as root](#6-agent-running-as-root--agent-用-root-跑)
@@ -35,7 +35,7 @@ Needs **Neovim 0.11 or newer**, `git`, and `hc` on the machine where the pane op
   …) count as agents — never a shell, ssh or a REPL, where the quoted lines would run as commands.
   Comment spans and message shape follow [herdr-nvim](https://github.com/ChmaraX/herdr-nvim) (MIT).
 - **Files the agent touched**: a list of files the agent read or edited, newest first, plus files git shows as changed.
-- **Language servers**: go to definition, hover, errors — see [3](#3-language-servers-and-trust--語言伺服器和信任).
+- **Language servers**: go to definition, hover, errors — see [3](#3-language-servers--語言伺服器).
 - **Mouse**: rest the pointer on a name for its type, on an error to read it; right-click menu in Chinese. Herdr gives
   right-clicks to the program only when the pane is labelled `herdr.right-click=program`; jay-nvim sets that label.
   Shift + right-click still opens Herdr's menu.
@@ -63,23 +63,23 @@ Inside nvim (`space` is the leader), the same everywhere:
 | `space a s` | send all comments to the agent |
 | `space a f` | follow the agent on / off |
 | `gd` | go to definition; `K` hover; `[d` `]d` errors (nvim's defaults) |
-| `:JayTrust` | trust this project for pyright / TypeScript |
 
-## 3. Language servers and trust / 語言伺服器和信任
+## 3. Language servers / 語言伺服器
 
 Started only if installed on that machine (never as root):
 
 | Server | For | Runs project code? | Starts |
 |---|---|---|---|
 | `ruff` | Python lint | no (reads files) | always |
-| `pyright` | Python types, go to definition | yes: the project's Python (its venv) | only in trusted folders |
-| `typescript-language-server` | JS / TS | yes: the project's own `node_modules/typescript` | only in trusted folders that have it |
+| `pyright` | Python types, go to definition | yes: the project's Python (its venv) | always |
+| `typescript-language-server` | JS / TS | yes: the project's own `node_modules/typescript` | when the project has it |
 
-A cloned repo or a pull request can be someone else's code; follow mode opens files without asking. So the two servers
-that run project code start only in folders listed in `~/.config/jay-nvim/trust` (one folder per line; subfolders
-count). The first time, nvim tells you; `:JayTrust` adds the current project (or `:JayTrust <folder>`), then reopen the file.
-It refuses your home folder or anything above it (that would trust every project).
-會跑專案程式碼的兩個伺服器，只在你信任的資料夾啟動；第一次會提示，打 `:JayTrust` 就好。
+There is **no trust step** (no `:JayTrust`; removed 2026-11-09 by jay's choice): opening a `.py` / `.ts` file starts
+the server right away. The cost: pyright runs the project's Python (e.g. its `.venv/bin/python`) and TypeScript its
+own `node_modules/typescript`, as you. A cloned repo or a pull request can be someone else's code, and follow mode
+opens files without asking, so keep repos you don't trust out of nvim (or open them where pyright isn't installed).
+不用再打 `:JayTrust`：打開檔案就會啟動。代價是 pyright／TypeScript 會用你的身分跑專案裡的 Python／TypeScript；
+不信任的 repo 不要用這個 nvim 開。
 
 git, the language servers and hc are run by full path; on Windows never from the project folder (Windows would
 otherwise run a `git.exe` or `ruff.exe` sitting in it). netrw's tree runs `git` by name through the shell, and the
@@ -175,7 +175,6 @@ OS-specific problems (install, PATH, keys) are in each install guide. These are 
 | "jay-nvim needs Neovim 0.11 or newer" | Neovim older than 0.11 (e.g. Ubuntu's apt) | install a newer Neovim (the official release or a PPA) |
 | "找不到 hc" inside nvim | `hc` not found | install Herdr core; check `hc --version` |
 | nvim never follows the agent | agent isn't Claude Code, nothing read yet, or follow is off | `space a f`; on Windows see [4](#4-macos-vs-windows--兩個系統的差別) |
-| "pyright / TypeScript 沒啟動 … 還沒信任" | folder not trusted | `:JayTrust`, then reopen the file |
 | No hover / go-to-definition | server not installed on that machine | install it; `:checkhealth vim.lsp` |
 | No "another nvim has this file" warning | the other nvim uses no swap file, or is on another machine | — |
 

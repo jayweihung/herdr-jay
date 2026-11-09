@@ -6,7 +6,7 @@
 // "gerrit-panel" (like the CI and git buttons). The toggle polls and shares the lists; the panel draws them.
 // A panel with no toggle in the layout polls itself and offers to move into the tab bar.
 import { View, div } from "gpui-kit";
-import { v_flex, h_flex, TextareaState, Textarea } from "gpui-base";
+import { v_flex, h_flex, TextareaState, Textarea, InputState, Input } from "gpui-base";
 import { theme, settings, notify, home, readTextFile, run, layout, shared, setShared, window, props as blockProps } from "herdr";
 
 const TOGGLE = "gerrit-toggle", PANEL = "gerrit-panel";
@@ -57,6 +57,16 @@ const DEFAULT_SECTIONS = [
   { title: "最近合併／放棄", query: "is:closed (owner:self OR reviewer:self) -age:4w", closed: true },
 ];
 const OPTS = "o=LABELS&o=DETAILED_ACCOUNTS&o=SUBMITTABLE";
+const SEARCH_LIMIT = 50;
+// "123", "#123", or a Gerrit link (…/c/project/+/123, …/#/c/123/, …/123/2) -> 123; anything else -> null
+function changeNumber(text) {
+  const s = String(text).trim();
+  let m = s.match(/^#?(\d+)$/);
+  if (m) return Number(m[1]);
+  if (!/^https?:\/\//i.test(s)) return null;
+  m = s.match(/\/\+\/(\d+)/) ?? s.match(/\/c\/(\d+)(?:\/|$)/) ?? s.match(/\/(\d+)\/?(?:\d+\/?)?(?:[?#].*)?$/);
+  return m ? Number(m[1]) : null;
+}
 const LIMIT = 25;
 
 const fs = () => Number(settings().ui_font_size) || 13;
@@ -117,10 +127,11 @@ function voteValue(t, v) {
 export default class Gerrit extends View {
   init(_p, cx) {
     this.role = blockProps()?.role ?? "panel";
-    if (this.role !== "toggle") { this.replyState(); this.peopleState(); } // input state can't be made while drawing
-    // props {open: "<change id or number>", diff: "<file path>"}: start on that change (and file), e.g. in a tab of its own
+    if (this.role !== "toggle") { this.replyState(); this.peopleState(); this.searchState(); } // input state can't be made while drawing
+    // props {open: "<change id or number>", diff: "<file path>"} or {search: "<Gerrit search>"}: start there, e.g. in a tab of its own
     const start = blockProps() ?? {};
-    this.inTab = Boolean(start.open); // a copy started on a change (its own tab): the panel's width isn't its business
+    this.inTab = Boolean(start.open || start.search); // a copy started on a change or search (its own tab): the panel's width isn't its business
+    if (this.role !== "toggle" && start.search && !start.open) cx.spawn(async (cx) => { this.searchState().set_value(String(start.search)); await this.runSearch(cx); });
     if (this.role !== "toggle" && start.open) cx.spawn(async (cx) => {
       await this.openChange({ id: String(start.open) }, cx);
       if (start.diff && this.detail && !this.detail.error) await this.openDiff(String(start.diff), cx);
@@ -223,9 +234,68 @@ export default class Gerrit extends View {
     }
   }
 
+  // Made in init (never in render). The search box above the list.
+  searchState() {
+    if (!this.searchBox) {
+      this.searchBox = InputState.new({ placeholder: "號碼、網址，或 owner:alice is:open …" });
+      this.searchBox.on("submit", (_e, cx) => cx.spawn(async (cx) => this.runSearch(cx))); // Enter
+    }
+    return this.searchBox;
+  }
+
+  // A number or a pasted Gerrit link opens that change; anything else is a Gerrit search (same text as its search box).
+  async runSearch(cx) {
+    const q = this.searchState().value().trim();
+    if (!q) { this.search = null; cx.notify(); return; }
+    const n = changeNumber(q);
+    if (n) { this.search = null; this.searchState().set_value(""); await this.openChange({ _number: n, id: String(n) }, cx); return; }
+    this.search = { q, loading: true, items: [] };
+    cx.notify();
+    try {
+      this.cfg = await this.readConfig();
+      const items = await this.get(`/changes/?q=${encodeURIComponent(`${q} limit:${SEARCH_LIMIT}`)}&${OPTS}`);
+      if (this.search?.q === q) this.search = { q, items: items ?? [] };
+    } catch (e) {
+      if (this.search?.q === q) this.search = { q, items: [], error: String(e.message ?? e) };
+    }
+    cx.notify();
+  }
+
+  // Abandon (press twice), restore, rebase, WIP / ready: only what Gerrit says this change allows you now.
+  async changeAction(c, what, cx) {
+    if (what === "abandon" && (this.armed !== `abandon-${c.id}` || Date.now() - this.armedAt > 4000)) {
+      this.armed = `abandon-${c.id}`; this.armedAt = Date.now(); cx.notify();
+      cx.spawn(async (cx) => { await cx.sleep(4100); cx.notify(); });
+      return;
+    }
+    const path = what === "rebase" ? `/changes/${cid(c)}/revisions/current/rebase` : `/changes/${cid(c)}/${what}`;
+    await this.act(what, () => this.req("POST", path, {}), cx);
+  }
+
+  changeButtons(t, z, c) {
+    const on = (k) => c.actions?.[k]?.enabled === true;
+    const revOn = (k) => c.revisions?.[c.current_revision]?.actions?.[k]?.enabled === true;
+    const busy = Boolean(this.sending);
+    const row = h_flex().gap(6).flex_wrap();
+    const b = (what, label, kind) => row.child(this.big(t, z, `ca-${what}`, this.sending === what ? "處理中…" : label,
+      { kind, off: busy, on: (cx) => cx.spawn(async (cx) => this.changeAction(c, what, cx)) }));
+    if (revOn("rebase")) b("rebase", "⤴ Rebase");
+    if (on("ready")) b("ready", "✓ 可以 review 了（Ready）");
+    if (on("wip")) b("wip", "✎ 改回草稿（WIP）");
+    if (on("restore")) b("restore", "↺ 恢復（Restore）");
+    if (on("abandon")) {
+      const armed = this.armed === `abandon-${c.id}` && Date.now() - this.armedAt <= 4000;
+      b("abandon", armed ? "再按一次確認放棄" : "🗑 放棄（Abandon）", armed ? "danger" : undefined);
+    }
+    return row;
+  }
+
   // Made in init (never in render). The box to find someone to add as reviewer or CC.
   peopleState() {
-    if (!this.people) this.people = TextareaState.new({ placeholder: "名字、帳號或 email", rows: 1 });
+    if (!this.people) {
+      this.people = InputState.new({ placeholder: "名字、帳號或 email" });
+      this.people.on("submit", (_e, cx) => cx.spawn(async (cx) => this.findPeople(cx))); // Enter
+    }
     return this.people;
   }
 
@@ -282,7 +352,7 @@ export default class Gerrit extends View {
       .child(h_flex().gap(6).items_center()
         .child(div().id("people-box").flex_1().h(34).px(6).flex().items_center().rounded(6).bg(t.background).border_1().border_color(t.input)
           .cursor_text().on_mouse_down("left", stop)
-          .child(Textarea.new(this.peopleState()).w_full().text_size(z).text_color(t.foreground)))
+          .child(Input.new(this.peopleState()).w_full().text_size(z).text_color(t.foreground)))
         .child(this.big(t, z, "people-find", this.finding ? "找…" : "🔍 找人", { kind: "primary", off: this.finding, on: (cx) => cx.spawn(async (cx) => this.findPeople(cx)) }))
         .child(this.big(t, z, "people-close", "關閉", { on: (cx) => { this.addingPeople = false; this.found = []; cx.notify(); } })));
     for (const a of this.found ?? []) {
@@ -440,7 +510,7 @@ export default class Gerrit extends View {
       this.cfg = await this.readConfig(); // the panel's own copy (the button may be the one polling)
       const id = cid(c);
       const [d, comments] = await Promise.all([
-        this.get(`/changes/${id}/detail?o=ALL_REVISIONS&o=CURRENT_FILES&o=CURRENT_COMMIT&o=DETAILED_LABELS&o=MESSAGES&o=SUBMITTABLE`),
+        this.get(`/changes/${id}/detail?o=ALL_REVISIONS&o=CURRENT_FILES&o=CURRENT_COMMIT&o=DETAILED_LABELS&o=MESSAGES&o=SUBMITTABLE&o=CHANGE_ACTIONS&o=CURRENT_ACTIONS`),
         this.get(`/changes/${id}/comments`).catch(() => ({})),
       ]);
       if (this.openId === c.id) this.detail = { change: d, comments };
@@ -460,7 +530,7 @@ export default class Gerrit extends View {
     if (cfg.missing || cfg.error) return root.child(this.setup(t, z, cfg));
     if (this.openId && this.detail && this.diff) return root.child(this.header(t, z, true)).child(this.renderDiff(t, z));
     if (this.openId && this.detail) return root.child(this.header(t, z, true)).child(this.renderDetail(t, z, cx));
-    return root.child(this.header(t, z, false)).child(this.renderList(t, z));
+    return root.child(this.header(t, z, false)).child(this.searchBar(t, z)).child(this.renderList(t, z));
   }
 
   // The tab-bar button: "Gerrit" plus how many changes wait for you; click shows / hides the panel.
@@ -515,8 +585,27 @@ export default class Gerrit extends View {
       .when(!back && Boolean(status), (el) => el.child(div().px(12).pb(5).text_size(z - 1.5).truncate().text_color(this.err ? t.ansi1 : t.muted).child(status)));
   }
 
+  searchBar(t, z) {
+    return h_flex().flex_none().px(10).py(6).gap(6).items_center().border_b(1).border_color(t.border)
+      .child(div().id("search-box").flex_1().min_w(0).h(34).px(6).flex().items_center().rounded(6).bg(t.background).border_1().border_color(t.input)
+        .cursor_text().on_mouse_down("left", stop)
+        .child(Input.new(this.searchState()).w_full().text_size(z).text_color(t.foreground)))
+      .child(this.big(t, z, "search", this.search?.loading ? "搜尋中…" : "🔍 搜尋", { kind: "primary", off: Boolean(this.search?.loading), on: (cx) => cx.spawn(async (cx) => this.runSearch(cx)) }))
+      .when(Boolean(this.search), (el) => el.child(this.big(t, z, "search-clear", "清除", { on: (cx) => { this.search = null; this.searchState().set_value(""); cx.notify(); } })));
+  }
+
   renderList(t, z) {
     const list = v_flex().id("list").flex_1().min_h(0).overflow_y_scrollbar();
+    if (this.search) {
+      const sr = this.search, sec = { title: "搜尋" };
+      list.child(h_flex().px(10).py(6).gap(6).items_center().bg(t.chrome).border_b(1).border_color(t.border)
+        .child(div().flex_1().min_w(0).truncate().font_semibold().text_size(z - 0.5).child(`搜尋：${sr.q}`))
+        .child(div().text_color(t.muted).text_size(z - 1).child(sr.loading ? "…" : sr.error ? "讀不到" : sr.items.length >= SEARCH_LIMIT ? `前 ${SEARCH_LIMIT} 個` : String(sr.items.length))));
+      if (sr.error) list.child(div().px(14).py(6).text_size(z - 1).text_color(t.ansi1).whitespace_normal().child(sr.error));
+      else if (!sr.loading && !sr.items.length) list.child(div().px(14).py(6).text_size(z - 1).text_color(t.dim).child("沒有符合的 change"));
+      for (const c of sr.items) list.child(this.row(t, z, c, sec));
+      return list;
+    }
     for (const s of this.sections ?? []) {
       const open = !this.collapsed.has(s.title);
       list.child(h_flex().id(`sec-${s.title}`).px(10).py(6).gap(6).items_center().bg(t.chrome).border_b(1).border_color(t.border)
@@ -772,7 +861,9 @@ export default class Gerrit extends View {
           { kind: armed ? "danger" : undefined, off: busy, on: (cx) => cx.spawn(async (cx) => this.submit(c, cx)) }));
       }
       card.child(row);
+      card.child(this.changeButtons(t, z, c));
     } else {
+      if (c.actions?.restore?.enabled === true) card.child(this.changeButtons(t, z, c));
       card.child(div().text_size(z - 1).text_color(t.muted).child(c.status === "MERGED" ? "已合併：只能看。" : "已放棄：只能看。"));
     }
     if (this.actErr) card.child(div().text_size(z - 1).text_color(t.ansi1).whitespace_normal().child(`沒送出：${this.actErr}`));

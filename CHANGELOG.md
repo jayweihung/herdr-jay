@@ -7,6 +7,7 @@ Needs: **mods** = copy the two mod folders again (macOS symlinks: nothing) · **
 
 ## 2026-11-10
 
+- **Gerrit panel: search, rebase / abandon / WIP** ([docs/gerrit.md §3](docs/gerrit.md#3-what-you-see--畫面)): a search box above the sections (a number or pasted Gerrit link opens the change; other text is a Gerrit search; Enter works), `{"search":"…"}` for a search in its own tab; on a change, Rebase, Ready / WIP, Abandon (press twice) and Restore, shown only when Gerrit allows them. Needs **gerrit** (Windows: copy it again), restart Herdr.
 - **Gerrit panel: Reviewer／CC** on a change's page: see them, add (search by name → 加 Reviewer / 加 CC), move between the two, remove (on your own changes). Score rows show the label's full name (Code-Review, Build, Verified …). Needs **gerrit** (Windows: copy it again), restart Herdr.
 - Gerrit panel: tests (`node tests/gerrit/run.js`, no Herdr or Gerrit needed): settings file, login errors, change ids with "/", one section per change, old Gerrit without attention, notifications, reply / thread reply / submit requests, diff folding, and drawing every page without Herdr's render errors.
 - **Gerrit panel: each change in one section** ([docs/gerrit.md §3](docs/gerrit.md#3-what-you-see--畫面)): 輪到你 no longer repeats under the others, which are now 我送出的（等對方）and 我在 review（等對方）. The 在瀏覽器開 button is gone (long diffs load more in place). Needs **gerrit**, restart Herdr.

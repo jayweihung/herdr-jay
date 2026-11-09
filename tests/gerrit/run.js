@@ -12,6 +12,9 @@ const here = dirname(fileURLToPath(import.meta.url));
 const MOD = join(here, "..", "..", "mods", "gerrit", "main.js");
 
 // ---------- stubs for gpui-kit / gpui-base / herdr ----------
+// Herdr gives each copy its own localStorage; Node 22+ warns about its own unless replaced
+const mem = new Map();
+Object.defineProperty(globalThis, "localStorage", { configurable: true, value: { getItem: (k) => mem.get(k) ?? null, setItem: (k, v) => mem.set(k, String(v)), removeItem: (k) => mem.delete(k) } });
 const H = (globalThis.__H = {
   rendering: false, store: {}, notes: [], runs: [], home: "", props: {}, layout: { id: "root", children: [] },
   colors: [],
@@ -36,11 +39,13 @@ const el = new Proxy(function () {}, {
 const textState = (o) => {
   if (H.rendering) throw new Error("TextareaState.new() called while drawing");
   let v = o?.value ?? "";
-  return { value: () => v, set_value: (x) => { v = x; }, set_auto_grow() {}, set_soft_wrap() {}, focus() {} };
+  const handlers = {};
+  return { value: () => v, set_value: (x) => { v = x; }, set_auto_grow() {}, set_soft_wrap() {}, focus() {},
+    on: (ev, fn) => { handlers[ev] = fn; return true; }, fire: (ev) => handlers[ev]?.({}, cx) };
 };
 globalThis.__stubs = {
   View: class {}, div: () => el, svg: () => el, v_flex: () => el, h_flex: () => el,
-  Textarea: { new: () => el }, TextareaState: { new: textState },
+  Textarea: { new: () => el }, TextareaState: { new: textState }, Input: { new: () => el }, InputState: { new: textState },
   // theme colors as Herdr gives them: #rrggbb
   theme: () => new Proxy({}, { get: (_t, k) => (k === "then" ? undefined : "#334455") }),
   settings: () => ({}), window: () => ({ platform: "macos" }),
@@ -246,7 +251,9 @@ test("render: list, setup, change page, diff and the tab-bar button draw without
   render(g);
   g.diff = { path: "Makefile", open: new Set(), data: { content: [{ ab: ["a"] }, { a: ["b"], b: ["c"] }] } }; render(g);
   g.lineBox = { key: "b:2", side: "b", line: 2, state: textState() }; render(g);
+  g.detail.change.actions = { abandon: { enabled: true }, wip: { enabled: true } }; g.detail.change.revisions.abc.actions = { rebase: { enabled: true } };
   g.diff = null; g.detail.change.reviewers = { REVIEWER: [ME], CC: [ALICE] }; g.addingPeople = true; g.found = [ALICE]; render(g); // people box open
+  g.detail.change = { ...g.detail.change, status: "ABANDONED", actions: { restore: { enabled: true } } }; render(g); // abandoned: 恢復
   H.props = { role: "toggle" }; const t = new G(); t.init({}, { timer: { every() {} }, spawn: () => {} }); render(t);
 });
 
@@ -263,6 +270,40 @@ test("people: find by name, add as reviewer or CC (moving is the same call), rem
   await g.removePerson(change(7), ALICE, cx);
   assert.ok(seen.some((r) => r.method === "POST" && r.path === "/a/changes/7/reviewers/1000003/delete"));
   g.peopleState().set_value("nobody"); await g.findPeople(cx); assert.match(g.actErr, /找不到「nobody」/);
+});
+
+test("search: a number or a Gerrit link opens the change; other text is a Gerrit search; Enter searches", async (G) => {
+  setConfig(LOGIN); const g = freshView(G);
+  gerrit([["GET", /^\/a\/changes\/\d+\/detail/, (r) => [200, change(Number(r.path.split("/")[3]), { revisions: {} })]], ["GET", /^\/a\/changes\/\d+\/comments/, [200, {}]],
+    ["GET", /^\/a\/changes\/\?q=/, (r) => [200, /owner:alice/.test(r.query.get("q")) ? [change(1), change(6)] : []]]]);
+  const opens = { "7": 7, "#12": 12, "https://gerrit.test/c/tools/build/+/345": 345, "https://gerrit.test/c/tools/build/+/345/2#message-x": 345,
+    "https://gerrit.test/#/c/77/": 77, "https://gerrit.test/88": 88, "https://gerrit.test/88/3": 88 };
+  for (const [text, n] of Object.entries(opens)) {
+    g.searchState().set_value(text); await g.runSearch(cx);
+    assert.equal(g.detail?.change?._number, n, text); assert.equal(g.search, null, text);
+  }
+  g.openId = null; g.detail = null;
+  g.searchState().set_value("owner:alice is:open"); g.searchState().fire("submit");
+  await new Promise((r) => setTimeout(r, 0));
+  assert.deepEqual(g.search.items.map((c) => c._number), [1, 6]);
+  assert.equal(seen.at(-1).query.get("q"), "owner:alice is:open limit:50");
+  render(g); // the results draw
+  g.searchState().set_value("2024"); await g.runSearch(cx); assert.equal(g.detail?.change?._number, 2024, "a bare number is a change number");
+  g.openId = null; g.detail = null;
+  g.searchState().set_value("nothing:here"); await g.runSearch(cx); assert.deepEqual(g.search.items, []); render(g);
+  g.searchState().set_value(""); await g.runSearch(cx); assert.equal(g.search, null, "empty search goes back to the sections");
+});
+
+test("change actions: rebase / ready / wip / restore post once, abandon only on the second press", async (G) => {
+  setConfig(LOGIN); const g = freshView(G);
+  gerrit([["POST", /^\/a\/changes\/7\/(abandon|restore|wip|ready|revisions\/current\/rebase)$/, [200, {}]], ["GET", /^\/a\/changes\/7\//, [200, {}]]]);
+  g.detail = { change: change(7) }; g.openId = g.detail.change.id;
+  for (const what of ["rebase", "ready", "wip", "restore"]) await g.changeAction(change(7), what, cx);
+  assert.deepEqual(seen.filter((r) => r.method === "POST").map((r) => r.path),
+    ["/a/changes/7/revisions/current/rebase", "/a/changes/7/ready", "/a/changes/7/wip", "/a/changes/7/restore"]);
+  seen.length = 0;
+  await g.changeAction(change(7), "abandon", cx); assert.equal(seen.length, 0, "first press only arms");
+  await g.changeAction(change(7), "abandon", cx); assert.equal(seen.filter((r) => r.path === "/a/changes/7/abandon").length, 1);
 });
 
 // ---------- run ----------

@@ -4,7 +4,7 @@ A panel on the right of Herdr that shows your Gerrit like Gerrit's own dashboard
 and pops a notification when a change turns to you or someone replies. Same on Windows and macOS.
 Herdr 右邊的 Gerrit 面板：跟 Gerrit 網頁首頁一樣的分區，點一下看細節，輪到你或有人回覆時跳通知。
 
-Status: list, details, notifications, reply / vote / submit, comment-thread replies, diffs with line comments. Next: Jenkins build progress, then opening a commented line in
+Status: list, search, details, notifications, reply / vote / submit, reviewers / CC, rebase / abandon / WIP, comment-thread replies, diffs with line comments. Next: Jenkins build progress, then opening a commented line in
 jay-nvim. Tested against a public Gerrit (3.15) without a login; **logging in and notifications have not run on a real
 company Gerrit yet**: note what differs and bring it to jay.
 
@@ -94,6 +94,12 @@ project · branch · owner, unresolved comments (留言 N), each label as Gerrit
 rejected, `+1` / `-1`; `CR` = Code-Review, `V` = Verified: the capital letters of the name), the size (XS < 10
 changed lines, S < 50, M < 250, L < 1000, XL) and when it last changed.
 
+**Search** (the box above the sections; Enter or 🔍 搜尋): a change number (`123`, `#123`) or a Gerrit link pasted
+from anywhere opens that change; anything else is a Gerrit search, the same text as Gerrit's search box
+(`owner:alice is:open`, `project:tools/build status:merged -age:1w`, `message:fix`). Up to 50 results replace the
+sections; **清除** brings them back.
+搜尋框：打號碼或貼 Gerrit 網址直接打開；其他字就是 Gerrit 的搜尋語法；按「清除」回到分區。
+
 **Click a change** → its page: whose turn it is, its **Reviewer** and **CC** people, the votes and who gave them (labels nobody voted on and that aren't
 required are left out), the comment threads (unresolved first; 整體留言 = patchset-level), the files of the latest
 patch set (+/−, comments per file), the commit message (first lines; click for all), every patch set (and if it was
@@ -119,6 +125,9 @@ red, added green, unchanged runs folded to 「⋯ N 行沒改（點開）」, th
   **加 Reviewer** or **加 CC** next to the right person. Next to each name, **→CC** / **→Reviewer** moves them;
   **✕** removes them (only shown on your own changes, and for yourself: Gerrit allows only that without admin rights).
   在細節頁上面加人：打名字按「找人」，再按「加 Reviewer」或「加 CC」。
+- Under the send button, only what Gerrit allows you on this change now: **⤴ Rebase** (when it is behind its branch),
+  **✓ 可以 review 了（Ready）** / **✎ 改回草稿（WIP）**, **🗑 放棄（Abandon）** (press twice, like 合併), and on an
+  abandoned change **↺ 恢復（Restore）**.
 - Each label you may vote on (e.g. Code-Review, Build, Verified) has its full name above its own row of buttons.
 - Under each comment thread: **✓ Done** and **Ack** reply and mark it resolved in one press; **💬 回覆** opens a box
   with 送出並解決 / 送出（不解決）/ 取消.
@@ -128,6 +137,7 @@ red, added green, unchanged runs folded to 「⋯ N 行沒改（點開）」, th
 
 ```sh
 herdr-app do tab.new --name "#7" --mod gerrit --props '{"open":"7"}'          # macOS
+herdr-app do tab.new --name "bob" --mod gerrit --props '{"search":"owner:bob is:open"}'   # a search in its own tab
 ```
 ```powershell
 herdr-app do tab.new --name "#7" --mod gerrit --props '{"open":"7"}'          # PowerShell 7.3 or newer (pwsh)

@@ -34,7 +34,7 @@ function placed(root) {
   if (!bar || !body) return null;
   bar.children.push({ id: TOGGLE, type: "block", content: { mod: "gerrit", props: { role: "toggle" } }, size: { px: 96 } });
   body.children.push({ id: PANEL, type: "column", children: [{ id: "gerrit", type: "block", content: { mod: "gerrit" } }],
-    size: { px: 460 }, min: 340, max: 2400 });
+    size: { px: 460 }, min: 340 });
   return tree;
 }
 

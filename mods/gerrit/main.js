@@ -7,7 +7,7 @@
 // A panel with no toggle in the layout polls itself and offers to move into the tab bar.
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex, TextareaState, Textarea, InputState, Input } from "gpui-base";
-import { theme, settings, notify, home, readTextFile, run, layout, shared, setShared, window, props as blockProps } from "herdr";
+import { theme, settings, notify, home, readTextFile, run, layout, shared, setShared, window, agents, props as blockProps } from "herdr";
 import process from "process";
 
 const TOGGLE = "gerrit-toggle", PANEL = "gerrit-panel";
@@ -120,6 +120,18 @@ const shortLink = (url) => {
   try { const u = new URL(url); const last = u.pathname.split("/").filter(Boolean).pop() ?? ""; return `${u.hostname}${last ? `/…/${last}` : ""}${u.search.length > 1 ? u.search.slice(0, 40) : ""}`; }
   catch { return url.slice(0, 60); }
 };
+// Asking an agent about a change: preset prompts sent to a Herdr agent (e.g. Claude Code with a Gerrit MCP) by `hc send`.
+const AGENT_PROMPTS = [
+  { label: "Review", text: "用 Gerrit MCP review change {change}（{url}，第 {patchset} 版）：讀 diff 和既有留言，列出你看到的問題和建議，先不要在 Gerrit 上留言或給分。" },
+  { label: "整理留言", text: "用 Gerrit MCP 讀 change {change}（{url}）還沒解決的留言，逐條告訴我對方要什麼、要改哪裡。" },
+  { label: "為什麼沒過", text: "用 Gerrit MCP 看 change {change}（{url}）的合併條件和機器人的留言，告訴我還差什麼、哪個檢查失敗、為什麼。" },
+  { label: "幫我回覆", text: "用 Gerrit MCP 讀 change {change}（{url}）還沒解決的留言，幫我草擬每一則的回覆給我看，我說可以才送出。" },
+];
+const fillPrompt = (text, vars) => String(text).replace(/\{(\w+)\}/g, (m, k) => (vars[k] != null ? String(vars[k]) : m));
+// hc: on PATH, else where Herdr core installs it.
+const hcPaths = () => window()?.platform === "windows"
+  ? ["hc.exe", `${home()}\\AppData\\Local\\Programs\\herdr-core\\hc.exe`]
+  : ["hc", `${home()}/.local/bin/hc`, "/usr/local/bin/hc", "/opt/homebrew/bin/hc"];
 // Gerrit's size column: XS < 10 lines, S < 50, M < 250, L < 1000, XL.
 const size = (c) => {
   const n = (c.insertions ?? 0) + (c.deletions ?? 0);
@@ -365,6 +377,79 @@ export default class Gerrit extends View {
     const j = this.cfg?.jenkins;
     if (!j?.url) return null;
     return { ...j, url: String(j.url).replace(/\/+$/, ""), jobs: [].concat(j.jobs ?? []), param: j.change_param ?? "GERRIT_CHANGE" };
+  }
+
+  // ---- asking an agent
+  agentCfg() {
+    const a = this.cfg?.agent ?? {};
+    const prompts = Array.isArray(a.prompts) && a.prompts.length ? a.prompts.filter((p) => p?.label && p?.text) : AGENT_PROMPTS;
+    return { ...a, prompts, start: Array.isArray(a.start) && a.start.length ? a.start.map(String) : null, name: a.name ?? "gerrit" };
+  }
+  agentList() {
+    let list = [];
+    try { list = (agents() ?? []).filter((x) => x?.address); } catch {}
+    return list;
+  }
+  pickedAgent(list) {
+    const want = this.agentAddr ?? this.load("agent");
+    return list.find((x) => x.address === want) ?? list.find((x) => x.title === this.agentCfg().name || x.tab_name === this.agentCfg().name) ?? null;
+  }
+  promptVars(c) {
+    const cur = c.revisions?.[c.current_revision]?._number ?? "";
+    const base = shared(SAFE_CFG)?.url ?? this.cfg?.url ?? "";
+    return { change: c._number, patchset: cur, project: c.project, branch: c.branch, subject: c.subject, topic: c.topic ?? "",
+      url: base ? `${String(base).replace(/\/+$/, "")}/c/${c.project}/+/${c._number}` : `#${c._number}`, gerrit: base };
+  }
+  async askAgent(c, p, cx) {
+    const target = this.pickedAgent(this.agentList());
+    if (!target) { this.ask = { error: "先選一個 agent" }; cx.notify(); return; }
+    const text = fillPrompt(p.text, this.promptVars(c));
+    this.ask = { sending: p.label };
+    cx.notify();
+    let err = null;
+    for (const hc of [this.agentCfg().hc, ...hcPaths()].filter(Boolean)) {
+      try {
+        const out = await process.run(hc, ["send", target.address, text]);
+        if (out?.code === 0) { err = null; break; }
+        err = String(out?.stderr || out?.stdout || `exit ${out?.code}`).trim().slice(0, 200);
+        if (!/not found|no such file|cannot find/i.test(err)) break;
+      } catch (e) { err = String(e?.message ?? e); }
+    }
+    this.ask = err ? { error: `沒送出：${err}` } : { sent: p.label, to: target.title || target.tab_name || target.address, at: Date.now() };
+    if (!err) try { run("agent.focus", { terminal: target.address }); } catch {}
+    cx.notify();
+  }
+  startAgent(cx) {
+    const a = this.agentCfg();
+    if (!a.start) return;
+    try { run("terminal.open", { argv: a.start, name: a.name, place: "right", folder: a.cwd ?? undefined }); this.ask = { started: Date.now() }; }
+    catch (e) { this.ask = { error: `開不起來：${e?.message ?? e}` }; }
+    cx.notify();
+  }
+
+  agentCard(t, z, c) {
+    const a = this.agentCfg(), list = this.agentList(), picked = this.pickedAgent(list);
+    const card = v_flex().id("ask").gap(6).p(10).rounded(8).bg(t.chrome).border_1().border_color(t.border);
+    card.child(h_flex().gap(8).items_center()
+      .child(div().flex_1().min_w(0).text_size(z - 1).font_semibold().text_color(t.muted).child(picked ? `問 agent：${picked.title || picked.tab_name}` : "問 agent")));
+    // which agent: every Herdr agent, the picked one highlighted
+    if (list.length) card.child(h_flex().gap(6).flex_wrap().children(list.slice(0, 12).map((x, i) => {
+      const on = picked?.address === x.address;
+      return div().id(`ask-ag-${i}`).px(8).py(3).rounded(5).text_size(z - 1.5).cursor_pointer()
+        .bg(on ? t.accent : t.raised).text_color(on ? t.background : t.foreground).hover((h) => (on ? h : h.bg(t.hover)))
+        .on_mouse_down("left", stop).on_click((_e, cx) => { this.agentAddr = x.address; this.save("agent", x.address); this.ask = null; cx.notify(); })
+        .child(`${x.title || x.tab_name || x.address}${x.space_name ? ` · ${x.space_name}` : ""}`);
+    })));
+    else card.child(div().text_size(z - 1).text_color(t.dim).whitespace_normal().child(a.start ? "還沒有 agent，按下面開一個。" : "Herdr 裡還沒有 agent。開一個 Claude Code（裝好 Gerrit MCP）再回來。"));
+    if (a.start && !list.some((x) => x.title === a.name || x.tab_name === a.name))
+      card.child(h_flex().child(this.big(t, z, "ask-start", `＋ 開 ${a.name} agent`, { on: (cx) => this.startAgent(cx) })));
+    card.child(h_flex().gap(6).flex_wrap().children(a.prompts.map((p, i) =>
+      this.big(t, z, `ask-p-${i}`, this.ask?.sending === p.label ? "送出中…" : p.label,
+        { kind: i === 0 ? "primary" : undefined, off: !picked || Boolean(this.ask?.sending), on: (cx) => cx.spawn(async (cx) => this.askAgent(c, p, cx)) }))));
+    const s = this.ask;
+    if (s?.error) card.child(div().text_size(z - 1).text_color(t.ansi1).whitespace_normal().child(s.error));
+    else if (s?.sent) card.child(div().text_size(z - 1).text_color(t.ansi2).child(`✓「${s.sent}」已送給 ${s.to}`));
+    return card;
   }
 
   // Only ever to the configured Jenkins address: the token goes nowhere else.
@@ -1382,6 +1467,9 @@ export default class Gerrit extends View {
     if (att.length) body.child(h_flex().gap(6).flex_wrap().text_size(z - 1)
       .child(div().text_color(t.muted).child("輪到："))
       .children(att.map((a, i) => div().id(`att-${i}`).px(6).rounded(4).bg(t.raised).text_color(a.account?._account_id === this.self?._account_id ? t.blocked : t.foreground).child(who(a.account)))));
+
+    // Ask an agent about this change (preset prompts)
+    body.child(this.agentCard(t, z, c));
 
     // Topic and the other changes of it
     for (const r of this.topicRows(t, z, c)) body.child(r);

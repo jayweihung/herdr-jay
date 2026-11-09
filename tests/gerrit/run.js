@@ -53,6 +53,7 @@ globalThis.__stubs = {
   readTextFile: async (p) => readFileSync(p, "utf8"),
   run: (name, args) => H.runs.push([name, args]), layout: () => H.layout,
   process: { run: async (cmd, args) => { H.opened.push([cmd, ...args]); return { code: 0, stdout: "", stderr: "" }; } },
+  agents: () => H.agents ?? [],
   shared: (k) => H.store[k], setShared: (k, v) => { H.store[k] = v; }, props: () => H.props,
 };
 
@@ -439,6 +440,34 @@ test("check systems: bot messages on the current patch set under the requirement
   assert.equal(H.opened.length, 1, "only web links open");
   g.cfg = { ...g.cfg, bots: "^ci_(build|test)$" };
   assert.deepEqual(g.systemsOf(c).map((s) => s.name).sort(), ["ci_build", "ci_test"], "gerrit.json bots picks the accounts");
+});
+
+test("ask an agent: pick a Herdr agent, a preset prompt filled with the change goes by hc send, then focus it", async (G) => {
+  setConfig(LOGIN); const g = freshView(G); g.cfg = await g.readConfig();
+  H.store["gerrit.cfg.v1"] = { url: "https://gerrit.test", auth: true };
+  H.opened = []; H.runs = [];
+  const c = change(7, { project: "tools/build", branch: "master", current_revision: "b", revisions: { b: { _number: 3 } } });
+  g.openId = c.id; g.detail = { change: c, comments: {} };
+  H.agents = [];
+  assert.equal(g.pickedAgent(g.agentList()), null);
+  render(g);
+  await g.askAgent(c, g.agentCfg().prompts[0], cx);
+  assert.match(g.ask.error, /先選/); assert.equal(H.opened.length, 0, "nothing sent without an agent");
+  H.agents = [{ address: "t9", title: "coding", tab_name: "x" }, { address: "t3w", title: "gerrit", tab_name: "Claude Code" }];
+  assert.equal(g.pickedAgent(g.agentList()).address, "t3w", "the one named like agent.name is picked first");
+  g.agentAddr = "t9";
+  assert.equal(g.pickedAgent(g.agentList()).address, "t9");
+  await g.askAgent(c, { label: "R", text: "review {change} ps {patchset} at {url} {nope}" }, cx);
+  assert.deepEqual(H.opened.at(-1), ["hc", "send", "t9", "review 7 ps 3 at https://gerrit.test/c/tools/build/+/7 {nope}"]);
+  assert.deepEqual(H.runs.at(-1), ["agent.focus", { terminal: "t9" }]);
+  assert.equal(g.ask.sent, "R");
+  render(g);
+  g.cfg = { ...g.cfg, agent: { prompts: [{ label: "Mine", text: "x {change}" }], start: ["claude"], name: "gerrit-bot" } };
+  assert.deepEqual(g.agentCfg().prompts.map((p) => p.label), ["Mine"], "gerrit.json prompts replace the presets");
+  g.startAgent(cx);
+  assert.deepEqual(H.runs.at(-1), ["terminal.open", { argv: ["claude"], name: "gerrit-bot", place: "right", folder: undefined }]);
+  render(g);
+  H.agents = [];
 });
 
 test("Jenkins with only start_job: a ▶ button, no build polling, the POST carries the change", async (G) => {

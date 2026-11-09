@@ -18,6 +18,7 @@ bring it to jay.
 | [4](#4-your-own-sections--自訂分區) | Your own sections / 自訂分區 |
 | [5](#5-when-something-goes-wrong--出問題時) | When something goes wrong / 出問題時 |
 | [6](#6-jenkins-builds--jenkins-build) | Jenkins builds / Jenkins build |
+| [7](#7-ask-an-agent--問-agent) | Ask an agent / 問 agent |
 
 ---
 
@@ -280,3 +281,32 @@ dispatches (it ends in seconds), its log names the job it triggers: that one goe
 | Jenkins 讀不到：找不到（404） | `url` or a job name is wrong | open `url` + `/job/<name>/api/json` in the browser |
 | 最近 200 次 build 裡沒有這個 change | it never ran, or long ago, or `change_param` is not the right parameter | check with the address above |
 | No Jenkins card | no `jenkins` in `gerrit.json`, or no `jobs` | — |
+
+## 7. Ask an agent / 問 agent
+
+A change's page has a **問 agent** card: pick one of the agents Herdr shows (any machine), press a preset and the
+panel sends it a ready-made request about this change with `hc send`, then brings that agent to the front. The
+agent does the work with whatever it has; the presets assume a Gerrit MCP server in it. Presets:
+**Review**, **整理留言**, **為什麼沒過**, **幫我回覆** (each says not to post or vote on Gerrit until you agree).
+change 細節頁的「問 agent」：選一個 agent，按一下預設問題，就用 hc send 把這個 change 的問題送給它。
+
+Optional, in `gerrit.json`:
+
+```json
+  "agent": {
+    "name": "gerrit",
+    "start": ["claude"],
+    "cwd": "/path/to/a/folder/for/it",
+    "prompts": [ { "label": "Review", "text": "review change {change} ({url}, patch set {patchset})" } ]
+  }
+```
+
+- `prompts` replace the presets. Words in braces are filled in: `{change}` `{patchset}` `{url}` `{project}`
+  `{branch}` `{subject}` `{topic}` `{gerrit}`.
+- `start` (a command, as a list) adds **＋ 開 gerrit agent**, which opens it in a pane on the right; `name` is that
+  pane's name, and an agent with that name is picked first. `cwd` is where it starts.
+- `hc` is looked up on PATH, then in Herdr core's install folder; set `"hc": "<path>"` if it's elsewhere.
+
+The request is only text typed into that agent: what it may do on Gerrit is up to the agent and its MCP settings.
+送出去的只是文字；agent 能在 Gerrit 做什麼，看它自己的設定。
+

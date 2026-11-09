@@ -7,6 +7,7 @@ Needs: **mods** = copy the two mod folders again (macOS symlinks: nothing) · **
 
 ## 2026-11-10
 
+- **Gerrit panel: the 問 agent buttons call skills** ([docs/gerrit.md §7](docs/gerrit.md#7-ask-an-agent--問-agent)): Review, 整理留言, 為什麼沒過 and 幫我回覆 now send `/gerrit-panel:review <change> <patch set> <url>` and so on; how to do each job is in the `gerrit-panel` plugin (`agents/gerrit-panel`). Needs **gerrit** (Windows: copy it again), a second `--plugin-dir` in `gerrit.json` `agent.start` ([§8 step 5](docs/gerrit.md#8-a-gerrit-agent-step-by-step--gerrit-agent-安裝步驟)), restart Herdr and the Gerrit agent; buttons you edited before: ✎ → 還原成原本的.
 - **Gerrit panel: 問 agent** ([docs/gerrit.md §7](docs/gerrit.md#7-ask-an-agent--問-agent)): on a change's page, send the Gerrit agent (opened by its ＋ button, so it has the Gerrit tools; other agents aren't offered) a preset request about the change (Review, 整理留言, 為什麼沒過, 幫我回覆; answers in Traditional Chinese; ✎ 編輯問題 edits them in the panel) by `hc send`; your own prompts and a start button in `gerrit.json` `agent`. Needs **gerrit**, restart Herdr.
 
 - **Gerrit panel: name the ▶ button**: `"start_label": "Preflight"` in the `jenkins` block shows 「▶ Preflight」. Needs **gerrit** (Windows: copy it again), restart Herdr.

@@ -1,0 +1,6 @@
+{
+  "name": "gerrit-panel",
+  "description": "What the Herdr Gerrit panel's 問 agent buttons ask a Gerrit agent to do: review, sort comments, why a change can't merge, draft replies. Needs the Gerrit MCP server.",
+  "repository": "https://github.com/jayweihung/herdr-jay",
+  "license": "MIT"
+}

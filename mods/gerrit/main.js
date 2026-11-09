@@ -123,11 +123,13 @@ const shortLink = (url) => {
   catch { return url.slice(0, 60); }
 };
 // Asking an agent about a change: preset prompts sent to a Herdr agent (e.g. Claude Code with a Gerrit MCP) by `hc send`.
+// Each button calls a skill of the gerrit-panel plugin (agents/gerrit-panel in this repo, loaded with --plugin-dir):
+// how to do the job lives in the skill, the button only says which skill and which change.
 const AGENT_PROMPTS = [
-  { label: "Review", text: "用 Gerrit MCP review change {change}（{url}，第 {patchset} 版）：讀 diff 和既有留言，列出你看到的問題和建議，先不要在 Gerrit 上留言或給分。請用繁體中文回答。" },
-  { label: "整理留言", text: "用 Gerrit MCP 讀 change {change}（{url}）還沒解決的留言，逐條告訴我對方要什麼、要改哪裡。請用繁體中文回答。" },
-  { label: "為什麼沒過", text: "用 Gerrit MCP 看 change {change}（{url}）的合併條件和機器人的留言，告訴我還差什麼、哪個檢查失敗、為什麼。請用繁體中文回答。" },
-  { label: "幫我回覆", text: "用 Gerrit MCP 讀 change {change}（{url}）還沒解決的留言，幫我草擬每一則的回覆給我看，我說可以才送出。請用繁體中文回答。" },
+  { label: "Review", text: "/gerrit-panel:review {change} {patchset} {url}" },
+  { label: "整理留言", text: "/gerrit-panel:comments {change} {patchset} {url}" },
+  { label: "為什麼沒過", text: "/gerrit-panel:why-blocked {change} {patchset} {url}" },
+  { label: "幫我回覆", text: "/gerrit-panel:draft-replies {change} {patchset} {url}" },
 ];
 const fillPrompt = (text, vars) => String(text).replace(/\{(\w+)\}/g, (m, k) => (vars[k] != null ? String(vars[k]) : m));
 // Gerrit's size column: XS < 10 lines, S < 50, M < 250, L < 1000, XL.
@@ -463,7 +465,8 @@ export default class Gerrit extends View {
     const box = v_flex().gap(10)
       .child(div().font_semibold().child("編輯「問 agent」的按鈕"))
       .child(div().text_size(z - 1).text_color(t.muted).whitespace_normal().child(
-        `每一塊是一顆按鈕：上面填按鈕上的字，下面填按了之後要 agent 做的事。在內容裡寫 {change} 會換成 change 編號（現在是 ${vars.change}），`
+        `每一塊是一顆按鈕：上面填按鈕上的字，下面填按了之後要 agent 做的事。原本的四顆是叫 skill（/gerrit-panel:review 這種），`
+        + `做法寫在 skill 裡；也可以直接寫一段話。內容裡寫 {change} 會換成 change 編號（現在是 ${vars.change}），`
         + `{url} 換成它的網址，{patchset} 換成第幾版（現在是 ${vars.patchset}）。改好按最下面的「儲存」。`));
     rows.forEach((r, i) => {
       const filled = fillPrompt(r.text.value(), vars).trim();

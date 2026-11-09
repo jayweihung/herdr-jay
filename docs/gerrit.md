@@ -288,14 +288,18 @@ dispatches (it ends in seconds), its log names the job it triggers: that one goe
 A change's page has a **問 agent** card. It offers only the agent its **＋ 開 gerrit agent** button opened (a Claude
 Code with the Gerrit tools, §8): any other agent may lack them, and a request it can't do would look like it went
 through. Press a preset and the panel sends that agent a ready-made request about this change with `hc send`, then
-brings it to the front. Presets: **Review**, **整理留言**, **為什麼沒過**, **幫我回覆** (each says not to post or vote
-on Gerrit until you agree, and to answer in Traditional Chinese). **✎ 編輯問題** edits them in the panel: one block
+brings it to the front. Presets: **Review**, **整理留言**, **為什麼沒過**, **幫我回覆**. Each one calls a skill
+(`/gerrit-panel:review 7 3 <url>` and so on) from the `gerrit-panel` plugin in this repo
+([agents/gerrit-panel](../agents/gerrit-panel/skills)): how to do the job is written in the skill, the button only says
+which skill and which change. The skills don't post or vote on Gerrit until you agree, and answer in Traditional
+Chinese; the agent loads them with a second `--plugin-dir` (§8 step 5). **✎ 編輯問題** edits them in the panel: one block
 per button with the words on it, what the agent is asked, and what would be sent for this change (updates as you
 type); add, delete, 儲存, 取消, 還原成原本的 (back to `gerrit.json`'s or the built-in ones). A tab can open straight on
 it: `--props '{"open":"7","edit_prompts":true}'`. The panel remembers the agents it opened until their pane is closed; without `start` in
 `gerrit.json` the card says how to set one up.
 「問 agent」只列出用「＋ 開 gerrit agent」開出來的 agent（有 Gerrit MCP 的），別的 agent 不列，免得以為送出去就會做。
-選好按預設問題，就用 hc send 把這個 change 的問題送給它；預設都請它用繁體中文回答，按「✎ 編輯問題」可以改。
+選好按預設按鈕，就用 hc send 叫它用對應的 skill 處理這個 change（例如 `/gerrit-panel:review 7 3 網址`）；做法寫在
+skill 裡（agents/gerrit-panel），都用繁體中文回答、沒問過你不會在 Gerrit 留言或給分。按「✎ 編輯問題」可以改按鈕。
 
 Optional, in `gerrit.json`:
 
@@ -379,21 +383,29 @@ New-Item -ItemType Directory -Force "$env:USERPROFILE\gerrit-agent" | Out-Null  
 mkdir -p ~/gerrit-agent                                                           # macOS
 ```
 
-**5. The start button**: add to `gerrit.json` (Windows paths with `/`):
+**5. The start button**: add to `gerrit.json` (Windows paths with `/`). The first `--plugin-dir` gives the Gerrit
+tools, the second the skills the buttons call (`agents/gerrit-panel` in your herdr-jay clone; `git pull` there updates
+them, nothing to copy):
 
 ```json
   "agent": {
     "name": "gerrit",
-    "start": ["claude", "--plugin-dir", "C:/Users/you/src/gerrit-mcp-server"],
+    "start": ["claude", "--plugin-dir", "C:/Users/you/src/gerrit-mcp-server",
+              "--plugin-dir", "C:/Users/you/src/herdr-jay/agents/gerrit-panel"],
     "cwd": "C:/Users/you/gerrit-agent"
   }
 ```
 
-(macOS: `"/Users/you/src/gerrit-mcp-server"` and `"/Users/you/gerrit-agent"`.) Quit and reopen Herdr.
+(macOS: `"/Users/you/src/gerrit-mcp-server"`, `"/Users/you/src/herdr-jay/agents/gerrit-panel"` and
+`"/Users/you/gerrit-agent"`.) Quit and reopen Herdr. An agent already open keeps its old plugins: close its pane and
+press ＋ again.
+第二個 `--plugin-dir` 是按鈕要叫的 skill（herdr-jay 裡的 agents/gerrit-panel），git pull 就會更新，不用複製。
+已經開著的 agent 要關掉重開才會有。
 
 **6. Try it**: open a change in the panel → **＋ 開 gerrit agent**. The first start takes a minute (uv installs the
 packages). In that agent type `/mcp`: **gerrit** should say connected. If it says the config is missing or wrong,
-type `/gerrit:setup` there, or check step 3. Then pick it in the 問 agent card and press **Review**.
+type `/gerrit:setup` there, or check step 3. Type `/gerrit-panel` and the four skills should be offered. Then pick
+it in the 問 agent card and press **Review**.
 第一次開要等一分鐘；在 agent 裡打 `/mcp` 看到 gerrit connected 就好了，然後選它、按 Review。
 
 | What you see | Fix |
@@ -401,5 +413,7 @@ type `/gerrit:setup` there, or check step 3. Then pick it in the 問 agent card 
 | `uv` not found (Windows) | open a new terminal after step 1, or reopen Herdr |
 | uv can't download (proxy / no internet) | ask IT for the company's PyPI mirror; bring jay the text |
 | gerrit not connected, 401 | the HTTP password in step 3 (not your login password) |
+| `Unknown command: /gerrit-panel:…` | the second `--plugin-dir` (step 5) is missing or wrong; restart the agent |
+| a button still sends a long sentence | it was edited before: ✎ 編輯問題 → 還原成原本的 |
 | 「沒送出」 in the card | the agent's pane was closed: pick another, or start it again |
 

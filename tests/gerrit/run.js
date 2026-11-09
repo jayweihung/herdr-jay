@@ -481,10 +481,16 @@ test("ask an agent: only agents the start button opened are listed; a preset pro
   H.agents = [];
 });
 
-test("ask an agent: presets ask for Chinese; ✎ edits them (saved for every copy), 還原預設 brings the built-in ones back", async (G) => {
+test("ask an agent: presets call the gerrit-panel skills; ✎ edits them (saved for every copy), 還原預設 brings the built-in ones back", async (G) => {
   setConfig(LOGIN); const g = freshView(G); g.cfg = await g.readConfig();
   const builtIn = g.agentCfg().prompts;
-  assert.ok(builtIn.every((p) => /繁體中文/.test(p.text)), "every preset asks for Traditional Chinese");
+  assert.ok(builtIn.every((p) => /^\/gerrit-panel:[a-z-]+ \{change\} \{patchset\} \{url\}$/.test(p.text)), "every preset calls a gerrit-panel skill");
+  for (const p of builtIn) {
+    const name = p.text.match(/^\/gerrit-panel:([a-z-]+)/)[1];
+    const md = readFileSync(new URL(`../../agents/gerrit-panel/skills/${name}/SKILL.md`, import.meta.url), "utf8");
+    assert.ok(new RegExp(`^name: ${name}$`, "m").test(md), `skill ${name} exists with that name`);
+    assert.ok(/Traditional Chinese/.test(md), `skill ${name} answers in Traditional Chinese`);
+  }
   g.editPrompts(cx);
   assert.equal(g.promptEdit.length, builtIn.length);
   g.promptEdit[0].label.set_value("看一下"); g.promptEdit[0].text.set_value("看 {change}，用中文");

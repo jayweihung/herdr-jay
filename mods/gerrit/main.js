@@ -180,6 +180,7 @@ export default class Gerrit extends View {
     if (this.role !== "toggle") { this.replyState(); this.peopleState(); this.searchState(); this.topicState(); } // input state can't be made while drawing
     // props {open: "<change id or number>", diff: "<file path>"} or {search: "<Gerrit search>"}: start there, e.g. in a tab of its own
     const start = blockProps() ?? {};
+    if (this.role !== "toggle" && start.edit_prompts) this.editPrompts(); // {open, edit_prompts: true}: open on the button editor
     this.inTab = Boolean(start.open || start.search); // a copy started on a change or search (its own tab): the panel's width isn't its business
     if (this.role !== "toggle" && start.search && !start.open) cx.spawn(async (cx) => { this.searchState().set_value(String(start.search)); await this.runSearch(cx); });
     if (this.role !== "toggle" && start.open) cx.spawn(async (cx) => {
@@ -445,38 +446,52 @@ export default class Gerrit extends View {
 
   // ✎: edit the presets in the panel (name + text each); kept in shared state, so every copy and restart has them.
   editRow(p) {
-    const label = InputState.new({ value: p?.label ?? "", placeholder: "按鈕名稱" });
-    const text = TextareaState.new({ value: p?.text ?? "", placeholder: "要 agent 做什麼（{change} {url} {patchset} 會換成這個 change 的）", rows: 3 });
+    const label = InputState.new({ value: p?.label ?? "", placeholder: "例如：Review" });
+    const text = TextareaState.new({ value: p?.text ?? "", placeholder: "例如：review change {change}，列出問題，用繁體中文回答。", rows: 3 });
     text.set_auto_grow(3, 10); text.set_soft_wrap(true);
+    text.on("change", (_e, cx) => cx.notify()); // the preview below follows the typing
     return { label, text };
   }
   editPrompts(cx) {
     this.promptEdit = this.agentCfg().prompts.map((p) => this.editRow(p));
-    cx.notify();
+    cx?.notify();
   }
-  promptEditor(t, z) {
-    const rows = this.promptEdit;
-    const box = v_flex().gap(8)
-      .child(div().text_size(z - 1).text_color(t.muted).whitespace_normal()
-        .child("{change} {url} {patchset} {project} {branch} {subject} {topic} 會換成這個 change 的內容。名稱或內容空白的那一個不會存。"));
-    rows.forEach((r, i) => box.child(v_flex().id(`pe-${i}`).gap(4).p(8).rounded(6).bg(t.raised)
-      .child(h_flex().gap(6).items_center()
-        .child(div().id(`pe-l-${i}`).w(160).h(30).px(6).flex().items_center().rounded(5).bg(t.background).border_1().border_color(t.input)
+  // One block per button: the words on it, what the agent is asked, and what would go out for this change.
+  promptEditor(t, z, c) {
+    const rows = this.promptEdit, vars = this.promptVars(c);
+    const field = (text) => div().text_size(z - 1).font_semibold().text_color(t.muted).child(text);
+    const box = v_flex().gap(10)
+      .child(div().font_semibold().child("編輯「問 agent」的按鈕"))
+      .child(div().text_size(z - 1).text_color(t.muted).whitespace_normal().child(
+        `每一塊是一顆按鈕：上面填按鈕上的字，下面填按了之後要 agent 做的事。在內容裡寫 {change} 會換成 change 編號（現在是 ${vars.change}），`
+        + `{url} 換成它的網址，{patchset} 換成第幾版（現在是 ${vars.patchset}）。改好按最下面的「儲存」。`));
+    rows.forEach((r, i) => {
+      const filled = fillPrompt(r.text.value(), vars).trim();
+      box.child(v_flex().id(`pe-${i}`).gap(6).p(10).rounded(8).bg(t.raised).border_1().border_color(t.border)
+        .child(h_flex().items_center()
+          .child(div().flex_1().font_semibold().child(`按鈕 ${i + 1}`))
+          .child(this.big(t, z, `pe-del-${i}`, "刪掉這顆", { on: (cx) => { rows.splice(i, 1); cx.notify(); } })))
+        .child(field("按鈕上的字"))
+        .child(div().id(`pe-l-${i}`).w_full().max_w(320).h(32).px(8).flex().items_center().rounded(6).bg(t.background).border_1().border_color(t.input)
           .cursor_text().on_mouse_down("left", stop).child(Input.new(r.label).w_full().text_size(z).text_color(t.foreground)))
-        .child(div().flex_1())
-        .child(this.big(t, z, `pe-del-${i}`, "刪掉", { on: (cx) => { rows.splice(i, 1); cx.notify(); } })))
-      .child(div().id(`pe-t-${i}`).w_full().min_h(64).p(6).rounded(5).bg(t.background).border_1().border_color(t.input)
-        .cursor_text().on_mouse_down("left", stop).child(Textarea.new(r.text).w_full().text_size(z - 0.5).text_color(t.foreground)))));
-    box.child(h_flex().gap(6).flex_wrap()
-      .child(this.big(t, z, "pe-add", "＋ 加一個", { on: (cx) => { rows.push(this.editRow(null)); cx.notify(); } }))
-      .child(div().flex_1())
+        .child(field("要 agent 做的事"))
+        .child(div().id(`pe-t-${i}`).w_full().min_h(70).p(8).rounded(6).bg(t.background).border_1().border_color(t.input)
+          .cursor_text().on_mouse_down("left", stop).child(Textarea.new(r.text).w_full().text_size(z - 0.5).text_color(t.foreground)))
+        .child(field("按下去實際會送出（用這個 change 代入）"))
+        .child(div().text_size(z - 1).text_color(filled ? t.foreground : t.dim).whitespace_normal().p(8).rounded(6).bg(t.chrome)
+          .child(filled || "（還沒寫內容）")));
+    });
+    box.child(h_flex().child(this.big(t, z, "pe-add", "＋ 加一顆按鈕", { on: (cx) => { rows.push(this.editRow(null)); cx.notify(); } })));
+    box.child(h_flex().gap(6).flex_wrap().pt(4).border_t(1).border_color(t.border)
       .child(this.big(t, z, "pe-save", "儲存", { kind: "primary", on: (cx) => {
         const list = rows.map((r) => ({ label: r.label.value().trim(), text: r.text.value().trim() })).filter((p) => p.label && p.text);
         setShared(PROMPTS_KEY, list.length ? list : null);
         this.promptEdit = null; cx.notify();
       } }))
-      .child(this.big(t, z, "pe-reset", "還原預設", { on: (cx) => { setShared(PROMPTS_KEY, null); this.promptEdit = null; cx.notify(); } }))
-      .child(this.big(t, z, "pe-cancel", "取消", { on: (cx) => { this.promptEdit = null; cx.notify(); } })));
+      .child(this.big(t, z, "pe-cancel", "取消（不改）", { on: (cx) => { this.promptEdit = null; cx.notify(); } }))
+      .child(div().flex_1())
+      .child(this.big(t, z, "pe-reset", "還原成原本的", { on: (cx) => { setShared(PROMPTS_KEY, null); this.promptEdit = null; cx.notify(); } })));
+    box.child(div().text_size(z - 1.5).text_color(t.dim).child("按鈕上的字或內容空白的那一顆，儲存時會拿掉。"));
     return box;
   }
 
@@ -499,7 +514,7 @@ export default class Gerrit extends View {
       : "還沒設定 Gerrit agent：照 docs/gerrit.md §8 裝好 Gerrit MCP，在 gerrit.json 加 agent.start。"));
     if (a.start && !list.length && !this.pendingStart)
       card.child(h_flex().child(this.big(t, z, "ask-start", `＋ 開 ${a.name} agent`, { on: (cx) => this.startAgent(cx) })));
-    if (this.promptEdit) return card.child(this.promptEditor(t, z));
+    if (this.promptEdit) return card.child(this.promptEditor(t, z, c));
     card.child(h_flex().gap(6).flex_wrap().children(a.prompts.map((p, i) =>
       this.big(t, z, `ask-p-${i}`, this.ask?.sending === p.label ? "送出中…" : p.label,
         { kind: i === 0 ? "primary" : undefined, off: !picked || Boolean(this.ask?.sending), on: (cx) => cx.spawn(async (cx) => this.askAgent(c, p, cx)) })))

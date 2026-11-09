@@ -142,6 +142,7 @@ herdr-app do tab.new --name "bob" --mod gerrit --props '{"search":"owner:bob is:
 ```powershell
 herdr-app do tab.new --name "#7" --mod gerrit --props '{"open":"7"}'          # PowerShell 7.3 or newer (pwsh)
 herdr-app do tab.new --name "#7" --mod gerrit --props '{\"open\":\"7\"}'     # Windows PowerShell 5.1
+herdr-app do tab.new --name "bob" --mod gerrit --props '{\"search\":\"owner:bob is:open\"}'   # Windows PowerShell 5.1
 ```
 
 **Notifications** (only when logged in), at most three per check:

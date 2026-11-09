@@ -5,8 +5,10 @@ and pops a notification when a change turns to you or someone replies. Same on W
 Herdr 右邊的 Gerrit 面板：跟 Gerrit 網頁首頁一樣的分區，點一下看細節，輪到你或有人回覆時跳通知。
 
 Status: list, search, details, notifications, reply / vote / submit, reviewers / CC, rebase / abandon / WIP, comparing patch sets, topics, Jenkins builds, comment-thread replies, diffs with line comments. Next: opening a commented line in
-jay-nvim. Tested against a public Gerrit (3.15) without a login; **logging in and notifications have not run on a real
-company Gerrit yet**: note what differs and bring it to jay.
+jay-nvim. Tested with a login against a local Gerrit 3.14.5 (every
+button, notifications, whole-topic submit, submit requirements) and against a fake Jenkins; `node tests/gerrit/run.js`
+checks the same without either. **It has not run on a real company Gerrit or Jenkins yet**: note what differs and
+bring it to jay.
 
 | | |
 |---|---|
@@ -64,6 +66,8 @@ Until it exists, the panel shows what to write. Create `<home>/.config/herdr-app
 - `user` / `http_password`: Gerrit's **HTTP password**, not your login password. In Gerrit: your avatar (top right) →
   Settings → HTTP Credentials → Generate new password. 不是登入密碼，是 Gerrit 設定頁產生的 HTTP 密碼。
 - `poll_seconds`: how often it asks Gerrit (at least 15; default 60).
+- `jenkins` (optional): Jenkins builds on a change's page, see [§6](#6-jenkins-builds--jenkins-build).
+- `sections` (optional): your own sections, see [§4](#4-your-own-sections--自訂分區).
 
 The file stays on your PC: it is outside the mod folder, so copying a new mod never touches it, and it is never in
 this repo. Don't share it. The panel reads it again within 10 seconds of a save.

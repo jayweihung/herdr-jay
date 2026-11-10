@@ -165,7 +165,12 @@ back to Base → latest. Useful to see what changed since you last reviewed (從
 - Each label you may vote on (e.g. Code-Review, Build, Verified) has its full name above its own row of buttons.
 - Under each comment thread: **✓ Done** and **Ack** reply and mark it resolved in one press; **💬 回覆** opens a box
   with 送出並解決 / 送出（不解決）/ 取消.
+- **Your drafts** (unsent replies, e.g. ones the gerrit agent's 幫我回覆 saved for you) show inside the thread they
+  answer, boxed and marked 📝 你的草稿（還沒送出）, with what sending does to the thread. Such a thread offers
+  **🗑 刪除草稿** instead of Done / Ack (they would answer twice); **💬 送出回覆** says how many drafts it sends and
+  sends them even with an empty box. Only the account in `gerrit.json` sees its own drafts.
 回覆、給分、合併都在細節頁最上面；留言串下面有 Done／Ack／回覆。合併要按兩次。
+草稿（例如 agent「幫我回覆」存的）會出現在它回覆的那串留言裡，標「📝 你的草稿（還沒送出）」；按「💬 送出回覆」一起送出，不要了就按「🗑 刪除草稿」。
 
 **A change in a tab of its own** (add `"diff":"path/to/file"` to start on that file's diff):
 

@@ -853,15 +853,41 @@ export default class Gerrit extends View {
   async sendReply(c, cx) {
     const message = this.replyState().value().trim();
     const labels = { ...(this.picked ?? {}) };
-    if (!message && !Object.keys(labels).length) { this.actErr = "沒有要送的：寫點回覆或選個分數"; cx.notify(); return; }
+    if (!message && !Object.keys(labels).length && !this.draftCount()) { this.actErr = "沒有要送的：寫點回覆或選個分數"; cx.notify(); return; }
     const ok = await this.act("reply", () => this.req("POST", `/changes/${cid(c)}/revisions/current/review`,
       { ...(message ? { message } : {}), ...(Object.keys(labels).length ? { labels } : {}), drafts: "PUBLISH_ALL_REVISIONS" }), cx);
     if (ok) { this.reply.set_value(""); this.picked = {}; cx.notify(); }
   }
 
+  // Your unsent drafts on the open change (Gerrit keeps them per account until a reply publishes them).
+  draftCount() {
+    return Object.values(this.detail?.drafts ?? {}).reduce((n, list) => n + (Array.isArray(list) ? list.length : 0), 0);
+  }
+
+  // Published comments and your drafts (marked draft: true), by file: a draft shows inside the thread it answers.
+  withDrafts() {
+    const out = {};
+    for (const [src, draft] of [[this.detail?.comments, false], [this.detail?.drafts, true]])
+      for (const [path, list] of Object.entries(src ?? {})) for (const m of list ?? []) (out[path] ??= []).push(draft ? { ...m, draft: true } : m);
+    return out;
+  }
+
+  // One thread out of its comments (oldest first): open or not by its last published comment; your draft in it, if any.
+  thread(ms) {
+    ms.sort((a, b) => when(a.updated) - when(b.updated));
+    const pub = ms.filter((m) => !m.draft);
+    const last = pub[pub.length - 1] ?? ms[ms.length - 1];
+    return { root: ms[0], msgs: ms, unresolved: Boolean(last.unresolved), draft: ms.find((m) => m.draft) ?? null };
+  }
+
+  async deleteDraft(c, d, cx) {
+    await this.act(`dr-${d.id}`, () => this.req("DELETE", `/changes/${cid(c)}/revisions/${d.patch_set}/drafts/${d.id}`), cx);
+  }
+
   // Reply in a comment thread: on the patch set and spot of its last comment, like Gerrit's quick replies.
   async replyThread(c, x, message, resolve, cx) {
-    const last = x.msgs[x.msgs.length - 1];
+    const pub = x.msgs.filter((m) => !m.draft);
+    const last = pub[pub.length - 1] ?? x.msgs[x.msgs.length - 1];
     const cm = { in_reply_to: last.id, message, unresolved: !resolve };
     if (last.line) cm.line = last.line;
     if (last.range) cm.range = last.range;
@@ -981,16 +1007,18 @@ export default class Gerrit extends View {
     try {
       this.cfg = await this.readConfig(); // the panel's own copy (the button may be the one polling)
       const id = cid(c);
-      const [d, comments] = await Promise.all([
+      const [d, comments, drafts] = await Promise.all([
         this.get(`/changes/${id}/detail?o=ALL_REVISIONS&o=CURRENT_FILES&o=CURRENT_COMMIT&o=DETAILED_LABELS&o=MESSAGES&o=SUBMITTABLE&o=CHANGE_ACTIONS&o=CURRENT_ACTIONS&o=SUBMIT_REQUIREMENTS`),
         this.get(`/changes/${id}/comments`).catch(() => ({})),
+        // your drafts (e.g. replies an agent saved for you): only with a login, Gerrit keeps them per account
+        this.cfg.auth ? this.get(`/changes/${id}/drafts`).catch(() => ({})) : {},
       ]);
       const [topic, together] = await Promise.all([
         // the other changes of its topic (any project), and what a submit would merge with it (whole-topic submit)
         d.topic ? this.get(`/changes/?q=${encodeURIComponent(`topic:"${d.topic}" limit:${SEARCH_LIMIT}`)}&${OPTS}`).catch(() => null) : null,
         d.status === "NEW" ? this.get(`/changes/${id}/submitted_together?o=NON_VISIBLE_CHANGES`).catch(() => null) : null,
       ]);
-      if (this.openId === c.id) this.detail = { change: d, comments, topic: topic && topic.filter((x) => x._number !== d._number), together };
+      if (this.openId === c.id) this.detail = { change: d, comments, drafts: drafts ?? {}, topic: topic && topic.filter((x) => x._number !== d._number), together };
     } catch (e) {
       if (this.openId === c.id) this.detail = { change: c, error: String(e.message ?? e) };
     }
@@ -1208,7 +1236,7 @@ export default class Gerrit extends View {
 
   renderDiff(t, z) {
     const { path, data, loading, error, open } = this.diff;
-    const c = this.detail.change, comments = this.detail.comments ?? {};
+    const c = this.detail.change, comments = this.withDrafts();
     const body = v_flex().id("diff").flex_1().min_h(0).overflow_y_scrollbar().pb(16);
     // file navigation: previous / next file of this patch set
     const shown = this.shownFiles();
@@ -1243,20 +1271,19 @@ export default class Gerrit extends View {
     for (const m of all) { const r = rootOf(m); if (!threads.has(r.id)) threads.set(r.id, []); threads.get(r.id).push(m); }
     const at = new Map(); // "b:12" / "a:3" / "file" -> [thread]
     for (const ms of threads.values()) {
-      ms.sort((x, y) => when(x.updated) - when(y.updated));
-      const r = ms[0];
+      const x = this.thread(ms), r = x.root;
       // right side: comments on "to"; left side: on the parent of "to" (Base) or on the "from" patch set
       const right = r.patch_set === dTo && r.side !== "PARENT";
       const left = dBase == null ? r.patch_set === dTo && r.side === "PARENT" : r.patch_set === dBase && r.side !== "PARENT";
       if (!right && !left) continue; // other patch sets: on the change page
       const key = !r.line ? "file" : `${left ? "a" : "b"}:${r.line}`;
       if (!at.has(key)) at.set(key, []);
-      at.get(key).push({ root: r, msgs: ms, unresolved: Boolean(ms[ms.length - 1].unresolved) });
+      at.get(key).push(x);
     }
     const threadCard = (x, k) => v_flex().id(`dt-${k}`).mx(10).my(4).p(8).gap(4).rounded(6).bg(t.raised).text_size(z - 1)
       .border_l(3).border_color(x.unresolved ? t.blocked : t.ansi2)
-      .children(x.msgs.map((m, j) => v_flex().id(`dt-${k}-${j}`).gap(1)
-        .child(div().text_color(t.muted).child(`${who(m.author)} · ${ago(m.updated)}${j === x.msgs.length - 1 ? (x.unresolved ? " · 未解決" : " · 已解決") : ""}`))
+      .children(x.msgs.map((m, j) => m.draft ? this.draftNote(t, z, m, `dt-${k}-${j}`) : v_flex().id(`dt-${k}-${j}`).gap(1)
+        .child(div().text_color(t.muted).child(`${who(m.author)} · ${ago(m.updated)}${m === x.msgs.filter((y) => !y.draft).pop() ? (x.unresolved ? " · 未解決" : " · 已解決") : ""}`))
         .child(div().whitespace_normal().child(String(m.message ?? "").trim()))))
       .when(Boolean(shared(SAFE_CFG)?.auth) && c.status === "NEW", (el) => el.child(this.threadButtons(t, z, c, x)));
     (at.get("file") ?? []).forEach((x, k) => body.child(threadCard(x, `file-${k}`)));
@@ -1486,9 +1513,10 @@ export default class Gerrit extends View {
       card.child(div().id("reply-box").w_full().min_h(64).p(6).rounded(6).bg(t.background).border_1().border_color(t.input)
         .cursor_text().on_mouse_down("left", stop)
         .child(Textarea.new(this.replyState()).w_full().text_size(z).text_color(t.foreground)));
-      const n = Object.keys(this.picked ?? {}).length;
+      const n = Object.keys(this.picked ?? {}).length, nd = this.draftCount();
+      const what = [n ? `${n} 個分數` : "", nd ? `${nd} 則草稿` : ""].filter(Boolean).join("、");
       const row = h_flex().gap(6).flex_wrap()
-        .child(this.big(t, z, "send", this.sending === "reply" ? "送出中…" : n ? `💬 送出回覆和 ${n} 個分數` : "💬 送出回覆",
+        .child(this.big(t, z, "send", this.sending === "reply" ? "送出中…" : what ? `💬 送出回覆和 ${what}` : "💬 送出回覆",
           { kind: "primary", grow: true, off: busy, on: (cx) => cx.spawn(async (cx) => this.sendReply(c, cx)) }));
       if (c.submittable) {
         const armed = this.armed === `submit-${c.id}` && Date.now() - this.armedAt <= 4000;
@@ -1505,6 +1533,14 @@ export default class Gerrit extends View {
     return card;
   }
 
+  // Your unsent draft inside its thread: marked so it can't pass for something already sent.
+  draftNote(t, z, m, id) {
+    return v_flex().id(id).gap(1).p(6).rounded(6).bg(t.background).border_1().border_color(t.accent)
+      .child(div().text_color(t.accent).font_semibold().whitespace_normal()
+        .child(`📝 你的草稿（還沒送出）· 第 ${m.patch_set} 版 · 送出後${m.unresolved ? "維持未解決" : "標成已解決"}`))
+      .child(div().whitespace_normal().child(String(m.message ?? "").trim()));
+  }
+
   // Under a thread: Done / Ack resolve it in one press (Gerrit's quick replies); 回覆 opens a box.
   threadButtons(t, z, c, x) {
     const key = `th-${x.root.id}`, busy = Boolean(this.sending), mine = this.threadReply?.id === x.root.id;
@@ -1515,6 +1551,13 @@ export default class Gerrit extends View {
       .when(!busy, (el) => el.cursor_pointer().hover((st) => st.opacity(0.85)).on_mouse_down("left", stop).on_click((_e, cx) => on(cx)))
       .child(label);
     const send = (msg, resolve) => (cx) => cx.spawn(async (cx) => this.replyThread(c, x, msg, resolve, cx));
+    // Your draft already answers this thread: it goes out with 💬 送出回覆; a quick reply here would answer twice.
+    if (x.draft) {
+      const dk = `dr-${x.draft.id}`;
+      return h_flex().gap(6).pt(4).flex_wrap().items_center()
+        .child(div().flex_1().min_w(0).whitespace_normal().text_color(t.muted).child("草稿會在下面「回覆、給分」按 💬 送出回覆 時一起送出"))
+        .child(small(dk, this.sending === dk ? "刪除中…" : "🗑 刪除草稿", (cx) => cx.spawn(async (cx) => this.deleteDraft(c, x.draft, cx))));
+    }
     if (mine) {
       const st = this.threadReply.state;
       return v_flex().gap(6).pt(4)
@@ -1619,25 +1662,25 @@ export default class Gerrit extends View {
 
     // Comment threads (replies follow in_reply_to), unresolved first, like Gerrit's Comments tab
     const byId = new Map();
-    for (const [path, list] of Object.entries(comments ?? {})) for (const m of list) byId.set(m.id, { path, ...m });
+    for (const [path, list] of Object.entries(this.withDrafts())) for (const m of list) byId.set(m.id, { path, ...m });
     const rootOf = (m) => { let r = m, n = 0; while (r.in_reply_to && byId.has(r.in_reply_to) && n++ < 50) r = byId.get(r.in_reply_to); return r; };
     const threads = new Map();
     for (const m of byId.values()) { const r = rootOf(m); if (!threads.has(r.id)) threads.set(r.id, []); threads.get(r.id).push(m); }
-    const list = [...threads.values()].map((ms) => {
-      ms.sort((a, b) => when(a.updated) - when(b.updated));
-      return { root: ms[0], msgs: ms, unresolved: Boolean(ms[ms.length - 1].unresolved) };
-    }).sort((a, b) => Number(b.unresolved) - Number(a.unresolved) || a.root.path.localeCompare(b.root.path) || (a.root.line ?? 0) - (b.root.line ?? 0));
+    const list = [...threads.values()].map((ms) => this.thread(ms)).sort((a, b) => Number(b.unresolved) - Number(a.unresolved) || a.root.path.localeCompare(b.root.path) || (a.root.line ?? 0) - (b.root.line ?? 0));
     if (list.length) {
       const open = list.filter((x) => x.unresolved).length;
       const all = this.allComments === c.id;
-      const shown = all ? list.slice(0, 60) : list.filter((x) => x.unresolved).slice(0, 30);
+      const shown = all ? list.slice(0, 60) : list.filter((x) => x.unresolved || x.draft).slice(0, 30);
       body.child(title(`程式碼留言（${open} 個未解決，共 ${list.length} 串）`));
+      const nd = this.draftCount();
+      if (nd) body.child(div().text_size(z - 1).p(8).rounded(6).bg(t.raised).border_l(3).border_color(t.accent).whitespace_normal()
+        .child(`📝 你有 ${nd} 則草稿還沒送出，在它回覆的那串留言裡面。別人看不到；按下面「回覆、給分」的 💬 送出回覆 就會一起送出。`));
       const where = (m) => m.path === "/PATCHSET_LEVEL" ? "整體留言" : `${m.path === "/COMMIT_MSG" ? "提交說明" : m.path}${m.line ? `:${m.line}` : ""}`;
       shown.forEach((x, i) => body.child(v_flex().id(`th-${i}`).gap(4).p(8).rounded(6).bg(t.raised).text_size(z - 1)
         .child(h_flex().gap(6).items_center()
           .child(div().flex_1().min_w(0).text_ellipsis_start().font_family(mono()).text_color(t.muted).child(where(x.root)))
           .child(div().flex_none().text_color(x.unresolved ? t.blocked : t.ansi2).child(x.unresolved ? "未解決" : "已解決")))
-        .children(x.msgs.map((m, k) => v_flex().id(`th-${i}-${k}`).gap(1)
+        .children(x.msgs.map((m, k) => m.draft ? this.draftNote(t, z, m, `th-${i}-${k}`) : v_flex().id(`th-${i}-${k}`).gap(1)
           .child(div().text_color(t.muted).child(`${who(m.author)} · 第 ${m.patch_set} 版 · ${ago(m.updated)}`))
           .child(div().whitespace_normal().child(String(m.message ?? "").trim()))))
         .when(Boolean(shared(SAFE_CFG)?.auth) && c.status === "NEW", (el) => el.child(this.threadButtons(t, z, c, x)))));

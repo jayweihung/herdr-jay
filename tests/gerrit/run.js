@@ -204,6 +204,30 @@ test("reply: message + picked scores + drafts in one review; nothing to send →
   assert.ok(H.store["gerrit.refresh"], "lists asked to refresh");
 });
 
+test("drafts: loaded with the change, shown in their thread, sent with 送出回覆, deletable", async (G) => {
+  setConfig(LOGIN); const g = freshView(G);
+  const t = "2026-11-10 01:00:00.000000000", later = "2026-11-10 02:00:00.000000000";
+  const root = { id: "c1", patch_set: 1, author: ALICE, message: "What if price is None?", unresolved: true, updated: t, line: 4 };
+  const draft = { id: "d1", patch_set: 1, in_reply_to: "c1", message: "Done in patch set 2", unresolved: false, updated: later, line: 4 };
+  gerrit([["GET", /^\/a\/changes\/6\/detail/, [200, change(6, { revisions: {} })]],
+    ["GET", /^\/a\/changes\/6\/comments$/, [200, { "src/cart.py": [root] }]],
+    ["GET", /^\/a\/changes\/6\/drafts$/, [200, { "src/cart.py": [draft] }]],
+    ["POST", /^\/a\/changes\/6\/revisions\/current\/review$/, [200, {}]],
+    ["DELETE", /^\/a\/changes\/6\/revisions\/1\/drafts\/d1$/, [204, ""]]]);
+  await g.openChange(change(6), cx);
+  assert.equal(g.draftCount(), 1);
+  const x = g.thread(g.withDrafts()["src/cart.py"]);
+  assert.equal(x.root.id, "c1"); assert.equal(x.draft.id, "d1", "the draft sits in the thread it answers");
+  assert.equal(x.unresolved, true, "still open until the draft is sent");
+  render(g); // change page
+  g.diff = { path: "src/cart.py", open: new Set(), data: { content: [{ ab: ["a", "b", "c", "d"] }] } }; render(g); g.diff = null; // diff
+  await g.sendReply(g.detail.change, cx); // nothing typed, no score: the draft alone is worth sending
+  assert.equal(g.actErr, null);
+  assert.deepEqual(seen.find((r) => r.method === "POST").body, { drafts: "PUBLISH_ALL_REVISIONS" });
+  await g.deleteDraft(g.detail.change, x.draft, cx);
+  assert.ok(seen.some((r) => r.method === "DELETE" && r.path === "/a/changes/6/revisions/1/drafts/d1"));
+});
+
 test("thread reply: on the last comment's patch set and spot, resolved for Done", async (G) => {
   setConfig(LOGIN); const g = freshView(G);
   gerrit([["POST", /^\/a\/changes\/7\/revisions\/2\/review$/, [200, {}]], ["GET", /^\/a\/changes\/7\//, [200, {}]]]);

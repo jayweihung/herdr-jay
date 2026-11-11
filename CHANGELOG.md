@@ -18,6 +18,15 @@ Needs: **core** (build v0.1.20, no patches), **app** (build v0.1.15), in that or
 - macOS: terminals opened by a core older than 0.1.20 can still end when Herdr quits. Install core first; after
   that, close and reopen old terminals when convenient (or restart the Mac).
 - First tag checked on both OSes will now be `for-herdr-v0.1.15-r1`.
+- **jay-nvim follow fixes** ([docs/nvim.md](docs/nvim.md)). Needs **mods** (macOS symlinks: nothing; reopen the nvim
+  pane). Follow keeps going after a Bash command that fails, follows a background Bash when it ends, follows
+  sub-agents (Task), opens a new file the agent writes once it is there, prefers the files a Bash command names over
+  other changes in the repo, `~/x` and `$HOME/x` count as paths (also in the snap hook, which jay-nvim rewrites
+  itself), a stuck `hc` or `git` no longer freezes nvim, size caps (files over 4 MB are not opened by follow), a first
+  open after a snapshotted Bash edit marks that edit (not everything since the last commit), the Edit line comes from
+  `old_string` first. Root view: records carry `pid`; only the root agent under this pane counts. Tests:
+  `node tests/jay-nvim/run.js`.
+  jay-nvim 跟檔修正：Bash 失敗後還會跟、背景 Bash、sub-agent、新寫的檔、hc／git 卡住不再凍住 nvim 等。
 
 ## 2026-11-10
 

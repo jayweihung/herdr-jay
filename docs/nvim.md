@@ -22,13 +22,17 @@ Needs **Neovim 0.11 or newer**, `git`, and `hc` on the machine where the pane op
 ## 1. Features / 功能
 
 - **Follow the agent**: opens the file the agent beside it (Claude Code) last read or edited — several agents:
-  whichever touched a file last. Never while you type or with unsaved changes. `space a f` toggles.
-  跟著 agent 開檔。
+  whichever touched a file last; its sub-agents (Task) count too. A file the agent writes new opens once it is
+  written (after you approve it). Never while you type or with unsaved changes; files over 4 MB are skipped
+  (`space o` still lists them). `space a f` toggles.
+  跟著 agent 開檔（含它叫出來的 sub-agent）。
 - **Live reload with a diff**: files the agent edits reload every second; changed lines show like Claude Code's diff
   (red `-` old, green `+` new). Opening a file in a git repo marks what changed since the last commit.
   Outside a git repo there is no older copy to compare with, so only these get marks: changes made while the file is
   open in nvim, a file the agent wrote new (all `+`), and Bash edits with the snap hook ([7](#7-snapshots-for-bash-edits-optional--bash-改檔的快照選用)).
-  The first jump to a file the agent edited earlier shows no marks there.
+  The first jump to a file the agent edited earlier shows no marks there (outside a git repo). A file follow opens
+  for the first time after a Bash edit with a snapshot is marked against the snapshot (that command's change), not
+  against the last commit.
   agent 改檔時自動重讀，標出改了哪幾行。不在 git repo 裡沒有舊版可比：只有開著時的修改、新寫的檔、和有 snap hook 的 Bash 修改有標記。
 - **File tree** on the right (netrw), without git-ignored files (the ignore list comes from the repo nvim started in);
   the shown file is highlighted. A file the agent creates appears when nvim follows it there (other new files: `ctrl-l`
@@ -44,8 +48,10 @@ Needs **Neovim 0.11 or newer**, `git`, and `hc` on the machine where the pane op
   right-clicks to the program only when the pane is labelled `herdr.right-click=program`; jay-nvim sets that label.
   Shift + right-click still opens Herdr's menu.
 - **Two panes on one file**: a heads-up the first time you change a file another nvim also has open.
-- **Bash edits**: when the agent changes files with a shell command, nvim follows the newest changed file in the
-  agent's repo, or a file the command names by absolute path.
+- **Bash edits**: when a shell command of the agent ends (also with an error, also one run in the background), nvim
+  opens what it changed: the files Claude Code saw it change, else a changed file the command names (`/abs/path`,
+  `~/x`, `$HOME/x`, or relative to the agent's folder), else the newest changed file in the repo.
+  Bash 指令跑完（失敗或背景跑的也算）就開它改的檔：先看指令裡寫到的檔，沒有才找 repo 裡最新改的。
 
 ## 2. Keys / 按鍵
 
@@ -107,14 +113,15 @@ One `nvim.js` for both; all OS differences sit in its PLATFORM section ([5](#5-h
 | Herdr home | `~/.config/herdr-app` | `%USERPROFILE%\.config\herdr-app` |
 | Keys | `cmd-e`, `cmd-o` | `ctrl-shift-i`, `ctrl-shift-j` |
 | Launcher | `unix.js`: `/bin/sh` finds nvim in `~/.local/bin`, `/opt/homebrew/bin`, `/usr/local/bin`, `/usr/bin`; the Lua goes on the command line | `windows.js`: writes `mods\jay-nvim\.init.lua` (a command line holds at most 32767 characters), nvim `:source`s it; nvim from PATH |
-| Finding the agent's session | the pane's process (`~/.claude/sessions/<pid>.json`) | the live Claude Code session in the pane's start folder (agents run inside pwsh) |
+| Finding the agent's session | the pane's process (`~/.claude/sessions/<pid>.json`), or a process under it | a process under the pane's (agents run inside pwsh); if none: the live Claude Code session in the pane's start folder |
 | Paths | as they are | one spelling (`C:/x/y`), case ignored when comparing |
-| Paths in Bash commands | `/abs/path` | `C:\x`, `C:/x`, `/c/x` |
+| Paths in Bash commands | `/abs/path`, `~/x`, `$HOME/x` | `C:\x`, `C:/x`, `/c/x`, `~\x`, `$HOME\x`, `$env:USERPROFILE\x` |
 | Agent running as root | follows root's copies if a root view is set up, else a one-line note ([6](#6-agent-running-as-root--agent-用-root-跑)) | — |
 | Pick key nvim receives | `<M-o>` (alt+o) | `<M-o>` (alt+o) |
 
-On Windows, start the agent in the folder the tab was opened in (no `cd` first): that is how jay-nvim finds its
-session. Two Claude Codes in the same folder may get mixed up.
+On Windows jay-nvim looks for the agent's session among the processes under the pane (not yet tested on a real
+Windows machine). If that finds none, it falls back to the folder: then start the agent in the folder the tab was
+opened in (no `cd` first), and two Claude Codes in the same folder may get mixed up.
 
 ## 5. How it is built / 程式結構
 
@@ -134,6 +141,13 @@ mods/jay-nvim-pick/
 `nvim.js` stays a single file: the unix launcher puts the whole Lua on one command line, and a root-side copy can be
 pinned by its sha256.
 
+**Tests** (after changing the follow code): `node tests/jay-nvim/run.js` in herdr-jay (Node 18+, Neovim, git;
+macOS / Linux). It runs the Lua in a headless nvim with a temp HOME and a fake `hc`, so nothing of yours is touched.
+改了之後跑 `node tests/jay-nvim/run.js`，全部 ok 才算過。
+
+Programs nvim waits for get a time limit, so a stuck one can't freeze it: `hc` 2 s, `git` 5 s (a git that can't
+read the repo's filters in time isn't run at all), `pgrep` 1 s.
+
 ## 6. Agent running as root / agent 用 root 跑
 
 When the agent beside the pane runs under `sudo`, its session log is root's: jay-nvim can't read it, says so once,
@@ -146,8 +160,13 @@ changed where you can read them, jay-nvim follows those instead. jay-nvim itself
 it only reads:
 
 - `<dir>/index.jsonl`: one JSON line per touch: `{"t": <unix time>, "tool": "Read"|"Edit"|"Write"|"Bash"|…,
-  "path": "/abs/path", "before": "<sha256>"|null, "after": "<sha256>", "line": <n>|null}`;
-- `<dir>/blobs/<sha256>`: the file's content at that moment.
+  "path": "/abs/path", "before": "<sha256>"|null, "after": "<sha256>", "line": <n>|null, "pid": <n>,
+  "session_id": "<id>"|null}`. `pid` is the root Claude Code process itself: jay-nvim follows a record only if that
+  process runs under the pane of the agent beside it (anywhere below the pane's process: shell → sudo → claude), so
+  root agents in other tabs don't move it. A record without `pid` (an older root side) counts only while no record in
+  the index has one, and only if its `t` is after nvim started following (never an old touch on open).
+  `session_id` is not used by jay-nvim;
+- `<dir>/blobs/<sha256>`: the file's content at that moment (up to 4 MB is shown).
 
 Put `<dir>` as the only line of `~/.config/jay-nvim/root_view` (as you, on that machine). Then the file shows as
 `root:/abs/path` in a read-only buffer (colors, but no language server or plugins), the change marked against
@@ -159,8 +178,8 @@ you can open it. Without the file, a root agent gets the one-line note 「root �
 ## 7. Snapshots for Bash edits (optional) / Bash 改檔的快照（選用）
 
 A file changed by a Bash command outside a git repo has no "before" to diff against. The **snap hook** keeps one:
-a Claude Code PreToolUse hook that, before each Bash command, saves the files the command names by absolute path
-(at most 20, each up to 1 MB, not `/proc`, `/sys`, `/dev`) to `~/.cache/jay-nvim/snap/<tool_use_id>/` (only you can
+a Claude Code PreToolUse hook that, before each Bash command, saves the files the command names by absolute path,
+`~/x` or `$HOME/x` (at most 20, each up to 1 MB, not `/proc`, `/sys`, `/dev`) to `~/.cache/jay-nvim/snap/<tool_use_id>/` (only you can
 read them; removed after 10 minutes). jay-nvim then marks what the command changed. Without it those files just reload.
 repo 外的檔被 Bash 指令改掉時，沒有「改之前」可比；snap hook 會在指令跑之前先存一份，jay-nvim 才標得出改了哪裡。
 

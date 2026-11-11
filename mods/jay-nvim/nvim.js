@@ -15,24 +15,30 @@ function P.norm(p)
   if not P.win or type(p) ~= "string" then return p end
   return ((p:gsub("\\", "/"):gsub("^(%a):", function(d) return d:upper() .. ":" end)))
 end
--- Absolute paths a shell command names. Windows: C:\x, C:/x, and Git Bash's /c/x.
+-- Absolute paths a shell command names. Windows: C:\x, C:/x, and Git Bash's /c/x. Everywhere: ~/x, $HOME/x and
+-- $HOME in braces (Windows also ~\x and PowerShell's $env:USERPROFILE\x) as the home folder.
 local NAME = "[^%s'\"<>|;&()=]+"
+local HOME_SEP = P.win and "([\\/].*)$" or "(/.*)$"
+local function from_home(w)
+  local rest = w:match("^~" .. HOME_SEP) or w:match("^%$HOME" .. HOME_SEP) or w:match("^%$%{HOME%}" .. HOME_SEP)
+    or (P.win and w:lower():match("^%$env:userprofile" .. HOME_SEP) and w:sub(17))
+  return (rest and P.home ~= "") and P.home .. rest or w
+end
 function P.abs_paths(cmd)
   local out = {}
   cmd = type(cmd) == "string" and cmd or ""
-  local function add(p) out[#out + 1] = p end
+  local function add(w)
+    local p = from_home(w)
+    if P.win and p:match("^%a:[\\/]") then out[#out + 1] = P.norm(p)
+    elseif P.win and p:match("^/%a/") then out[#out + 1] = p:sub(2, 2):upper() .. ":" .. p:sub(3)
+    elseif not P.win and p:match("^/") then out[#out + 1] = p end
+  end
   -- quoted strings first, whole (paths with spaces), then the rest of the command word by word
   local rest = cmd:gsub([=[(["'])(.-)%1]=], function(_, q)
-    if P.win and q:match("^%a:[\\/]") then add(P.norm(q))
-    elseif P.win and q:match("^/%a/") then add(q:sub(2, 2):upper() .. ":" .. q:sub(3))
-    elseif not P.win and q:match("^/") then add(q) end
+    add(q)
     return " " .. q:gsub("[\"']", " ") .. " " -- and the words inside it (python -c "open('/tmp/x')")
   end)
-  for w in rest:gmatch(NAME) do
-    if P.win and w:match("^%a:[\\/]") then add(P.norm(w))
-    elseif P.win and w:match("^/%a/") then add(w:sub(2, 2):upper() .. ":" .. w:sub(3))
-    elseif not P.win and w:match("^/") then add(w) end
-  end
+  for w in rest:gmatch(NAME) do add(w) end
   return out
 end
 `;
@@ -128,10 +134,25 @@ P.hc_paths = P.win and { (vim.env.LOCALAPPDATA or "") .. "/Programs/herdr-core/h
 -- Folders put in front of PATH for language servers (unix: Homebrew and ~/.local/bin; Windows: PATH as it is).
 P.extra_path = not P.win and { P.home .. "/.local/bin", "/opt/homebrew/bin", "/usr/local/bin" } or nil
 P.path_sep = P.win and ";" or ":"
--- The Claude Code session of the agent in a pane: { pid = n } from ~/.claude/sessions/<pid>.json, or the file's table.
--- unix: the pane's foreground pid; under sudo there is none, so walk the pane's process tree (pgrep).
--- Windows: Herdr starts agents through pwsh (or npm's claude.cmd), so the pid is the shell's: take the live session
--- whose folder is the pane's, active last. shortcut: two Claude Codes in one folder may swap.
+-- The pids under a pane's process (children, their children, ...; at most "max"), from nvim itself: no external
+-- program to hang (macOS, Linux and Windows each have their own nvim_get_proc_children).
+function P.tree(pid, max)
+  local out, todo = {}, { pid }
+  while #todo > 0 and #out < max do
+    local ok, kids = pcall(vim.api.nvim_get_proc_children, table.remove(todo, 1))
+    for _, c in ipairs(ok and kids or {}) do
+      if #out >= max then break end
+      out[#out + 1] = c
+      todo[#todo + 1] = c
+    end
+  end
+  return out
+end
+-- The Claude Code session of the agent in a pane: the table in ~/.claude/sessions/<pid>.json for the pane's
+-- foreground pid, else the first process under the pane's process that has one (unix under sudo: no foreground;
+-- Windows: Herdr starts agents through pwsh or npm's claude.cmd, so the foreground is the shell).
+-- Windows, when that finds nothing: the live session whose folder is the pane's, active last. shortcut: two Claude
+-- Codes in one folder may then swap.
 function P.session(info, t)
   local function read(f)
     local h = io.open(f)
@@ -141,21 +162,17 @@ function P.session(info, t)
     return ok and type(d) == "table" and d or nil
   end
   local dir = P.home .. "/.claude/sessions/"
-  local pid = type(info) == "table" and info.foreground and info.foreground.pid
-  if not P.win then
-    if not pid and type(info) == "table" and info.pid then
-      local todo = { tostring(info.pid) }
-      while not pid and #todo > 0 do
-        for c in (vim.system({ "pgrep", "-P", table.remove(todo, 1) }, { text = true }):wait().stdout or ""):gmatch("%d+") do
-          if vim.uv.fs_stat(dir .. c .. ".json") then pid = tonumber(c) break end
-          todo[#todo + 1] = c
-        end
-      end
-    end
-    return pid and read(dir .. pid .. ".json")
-  end
+  local pid = type(info) == "table" and type(info.foreground) == "table" and tonumber(info.foreground.pid)
   local s = pid and read(dir .. pid .. ".json")
-  if s or type(t.cwd) ~= "string" then return s end
+  if s then return s end
+  local top = type(info) == "table" and tonumber(info.pid)
+  for _, c in ipairs(top and P.tree(top, 64) or {}) do
+    if vim.uv.fs_stat(dir .. c .. ".json") then
+      s = read(dir .. c .. ".json")
+      if s then return s end
+    end
+  end
+  if not P.win or type(t.cwd) ~= "string" then return nil end
   local want = P.key(t.cwd):gsub("/$", "")
   for _, f in ipairs(vim.fn.glob(dir .. "*.json", false, true)) do
     local d = read(f)
@@ -178,6 +195,9 @@ end
 -- ================================== end of PLATFORM ==================================
 
 local HOME, norm = P.home, P.norm
+-- Size caps: nvim opens, diffs and reads these whole.
+local FILE_MAX = 4 * 1024 * 1024 -- a file follow opens or marks against HEAD (larger: skipped; space o still lists it), a root copy
+local LOG_CATCHUP = 8 * 1024 * 1024 -- log bytes read in one tick; more piled up (nvim was busy): only the newest
 -- Keep the snap hook file current (see SNAP_HOOK at the top of nvim.js; enabling it is a Claude Code setting).
 -- libuv, not io.open: on Windows io.open goes through the ANSI code page (a non-English user name).
 pcall(function()
@@ -206,15 +226,26 @@ local GIT = P.bin("git")
 -- The repo's config means .git/config, the files it includes (include.path / includeIf: --local alone skips them)
 -- and config.worktree: --show-scope names all of them "local" or "worktree". A git older than 2.26 has no
 -- --show-scope: then every filter is switched off, yours too (only in nvim's own git calls).
+-- Run a program and wait for it at most ms: one that takes longer (a stuck hc daemon, git on a hung mount) is killed,
+-- code 124, and nvim goes on. Always a result: also when it can't start (127), or when the kill leaves its output open
+-- (a child of it holds the pipe) and the result never comes.
+local function run_wait(cmd, opts, ms)
+  local ok, obj = pcall(vim.system, cmd, vim.tbl_extend("force", opts or {}, { timeout = ms }))
+  local r = ok and obj:wait() or nil
+  return r or { code = ok and 124 or 127, stdout = "", stderr = ok and "timeout" or tostring(obj) }
+end
+local GIT_WAIT = 5000 -- ms
 local function git_guard(dir)
   local out = { "-c", "core.fsmonitor=false" }
   local cmd = { GIT, "-C", dir, "config", "--includes", "--show-scope", "--name-only", "--get-regexp", [[^filter\.]] }
-  local r = vim.system(cmd, { text = true }):wait()
+  local r = run_wait(cmd, { text = true }, GIT_WAIT)
   local scoped = r.code <= 1 -- 1: no filter set anywhere
-  if not scoped then
+  if not scoped and r.code ~= 124 then
     table.remove(cmd, 6)
-    r = vim.system(cmd, { text = true }):wait()
+    r = run_wait(cmd, { text = true }, GIT_WAIT)
   end
+  -- the filters weren't read (killed after the timeout, or any other failure): no git here rather than one with them on
+  if r.code > 1 then return nil end
   local seen = {}
   for line in (r.stdout or ""):gmatch("[^\n]+") do
     local scope, key = line:match("^(%S+)\t(.+)$")
@@ -240,7 +271,8 @@ local function git(dir, args, opts)
   local guard = git_guard(dir)
   if not guard then return NOGIT end
   local base = { GIT, "-C", dir, "-c", "protocol.allow=never", "-c", "core.hooksPath=" .. NO_HOOKS }
-  return vim.system(vim.list_extend(vim.list_extend(base, guard), args), vim.tbl_extend("force", opts or {}, { env = GIT_ENV }))
+  local r = run_wait(vim.list_extend(vim.list_extend(base, guard), args), vim.tbl_extend("force", opts or {}, { env = GIT_ENV }), GIT_WAIT)
+  return { wait = function() return r end }
 end
 local api, ns, old = vim.api, vim.api.nvim_create_namespace("jay-nvim-changes"), {}
 api.nvim_create_autocmd("FileChangedShell", { group = AUG, callback = function(a)
@@ -294,6 +326,8 @@ local function head_lines(b)
   if git(dir, { "rev-parse", "--is-inside-work-tree" }):wait().code == 0 then return {} end
 end
 local function mark_head(b)
+  local st = vim.uv.fs_stat(api.nvim_buf_get_name(b))
+  if st and st.size > FILE_MAX then return end
   local before = head_lines(b)
   if not before then return end
   if before[#before] == "" then before[#before] = nil end
@@ -424,7 +458,10 @@ local home = HOME
 -- would run the quoted lines as commands.
 local AGENTS = { ["claude-code"] = 1, codex = 1, gemini = 1, opencode = 1, pi = 1, aider = 1, amp = 1, goose = 1,
   crush = 1, ["cursor-agent"] = 1, copilot = 1, qwen = 1 }
-local function is_agent(name) return AGENTS[((tostring(name):match("[^/\\]+$") or ""):lower():gsub("%.exe$", ""))] end
+-- hc's agent name as one spelling: no folder, lower case, no ".exe" (Windows)
+local function agent_kind(name) return ((tostring(name):match("[^/\\]+$") or ""):lower():gsub("%.exe$", "")) end
+local function is_agent(name) return AGENTS[agent_kind(name)] end
+local function is_claude(t) return agent_kind(t.agent) == "claude-code" end
 
 local hc_found
 local function hc_bin()
@@ -441,7 +478,9 @@ end
 local function hc(args)
   local bin = hc_bin()
   if not bin then return nil, "找不到 hc" end
-  local r = vim.system({ bin, unpack(args) }, { text = true }):wait()
+  -- a stuck hc (its daemon not answering) must not freeze nvim: killed after 2s (code 124)
+  local r = run_wait({ bin, unpack(args) }, { text = true }, 2000)
+  if r.code == 124 then return nil, "hc 沒回應（" .. tostring(args[1]) .. "）" end
   if r.code ~= 0 then return nil, vim.trim(r.stderr ~= "" and r.stderr or r.stdout) end
   local ok, v = pcall(vim.json.decode, r.stdout)
   return ok and v or r.stdout
@@ -463,8 +502,12 @@ function JN.agents()
   for _, t in ipairs(ls.terminals or {}) do
     -- "where" is "space / tab name" and names repeat: confirm the same tab by its id
     if where and t.where == where and t.address ~= me and t.state == "live" and is_agent(t.agent) then
-      if mytab == nil then mytab = tab_of(me) or false end
-      if not mytab or tab_of(t.address) == mytab then table.insert(out, t) end
+      if mytab == nil then
+        mytab = tab_of(me)
+        -- our own tab unknown (hc get failed): an agent in another tab with the same name would pass; ask again later
+        if not mytab then return nil, "hc 讀不到這格的分頁" end
+      end
+      if tab_of(t.address) == mytab then table.insert(out, t) end
     end
   end
   return out
@@ -483,21 +526,24 @@ end
 -- Claude Code keeps ~/.claude/sessions/<pid>.json -> sessionId; the log is projects/*/<id>.jsonl.
 local TOOLS = { Read = "讀", Edit = "改", MultiEdit = "改", NotebookEdit = "改", Write = "寫" }
 local function session_log(t)
-  if t.agent ~= "claude-code" or t.address:find("/") then return nil end
+  if not is_claude(t) or t.address:find("/") then return nil end
   local s = P.session(hc({ "get", t.address }), t)
-  return s and s.sessionId and vim.fn.glob(("%s/.claude/projects/*/%s.jsonl"):format(home, s.sessionId), false, true)[1]
+  -- the id goes into a glob: only an id's own characters
+  local id = s and type(s.sessionId) == "string" and s.sessionId:match("^[%w%-_]+$")
+  return id and vim.fn.glob(("%s/.claude/projects/*/%s.jsonl"):format(home, id), false, true)[1]
 end
 
 -- An agent started under sudo: hc can't see its foreground and its log is root's, so nothing can be followed.
 -- Say so once (no root handoff: an editor run as root, reachable by anything that can type into a pane, is a root door).
+-- Returns the pane's process id (true), or false.
 local function runs_as_root(t)
-  if not P.sudo_check or P.root or t.agent ~= "claude-code" then return false end
+  if not P.sudo_check or P.root or not is_claude(t) then return false end
   local info = hc({ "get", t.address })
-  return type(info) == "table" and not info.foreground and info.pid ~= nil
-    and vim.system({ "pgrep", "-u", "0", "-P", tostring(info.pid) }):wait().code == 0
+  local pid = type(info) == "table" and not info.foreground and tonumber(info.pid)
+  return pid and run_wait({ "pgrep", "-u", "0", "-P", tostring(pid) }, {}, 1000).code == 0 and pid or false
 end
 -- Root view: a root-side hook (not part of jay-nvim) may keep copies of what a root agent read or changed, readable
--- by you: <dir>/index.jsonl, one JSON record per touch {t, tool, path, before, after, line}, and <dir>/blobs/<sha256>
+-- by you: <dir>/index.jsonl, one JSON record per touch {t, tool, path, before, after, line, pid}, and <dir>/blobs/<sha256>
 -- holding a file's content. <dir> is the one line of ~/.config/jay-nvim/root_view (none: a root agent can't be
 -- followed). nvim only reads them: a copy opens read-only, never as the real file.
 local function root_view_dir()
@@ -515,27 +561,42 @@ if P.sudo_check and not P.root then root_probe:start(0, 1000, vim.schedule_wrap(
   if agent and runs_as_root(agent) then
     vim.api.nvim_echo({ { root_view_dir() and "root 的 agent：跟它留的複本（唯讀）" or "root 的 agent：跟不到（沒有 root_view）", "WarningMsg" } }, true, {})
   end
-  if (agent and agent.agent == "claude-code") or root_tries >= 10 then root_probe:stop() end
+  if (agent and is_claude(agent)) or root_tries >= 10 then root_probe:stop() end
 end)) end
 
 -- The root view's records since the last tick: the newest touch, as a follow item, or nil.
 local function blob(dir, sha)
   if type(sha) ~= "string" or not sha:match("^%x+$") then return nil end
+  local st = vim.uv.fs_stat(dir .. "/blobs/" .. sha)
+  if not st or st.type ~= "file" or st.size > FILE_MAX then return nil end
   local f = io.open(dir .. "/blobs/" .. sha, "rb")
   if not f then return nil end
-  local text = f:read("*a")
+  local text = f:read(FILE_MAX) or ""
   f:close()
   return vim.split((text:gsub("\r?\n$", "")), "\r?\n", { trimempty = false })
+end
+-- A root view index is shared by every root agent on the machine. A record names its agent by "pid": the root
+-- Claude Code's process id, which must run under the pane of an agent this nvim follows (s.panes, set when the agents
+-- are found). An index without any "pid" (an older root side): every record counts, but none from before this view
+-- started (on open, the last one could be any root agent's, days ago).
+local function root_pid_ok(s, pid)
+  if s.under and (s.under[pid] or vim.uv.now() - s.under_at < 2000) then return s.under[pid] == true end
+  s.under, s.under_at = {}, vim.uv.now() -- an agent restarted under the pane has a new pid: list again (at most every 2s)
+  for pane in pairs(s.panes or {}) do
+    s.under[pane] = true
+    for _, c in ipairs(P.tree(pane, 256)) do s.under[c] = true end
+  end
+  return s.under[pid] == true
 end
 local function scan_root(s)
   local st = vim.uv.fs_stat(s.log)
   if not st or st.size == s.pos then return end
   if s.pos and st.size < s.pos then s.pos = nil end -- index started over
-  local from = s.pos or math.max(0, st.size - 64 * 1024)
+  local from = s.pos and math.max(s.pos, st.size - LOG_CATCHUP) or math.max(0, st.size - 64 * 1024)
   local h = io.open(s.log, "rb")
   if not h then return end
   h:seek("set", from)
-  local text = h:read("*a") or ""
+  local text = h:read(st.size - from) or ""
   h:close()
   local cut = text:match(".*()\n")
   if not cut then return end
@@ -543,7 +604,10 @@ local function scan_root(s)
   local it
   for _, l in ipairs(vim.split(text:sub(1, cut - 1), "\n", { plain = true })) do
     local ok, r = pcall(vim.json.decode, l)
-    if ok and type(r) == "table" and type(r.path) == "string" and r.path:sub(1, 1) == "/" and type(r.after) == "string" then
+    local pid = ok and type(r) == "table" and tonumber(r.pid)
+    if pid then s.has_pid = true end
+    local mine = pid and root_pid_ok(s, pid) or (not pid and not s.has_pid and (tonumber(ok and type(r) == "table" and r.t) or 0) >= s.since)
+    if mine and type(r.path) == "string" and r.path:sub(1, 1) == "/" and type(r.after) == "string" then
       local changed = type(r.before) == "string" and r.before ~= r.after or r.before == vim.NIL or r.before == nil and r.tool == "Write"
       it = { path = r.path, root = { dir = s.dir, after = r.after, before = r.before ~= vim.NIL and r.before or nil },
         tag = r.tool == "Read" and "讀" or r.tool == "Write" and "寫" or changed and "改" or "讀",
@@ -554,10 +618,14 @@ local function scan_root(s)
 end
 
 -- Show a root view item: a read-only scratch buffer "root:<path>" with the copy, marked against the copy before.
+-- Found again by its exact name, not bufnr()'s file pattern ({a,b} in a path would match nothing, then E95).
 local function show_root(it)
   local name = "root:" .. it.path
-  local b = vim.fn.bufnr("^" .. vim.fn.escape(name, "\\^$.*~[]") .. "$")
-  if b < 1 then
+  local b
+  for _, x in ipairs(vim.api.nvim_list_bufs()) do
+    if vim.api.nvim_buf_get_name(x) == name and vim.bo[x].buftype == "nofile" then b = x break end
+  end
+  if not b then
     b = vim.api.nvim_create_buf(true, true)
     vim.api.nvim_buf_set_name(b, name)
     vim.bo[b].buftype, vim.bo[b].bufhidden, vim.bo[b].swapfile, vim.bo[b].modeline = "nofile", "hide", false, false
@@ -575,19 +643,20 @@ local function show_root(it)
   return b
 end
 
--- Bytes of the log from offset "from" (or the last "bytes") to the end.
+-- Bytes of the log from offset "from" (or the last "bytes") to its end when opened.
 local function read_log(log, bytes, from)
   local h = log and io.open(log, "rb")
   if not h then return nil end
   local size = h:seek("end")
   local start = h:seek("set", from or math.max(0, size - bytes))
-  local text = h:read("*a")
+  local text = start and size > start and h:read(size - start) or ""
   h:close()
   return text, start
 end
 
--- Newest first, one entry per file. "first" = index of the first whole line in text.
-local function paths_in(text, first)
+-- Newest first, one entry per file. "first" = index of the first whole line in text. Only files that are there,
+-- except with "missing": a Write's new file not written yet (the call waits for your approval) as { missing = true }.
+local function paths_in(text, first, missing)
   local seen, out = {}, {}
   local lines = vim.split(text or "", "\n", { plain = true })
   for i = #lines, first, -1 do
@@ -600,9 +669,13 @@ local function paths_in(text, first)
       for j = type(content) == "table" and #content or 0, 1, -1 do
         local c = content[j]
         local path = norm(type(c) == "table" and c.type == "tool_use" and TOOLS[c.name] and type(c.input) == "table" and (c.input.file_path or c.input.notebook_path))
-        if path and not seen[P.key(path)] and vim.uv.fs_stat(path) then
-          seen[P.key(path)] = true
-          table.insert(out, { path = path, tag = TOOLS[c.name], line = tonumber(c.input.offset), edit = TOOLS[c.name] == "改" and c.input or nil, at = i })
+        if type(path) == "string" and not seen[P.key(path)] then
+          local st = vim.uv.fs_stat(path)
+          local gone = not st and missing and c.name == "Write" or nil
+          if (st and st.type == "file") or gone then
+            seen[P.key(path)] = true
+            table.insert(out, { path = path, tag = TOOLS[c.name], line = tonumber(c.input.offset), edit = TOOLS[c.name] == "改" and c.input or nil, at = i, missing = gone })
+          end
         end
       end
     end
@@ -611,7 +684,8 @@ local function paths_in(text, first)
 end
 
 function JN.agent_files(t)
-  return paths_in(read_log(session_log(t), 8 * 1024 * 1024), 2) -- line 1 may start mid-record
+  local text, start = read_log(session_log(t), 8 * 1024 * 1024)
+  return paths_in(text, start == 0 and 1 or 2) -- line 1 may start mid-record
 end
 
 -- The window that shows files, not the netrw tree.
@@ -624,10 +698,6 @@ local function edit_win()
   return cur
 end
 
--- Bash has no file_path. When a Bash result lands, open the newest file changed since that Bash call started:
--- in the git repo of the agent's cwd or of a folder the command names (git ls-files: modified or new, not ignored),
--- or a file the command names by absolute path (also outside repos, e.g. a root agent working under /root).
--- shortcut: a relative path outside the cwd's repo is not found; upgrade if agents cd elsewhere a lot.
 local function epoch(ts) -- "2026-11-07T18:43:13.354Z" is UTC; os.time reads a table as local time
   local y, mo, d, h, mi, s = (type(ts) == "string" and ts or ""):match("^(%d+)-(%d+)-(%d+)T(%d+):(%d+):(%d+)")
   if not y then return end
@@ -636,53 +706,90 @@ local function epoch(ts) -- "2026-11-07T18:43:13.354Z" is UTC; os.time reads a t
     + os.difftime(now, os.time(os.date("!*t", now))) -- isdst: the table os.date("!*t") gives has false
 end
 -- What a file held before a Bash call ran, kept by the snap hook (SNAP_HOOK, a PreToolUse hook): the call reaches the log only
--- after it ran (root's agent), so nvim cannot keep it itself. Diffed against for a file outside a repo (no HEAD)
+-- after it ran (root's agent), so nvim cannot keep it itself. Diffed against for a file outside a repo (no HEAD), and
+-- for a file follow opens for the first time
 local SNAP = HOME .. "/.cache/jay-nvim/snap/"
 local function snap_of(ids, p)
-  for _, id in ipairs(ids) do -- parallel calls: the first one that named the file saw it before any of them ran
+  for _, id in ipairs(ids or {}) do -- parallel calls: the first one that named the file saw it before any of them ran
     local f = SNAP .. id .. "/" .. vim.fn.sha256(p)
-    if vim.uv.fs_stat(f) then return vim.fn.readfile(f) end
+    local st = vim.uv.fs_stat(f)
+    if st and st.type == "file" and st.size <= 1048576 then return vim.fn.readfile(f) end
   end
 end
 local function stamp(p)
   local st = vim.uv.fs_stat(p)
   return st and st.mtime.sec .. "." .. st.mtime.nsec
 end
-local function bash_changed(cwd, since, cmd)
-  local best, at
-  local function consider(p)
-    local st = vim.uv.fs_stat(p)
-    if st and st.type == "file" and st.mtime.sec >= since and (not at or st.mtime.sec > at) then best, at = norm(p), st.mtime.sec end
+-- Bash has no file_path. When a Bash call's result lands, open the file it changed: the newest file changed since
+-- the call started, from the first of these groups that has one:
+--   1. what Claude Code saw the command change (the result's bashEditDiff: files the agent had read),
+--   2. files the command names: by absolute path, ~/x or $HOME/x, or a path relative to the agent's folder,
+--   3. the git repo of the agent's folder or of a folder the command names (git ls-files: modified or new, not ignored).
+-- Only group 3 can take a file that something else saved meanwhile.
+-- shortcut: a relative path is read against the agent's folder (a cd in the command misses it, then group 3).
+local function bash_changed(cwd, since, cmd, diff)
+  cwd = norm(cwd)
+  cmd = type(cmd) == "string" and cmd or ""
+  local function newest(list)
+    local best, at
+    for _, p in ipairs(list) do
+      local st = vim.uv.fs_stat(p)
+      if st and st.type == "file" and st.mtime.sec >= since
+        and (not at or st.mtime.sec > at.sec or (st.mtime.sec == at.sec and st.mtime.nsec > at.nsec)) then
+        best, at = norm(p), st.mtime
+      end
+    end
+    return best
   end
-  local dirs, n = { cwd }, 0
-  for _, p in ipairs(P.abs_paths(cmd)) do
-    n = n + 1
+  local saw = {}
+  for _, f in ipairs(type(diff) == "table" and type(diff.files) == "table" and diff.files or {}) do
+    if type(f) == "table" and type(f.filePath) == "string" then saw[#saw + 1] = f.filePath end
+  end
+  local p = newest(saw)
+  if p then return p end
+  local named, dirs = {}, { cwd }
+  for n, q in ipairs(P.abs_paths(cmd)) do
     if n > 20 then break end
-    local t = (vim.uv.fs_stat(p) or {}).type
-    if t == "file" then consider(p); dirs[#dirs + 1] = vim.fs.dirname(p) elseif t == "directory" then dirs[#dirs + 1] = p end
+    local t = (vim.uv.fs_stat(q) or {}).type
+    if t == "file" then named[#named + 1] = q; dirs[#dirs + 1] = vim.fs.dirname(q) elseif t == "directory" then dirs[#dirs + 1] = q end
   end
-  local seen = {}
+  local n = 0
+  for w in cmd:gsub("[\"']", " "):gmatch(NAME) do
+    n = n + 1
+    if n > 200 then break end
+    if not w:match("^[-/~$]") and not w:match("^%a:") and #w < 1024 then
+      local q = cwd .. "/" .. w
+      if (vim.uv.fs_stat(q) or {}).type == "file" then named[#named + 1] = q end
+    end
+  end
+  p = newest(named)
+  if p then return p end
+  local seen, files = {}, {}
   for _, d in ipairs(dirs) do
     local top = git(d, { "rev-parse", "--show-toplevel" }, { text = true }):wait()
     top = top.code == 0 and vim.trim(top.stdout)
     if top and not seen[top] then
       seen[top] = true
-      local files = git(top, { "-c", "core.quotepath=off", "ls-files", "-m", "-o", "--exclude-standard" }, { text = true }):wait().stdout or ""
-      for f in files:gmatch("[^\n]+") do consider(top .. "/" .. f) end
+      local r = git(top, { "-c", "core.quotepath=off", "ls-files", "-m", "-o", "--exclude-standard" }, { text = true }):wait()
+      for f in (r.code == 0 and r.stdout or ""):gmatch("[^\n]+") do files[#files + 1] = top .. "/" .. f end
     end
   end
-  return best
+  return newest(files)
 end
 
--- The line an Edit (or MultiEdit's last edit) changed: where its new text sits, or its old text when the file
--- is not rewritten yet, plus the first line the two differ on.
--- shortcut: a short new_string that also appears higher up lands there; upgrade by preferring the match nearest a mark.
+-- The line an Edit (or MultiEdit's last edit) changed, plus the first line its old and new text differ on.
+-- The call is logged before the edit is made (and before you approve it), so the file holds either text.
+-- old_string first: Edit requires it to be unique in the file, so where it is, is the place (before the edit; after
+-- it, it is gone). new_string has no such rule (a short one like "end" can also sit higher up): used when old_string
+-- isn't there exactly once, or when new_string contains old_string (then old_string sits inside the new text, too low).
 local function edit_line(b, e)
   if type(e) == "table" and type(e.edits) == "table" then e = e.edits[#e.edits] end
   local new, old = type(e) == "table" and e.new_string, type(e) == "table" and e.old_string
   if type(new) ~= "string" or type(old) ~= "string" then return end
   local text = table.concat(vim.api.nvim_buf_get_lines(b, 0, -1, false), "\n")
-  local at = (new ~= "" and text:find(new, 1, true)) or (old ~= "" and text:find(old, 1, true))
+  local at = old ~= "" and not new:find(old, 1, true) and text:find(old, 1, true)
+  if at and text:find(old, at + 1, true) then at = nil end
+  at = at or (new ~= "" and text:find(new, 1, true)) or (old ~= "" and text:find(old, 1, true))
   if not at then return end
   local n, o, d = vim.split(new, "\n", { plain = true }), vim.split(old, "\n", { plain = true }), 1
   while n[d] and n[d] == o[d] do d = d + 1 end
@@ -692,48 +799,100 @@ end
 -- Follow: open whatever file an agent in this tab last read or edited; with several agents, whichever
 -- touched a file last . Never while you type
 -- or when the shown buffer has unsaved changes.
-local follow = { on = true, logs = {}, state = {}, checked = -1e9, last = nil, who = nil }
+local follow = { on = true, logs = {}, state = {}, subdirs = {}, subseen = {}, round = 0, checked = -1e9, last = nil, who = nil }
+local function new_state(log, pos) return { log = log, pos = pos, calls = {}, seq = 0 } end
 -- One agent's log since the last tick: the newest file it read or edited, or nil. s keeps that log's place.
 local function scan(s)
   local st = vim.uv.fs_stat(s.log)
   if not st or st.size == s.pos then return end
+  if s.pos and st.size < s.pos then s.pos = nil end -- the log started over
   -- Read only what was appended since the last tick: a window on the tail misses the tool call
   -- when Claude Code writes a big attachment (rules, request blobs: up to 1.5MB) right after it.
-  local first = s.pos and 1 or 2 -- a tail window may start mid-record
-  local text, start = read_log(s.log, 256 * 1024, s.pos and math.min(s.pos, st.size))
+  -- More than LOG_CATCHUP behind (nvim was busy): only the newest part.
+  local from = s.pos and math.max(s.pos, st.size - LOG_CATCHUP)
+  local first = (s.pos and from == s.pos) and 1 or 2 -- a tail window may start mid-record
+  local text, start = read_log(s.log, 256 * 1024, from)
   text = text or ""
   local cut = text:match(".*()\n") -- keep a half-written last record for the next tick
   if not cut or not start then return end
+  if start == 0 then first = 1 end -- the whole log: its first line is whole
   s.pos = start + cut
   local body = text:sub(1, cut - 1)
-  local it = paths_in(body, first)[1]
+  local it, waits
+  for _, x in ipairs(paths_in(body, first, true)) do
+    if not x.missing then it = x break end
+    waits = waits or x
+  end
+  -- A Write that waited for your approval: its file is there now (this chunk has its result); older than all of this chunk
+  local w = s.waiting
+  if w and (vim.uv.fs_stat(w.path) or {}).type == "file" then
+    s.waiting = nil
+    if not it then it, w.at = w, 0 end
+  elseif w and os.time() - w.since > 900 then
+    s.waiting = nil
+  end
+  if waits then s.waiting, waits.missing, waits.since = waits, nil, os.time() end
+  -- A Bash call's result: open what it changed, unless a Read or Edit came after it in this chunk
+  local function ran(call, cwd, res, i)
+    if type(cwd) ~= "string" or (it and it.at > i) then return end
+    local p = bash_changed(cwd, call.t, call.cmd, type(res) == "table" and res.bashEditDiff)
+    -- an Edit just before the Bash call (same second) looks changed by it: keep the Edit's line while the file is as the Edit left it
+    local last = it or s.last
+    local same = last and last.edit and last.path == p and (last == it or last.mt == stamp(p))
+    if p and not same then it = { path = p, tag = "改", at = i, before = snap_of(call.batch, p) } end
+  end
+  local calls = s.calls
   local lines = vim.split(body, "\n", { plain = true })
   for i = first, #lines do
     local l = lines[i]
     -- the request blobs repeat the whole conversation (up to 1.5MB each); only the records themselves count
-    if not l:find('^{"type":"api%-request') and (l:find('"Bash"', 1, true) or l:find('"toolUseResult":{"stdout"', 1, true)) then
+    if not l:find('^{"type":"api%-request') and (l:find('"Bash"', 1, true) or next(calls) ~= nil
+      and (l:find('"tool_use_id"', 1, true) or l:find("<tool-use-id>", 1, true))) then
       local ok, rec = pcall(vim.json.decode, l)
       rec = ok and type(rec) == "table" and rec or {}
-      local content = rec.type == "assistant" and type(rec.message) == "table" and rec.message.content
-      for _, c in ipairs(type(content) == "table" and content or {}) do
-        if type(c) == "table" and c.type == "tool_use" and c.name == "Bash" then
-          -- parallel Bash calls in one message: keep every command and the first start until a result lands
-          if s.ran ~= false then s.bash, s.cmd, s.ran, s.ids = epoch(rec.timestamp) or s.bash, "", false, {} end
+      local content = type(rec.message) == "table" and type(rec.message.content) == "table" and rec.message.content or {}
+      for _, c in ipairs(rec.type == "assistant" and content or {}) do
+        if type(c) == "table" and c.type == "tool_use" and c.name == "Bash" and type(c.id) == "string" and c.id:match("^[%w_]+$") then
+          -- parallel Bash calls (until a result lands) share one list of ids for the snapshots
+          if not s.batch_open then s.batch, s.batch_open = {}, true end
+          table.insert(s.batch, c.id)
+          s.seq = s.seq + 1
           local cmd = type(c.input) == "table" and type(c.input.command) == "string" and c.input.command or ""
-          s.cmd = s.cmd .. "\n" .. cmd
-          if type(c.id) == "string" and c.id:match("^[%w_]+$") then s.ids[#s.ids + 1] = c.id end
+          calls[c.id] = { t = epoch(rec.timestamp) or os.time(), cmd = cmd, batch = s.batch, n = s.seq }
         end
       end
-      local res = rec.type == "user" and rec.toolUseResult
-      if s.bash and type(res) == "table" and res.stdout ~= nil and type(rec.cwd) == "string" and not (it and it.at > i) then
-        local p = bash_changed(rec.cwd, s.bash, s.cmd)
-        s.ran = true
-        -- an Edit just before the Bash call (same second) looks changed by it: keep the Edit's line while the file is as the Edit left it
-        local last = it or s.last
-        local same = last and last.edit and last.path == p and (last == it or last.mt == stamp(p))
-        if p and not same then it = { path = p, tag = "改", at = i, before = snap_of(s.ids, p) } end
+      -- Results, by tool_use_id. toolUseResult is a table when the command exited 0 (or went to the background), a
+      -- string when it didn't: "Error: Exit code N ..." (it ran: files may have changed), refused, interrupted.
+      for _, c in ipairs(rec.type == "user" and content or {}) do
+        local call = type(c) == "table" and c.type == "tool_result" and type(c.tool_use_id) == "string" and calls[c.tool_use_id]
+        if call then
+          s.batch_open = false
+          local res = rec.toolUseResult
+          if type(res) == "table" and res.backgroundTaskId ~= nil then
+            call.bg, call.cwd = true, rec.cwd -- run_in_background (or moved there after a timeout): still running
+          else
+            calls[c.tool_use_id] = nil
+            if (type(res) == "table" and res.stdout ~= nil) or (type(res) == "string" and res:find("^Error: Exit code")) then
+              ran(call, rec.cwd, res, i)
+            end
+          end
+        end
+      end
+      -- a background command ended: a task notification names its call ("<tool-use-id>...", the first of several copies)
+      for id in l:gmatch("<tool%-use%-id>([%w_]+)</tool%-use%-id>") do
+        local call = calls[id]
+        if call and call.bg then
+          calls[id] = nil
+          ran(call, call.cwd, nil, i)
+        end
       end
     end
+  end
+  -- results that never came (the log was cut, the agent quit): keep the newest 64 calls
+  local ids = vim.tbl_keys(calls)
+  if #ids > 64 then
+    table.sort(ids, function(a, b) return calls[a].n < calls[b].n end)
+    for k = 1, #ids - 64 do calls[ids[k]] = nil end
   end
   if it then
     it.mt = stamp(it.path)
@@ -741,26 +900,55 @@ local function scan(s)
   end
   return it, st.mtime
 end
+local function loaded(path)
+  for _, b in ipairs(vim.api.nvim_list_bufs()) do
+    if vim.api.nvim_buf_is_loaded(b) and P.key(vim.api.nvim_buf_get_name(b)) == P.key(path) then return true end
+  end
+  return false
+end
 local function follow_tick()
   if not follow.on or vim.fn.mode() ~= "n" then return end
   local now = vim.uv.now()
   if now - follow.checked > (next(follow.logs) == nil and 3000 or 10000) then -- agents start and restart: re-find (3s while none)
     follow.checked = now
-    follow.logs = {}
+    follow.logs, follow.subdirs, follow.round = {}, {}, follow.round + 1
     for _, t in ipairs(JN.agents() or {}) do
       local log = session_log(t)
       -- kept by log, so a missed lookup does not reread an agent's tail
-      if log then follow.state[log] = follow.state[log] or { log = log, cmd = "", ids = {} }; follow.logs[log] = t
+      if log then
+        follow.state[log] = follow.state[log] or new_state(log)
+        follow.logs[log] = t
+        -- its sub-agents (Task) log apart: <session>/subagents/*.jsonl beside <session>.jsonl (Claude Code 2.1.309+)
+        follow.subdirs[log:sub(1, -7) .. "/subagents"] = t
       else
         -- a root agent: its log is root's; follow the root view instead, when there is one
-        local dir = t.agent == "claude-code" and root_view_dir()
-        if dir and runs_as_root(t) then
+        local dir = is_claude(t) and root_view_dir()
+        local pane = dir and runs_as_root(t)
+        if pane then
           local idx = dir .. "/index.jsonl"
-          follow.state[idx] = follow.state[idx] or { log = idx, dir = dir, root = true }
+          local s = follow.state[idx] or { log = idx, dir = dir, root = true, since = os.time() }
+          follow.state[idx] = s
+          if s.round ~= follow.round then s.round, s.panes, s.under = follow.round, {}, nil end
+          s.panes[pane] = true -- the root agents' panes: whose records count (root_pid_ok)
           follow.logs[idx] = t
         end
       end
     end
+  end
+  -- Sub-agent logs, looked for every tick: those there the first time a folder is looked at are history (read from
+  -- their end), later ones are new (read from their start).
+  for dir, t in pairs(follow.subdirs) do
+    local new = follow.subseen[dir]
+    follow.subseen[dir] = true
+    pcall(function()
+      for name, kind in vim.fs.dir(dir) do
+        if kind == "file" and name:match("%.jsonl$") then
+          local log = dir .. "/" .. name
+          follow.state[log] = follow.state[log] or new_state(log, new and 0 or (vim.uv.fs_stat(log) or {}).size)
+          follow.logs[log] = t
+        end
+      end
+    end)
   end
   local w = edit_win()
   -- unsaved changes: leave the logs unread, so the switch lands once they are saved or dropped
@@ -775,6 +963,10 @@ local function follow_tick()
     end
   end
   if not it then return end -- no dedup: the agent touching the same file again brings you back to it
+  if not it.root then -- not a file any more, or too big to open and diff here (space o still lists it)
+    local st = vim.uv.fs_stat(it.path)
+    if not st or st.type ~= "file" or st.size > FILE_MAX then return end
+  end
   follow.last = it
   local dir = norm(vim.fs.dirname(it.path))
   for _, nw in ipairs(it.root and not vim.uv.fs_access(dir, "X") and {} or tree_wins()) do -- the tree shows the file's folder
@@ -801,13 +993,24 @@ local function follow_tick()
     end
   end
   vim.api.nvim_win_call(w, function()
+    local fresh = false -- opened just now (not loaded before): no reload has marked it yet
     if it.root then
       it.buf = show_root(it)
-    elseif P.key(vim.fn.expand("%:p")) ~= P.key(it.path) then vim.cmd.edit(vim.fn.fnameescape(it.path)) end
-    -- Outside a git repo, unmarked: a Write is all new; a Bash edit diffs against what the file held before the call
+    elseif P.key(vim.fn.expand("%:p")) ~= P.key(it.path) then
+      fresh = not loaded(it.path)
+      vim.cmd.edit(vim.fn.fnameescape(it.path))
+    end
     local b = vim.api.nvim_get_current_buf()
-    local before = not it.root and (it.tag == "寫" and {} or it.before)
-    if before and #vim.api.nvim_buf_get_extmarks(b, ns, 0, -1, { limit = 1 }) == 0 and not head_lines(b) then mark(b, before) end
+    if not it.root then
+      if it.before and fresh then
+        -- a Bash edit with a snapshot: that command's change, not everything since the last commit (opening marked HEAD)
+        mark(b, it.before)
+      else
+        -- Outside a git repo, unmarked: a Write is all new; a Bash edit diffs against what the file held before the call
+        local before = it.tag == "寫" and {} or it.before
+        if before and #vim.api.nvim_buf_get_extmarks(b, ns, 0, -1, { limit = 1 }) == 0 and not head_lines(b) then mark(b, before) end
+      end
+    end
     local at = it.line or (it.tag == "改" and edit_line(b, it.edit))
     if at then -- a Read's offset goes to the top, an edited line to the middle
       pcall(vim.api.nvim_win_set_cursor, w, { math.max(1, math.min(at, vim.api.nvim_buf_line_count(0))), 0 })
@@ -823,6 +1026,10 @@ local function follow_tick()
   end)
   vim.cmd("redrawstatus!")
 end
+-- for tests (tests/jay-nvim): the follow pieces, run without Herdr
+JN.test = { abs_paths = P.abs_paths, paths_in = paths_in, scan = scan, scan_root = scan_root, new_state = new_state,
+  bash_changed = bash_changed, edit_line = edit_line, show_root = show_root, follow = follow, follow_tick = follow_tick,
+  session = P.session, git = git }
 new_timer():start(1000, 1000, vim.schedule_wrap(function() pcall(follow_tick) end))
 -- Title bar above each file: its path, and whether the agent is reading or editing it right now.
 function JN.bar()

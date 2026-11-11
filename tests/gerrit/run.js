@@ -48,7 +48,7 @@ globalThis.__stubs = {
   Textarea: { new: () => el }, TextareaState: { new: textState }, Input: { new: () => el }, InputState: { new: textState },
   // theme colors as Herdr gives them: #rrggbb
   theme: () => new Proxy({}, { get: (_t, k) => (k === "then" ? undefined : "#334455") }),
-  settings: () => ({}), window: () => ({ platform: "macos" }),
+  settings: () => ({}), window: () => H.window ?? { platform: "macos" },
   notify: (n) => H.notes.push(n), home: () => H.home,
   readTextFile: async (p) => readFileSync(p, "utf8"),
   run: (name, args) => H.runs.push([name, args]), layout: () => H.layout,
@@ -624,6 +624,28 @@ test("Jenkins: builds whose parameter has the change, queue, start, log tail, to
     globalThis.fetch = async () => ({ ok: false, status: 401, text: async () => "" });
     g.jk.nextAt = 0; await g.loadJenkins(c7, cx); assert.match(g.jk.error, /API token 不對（401）/); render(g);
   } finally { globalThis.fetch = gfetch; }
+});
+
+test("移到上排 on a layout like Herdr's main (tab bar in a column): the button in a row with the bar, not under the status bar", async (G) => {
+  const main = () => ({ id: "root", type: "row", children: [{ id: "work", type: "column", children: [
+    { id: "tabs", type: "block", size: { px: 42 }, content: { mod: "tabs" } },
+    { id: "body", type: "row", children: [{ id: "main", type: "block", content: { tab: "active" } }] },
+    { id: "status", type: "block", size: { px: 28 }, content: { mod: "workspace-status" } }] }] });
+  const place = async (win) => {
+    H.window = win; H.layout = main(); H.store.layout = "mine"; H.runs = [];
+    await freshView(G).moveIntoBar(cx);
+    const set = H.runs.find(([n]) => n === "layout.set")?.[1]?.layout, work = set.children[0];
+    return { work, row: work.children[0] };
+  };
+  try {
+    let { work, row } = await place({ platform: "macos" });
+    assert.equal(row.type, "row"); assert.deepEqual(row.size, { px: 42 });
+    assert.deepEqual(row.children.map((c) => c.id), ["tabs", "gerrit-toggle"], "Mac: after the bar");
+    assert.deepEqual(row.children[0].size, { weight: 1 });
+    assert.equal(work.children.at(-1).id, "status", "nothing added under the status bar");
+    ({ row } = await place({ platform: "windows", buttons: true }));
+    assert.deepEqual(row.children.map((c) => c.id), ["gerrit-toggle", "tabs"], "Windows: before the bar (close stays in the corner)");
+  } finally { H.window = undefined; }
 });
 
 // ---------- run ----------

@@ -251,7 +251,7 @@ Add it to PATH: [Add to PATH](#add-a-folder-to-path) with the first line `$add =
 `herdr-app.exe` in Explorer → **Pin to Start**, and open Herdr from that pin (below: "from the Start menu").
 
 **Check**: `herdr-app --version | Out-Host` → `herdr-app 0.1.14`. Then open **Herdr** once from the Start menu:
-it creates `%USERPROFILE%\.config\herdr-app` with `keys.json`, `settings.json` and `mods\`.
+it creates its home (`%USERPROFILE%\.config\herdr-app`, or `HERDR_APP_HOME` if you set it) with `keys.json`, `settings.json` and `mods\`.
 先從開始選單打開 Herdr 一次，它會建立設定目錄。
 
 ---
@@ -265,6 +265,9 @@ jay-nvim 不會幫你裝 Neovim，要 **0.11 以上**：
 (its own Neovim, [linux-remote.md §3](linux-remote.md#3-neovim-and-git-on-the-server--server-上的-neovim-和-git)), and the snap hook (§5a) is only for a Claude Code running
 on this PC. Windows' Neovim is needed only for nvim beside a **local** Windows pane.
 只在 Linux server 上工作的話可以跳過這步：server 那格旁邊的 nvim 開在 server 上；Windows 的 Neovim 只有本機的格子要用。
+
+**Not using jay-nvim at all** (only Herdr and agents, e.g. colleagues who just run Claude Code / Codex)? Skip this step and §5: Herdr itself doesn't need Neovim.
+完全不用 jay-nvim（只用 Herdr 跑 agent，例如只用 Claude Code 的同事）的話，這步和 §5 都不用做：Herdr 本身不需要 Neovim。
 
 - `winget install Neovim.Neovim` (an MSI for all users: may need admin)
 - `scoop install neovim` (per user; needs scoop, which itself needs scripts allowed)
@@ -297,7 +300,7 @@ Optional, for go-to-definition and errors (skip if Node or Python are not allowe
    ```powershell
    $j = "$env:USERPROFILE\src\herdr-jay"
    Test-Path "$j\mods\jay-nvim\mod.json"          # must be True; otherwise fix $j
-   $h = "$env:USERPROFILE\.config\herdr-app"
+   $h = if ($env:HERDR_APP_HOME) { $env:HERDR_APP_HOME } elseif ($env:XDG_CONFIG_HOME) { "$env:XDG_CONFIG_HOME\herdr-app" } else { "$env:USERPROFILE\.config\herdr-app" }
    New-Item -ItemType Directory -Force "$h\mods" | Out-Null
    Copy-Item -Recurse -Force "$j\mods\jay-nvim", "$j\mods\jay-nvim-pick" "$h\mods\"
    Set-Content -Encoding ascii "$h\mods\jay-nvim\.herdr-jay" (git -C $j describe --tags --always --match "for-herdr-v*-r*")   # which herdr-jay you copied
@@ -306,11 +309,13 @@ Optional, for go-to-definition and errors (skip if Node or Python are not allowe
    Got herdr-jay as a ZIP (no git)? Use this instead for the last line:
    `Set-Content -Encoding ascii "$h\mods\jay-nvim\.herdr-jay" "zip $(Get-Date -Format yyyy-MM-dd)"`
 
-   (A different home only if you set `HERDR_APP_HOME` or `XDG_CONFIG_HOME`.)
+   (`$h` is Herdr's home: `HERDR_APP_HOME` if set, else `XDG_CONFIG_HOME\herdr-app`, else `%USERPROFILE%\.config\herdr-app`.
+   設了 `HERDR_APP_HOME` 的話，Herdr 的設定目錄在那裡，上面這行會自己找對。)
 3. Add the keys / 加按鍵:
 
    ```powershell
-   notepad "$env:USERPROFILE\.config\herdr-app\keys.json"
+   $h = if ($env:HERDR_APP_HOME) { $env:HERDR_APP_HOME } elseif ($env:XDG_CONFIG_HOME) { "$env:XDG_CONFIG_HOME\herdr-app" } else { "$env:USERPROFILE\.config\herdr-app" }
+   notepad "$h\keys.json"
    ```
 
    Find the line `  "global": {` and paste these two lines **directly under it** (keep the quotes and commas), then save (Ctrl+S):
@@ -326,7 +331,7 @@ Optional, for go-to-definition and errors (skip if Node or Python are not allowe
 4. Check / 檢查 → both print `check passed: ...`:
 
    ```powershell
-   $h = "$env:USERPROFILE\.config\herdr-app"
+   $h = if ($env:HERDR_APP_HOME) { $env:HERDR_APP_HOME } elseif ($env:XDG_CONFIG_HOME) { "$env:XDG_CONFIG_HOME\herdr-app" } else { "$env:USERPROFILE\.config\herdr-app" }
    herdr-app check "$h\mods\jay-nvim" | Out-Host
    herdr-app check "$h\mods\jay-nvim-pick" | Out-Host
    ```
@@ -453,7 +458,7 @@ Windows 只跟 herdr-jay：只 build README 版本表裡的版本。順序：her
 ### 8.0 What do I have / 目前裝的是什麼
 
 ```powershell
-$j = "$env:USERPROFILE\src\herdr-jay"; $h = "$env:USERPROFILE\.config\herdr-app"
+$j = "$env:USERPROFILE\src\herdr-jay"; $h = if ($env:HERDR_APP_HOME) { $env:HERDR_APP_HOME } elseif ($env:XDG_CONFIG_HOME) { "$env:XDG_CONFIG_HOME\herdr-app" } else { "$env:USERPROFILE\.config\herdr-app" }
 hc --version
 herdr-app --version | Out-Host
 git -C $j describe --tags --always --match "for-herdr-v*-r*"
@@ -530,7 +535,7 @@ PC 的 core 更新完，用同一份原始碼 build Linux 版，複製到 server
 Remove the old folders first so deleted files don't linger:
 
 ```powershell
-$j = "$env:USERPROFILE\src\herdr-jay"; $h = "$env:USERPROFILE\.config\herdr-app"
+$j = "$env:USERPROFILE\src\herdr-jay"; $h = if ($env:HERDR_APP_HOME) { $env:HERDR_APP_HOME } elseif ($env:XDG_CONFIG_HOME) { "$env:XDG_CONFIG_HOME\herdr-app" } else { "$env:USERPROFILE\.config\herdr-app" }
 Remove-Item -Recurse -Force "$h\mods\jay-nvim", "$h\mods\jay-nvim-pick" -ErrorAction SilentlyContinue
 Copy-Item -Recurse -Force "$j\mods\jay-nvim", "$j\mods\jay-nvim-pick" "$h\mods\"
 Set-Content -Encoding ascii "$h\mods\jay-nvim\.herdr-jay" (git -C $j describe --tags --always --match "for-herdr-v*-r*")

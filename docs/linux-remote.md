@@ -158,7 +158,7 @@ foreach ($line in Get-Content "$p\neovim\cmake.deps\deps.txt") {
   if ($k -and $k.EndsWith("_URL") -and $libs -contains $k.Substring(0, $k.Length - 4)) {
     $d = "$p\neovim\.deps\build\downloads\" + $k.Substring(0, $k.Length - 4).ToLower()
     New-Item -ItemType Directory -Force $d | Out-Null
-    curl.exe -fsSL -o "$d\$(Split-Path -Leaf $u)" $u
+    curl.exe -fsSL --ssl-no-revoke -o "$d\$(Split-Path -Leaf $u)" $u   # --ssl-no-revoke: company proxies often block the certificate revocation check
   }
 }
 (Get-ChildItem -Recurse -File "$p\neovim\.deps\build\downloads").Count     # must be 14
@@ -228,7 +228,7 @@ server's home. server 連不到 npm：用下面任一種拿到同一個檔，再
   ```sh
   curl -fLO https://github.com/jayweihung/herdr-jay/releases/download/pyright-1.1.414/pyright-1.1.414.tgz
   ```
-  (PowerShell: `curl.exe -fLO …` the same URL; or open the URL in a browser.)
+  (PowerShell: `curl.exe -fLO --ssl-no-revoke …` the same URL — `--ssl-no-revoke` because company proxies often block Windows' certificate revocation check; or open the URL in a browser.)
 - **From npm** on any machine that has it: `npm pack pyright@1.1.414`.
 
 Then, if it isn't on the server yet: `scp pyright-1.1.414.tgz <user>@<server>:`

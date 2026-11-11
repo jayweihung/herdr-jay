@@ -31,7 +31,7 @@ a server.
 **Windows** (PowerShell, after `git pull` in herdr-jay):
 
 ```powershell
-$j = "$env:USERPROFILE\src\herdr-jay"; $h = "$env:USERPROFILE\.config\herdr-app"
+$j = "$env:USERPROFILE\src\herdr-jay"; $h = if ($env:HERDR_APP_HOME) { $env:HERDR_APP_HOME } elseif ($env:XDG_CONFIG_HOME) { "$env:XDG_CONFIG_HOME\herdr-app" } else { "$env:USERPROFILE\.config\herdr-app" }
 Remove-Item -Recurse -Force "$h\mods\gerrit" -ErrorAction SilentlyContinue
 Copy-Item -Recurse -Force "$j\mods\gerrit" "$h\mods\"
 herdr-app check "$h\mods\gerrit" | Out-Host

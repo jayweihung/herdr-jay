@@ -29,13 +29,24 @@ function parentOf(node, test) {
   return null;
 }
 // The layout with this mod as a tab-bar button + a panel in the work area (like the git button), the stray dock removed.
+// The button goes in one row with the tab bar: a tab bar in a column (Herdr's own main) first gets a row around it
+// (its size; the bar fills the rest), else the button would land under the status bar. Where the bar draws the
+// window buttons itself (Windows, Linux) the button goes before it, so the close button stays in the corner.
 function placed(root) {
   const strip = (n) => ({ ...n, children: n.children?.filter((c) => c.content?.mod !== "gerrit").map(strip) });
   const tree = strip(JSON.parse(JSON.stringify(root)));
-  const bar = parentOf(tree, (c) => c.content?.mod === "tabs");
+  let bar = parentOf(tree, (c) => c.content?.mod === "tabs");
   const body = parentOf(tree, (c) => c.content?.tab != null);
   if (!bar || !body) return null;
-  bar.children.push({ id: TOGGLE, type: "block", content: { mod: "gerrit", props: { role: "toggle" } }, size: { px: 96 } });
+  if (bar.type !== "row") {
+    const i = bar.children.findIndex((c) => c.content?.mod === "tabs"), tabs = bar.children[i];
+    const row = { id: "tabs-row", type: "row", ...(tabs.size ? { size: tabs.size } : {}), children: [{ ...tabs, size: { weight: 1 } }] };
+    bar.children[i] = row;
+    bar = row;
+  }
+  const at = bar.children.findIndex((c) => c.content?.mod === "tabs");
+  const button = { id: TOGGLE, type: "block", content: { mod: "gerrit", props: { role: "toggle" } }, size: { px: 96 } };
+  bar.children.splice(window()?.buttons ? at : at + 1, 0, button);
   body.children.push({ id: PANEL, type: "column", children: [{ id: "gerrit", type: "block", content: { mod: "gerrit" } }],
     size: { px: 460 }, min: 340 });
   return tree;

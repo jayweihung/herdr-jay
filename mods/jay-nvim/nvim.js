@@ -48,9 +48,11 @@ end
 // Windows, a remote Linux server) and always matches this version's path rules (PATH_RULES, shared with nvim).
 const SNAP_HOOK = String.raw`-- jay-nvim's snap hook: written by jay-nvim (herdr-jay mods/jay-nvim/nvim.js); edits here are overwritten.
 -- Claude Code PreToolUse hook, matcher Bash, run as: nvim -l <this file>. Before a command runs, keep a copy of each
--- file it names by absolute path (at most 20, each up to 1 MB; not /proc, /sys, /dev), so jay-nvim can mark what the
--- command changed in a file outside any git repo. Copies: ~/.cache/jay-nvim/snap/<tool_use_id>/<sha256 of the path>,
--- only you can read them, removed after 10 minutes. Never blocks the command: prints nothing, always exits 0.
+-- file it names by absolute path (at most 20, each up to 1 MB; not /proc, /sys, /dev, never keys or credentials: ~/.ssh,
+-- ~/.aws, ~/.gnupg, ~/.config/gh, ~/.kube, ~/.netrc, ~/.git-credentials, ~/.docker/config.json), so jay-nvim can mark
+-- what the command changed in a file outside any git repo. Copies: ~/.cache/jay-nvim/snap/<tool_use_id>/<sha256 of the
+-- path>, only you can read them, removed at the next Bash run after 10 minutes. Never blocks the command: prints
+-- nothing, always exits 0.
 pcall(function()
 ${PATH_RULES}
   local ok, call = pcall(vim.json.decode, io.read("*a") or "")
@@ -65,14 +67,32 @@ ${PATH_RULES}
     local st = vim.uv.fs_stat(dir .. "/" .. name)
     if st and now - st.mtime.sec > 600 then vim.fn.delete(dir .. "/" .. name, "rf") end
   end
-  local function special(q) -- reading one can hang (/proc/kmsg), also through a link
-    for _, top in ipairs({ "/proc", "/sys", "/dev" }) do
+  local function under(q, tops)
+    for _, top in ipairs(tops) do
       if q == top or q:sub(1, #top + 1) == top .. "/" then return true end
     end
   end
+  local SPECIAL = { "/proc", "/sys", "/dev" } -- reading one can hang (/proc/kmsg), also through a link
+  -- Keys and credentials stay out of the cache, also through a link. Compared in lower case (macOS and Windows names
+  -- ignore case; elsewhere a miss only means no copy). Windows: the same names under %USERPROFILE%, plus %APPDATA%'s.
+  local SECRET = {}
+  for _, h in ipairs({ P.norm(P.home), P.norm(vim.uv.fs_realpath(P.home) or P.home) }) do
+    h = h:gsub("/$", ""):lower()
+    if h ~= "" then
+      for _, s in ipairs({ ".ssh", ".aws", ".gnupg", ".config/gh", ".kube", ".netrc", "_netrc", ".git-credentials",
+        ".docker/config.json" }) do SECRET[#SECRET + 1] = h .. "/" .. s end
+    end
+  end
+  if P.win and vim.env.APPDATA then
+    local a = P.norm(vim.env.APPDATA):gsub("/$", ""):lower()
+    SECRET[#SECRET + 1] = a .. "/github cli"
+    SECRET[#SECRET + 1] = a .. "/gnupg"
+  end
   for n, p in ipairs(P.abs_paths(input.command)) do
     if n > 20 then break end
-    local skip = not P.win and (special(p) or special(vim.uv.fs_realpath(p) or p))
+    local real = vim.uv.fs_realpath(p) or p
+    local skip = (not P.win and (under(p, SPECIAL) or under(real, SPECIAL)))
+      or under(P.norm(p):lower(), SECRET) or under(P.norm(real):lower(), SECRET)
     local st = not skip and vim.uv.fs_stat(p)
     if st and st.type == "file" and st.size <= 1048576 then
       -- Non-blocking open, then check the opened file itself: the path may have become a FIFO since the stat.
@@ -127,6 +147,23 @@ function P.bin(name)
     if dir == P.key(vim.fn.getcwd()):gsub("/$", "") then return nil end
   end
   return p
+end
+-- A program nvim gave up waiting for (run_wait) is killed with everything it started: a child left alive would keep
+-- the output pipe open. unix: it runs as its own process group (detached = setsid), and the group is killed.
+-- Windows has no groups: taskkill /T /F kills the tree (Git for Windows' cmd\git.exe is a launcher that starts the
+-- real mingw64\bin\git.exe), run by its full path from an argument list, no shell.
+P.own_group = not P.win
+function P.kill_tree(obj)
+  if P.win then
+    local done = false
+    local tk = (vim.env.SystemRoot or vim.env.windir or "C:\\Windows") .. "\\System32\\taskkill.exe"
+    if pcall(vim.system, { tk, "/T", "/F", "/PID", tostring(obj.pid) }, {}, function() done = true end) then
+      vim.wait(2000, function() return done end, nil, true)
+    end
+  else
+    pcall(vim.uv.kill, -obj.pid, "sigkill")
+  end
+  pcall(obj.kill, obj, "sigkill")
 end
 -- Where hc may be when PATH doesn't have it (Herdr starts panes with a bare PATH).
 P.hc_paths = P.win and { (vim.env.LOCALAPPDATA or "") .. "/Programs/herdr-core/herdr-core.exe" }
@@ -226,23 +263,42 @@ local GIT = P.bin("git")
 -- The repo's config means .git/config, the files it includes (include.path / includeIf: --local alone skips them)
 -- and config.worktree: --show-scope names all of them "local" or "worktree". A git older than 2.26 has no
 -- --show-scope: then every filter is switched off, yours too (only in nvim's own git calls).
--- Run a program and wait for it at most ms: one that takes longer (a stuck hc daemon, git on a hung mount) is killed,
--- code 124, and nvim goes on. Always a result: also when it can't start (127), or when the kill leaves its output open
--- (a child of it holds the pipe) and the result never comes.
+-- Run a program and wait for it at most ms: one that takes longer (a stuck hc daemon, git on a hung mount) is killed
+-- with what it started (P.kill_tree), code 124, and nvim goes on. Always a result: also when it can't start (127), or
+-- when its output stays open after the kill. Waits at most about twice ms (the kill and its cleanup: under 1 s on
+-- unix, up to 2.5 s on Windows), usually just ms. vim.system's own timeout is not used: its wait() waits ms for the
+-- TERM, then ms again after a KILL.
 local function run_wait(cmd, opts, ms)
-  local ok, obj = pcall(vim.system, cmd, vim.tbl_extend("force", opts or {}, { timeout = ms }))
-  local r = ok and obj:wait() or nil
-  return r or { code = ok and 124 or 127, stdout = "", stderr = ok and "timeout" or tostring(obj) }
+  local done
+  local ok, obj = pcall(vim.system, cmd, vim.tbl_extend("force", opts or {}, { detach = P.own_group or nil }),
+    function(r) done = r end)
+  if not ok then return { code = 127, stdout = "", stderr = tostring(obj) } end
+  if vim.wait(ms, function() return done ~= nil end, nil, true) then return done end
+  P.kill_tree(obj)
+  vim.wait(500, function() return done ~= nil end, nil, true) -- let it close its pipes when it can
+  return { code = 124, stdout = "", stderr = "timeout" }
 end
 local GIT_WAIT = 5000 -- ms
+-- Per round: once a git call times out, no more git until nvim is idle again (this follow tick, this file opening, this
+-- key): each further call would wait 5 s more on the same hung mount. Cleared by vim.schedule, which only runs then.
+local GIT_STUCK = { on = false }
+local function git_wait(cmd, opts)
+  if GIT_STUCK.on then return { code = 124, stdout = "", stderr = "timeout" } end
+  local r = run_wait(cmd, opts, GIT_WAIT)
+  if r.code == 124 and not GIT_STUCK.on then
+    GIT_STUCK.on = true
+    vim.schedule(function() GIT_STUCK.on = false end)
+  end
+  return r
+end
 local function git_guard(dir)
   local out = { "-c", "core.fsmonitor=false" }
   local cmd = { GIT, "-C", dir, "config", "--includes", "--show-scope", "--name-only", "--get-regexp", [[^filter\.]] }
-  local r = run_wait(cmd, { text = true }, GIT_WAIT)
+  local r = git_wait(cmd, { text = true })
   local scoped = r.code <= 1 -- 1: no filter set anywhere
   if not scoped and r.code ~= 124 then
     table.remove(cmd, 6)
-    r = run_wait(cmd, { text = true }, GIT_WAIT)
+    r = git_wait(cmd, { text = true })
   end
   -- the filters weren't read (killed after the timeout, or any other failure): no git here rather than one with them on
   if r.code > 1 then return nil end
@@ -267,11 +323,11 @@ local NOGIT = { wait = function() return { code = 1, stdout = "", stderr = "git 
 local NO_HOOKS = P.home .. "/.cache/jay-nvim/no-hooks"
 local GIT_ENV = { GIT_OPTIONAL_LOCKS = "0", GIT_NO_LAZY_FETCH = "1" }
 local function git(dir, args, opts)
-  if not GIT then return NOGIT end
+  if not GIT or GIT_STUCK.on then return NOGIT end
   local guard = git_guard(dir)
   if not guard then return NOGIT end
   local base = { GIT, "-C", dir, "-c", "protocol.allow=never", "-c", "core.hooksPath=" .. NO_HOOKS }
-  local r = run_wait(vim.list_extend(vim.list_extend(base, guard), args), vim.tbl_extend("force", opts or {}, { env = GIT_ENV }), GIT_WAIT)
+  local r = git_wait(vim.list_extend(vim.list_extend(base, guard), args), vim.tbl_extend("force", opts or {}, { env = GIT_ENV }))
   return { wait = function() return r end }
 end
 local api, ns, old = vim.api, vim.api.nvim_create_namespace("jay-nvim-changes"), {}
@@ -287,6 +343,7 @@ api.nvim_set_hl(0, "QtDiffAdd", { bg = "#225c2b" })
 api.nvim_set_hl(0, "QtDiffDel", { bg = "#7a2936" })
 api.nvim_set_hl(0, "QtSignAdd", { fg = "#7ee787", bold = true })
 api.nvim_set_hl(0, "QtSignDel", { fg = "#ff7b72", bold = true })
+local DEL_MAX = 50
 local function mark(b, before)
   api.nvim_buf_clear_namespace(b, ns, 0, -1)
   local after = api.nvim_buf_get_lines(b, 0, -1, false)
@@ -300,10 +357,13 @@ local function mark(b, before)
     local from, gone, at, n = unpack(h)
     if gone > 0 then
       local rows = {}
-      for i = from, from + gone - 1 do
-        local t = "-" .. (" "):rep(math.max(left - 1, 1)) .. (before[i] or "")
+      local function row(t)
+        t = "-" .. (" "):rep(math.max(left - 1, 1)) .. t
         rows[#rows + 1] = { { t .. (" "):rep(math.max(width - vim.fn.strdisplaywidth(t), 0)), "QtDiffDel" } }
       end
+      -- at most DEL_MAX removed lines per change, then one line for the rest (a truncated 4 MB file: not 100k rows)
+      for i = from, from + math.min(gone, DEL_MAX) - 1 do row(before[i] or "") end
+      if gone > DEL_MAX then row(("…還有 %d 行"):format(gone - DEL_MAX)) end
       -- old text sits above the new lines; a pure removal hangs below line "at" (above line 1 when at is 0)
       local above = n > 0 or at == 0
       api.nvim_buf_set_extmark(b, ns, math.max(at - 1, 0), 0, { virt_lines = rows, virt_lines_above = above, virt_lines_leftcol = true })
@@ -316,14 +376,25 @@ local function mark(b, before)
   return first, #after
 end
 -- What git last committed, so a file opened after the agent edited it still shows the change.
--- Untracked files in a repo count as all new; outside a repo nothing is marked.
+-- Untracked files in a repo count as all new; outside a repo nothing is marked. Returns nil, true when the committed
+-- copy is over FILE_MAX (or not a file): in a repo, but not marked.
 local function head_lines(b)
   local f = api.nvim_buf_get_name(b)
   if f == "" or vim.bo[b].buftype ~= "" then return end
   local dir, name = vim.fn.fnamemodify(f, ":h"), vim.fn.fnamemodify(f, ":t")
-  local r = git(dir, { "show", "HEAD:./" .. name }, { text = true }):wait()
-  if r.code == 0 then return vim.split(r.stdout, "\n", { plain = true, trimempty = false }) end
-  if git(dir, { "rev-parse", "--is-inside-work-tree" }):wait().code == 0 then return {} end
+  if name:find("[\r\n]") then return end
+  -- Its size first (the working file's size says nothing: an agent may have truncated a committed 20 MB log), then
+  -- that very object by its id, so a commit landing in between can't swap in a bigger one.
+  local r = git(dir, { "cat-file", "--batch-check" }, { text = true, stdin = "HEAD:./" .. name .. "\n" }):wait()
+  local oid, kind, size = (r.code == 0 and r.stdout or ""):match("^(%x+) (%a+) (%d+)\n?$")
+  if oid then
+    if kind ~= "blob" or tonumber(size) > FILE_MAX then return nil, true end
+    r = git(dir, { "cat-file", "blob", oid }, { text = true }):wait()
+    if r.code == 0 then return vim.split(r.stdout, "\n", { plain = true, trimempty = false }) end
+    return
+  end
+  -- "HEAD:./x missing": untracked (or no commit yet); not a repo: cat-file fails
+  if r.code == 0 and git(dir, { "rev-parse", "--is-inside-work-tree" }):wait().code == 0 then return {} end
 end
 local function mark_head(b)
   local st = vim.uv.fs_stat(api.nvim_buf_get_name(b))
@@ -475,12 +546,18 @@ local function hc_bin()
   end
 end
 
+-- A stuck hc (its daemon not answering) must not freeze nvim: killed after 2 s (code 124), and then no hc call for
+-- 30 s (follow looks for agents every 3 s, the root check every second at start: each would wait 2 s again).
+local HC_QUIET = { till = 0 }
 local function hc(args)
   local bin = hc_bin()
   if not bin then return nil, "找不到 hc" end
-  -- a stuck hc (its daemon not answering) must not freeze nvim: killed after 2s (code 124)
+  if vim.uv.now() < HC_QUIET.till then return nil, "hc 剛才沒回應，30 秒內先不問" end
   local r = run_wait({ bin, unpack(args) }, { text = true }, 2000)
-  if r.code == 124 then return nil, "hc 沒回應（" .. tostring(args[1]) .. "）" end
+  if r.code == 124 then
+    HC_QUIET.till = vim.uv.now() + 30000
+    return nil, "hc 沒回應（" .. tostring(args[1]) .. "）"
+  end
   if r.code ~= 0 then return nil, vim.trim(r.stderr ~= "" and r.stderr or r.stdout) end
   local ok, v = pcall(vim.json.decode, r.stdout)
   return ok and v or r.stdout
@@ -764,8 +841,12 @@ local function bash_changed(cwd, since, cmd, diff)
   end
   p = newest(named)
   if p then return p end
-  local seen, files = {}, {}
-  for _, d in ipairs(dirs) do
+  local seen, files, looked, uniq = {}, {}, {}, {}
+  for _, d in ipairs(dirs) do -- one folder named twice (two files in it): one lookup
+    local k = (P.key(d):gsub("/$", ""))
+    if not looked[k] then looked[k], uniq[#uniq + 1] = true, d end
+  end
+  for _, d in ipairs(uniq) do
     local top = git(d, { "rev-parse", "--show-toplevel" }, { text = true }):wait()
     top = top.code == 0 and vim.trim(top.stdout)
     if top and not seen[top] then
@@ -832,14 +913,11 @@ local function scan(s)
     s.waiting = nil
   end
   if waits then s.waiting, waits.missing, waits.since = waits, nil, os.time() end
-  -- A Bash call's result: open what it changed, unless a Read or Edit came after it in this chunk
+  -- A Bash call's result: noted here; after the chunk, the last one opens what it changed, unless a Read or Edit came
+  -- after it. Only the last: the earlier ones are history (a chunk of many is nvim catching up), and each costs git calls.
+  local last_bash
   local function ran(call, cwd, res, i)
-    if type(cwd) ~= "string" or (it and it.at > i) then return end
-    local p = bash_changed(cwd, call.t, call.cmd, type(res) == "table" and res.bashEditDiff)
-    -- an Edit just before the Bash call (same second) looks changed by it: keep the Edit's line while the file is as the Edit left it
-    local last = it or s.last
-    local same = last and last.edit and last.path == p and (last == it or last.mt == stamp(p))
-    if p and not same then it = { path = p, tag = "改", at = i, before = snap_of(call.batch, p) } end
+    if type(cwd) == "string" then last_bash = { call = call, cwd = cwd, res = res, i = i } end
   end
   local calls = s.calls
   local lines = vim.split(body, "\n", { plain = true })
@@ -878,15 +956,37 @@ local function scan(s)
           end
         end
       end
-      -- a background command ended: a task notification names its call ("<tool-use-id>...", the first of several copies)
-      for id in l:gmatch("<tool%-use%-id>([%w_]+)</tool%-use%-id>") do
-        local call = calls[id]
-        if call and call.bg then
-          calls[id] = nil
-          ran(call, call.cwd, nil, i)
+      -- A background command ended: its task notification names the call. Only from the notification itself (a
+      -- queue-operation record, or a user turn whose text starts with <task-notification>), never from a tool result:
+      -- a Read of a log like this one holds the same text.
+      local note
+      if rec.type == "queue-operation" then
+        note = rec.content
+      elseif rec.type == "user" and type(rec.message) == "table" then
+        note = rec.message.content
+        for _, c in ipairs(type(note) == "table" and note or {}) do
+          if type(c) == "table" and c.type == "text" and type(c.text) == "string" and c.text:find("^%s*<task%-notification>") then
+            note = c.text
+            break
+          end
         end
       end
+      local id = type(note) == "string" and note:find("^%s*<task%-notification>")
+        and note:match("<tool%-use%-id>([%w_]+)</tool%-use%-id>")
+      local call = id and calls[id]
+      if call and call.bg then
+        calls[id] = nil
+        ran(call, call.cwd, nil, i)
+      end
     end
+  end
+  if last_bash and not (it and it.at > last_bash.i) then
+    local b = last_bash
+    local p = bash_changed(b.cwd, b.call.t, b.call.cmd, type(b.res) == "table" and b.res.bashEditDiff)
+    -- an Edit just before the Bash call (same second) looks changed by it: keep the Edit's line while the file is as the Edit left it
+    local last = it or s.last
+    local same = last and last.edit and last.path == p and (last == it or last.mt == stamp(p))
+    if p and not same then it = { path = p, tag = "改", at = b.i, before = snap_of(b.call.batch, p) } end
   end
   -- results that never came (the log was cut, the agent quit): keep the newest 64 calls
   local ids = vim.tbl_keys(calls)
@@ -1008,7 +1108,10 @@ local function follow_tick()
       else
         -- Outside a git repo, unmarked: a Write is all new; a Bash edit diffs against what the file held before the call
         local before = it.tag == "寫" and {} or it.before
-        if before and #vim.api.nvim_buf_get_extmarks(b, ns, 0, -1, { limit = 1 }) == 0 and not head_lines(b) then mark(b, before) end
+        if before and #vim.api.nvim_buf_get_extmarks(b, ns, 0, -1, { limit = 1 }) == 0 then
+          local head, big = head_lines(b)
+          if not head and not big then mark(b, before) end
+        end
       end
     end
     local at = it.line or (it.tag == "改" and edit_line(b, it.edit))
@@ -1029,7 +1132,7 @@ end
 -- for tests (tests/jay-nvim): the follow pieces, run without Herdr
 JN.test = { abs_paths = P.abs_paths, paths_in = paths_in, scan = scan, scan_root = scan_root, new_state = new_state,
   bash_changed = bash_changed, edit_line = edit_line, show_root = show_root, follow = follow, follow_tick = follow_tick,
-  session = P.session, git = git }
+  session = P.session, git = git, run_wait = run_wait, head_lines = head_lines, hc_quiet = HC_QUIET, git_stuck = GIT_STUCK }
 new_timer():start(1000, 1000, vim.schedule_wrap(function() pcall(follow_tick) end))
 -- Title bar above each file: its path, and whether the agent is reading or editing it right now.
 function JN.bar()

@@ -27,6 +27,20 @@ Needs: **core** (build v0.1.20, no patches), **app** (build v0.1.15), in that or
   `old_string` first. Root view: records carry `pid`; only the root agent under this pane counts. Tests:
   `node tests/jay-nvim/run.js`.
   jay-nvim 跟檔修正：Bash 失敗後還會跟、背景 Bash、sub-agent、新寫的檔、hc／git 卡住不再凍住 nvim 等。
+- **jay-nvim review fixes** ([docs/nvim.md](docs/nvim.md)). Needs **mods** (macOS symlinks: nothing; reopen the nvim
+  pane). The 4 MB cap now also holds for the committed copy a file is marked against (a committed 20 MB log the agent
+  emptied no longer makes millions of red lines), and at most 50 removed lines show per change, then 「…還有 N 行」.
+  A program nvim gave up on is killed with what it started (Windows: `taskkill /T /F`, for Git for Windows' launcher
+  `git.exe`); after `hc` times out nvim asks it nothing for 30 s, after a `git` call times out no more git that round;
+  a catch-up read looks at only the last Bash result; a background Bash ends only by its own task notification, not
+  by a tool result quoting one.
+  **Snap hook changed**: it never copies keys or credentials (`~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.config/gh`,
+  `~/.kube`, `~/.netrc`, `~/.git-credentials`, `~/.docker/config.json`, also through a link). jay-nvim rewrites
+  `~/.config/jay-nvim/snap_hook.lua` itself the next time it opens on a machine; a copy you made by hand anywhere
+  else must be copied again (the settings.json entry stays the same). Copies older than 10 minutes are removed at the
+  next Bash run (they always were).
+  jay-nvim 審查修正：HEAD 也受 4 MB 上限、刪除行每段最多 50 行、卡住的程式連子程序一起砍、hc 卡住後 30 秒不問；
+  snap hook 不再存金鑰／帳密檔（hook 檔有改，手動複製的那份要重抄）。
 
 ## 2026-11-10
 

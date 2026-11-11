@@ -205,11 +205,142 @@ test("follow end to end", function()
   local t0 = vim.uv.now()
   local got, err = JN.agents()
   os.remove(FAKE .. "/slow")
-  check("stuck hc (sleeps 30s): nvim gives up after 2s (killed; a few seconds at most)", got == nil and vim.uv.now() - t0 < 8000 and tostring(err):find("沒回應"), { got, err, vim.uv.now() - t0 })
+  check("stuck hc (sleeps 30s): nvim gives up after 2s (killed; a few seconds at most)", got == nil and vim.uv.now() - t0 < 4000 and tostring(err):find("沒回應"), { got, err, vim.uv.now() - t0 })
+  -- review 2: after a timeout, no hc call for 30 s (follow re-finds agents every 3 s, root check every 1 s)
+  local h0 = vim.uv.hrtime()
+  local got2, err2 = JN.agents()
+  local quiet_ms = (vim.uv.hrtime() - h0) / 1e6
+  check("after a stuck hc: no hc call for 30 s (answers at once)", got2 == nil and quiet_ms < 300 and tostring(err2):find("30 秒"), { got2, err2, quiet_ms })
+  T.hc_quiet.till = 0
   -- 15: our own tab unknown: no agents rather than another tab's
   write(FAKE .. "/get-t1.json", "not json")
   local l2 = JN.agents()
   check("own tab unknown: no agent", l2 == nil, l2)
+end)
+
+-- review 4: a timeout kills what the program started too (it would hold the pipe), and returns at about the limit
+test("run_wait", function()
+  local r = T.run_wait({ "sh", "-c", "echo hi" }, { text = true }, 2000)
+  check("run_wait: a quick program's output", r.code == 0 and r.stdout == "hi\n", r)
+  check("run_wait: a missing program is 127", T.run_wait({ ROOT .. "/no-such-program" }, {}, 2000).code == 127)
+  local pidf = ROOT .. "/grandchild.pid"
+  local h0 = vim.uv.hrtime()
+  r = T.run_wait({ "sh", "-c", "sleep 37 & echo $! > '" .. pidf .. "'; sleep 38" }, { text = true }, 500)
+  local ms = (vim.uv.hrtime() - h0) / 1e6
+  check("run_wait: timeout is 124, at about the limit (not twice)", r.code == 124 and ms < 1200, { r, ms })
+  local gc = tonumber(vim.trim(table.concat(vim.fn.readfile(pidf), "")))
+  local gone = vim.wait(2000, function() return vim.uv.kill(gc, 0) ~= 0 end, 50)
+  check("run_wait: what it started is killed too (no child left holding the pipe)", gc and gone, gc)
+end)
+
+-- review 3: a background Bash ends only by its own task notification, never by a tool result quoting one
+test("background notification source", function()
+  local log = ROOT .. "/s5.jsonl"
+  write(log, "")
+  local s = T.new_state(log, 0)
+  append(log, { bash("toolu_b2", "sleep 9; echo > " .. repo .. "/a.txt", { run_in_background = true }),
+    result("toolu_b2", repo, { stdout = "", stderr = "", backgroundTaskId = "bt2" }),
+    bash("toolu_b3", "sleep 9; echo > " .. repo .. "/b.txt", { run_in_background = true }),
+    result("toolu_b3", repo, { stdout = "", stderr = "", backgroundTaskId = "bt3" }) })
+  check("background: nothing at start", T.scan(s) == nil)
+  write(repo .. "/a.txt", "a5\n")
+  local quoted = "<task-notification>\n<task-id>bt2</task-id>\n<tool-use-id>toolu_b2</tool-use-id>\n<status>completed</status>"
+  append(log, { tool("Read", { file_path = ROOT .. "/old.jsonl" }, "toolu_r1"),
+    { type = "user", cwd = repo, message = { content = { { type = "tool_result", tool_use_id = "toolu_r1", content = quoted } } },
+      toolUseResult = { type = "text", file = { content = quoted } } } })
+  T.scan(s)
+  check("a tool result quoting a notification: the call keeps running", s.calls.toolu_b2 and s.calls.toolu_b2.bg, s.calls)
+  append(log, { { type = "user", message = { role = "user", content = { { type = "text", text = quoted } } } } })
+  local it = T.scan(s)
+  check("the notification itself (a user text block): followed", it and it.path == repo .. "/a.txt" and s.calls.toolu_b2 == nil, { it, s.calls })
+  write(repo .. "/b.txt", "b5\n")
+  append(log, { { type = "user", message = { role = "user", content = (quoted:gsub("b2", "b3")) } } })
+  it = T.scan(s)
+  check("the notification itself (user string content): followed", it and it.path == repo .. "/b.txt" and next(s.calls) == nil, { it, s.calls })
+end)
+
+-- review 1: HEAD is read only up to 4 MB; removed lines are capped per change
+test("marks against HEAD", function()
+  local big = repo .. "/big.log"
+  local f = assert(io.open(big, "wb"))
+  local line = string.rep("x", 99) .. "\n"
+  for _ = 1, 52429 do f:write(line) end -- ~5 MB
+  f:close()
+  sh("cd '" .. repo .. "' && git add big.log && git commit -qm big")
+  write(big, "short\n") -- the agent truncated it
+  vim.cmd.edit(big)
+  local b = vim.fn.bufnr(big)
+  local head, too_big = T.head_lines(b)
+  check("HEAD over 4 MB: not read (in a repo, not marked)", head == nil and too_big == true, { head and #head, too_big })
+  local ns = vim.api.nvim_create_namespace("jay-nvim-changes")
+  check("HEAD over 4 MB: no marks", #vim.api.nvim_buf_get_extmarks(b, ns, 0, -1, {}) == 0)
+  local long, lines = repo .. "/long.txt", {}
+  for i = 1, 200 do lines[i] = "line " .. i end
+  write(long, table.concat(lines, "\n") .. "\n")
+  sh("cd '" .. repo .. "' && git add long.txt && git commit -qm long")
+  write(long, "x\n")
+  vim.cmd.edit(long)
+  local rows = {}
+  for _, m in ipairs(vim.api.nvim_buf_get_extmarks(vim.fn.bufnr(long), ns, 0, -1, { details = true })) do
+    for _, r in ipairs(m[4].virt_lines or {}) do rows[#rows + 1] = r[1][1] end
+  end
+  check("200 removed lines: 50 shown, then one line for the rest", #rows == 51 and rows[50]:find("line 50", 1, true)
+    and rows[51]:find("…還有 150 行", 1, true), { #rows, rows[50], rows[51] })
+  head = T.head_lines(vim.fn.bufnr(long))
+  check("HEAD under 4 MB: read", head and head[200] == "line 200", head and #head)
+  write(repo .. "/untracked.txt", "u\n")
+  vim.cmd.edit(repo .. "/untracked.txt")
+  head = T.head_lines(vim.fn.bufnr(repo .. "/untracked.txt"))
+  check("untracked in a repo: all new", head and #head == 0, head)
+  write(ROOT .. "/outside.txt", "o\n")
+  vim.cmd.edit(ROOT .. "/outside.txt")
+  local h2, b2 = T.head_lines(vim.fn.bufnr(ROOT .. "/outside.txt"))
+  check("outside a repo: nothing", h2 == nil and b2 == nil, { h2, b2 })
+end)
+
+-- review 5: the snap hook never copies keys or credentials (also through a link)
+test("snap hook secrets", function()
+  local hook = HOME .. "/.config/jay-nvim/snap_hook.lua"
+  check("snap hook written", vim.uv.fs_stat(hook) ~= nil)
+  for _, p in ipairs({ "/.ssh/config", "/.aws/credentials", "/.gnupg/x", "/.config/gh/hosts.yml", "/.kube/config", "/.netrc",
+    "/.git-credentials", "/.docker/config.json", "/.docker/other.txt", "/notes.txt" }) do write(HOME .. p, "data\n") end
+  vim.uv.fs_symlink(HOME .. "/.ssh/config", ROOT .. "/innocent.txt")
+  local cmd = "cat ~/.ssh/config $HOME/.aws/credentials ${HOME}/.gnupg/x ~/.config/gh/hosts.yml ~/.kube/config ~/.netrc "
+    .. "~/.git-credentials ~/.docker/config.json " .. ROOT .. "/innocent.txt ~/.docker/other.txt ~/notes.txt"
+  local r = vim.system({ vim.v.progpath, "--clean", "-l", hook },
+    { stdin = vim.json.encode({ tool_use_id = "toolu_snap1", tool_input = { command = cmd } }), text = true }):wait(20000)
+  check("snap hook: prints nothing, exit 0", r.code == 0 and r.stdout == "", r)
+  local got = {}
+  for name in vim.fs.dir(HOME .. "/.cache/jay-nvim/snap/toolu_snap1") do got[#got + 1] = name end
+  table.sort(got)
+  local want = { vim.fn.sha256(HOME .. "/.docker/other.txt"), vim.fn.sha256(HOME .. "/notes.txt") }
+  table.sort(want)
+  check("snap hook: only the ordinary files copied (no ~/.ssh, ~/.aws, ..., nor a link to one)", vim.deep_equal(got, want), got)
+end)
+
+-- review 2: git budget per round (a hung mount: one 5 s wait, not one per folder) and only the last Bash of a chunk
+test("git budget", function()
+  local hung = ROOT .. "/hung"
+  sh("mkdir -p '" .. hung .. "/a' '" .. hung .. "/b' '" .. hung .. "/c' && cd '" .. hung .. "' && git init -q && mkfifo '"
+    .. ROOT .. "/fifo' && git config include.path '" .. ROOT .. "/fifo'") -- reading the config blocks forever
+  local log = ROOT .. "/s6.jsonl"
+  write(log, "")
+  local s = T.new_state(log, 0)
+  append(log, { bash("toolu_g1", "make"), result("toolu_g1", hung, { stdout = "", stderr = "" }),
+    bash("toolu_g2", "touch a.txt"), result("toolu_g2", repo, { stdout = "", stderr = "" }) })
+  write(repo .. "/a.txt", "a6\n")
+  local h0 = vim.uv.hrtime()
+  local it = T.scan(s)
+  local ms = (vim.uv.hrtime() - h0) / 1e6
+  check("a chunk of Bash results: only the last one is looked at (the hung repo of the first: never asked)",
+    it and it.path == repo .. "/a.txt" and ms < 3000, { it, ms })
+  h0 = vim.uv.hrtime()
+  local p = T.bash_changed(hung, os.time() - 1, "make -C " .. hung .. "/a -C " .. hung .. "/b -C " .. hung .. "/c")
+  ms = (vim.uv.hrtime() - h0) / 1e6
+  check("hung git: one timeout, then no more git this round (not 5 s per folder)", p == nil and ms < 8000 and T.git_stuck.on, { p, ms })
+  check("hung git, same round: other repos skipped too", T.git(repo, { "rev-parse", "--show-toplevel" }):wait().code ~= 0)
+  vim.wait(50, function() return not T.git_stuck.on end) -- nvim idle again: the next round may use git
+  check("next round: git again", not T.git_stuck.on and T.git(repo, { "rev-parse", "--show-toplevel" }):wait().code == 0)
 end)
 
 print(("%d checks, %d failed"):format(n, fails))

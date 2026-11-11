@@ -24,7 +24,7 @@ Needs **Neovim 0.11 or newer**, `git`, and `hc` on the machine where the pane op
 - **Follow the agent**: opens the file the agent beside it (Claude Code) last read or edited — several agents:
   whichever touched a file last; its sub-agents (Task) count too. A file the agent writes new opens once it is
   written (after you approve it). Never while you type or with unsaved changes; files over 4 MB are skipped
-  (`space o` still lists them). `space a f` toggles.
+  (`space o` still lists them), and a file whose last commit is over 4 MB is not marked against it. `space a f` toggles.
   跟著 agent 開檔（含它叫出來的 sub-agent）。
 - **Live reload with a diff**: files the agent edits reload every second; changed lines show like Claude Code's diff
   (red `-` old, green `+` new). Opening a file in a git repo marks what changed since the last commit.
@@ -32,7 +32,8 @@ Needs **Neovim 0.11 or newer**, `git`, and `hc` on the machine where the pane op
   open in nvim, a file the agent wrote new (all `+`), and Bash edits with the snap hook ([7](#7-snapshots-for-bash-edits-optional--bash-改檔的快照選用)).
   The first jump to a file the agent edited earlier shows no marks there (outside a git repo). A file follow opens
   for the first time after a Bash edit with a snapshot is marked against the snapshot (that command's change), not
-  against the last commit.
+  against the last commit. At most 50 removed lines show per change, then one line 「…還有 N 行」 (an agent emptying a
+  big file doesn't flood nvim).
   agent 改檔時自動重讀，標出改了哪幾行。不在 git repo 裡沒有舊版可比：只有開著時的修改、新寫的檔、和有 snap hook 的 Bash 修改有標記。
 - **File tree** on the right (netrw), without git-ignored files (the ignore list comes from the repo nvim started in);
   the shown file is highlighted. A file the agent creates appears when nvim follows it there (other new files: `ctrl-l`
@@ -50,7 +51,9 @@ Needs **Neovim 0.11 or newer**, `git`, and `hc` on the machine where the pane op
 - **Two panes on one file**: a heads-up the first time you change a file another nvim also has open.
 - **Bash edits**: when a shell command of the agent ends (also with an error, also one run in the background), nvim
   opens what it changed: the files Claude Code saw it change, else a changed file the command names (`/abs/path`,
-  `~/x`, `$HOME/x`, or relative to the agent's folder), else the newest changed file in the repo.
+  `~/x`, `$HOME/x`, or relative to the agent's folder), else the newest changed file in the repo. When nvim catches
+  up on several finished commands at once (it was busy), only the last one counts. A background command counts as
+  ended only by Claude Code's own task notification, not by text that quotes one (a Read of a log).
   Bash 指令跑完（失敗或背景跑的也算）就開它改的檔：先看指令裡寫到的檔，沒有才找 repo 裡最新改的。
 
 ## 2. Keys / 按鍵
@@ -146,7 +149,12 @@ macOS / Linux). It runs the Lua in a headless nvim with a temp HOME and a fake `
 改了之後跑 `node tests/jay-nvim/run.js`，全部 ok 才算過。
 
 Programs nvim waits for get a time limit, so a stuck one can't freeze it: `hc` 2 s, `git` 5 s (a git that can't
-read the repo's filters in time isn't run at all), `pgrep` 1 s.
+read the repo's filters in time isn't run at all), `pgrep` 1 s. At the limit the program is killed together with
+what it started (macOS / Linux: its process group; Windows: `taskkill /T /F`, since Git for Windows' `git.exe` starts
+the real git), so nvim waits up to about twice the limit, usually just the limit. After `hc` times out, nvim asks
+it nothing for 30 s; after a `git` call times out, no more git until that round is done (the follow tick, the file
+being opened, the key pressed).
+程式卡住時有時限，最多約兩倍時限就放手；hc 卡住後 30 秒內不再問，git 卡住後這一輪不再叫 git。
 
 ## 6. Agent running as root / agent 用 root 跑
 
@@ -180,8 +188,13 @@ you can open it. Without the file, a root agent gets the one-line note 「root �
 A file changed by a Bash command outside a git repo has no "before" to diff against. The **snap hook** keeps one:
 a Claude Code PreToolUse hook that, before each Bash command, saves the files the command names by absolute path,
 `~/x` or `$HOME/x` (at most 20, each up to 1 MB, not `/proc`, `/sys`, `/dev`) to `~/.cache/jay-nvim/snap/<tool_use_id>/` (only you can
-read them; removed after 10 minutes). jay-nvim then marks what the command changed. Without it those files just reload.
+read them; a copy older than 10 minutes is removed at the next Bash run). jay-nvim then marks what the command
+changed. Without it those files just reload.
+Keys and credentials are never copied, also not through a link to them: `~/.ssh`, `~/.aws`, `~/.gnupg`,
+`~/.config/gh`, `~/.kube`, `~/.netrc` (Windows also `_netrc`), `~/.git-credentials`, `~/.docker/config.json`
+(Windows: the same under `%USERPROFILE%`, plus `%APPDATA%\GitHub CLI` and `%APPDATA%\gnupg`).
 repo 外的檔被 Bash 指令改掉時，沒有「改之前」可比；snap hook 會在指令跑之前先存一份，jay-nvim 才標得出改了哪裡。
+金鑰、帳密檔（`~/.ssh`、`~/.aws` 等）一律不存；超過 10 分鐘的複本在下一次跑 Bash 時刪掉。
 
 The hook is a Lua file jay-nvim writes itself, on every machine where it runs (macOS, Windows, a Linux server):
 `~/.config/jay-nvim/snap_hook.lua` (Windows: under `vim.uv.os_homedir()`, usually `%USERPROFILE%`), refreshed when

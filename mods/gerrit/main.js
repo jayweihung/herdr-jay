@@ -5,7 +5,7 @@
 // Roles (props.role): the panel (default) and "toggle", the tab-bar button that shows or hides the layout's
 // "gerrit-panel" (like the CI and git buttons). The toggle polls and shares the lists; the panel draws them.
 // A panel with no toggle in the layout polls itself and offers to move into the tab bar.
-import { View, div } from "gpui-kit";
+import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, TextareaState, Textarea, InputState, Input } from "gpui-base";
 import { theme, settings, notify, home, readTextFile, run, layout, shared, setShared, window, agents, hc as herdrHc, props as blockProps } from "herdr";
 import process from "process";
@@ -75,6 +75,10 @@ const SEARCH_LIMIT = 50;
 // Jenkins: "a/b" -> "job/a/job/b"; a path that already says job/ (or view/…/job/…) is kept
 const jobPath = (j) => (/(^|\/)job\//.test(j) ? String(j).replace(/^\/+|\/+$/g, "") : String(j).split("/").filter(Boolean).map((x) => `job/${encodeURIComponent(x)}`).join("/"));
 const jobName = (j) => decodeURIComponent(String(j).replace(/\/+$/, "").split("/").pop());
+// something under way: a turning ring (Herdr turns it natively, no timer), alone or before "讀取中…" or a button's "送出中…"
+const spin = (size, color) => svg("mods/workspace-chrome/spinner.svg").size(size).flex_none().text_color(color).spin(900);
+const withSpin = (label, size, color) => (typeof label === "string" && /中…/.test(label) ? h_flex().gap(5).items_center().child(spin(size, color)).child(label) : label);
+const waiting = (t, size, text) => h_flex().gap(6).items_center().text_size(size).text_color(t.muted).child(spin(size, t.muted)).child(text);
 const mins = (ms) => { const m = Math.round(ms / 60000); return m < 1 ? "不到 1 分" : m < 90 ? `${m} 分` : `${Math.floor(m / 60)} 小時 ${m % 60} 分`; };
 const param = (b, name) => (b.actions ?? []).flatMap((a) => a?.parameters ?? []).find((p) => p?.name === name)?.value;
 // UTF-8 byte length (Jenkins counts log offsets in bytes) and a form body, without TextEncoder / URLSearchParams
@@ -216,6 +220,7 @@ export default class Gerrit extends View {
     this.refreshSeen = shared(REFRESH) ?? 0;
     cx.timer.every(1000, (cx) => {
       if (this.pendingStart) cx.notify(); // watch for the started agent to show up
+      if (this.pulseUntil && Date.now() > this.pulseUntil) { this.pulseUntil = 0; cx.notify(); } // the number stops pulsing
       if (!this.polls()) {
         // Redraw when the polling copy shares something new.
         const k = `${shared(DATA)?.at}|${shared(DATA)?.err}|${this.busy}|${JSON.stringify(shared(SAFE_CFG))}`;
@@ -232,7 +237,6 @@ export default class Gerrit extends View {
       const c = this.detail?.change;
       if (!c?._number || !this.cfg?.jenkins || this.jk?.loading) return;
       if (this.jk?.change !== c._number || Date.now() >= (this.jk.nextAt ?? 0)) this.loadJenkins(c, cx);
-      else if (this.jk.builds?.some((b) => b.building)) cx.notify(); // the progress bar moves
     });
   }
 
@@ -651,7 +655,7 @@ export default class Gerrit extends View {
       .when(Boolean(jk?.error), (el) => el.child(div().text_size(z - 1).text_color(t.ansi1).whitespace_normal().child(`Jenkins ${jk.error}`)))
       .when(Boolean(jk?.startedAt && !jk?.error), (el) => el.child(div().text_size(z - 1).text_color(t.muted).whitespace_normal()
         .child(`${ago(new Date(jk.startedAt).toISOString().replace("T", " ").replace("Z", ""))}送出；結果會出現在上面的合併條件`)));
-    if (!jk || (jk.loading && !jk.at)) return card.child(div().text_size(z - 1).text_color(t.muted).child("讀取 Jenkins…"));
+    if (!jk || (jk.loading && !jk.at)) return card.child(waiting(t, z - 1, "讀取 Jenkins…"));
     if (jk.error) card.child(div().text_size(z - 1).text_color(t.ansi1).whitespace_normal().child(`Jenkins ${jk.error.startsWith("沒送出") ? "" : "讀不到："}${jk.error}`));
     for (const it of jk.queue ?? []) card.child(h_flex().id(`jq-${it.id}`).gap(8).items_center().text_size(z - 1)
       .child(div().w(18).flex_none().text_color(t.accent).child("⏳"))
@@ -682,16 +686,18 @@ export default class Gerrit extends View {
             })
             .child(jk.logs?.[b.path]?.open ? "收起 log" : "📜 log")));
       if (b.building && est) {
-        const pct = Math.min(0.99, ran / est);
-        // a bar as wide as the panel: the filled part grows by the share done, the empty part by the rest
-        row.child(h_flex().id(`jbar-${b.path}`).ml(26).h(6).rounded(3).bg(t.raised)
-          .child(div().h(6).rounded(3).bg(ran > est ? t.ansi3 : t.accent).flex_grow(Math.max(0.01, pct)))
-          .child(div().h(6).flex_grow(Math.max(0.0001, 1 - pct))));
+        // the share done when Jenkins is next asked (every 10 s while it runs): Herdr slides the bar there by itself,
+        // evenly over those seconds, so the panel is not redrawn every second to move it
+        const left = Math.max(1000, (jk.nextAt ?? Date.now() + 10000) - Date.now());
+        const pct = Math.min(0.99, (ran + left) / est);
+        row.child(div().id(`jbar-${b.path}`).ml(26).h(6).rounded(3).bg(t.raised)
+          .child(div().h(6).rounded(3).bg(ran > est ? t.ansi3 : t.accent).w(`${(pct * 100).toFixed(2)}%`)
+            .transition("width", { duration: left, easing: "linear" })));
       }
       const L = jk.logs?.[b.path];
       if (L?.open) row.child(div().id(`jlogtext-${b.path}`).ml(26).p(6).rounded(5).bg(t.background).font_family(mono()).text_size(z - 2).whitespace_normal()
         .text_color(L.error ? t.ansi1 : t.foreground)
-        .child(L.loading ? "讀取 log…" : L.error ? `讀不到 log：${L.error}` : (L.text.split("\n").slice(-40).join("\n") || "（還沒有輸出）")));
+        .child(L.loading ? waiting(t, z - 1.5, "讀取 log…") : L.error ? `讀不到 log：${L.error}` : (L.text.split("\n").slice(-40).join("\n") || "（還沒有輸出）")));
       card.child(row);
     }
     return card;
@@ -726,7 +732,7 @@ export default class Gerrit extends View {
     const out = [];
     const canEdit = Boolean(shared(SAFE_CFG)?.auth) && c.actions?.topic?.enabled === true;
     const small = (id, label, on) => div().id(id).px(6).rounded(4).cursor_pointer().text_color(t.accent).hover((st) => st.bg(t.hover))
-      .on_mouse_down("left", stop).on_click((_e, cx) => on(cx)).child(label);
+      .on_mouse_down("left", stop).on_click((_e, cx) => on(cx)).child(withSpin(label, z - 2, t.accent));
     if (this.editTopic) {
       out.push(h_flex().id("topic-edit").gap(6).items_center()
         .child(div().w(72).flex_none().text_size(z - 1).text_color(t.muted).child("Topic"))
@@ -1042,7 +1048,7 @@ export default class Gerrit extends View {
     const t = theme(), z = fs(), cfg = shared(SAFE_CFG);
     const root = v_flex().id("gerrit").size_full().bg(t.surface).text_size(z).text_color(t.foreground);
     if (!find(layout(), TOGGLE)) root.child(this.moveBanner(t, z));
-    if (!cfg) return root.child(div().p(14).text_color(t.muted).child("讀取 Gerrit 設定…"));
+    if (!cfg) return root.child(div().p(14).child(waiting(t, z, "讀取 Gerrit 設定…")));
     if (cfg.missing || cfg.error) return root.child(this.setup(t, z, cfg));
     if (this.openId && this.detail && this.diff) return root.child(this.header(t, z, true)).child(this.renderDiff(t, z));
     if (this.openId && this.detail) return root.child(this.header(t, z, true)).child(this.renderDetail(t, z, cx));
@@ -1053,8 +1059,13 @@ export default class Gerrit extends View {
   renderToggle() {
     const t = theme(), node = find(layout(), PANEL), on = node && !node.hidden;
     const turn = (this.sections ?? []).filter((s) => s.turn).reduce((n, s) => n + s.items.length, 0);
+    // more changes your turn than last time: the number pulses for a few seconds (Herdr animates it; the poll timer stops it)
+    if (this.sections && this.lastTurn != null && turn > this.lastTurn) this.pulseUntil = Date.now() + 6000;
+    if (this.sections) this.lastTurn = turn;
+    const pulse = (this.pulseUntil ?? 0) > Date.now();
     const badge = this.err ? div().text_color(t.ansi1).child("!")
-      : turn ? div().px(5).rounded(8).text_size(11).font_semibold().bg(t.blocked).text_color(t.background).child(String(turn)) : null;
+      : turn ? div().px(5).rounded(8).text_size(11).font_semibold().bg(t.blocked).text_color(t.background).child(String(turn))
+        .when(pulse, (el) => el.loop("opacity", { from: 0.35, to: 1, period: 900 })) : null;
     return h_flex().size_full().pr(6).items_center().bg(t.chrome).border_b(1).border_color(t.border)
       .child(h_flex().id("toggle-gerrit").h(26).px(8).gap(5).flex_none().items_center().rounded(6)
         .text_size(12).bg(on ? t.selected : t.chrome).text_color(on ? t.foreground : t.muted)
@@ -1084,7 +1095,7 @@ export default class Gerrit extends View {
 
   header(t, z, back) {
     const btn = (id, label, fn) => div().id(id).h(28).px(10).flex().items_center().rounded(6).cursor_pointer().bg(t.raised).text_color(t.foreground)
-      .hover((s) => s.bg(t.hover)).on_mouse_down("left", stop).on_click(fn).child(label);
+      .hover((s) => s.bg(t.hover)).on_mouse_down("left", stop).on_click(fn).child(withSpin(label, z - 2, t.muted));
     const inBar = Boolean(find(layout(), TOGGLE)) && !this.inTab;
     const status = this.err ? `讀不到：${this.err}` : this.busy && !this.at ? "讀取中…" : this.at ? `更新於 ${ago(new Date(this.at).toISOString().replace("T", " ").replace("Z", ""))}${shared(DATA)?.version ? ` · Gerrit ${shared(DATA).version}` : ""}` : "";
     return v_flex().flex_none().border_b(1).border_color(t.border)
@@ -1095,7 +1106,9 @@ export default class Gerrit extends View {
 
         .when(!this.detail, (el) => el.child(btn("refresh", this.busy ? "更新中…" : "↻ 重新整理", (_e, cx) => { setShared(REFRESH, Date.now()); this.nextAt = 0; cx.notify(); })))
         .when(inBar, (el) => el.child(btn("hide", "✕", () => run("layout.hide", { id: PANEL })))))
-      .when(!this.detail && Boolean(status), (el) => el.child(div().px(12).pb(5).text_size(z - 1.5).truncate().text_color(this.err ? t.ansi1 : t.muted).child(status)));
+      .when(!this.detail && Boolean(status), (el) => el.child(h_flex().px(12).pb(5).gap(5).items_center().min_w(0)
+        .when(Boolean(this.busy) && !this.err, (el) => el.child(spin(z - 3, t.muted)))
+        .child(div().flex_1().min_w(0).text_size(z - 1.5).truncate().text_color(this.err ? t.ansi1 : t.muted).child(status))));
   }
 
   searchBar(t, z) {
@@ -1113,7 +1126,7 @@ export default class Gerrit extends View {
       const sr = this.search, sec = { title: "搜尋" };
       list.child(h_flex().px(10).py(6).gap(6).items_center().bg(t.chrome).border_b(1).border_color(t.border)
         .child(div().flex_1().min_w(0).truncate().font_semibold().text_size(z - 0.5).child(`搜尋：${sr.q}`))
-        .child(div().text_color(t.muted).text_size(z - 1).child(sr.loading ? "…" : sr.error ? "讀不到" : sr.items.length >= SEARCH_LIMIT ? `前 ${SEARCH_LIMIT} 個` : String(sr.items.length))));
+        .child(div().text_color(t.muted).text_size(z - 1).child(sr.loading ? spin(z - 2, t.muted) : sr.error ? "讀不到" : sr.items.length >= SEARCH_LIMIT ? `前 ${SEARCH_LIMIT} 個` : String(sr.items.length))));
       if (sr.error) list.child(div().px(14).py(6).text_size(z - 1).text_color(t.ansi1).whitespace_normal().child(sr.error));
       else if (!sr.loading && !sr.items.length) list.child(div().px(14).py(6).text_size(z - 1).text_color(t.dim).child("沒有符合的 change"));
       for (const c of sr.items) list.child(this.row(t, z, c, sec));
@@ -1269,7 +1282,7 @@ export default class Gerrit extends View {
         .child(navBtn("prev-file", "↑ 上一個檔", i <= 0, files[i - 1]))
         .child(navBtn("next-file", "↓ 下一個檔", i < 0 || i >= files.length - 1, files[i + 1])));
     body.child(nav);
-    if (loading) return body.child(div().p(12).text_color(t.muted).child("讀取 diff…"));
+    if (loading) return body.child(div().p(12).child(waiting(t, z, "讀取 diff…")));
     if (error) return body.child(div().p(12).text_color(t.ansi1).child(`讀不到：${error}`));
     if (data.binary) return body.child(div().p(12).text_color(t.muted).child("二進位檔，沒有 diff"));
 
@@ -1486,7 +1499,7 @@ export default class Gerrit extends View {
       .when(Boolean(grow), (el) => el.flex_1()).when(!grow, (el) => el.flex_none())
       .bg(bg).text_color(fg).border_1().border_color(active ? t.accent : bg)
       .when(!off, (el) => el.cursor_pointer().hover((st) => st.opacity(0.85)).on_mouse_down("left", stop).on_click((_e, cx) => on?.(cx)))
-      .child(label);
+      .child(withSpin(label, z - 1, fg));
   }
 
   // What you can do on a change, like Gerrit's REPLY dialog: a score per label you may vote on, a message, send.
@@ -1560,7 +1573,7 @@ export default class Gerrit extends View {
       .bg(busy ? t.raised : kind === "primary" ? t.solid : t.background).text_color(busy ? t.dim : kind === "primary" ? t.solid_foreground : t.foreground)
       .border_1().border_color(t.border)
       .when(!busy, (el) => el.cursor_pointer().hover((st) => st.opacity(0.85)).on_mouse_down("left", stop).on_click((_e, cx) => on(cx)))
-      .child(label);
+      .child(withSpin(label, z - 1.5, t.dim));
     const send = (msg, resolve) => (cx) => cx.spawn(async (cx) => this.replyThread(c, x, msg, resolve, cx));
     // Your draft already answers this thread: it goes out with 💬 送出回覆; a quick reply here would answer twice.
     if (x.draft) {
@@ -1599,7 +1612,7 @@ export default class Gerrit extends View {
       .child(div().font_semibold().text_size(z + 1).whitespace_normal().child(String(c.subject ?? (error ? "" : "讀取中…"))))
       .child(h_flex().gap(6).flex_wrap().items_center().children(this.chips(t, z, c))
         .when(Boolean(c.project), (el) => el.child(div().text_size(z - 1).text_color(t.muted).child(`${c.project} · ${c.branch} · ${who(c.owner)} · 更新 ${ago(c.updated)}`)))));
-    if (loading) return body.child(div().text_color(t.muted).child("讀取中…"));
+    if (loading) return body.child(waiting(t, z, "讀取中…"));
     if (error) return body.child(div().text_color(t.ansi1).child(`讀不到：${error}`));
     const title = (text) => div().pt(4).text_size(z - 1).font_semibold().text_color(t.muted).child(text);
 
@@ -1650,7 +1663,7 @@ export default class Gerrit extends View {
     const { base, to } = this.compare();
     if (revs.length > 1) body.child(this.comparePicker(t, z, revs.map((r) => r._number).sort((a, b) => a - b), base, to));
     const cf = this.comparing() ? this.cmpFiles : null;
-    if (cf?.loading) body.child(div().text_size(z - 1).text_color(t.muted).child("讀取檔案…"));
+    if (cf?.loading) body.child(waiting(t, z - 1, "讀取檔案…"));
     if (cf?.error) body.child(div().text_size(z - 1).text_color(t.ansi1).child(`讀不到：${cf.error}`));
     const files = Object.entries(this.shownFiles());
     if (this.comparing() && cf?.files && !files.length) body.child(div().text_size(z - 1).text_color(t.dim).child("這兩版的檔案一樣（例如只是 rebase）"));

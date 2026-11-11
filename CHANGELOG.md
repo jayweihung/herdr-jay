@@ -5,6 +5,20 @@ Newest first. Each entry says what you need to do on your machine.
 Needs: **mods** = copy the two mod folders again (macOS symlinks: nothing) · **core** / **app** = rebuild ·
 **keys** = see [docs/keys.md](docs/keys.md).
 
+## 2026-11-12
+
+Needs: **core** (build v0.1.20, no patches), **app** (build v0.1.15), in that order; restart Herdr.
+
+- Herdr core v0.1.20 (`de97ea5`) and app v0.1.15 (`9950887`), checked on macOS. Core v0.1.20 needs **no patches**:
+  the one v0.1.19 had (skip Ghostty's xcframework) is in the official source now (#182);
+  `patches/herdr-core/v0.1.20/` holds only a README.md. Applying the old v0.1.19 patch on v0.1.20 breaks the build.
+  core v0.1.20 不用 patch（官方已收進去）；app v0.1.15。
+- No default key changes, no hc API change; the mod API change (`knownAgents()` rejects when its check fails, parent
+  addresses) doesn't affect these mods (`herdr-app check` ok on all).
+- macOS: terminals opened by a core older than 0.1.20 can still end when Herdr quits. Install core first; after
+  that, close and reopen old terminals when convenient (or restart the Mac).
+- First tag checked on both OSes will now be `for-herdr-v0.1.15-r1`.
+
 ## 2026-11-10
 
 - **Gerrit panel: the 問 agent buttons call skills** ([docs/gerrit.md §7](docs/gerrit.md#7-ask-an-agent--問-agent)): Review, 整理留言, 為什麼沒過 and 幫我回覆 now send `/gerrit-panel:review <change> <patch set> <url>` and so on; how to do each job is in the `gerrit-panel` plugin (`agents/gerrit-panel`). Needs **gerrit** (Windows: copy it again), a second `--plugin-dir` in `gerrit.json` `agent.start` ([§8 step 5](docs/gerrit.md#8-a-gerrit-agent-step-by-step--gerrit-agent-安裝步驟)), restart Herdr and the Gerrit agent; buttons you edited before: ✎ → 還原成原本的.

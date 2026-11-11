@@ -3,7 +3,7 @@
 Build Herdr from the official source (plus jay's text patches), then copy two mod folders.
 This repo holds only text; the build runs the official projects' own `just install` (PowerShell installers).
 If your company blocks scripts, every `just install` below has a **by hand** version.
-Commands are for **PowerShell**. Checked against Herdr app v0.1.14 and core v0.1.19. Not yet run on a real Windows PC.
+Commands are for **PowerShell**. Checked against Herdr app v0.1.15 and core v0.1.20. Not yet run on a real Windows PC.
 從官方原始碼 build Herdr（加上 jay 的文字補丁），再複製兩個 mod 資料夾。指令都在 **PowerShell** 打。
 公司擋腳本的話，每個 `just install` 下面都有「手動」做法。
 
@@ -151,21 +151,22 @@ Install the core **before** the app: an app that finds no core offers to downloa
 Set-Location "$env:USERPROFILE\src"
 git clone --recurse-submodules --shallow-submodules https://github.com/herdrdev/herdr-core.git
 Set-Location herdr-core
-git checkout v0.1.19
-git rev-parse --short HEAD                          # must be 06793ed (README versions table)
+git checkout v0.1.20
+git rev-parse --short HEAD                          # must be de97ea5 (README versions table)
 git submodule update --init --recursive
 ```
 
 A fresh clone gets the right commit. An older clone: run `git fetch --tags --force` before `git checkout`.
 舊的 clone 要先 `git fetch --tags --force`。
 
-**jay's patches / jay 的修改** — there is one for core v0.1.19; apply it so the build is the same as jay's
-(it matters on a Mac, harmless on Windows). `$j` = the herdr-jay folder from step 0:
+**jay's patches / jay 的修改** — none for core v0.1.20 (the folder holds only README.md; v0.1.19's one patch is in
+the official source since v0.1.20). The block below still checks, so it stays the same when a patch comes back.
+`$j` = the herdr-jay folder from step 0:
 
 ```powershell
 Set-Location "$env:USERPROFILE\src\herdr-core"
 $j = "$env:USERPROFILE\src\herdr-jay"
-$pd = "$j\patches\herdr-core\v0.1.19"
+$pd = "$j\patches\herdr-core\v0.1.20"                # none today
 $ps = @(Get-ChildItem "$pd\*.patch" -ErrorAction SilentlyContinue | Sort-Object Name).FullName
 if ($ps) { git -c user.name=me -c user.email=me@local am -3 $ps } else { "no patches" }
 ```
@@ -183,7 +184,7 @@ It builds `herdr-core.exe`, downloads Microsoft's ConPTY (`conpty\conpty.dll` + 
 hash-checked), installs into `%LOCALAPPDATA%\Programs\herdr-core`, adds that to PATH, and makes `hc.exe` (a hard link)
 if you had no `hc`. No admin needed.
 
-**Check** (new PowerShell): `hc --version` → `hc 0.1.19`.
+**Check** (new PowerShell): `hc --version` → `hc 0.1.20`.
 `Test-Path "$env:LOCALAPPDATA\Programs\herdr-core\conpty\conpty.dll"` → `True` = Microsoft's ConPTY in use.
 
 **Never run plain `hc update`** (without `--from`): it replaces this build with the official one. Update as in [step 8](#8-updating--更新).
@@ -219,11 +220,11 @@ Later updates by hand, while it runs: `hc update --from target\release\herdr-cor
 Set-Location "$env:USERPROFILE\src"
 git clone --recurse-submodules --shallow-submodules https://github.com/herdrdev/herdr-app.git
 Set-Location herdr-app
-git checkout v0.1.14
-git rev-parse --short HEAD                          # must be 2405bf3 (README versions table)
+git checkout v0.1.15
+git rev-parse --short HEAD                          # must be 9950887 (README versions table)
 git submodule update --init --recursive
 $j = "$env:USERPROFILE\src\herdr-jay"
-$pd = "$j\patches\herdr-app\v0.1.14"                # none today
+$pd = "$j\patches\herdr-app\v0.1.15"                # none today
 $ps = @(Get-ChildItem "$pd\*.patch" -ErrorAction SilentlyContinue | Sort-Object Name).FullName
 if ($ps) { git -c user.name=me -c user.email=me@local am -3 $ps } else { "no patches" }
 ```
@@ -250,7 +251,7 @@ Copy-Item -Force target\release\herdr-app.exe $a
 Add it to PATH: [Add to PATH](#add-a-folder-to-path) with the first line `$add = "$env:LOCALAPPDATA\Programs\herdr-app"`. No Start-menu entry this way: right-click
 `herdr-app.exe` in Explorer → **Pin to Start**, and open Herdr from that pin (below: "from the Start menu").
 
-**Check**: `herdr-app --version | Out-Host` → `herdr-app 0.1.14`. Then open **Herdr** once from the Start menu:
+**Check**: `herdr-app --version | Out-Host` → `herdr-app 0.1.15`. Then open **Herdr** once from the Start menu:
 it creates its home (`%USERPROFILE%\.config\herdr-app`, or `HERDR_APP_HOME` if you set it) with `keys.json`, `settings.json` and `mods\`.
 先從開始選單打開 Herdr 一次，它會建立設定目錄。
 
@@ -377,7 +378,7 @@ About 15 minutes. What each step does is explained in [docs/nvim.md](nvim.md). I
 the screen and of `:messages` in nvim, note the step number, go on.
 大約 15 分鐘；哪一步失敗就拍照（含 nvim 的 `:messages`），記下第幾步，繼續下一步。
 
-1. New PowerShell: `nvim --version`, `hc --version`, `git --version` → NVIM ≥ 0.11, `hc 0.1.19`, a git version.
+1. New PowerShell: `nvim --version`, `hc --version`, `git --version` → NVIM ≥ 0.11, `hc 0.1.20`, a git version.
 2. In Herdr make a space for a git project (`ctrl-shift-n`, pick the folder); in a tab there run `claude`
    (no `cd` first). With that pane focused: `ctrl-shift-i` → nvim on the right in that pane's folder, file tree beside it, and
    `%USERPROFILE%\.config\herdr-app\mods\jay-nvim\.init.lua` exists.

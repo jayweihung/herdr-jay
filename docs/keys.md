@@ -8,10 +8,14 @@ new versions **don't add their new default keys** for you. This page lists them 
 Check it yourself (any OS, no script), in your herdr-app checkout:
 
 ```sh
-git diff v0.1.13 v0.1.14 -- defaults/keys.json defaults/keys.macos.json
+git diff v0.1.14 v0.1.15 -- defaults/keys.json defaults/keys.macos.json
 ```
 
 (`defaults/keys.macos.json` is macOS, `defaults/keys.json` is Windows / Linux.)
+
+## v0.1.15
+
+No default key changes (macOS and Windows / Linux). The jay-nvim keys are still free. Nothing to add.
 
 ## v0.1.14
 

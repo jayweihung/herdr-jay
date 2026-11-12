@@ -24,6 +24,8 @@ Needs: **mods** (they moved: copy again from the new folder; macOS symlinks: lin
 - Docs: Windows paths follow `HERDR_APP_HOME` everywhere; the Gerrit agent's download sites are in
   [windows.md §0](docs/windows.md#0-before-you-start--開始前); [docs/patches.md](docs/patches.md) has one apply
   command for any tag.
+- [linux-remote.md §2](docs/linux-remote.md#2-herdr-core-for-the-server-built-on-the-pc--server-的-core在-pc-上-build):
+  the commands to build the server's core on the PC (`rust-lld`, no Linux compiler) and to copy it over safely.
 
 ## 2026-11-12
 

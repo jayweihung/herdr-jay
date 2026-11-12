@@ -57,6 +57,32 @@ server 的 core 在 Windows PC 上 build 好再複製過去；server 不用裝 R
 (`x86_64-unknown-linux-musl`, a static program like the official Linux release, so it runs on any distro;
 ARM server: `aarch64-unknown-linux-musl`). The version must equal the PC's core (`hc --version`).
 
+**Build** (PowerShell on the PC, after [windows.md step 2](windows.md#2-herdr-core-hc): same clone, same tag and
+patches; Zig is already there). `rust-lld` comes with Rust, so no Linux C compiler is needed:
+（在 PC 上，跟 Windows 版同一份 source；`rust-lld` 是 Rust 自帶的，不用另外裝 Linux 的編譯器）
+
+```powershell
+Set-Location "$env:USERPROFILE\src\herdr-core"
+rustup target add x86_64-unknown-linux-musl
+$env:CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER = "rust-lld"
+cargo build --release --locked --target x86_64-unknown-linux-musl -p herdr-core
+Test-Path target\x86_64-unknown-linux-musl\release\herdr-core    # must be True
+```
+
+(Checked on macOS with the same command: a static x86-64 Linux program. Not yet tried on Windows: if the link step
+fails, bring the error to jay.) ARM server: `aarch64-unknown-linux-musl` in all three places.
+（在 Mac 上用同樣指令試過可以；Windows 還沒實測，失敗就把錯誤訊息拿給 jay。）
+
+**Copy and restart** (from the PC; `<user>@<server>` as in step 1). The new file goes next to the old one first, so a
+broken copy never replaces a working core:
+
+```powershell
+scp target\x86_64-unknown-linux-musl\release\herdr-core <user>@<server>:.local/bin/herdr-core.new
+ssh <user>@<server> 'cd ~/.local/bin && chmod 755 herdr-core.new && ./herdr-core.new --version && mv herdr-core.new herdr-core && { [ -e hc ] || ln -s herdr-core hc; } && ./herdr-core server restart'
+```
+
+No `~/.local/bin` on the server yet: `ssh <user>@<server> mkdir -p .local/bin` first.
+
 **Where it goes on the server**: `~/.local/bin/herdr-core` (mode 755), plus `~/.local/bin/hc` as a link to it if
 there is no `hc` yet. That folder matters: Herdr's "Add machine" and jay-nvim look for the core there. After
 replacing it, `~/.local/bin/herdr-core server restart` (terminals there keep running).

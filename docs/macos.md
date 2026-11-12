@@ -80,11 +80,11 @@ git submodule update --init --recursive
 with only the Command Line Tools) is in the official source since v0.1.20 (#182).
 
 ```sh
-ls ~/src/herdr-jay/patches/herdr-core/v0.1.20/
+ls ~/src/herdr-jay/herdr-core/patches/v0.1.20/
 ```
 
 It shows only `README.md` today; if that folder ever has `.patch` files, apply them before `just install`:
-`git -c user.name=me -c user.email=me@local am -3 ~/src/herdr-jay/patches/herdr-core/v0.1.20/*.patch`
+`git -c user.name=me -c user.email=me@local am -3 ~/src/herdr-jay/herdr-core/patches/v0.1.20/*.patch`
 
 ```sh
 just install
@@ -112,7 +112,7 @@ cd herdr-app
 git checkout v0.1.15
 git rev-parse --short HEAD
 git submodule update --init --recursive
-ls ~/src/herdr-jay/patches/herdr-app/v0.1.15/ 2>/dev/null
+ls ~/src/herdr-jay/herdr-app/patches/v0.1.15/ 2>/dev/null
 ```
 
 `git rev-parse` must print `9950887` (an older clone: `git fetch --tags --force` first). The `ls` shows nothing
@@ -147,7 +147,7 @@ TypeScript starts only in projects that have `node_modules/typescript`.
 
 ```sh
 cd ~/.config/herdr-app/mods
-ln -s ~/src/herdr-jay/mods/jay-nvim ~/src/herdr-jay/mods/jay-nvim-pick .
+ln -s ~/src/herdr-jay/herdr-app/mods/jay-nvim ~/src/herdr-jay/herdr-app/mods/jay-nvim-pick .
 ```
 
 Symlinks follow `git pull` in herdr-jay (jay's setup). Copying (`cp -R`) works too, but then copy again after each update.
@@ -231,7 +231,7 @@ git am --abort 2>/dev/null
 git fetch --tags --force
 git checkout --force "$tag"
 git submodule update --init --recursive
-rd=~/src/herdr-jay/patches/$repo; pd=$rd/$tag
+rd=~/src/herdr-jay/$repo/patches; pd=$rd/$tag
 set -- "$pd"/*.patch(N)
 if ! git rev-parse -q --verify "$tag^{commit}" >/dev/null; then echo "no tag $tag"
 elif [ "$(git rev-parse HEAD)" != "$(git rev-parse "$tag^{commit}")" ]; then echo "checkout of $tag failed: not installing"

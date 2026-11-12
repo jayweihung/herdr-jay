@@ -5,6 +5,19 @@ Newest first. Each entry says what you need to do on your machine.
 Needs: **mods** = copy the two mod folders again (macOS symlinks: nothing) · **core** / **app** = rebuild ·
 **keys** = see [docs/keys.md](docs/keys.md).
 
+## 2026-11-12 (folders)
+
+Needs: **mods** (they moved: copy again from the new folder; macOS symlinks: link again).
+
+- The repo now uses Herdr's own folder names, so a path here says where it goes: `herdr-app/mods/<mod>` →
+  `~/.config/herdr-app/mods/<mod>`; patches to Herdr's source are in `herdr-core/patches/<tag>/` and
+  `herdr-app/patches/<tag>/` (were `patches/<repo>/<tag>/`); `patches/README.md` is now [docs/patches.md](docs/patches.md).
+  資料夾改用 Herdr 自己的名字：`herdr-app/mods/…` 就是裝到 `~/.config/herdr-app/mods/…`；補丁在 `herdr-core/patches/`。
+  macOS: `cd ~/.config/herdr-app/mods && ln -sfn ~/src/herdr-jay/herdr-app/mods/jay-nvim ~/src/herdr-jay/herdr-app/mods/jay-nvim-pick .`
+  (and `gerrit` the same way if you use it).
+  Windows: the copy block in [windows.md §8](docs/windows.md) (already uses the new folder).
+- New `herdr-app/mods/git-toggle`: a Git button for the [git-graph](https://github.com/rabeeh-ta/herdr-git-graph) panel.
+
 ## 2026-11-12
 
 Needs: **core** (build v0.1.20, no patches), **app** (build v0.1.15), in that order; restart Herdr.

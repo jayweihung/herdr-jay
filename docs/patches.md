@@ -4,7 +4,8 @@ jayweihung's own changes to Herdr's source, as plain-text `git format-patch` fil
 Most of what herdr-jay adds is mods (no source change); this folder is only for what a mod can't do.
 這裡是 jayweihung 對 Herdr 原始碼的修改（純文字 patch）。大部分功能是 mod，不用改原始碼；只有 mod 做不到的才在這裡。
 
-Layout: `patches/<repo>/<official tag>/NNNN-*.patch`, e.g. `patches/herdr-core/v0.1.19/0001-....patch`.
+Layout: `<repo>/patches/<official tag>/NNNN-*.patch` (the same folder names as Herdr's own repos), e.g.
+`herdr-core/patches/v0.1.19/0001-....patch`.
 Each set applies on top of exactly that official release tag.
 **No folder for a repo = no changes to it**: build the official tag as is.
 A tag that needs no patches still gets a folder holding only README.md, so the update steps know it was checked.
@@ -21,21 +22,21 @@ A tag that needs no patches still gets a folder holding only README.md, so the u
 
 ## Apply / 套用
 
-Step by step with checks: [docs/macos.md](../docs/macos.md), [docs/windows.md](../docs/windows.md).
+Step by step with checks: [macos.md](macos.md), [windows.md](windows.md).
 
 macOS (zsh), from the repo, on the tag the patch folder is named after:
 
 ```sh
 git checkout v0.1.19
 git submodule update --init --recursive
-git -c user.name=me -c user.email=me@local am -3 ~/src/herdr-jay/patches/herdr-core/v0.1.19/*.patch
+git -c user.name=me -c user.email=me@local am -3 ~/src/herdr-jay/herdr-core/patches/v0.1.19/*.patch
 ```
 
 Windows (PowerShell does not expand `*.patch` for git):
 
 ```powershell
 $j = "$env:USERPROFILE\src\herdr-jay"
-git -c user.name=me -c user.email=me@local am -3 (Get-ChildItem "$j\patches\herdr-core\v0.1.19\*.patch" | Sort-Object Name).FullName
+git -c user.name=me -c user.email=me@local am -3 (Get-ChildItem "$j\herdr-core\patches\v0.1.19\*.patch" | Sort-Object Name).FullName
 ```
 
 The `-c user.name=… user.email=…` only lets `git am` record the commit on a machine where git has no name set.

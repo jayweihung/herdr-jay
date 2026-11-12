@@ -1,4 +1,4 @@
-// Tests for mods/jay-nvim/nvim.js (the follow feature) without Herdr: node tests/jay-nvim/run.js
+// Tests for herdr-app/mods/jay-nvim/nvim.js (the follow feature) without Herdr: node tests/jay-nvim/run.js
 // (macOS, Linux; needs Node 18+, Neovim 0.11+ and git on PATH). The Lua runs in a headless nvim with HOME in a temp
 // folder and a fake hc (a /bin/sh script answering ls / get from files), so nothing of yours is read or changed.
 // Not on Windows yet: the fake hc is a shell script.
@@ -10,7 +10,7 @@ import { spawnSync } from "node:child_process";
 
 if (process.platform === "win32") { console.log("skipped: the fake hc is a shell script (macOS / Linux only)"); process.exit(0); }
 const here = dirname(fileURLToPath(import.meta.url));
-const { NVIM_INIT } = await import(pathToFileURL(join(here, "..", "..", "mods", "jay-nvim", "nvim.js")));
+const { NVIM_INIT } = await import(pathToFileURL(join(here, "..", "..", "herdr-app", "mods", "jay-nvim", "nvim.js")));
 const nvim = spawnSync("sh", ["-c", "command -v nvim"], { encoding: "utf8" }).stdout.trim();
 const git = spawnSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).stdout.trim();
 if (!nvim || !git) { console.log("needs nvim and git on PATH"); process.exit(1); }

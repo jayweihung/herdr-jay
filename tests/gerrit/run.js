@@ -1,4 +1,4 @@
-// Tests for mods/gerrit/main.js without Herdr and without a real Gerrit: node tests/gerrit/run.js
+// Tests for herdr-app/mods/gerrit/main.js without Herdr and without a real Gerrit: node tests/gerrit/run.js
 // (macOS, Linux, Windows; Node 18+). The mod's imports (gpui-kit, gpui-base, herdr) are replaced by stubs, and
 // fetch by a fake Gerrit that answers from the tables below and records every request.
 // The render checks fail the way Herdr does: input state made while drawing, or a color that isn't one.
@@ -9,7 +9,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import assert from "node:assert/strict";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const MOD = join(here, "..", "..", "mods", "gerrit", "main.js");
+const MOD = join(here, "..", "..", "herdr-app", "mods", "gerrit", "main.js");
 
 // ---------- stubs for gpui-kit / gpui-base / herdr ----------
 // Herdr gives each copy its own localStorage; Node 22+ warns about its own unless replaced

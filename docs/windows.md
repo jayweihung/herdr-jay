@@ -166,7 +166,7 @@ the official source since v0.1.20). The block below still checks, so it stays th
 ```powershell
 Set-Location "$env:USERPROFILE\src\herdr-core"
 $j = "$env:USERPROFILE\src\herdr-jay"
-$pd = "$j\patches\herdr-core\v0.1.20"                # none today
+$pd = "$j\herdr-core\patches\v0.1.20"                # none today
 $ps = @(Get-ChildItem "$pd\*.patch" -ErrorAction SilentlyContinue | Sort-Object Name).FullName
 if ($ps) { git -c user.name=me -c user.email=me@local am -3 $ps } else { "no patches" }
 ```
@@ -224,7 +224,7 @@ git checkout v0.1.15
 git rev-parse --short HEAD                          # must be 9950887 (README versions table)
 git submodule update --init --recursive
 $j = "$env:USERPROFILE\src\herdr-jay"
-$pd = "$j\patches\herdr-app\v0.1.15"                # none today
+$pd = "$j\herdr-app\patches\v0.1.15"                # none today
 $ps = @(Get-ChildItem "$pd\*.patch" -ErrorAction SilentlyContinue | Sort-Object Name).FullName
 if ($ps) { git -c user.name=me -c user.email=me@local am -3 $ps } else { "no patches" }
 ```
@@ -300,10 +300,10 @@ Optional, for go-to-definition and errors (skip if Node or Python are not allowe
 
    ```powershell
    $j = "$env:USERPROFILE\src\herdr-jay"
-   Test-Path "$j\mods\jay-nvim\mod.json"          # must be True; otherwise fix $j
+   Test-Path "$j\herdr-app\mods\jay-nvim\mod.json"          # must be True; otherwise fix $j
    $h = if ($env:HERDR_APP_HOME) { $env:HERDR_APP_HOME } elseif ($env:XDG_CONFIG_HOME) { "$env:XDG_CONFIG_HOME\herdr-app" } else { "$env:USERPROFILE\.config\herdr-app" }
    New-Item -ItemType Directory -Force "$h\mods" | Out-Null
-   Copy-Item -Recurse -Force "$j\mods\jay-nvim", "$j\mods\jay-nvim-pick" "$h\mods\"
+   Copy-Item -Recurse -Force "$j\herdr-app\mods\jay-nvim", "$j\herdr-app\mods\jay-nvim-pick" "$h\mods\"
    Set-Content -Encoding ascii "$h\mods\jay-nvim\.herdr-jay" (git -C $j describe --tags --always --match "for-herdr-v*-r*")   # which herdr-jay you copied
    ```
 
@@ -492,7 +492,7 @@ Paste each block with **Ctrl+V as one block** (not right-click, not line by line
 ```powershell
 $repo = "herdr-core"; $tag = "<version from the README table>"     # then: $repo = "herdr-app"; $tag = "<app version>"
 $j = "$env:USERPROFILE\src\herdr-jay"
-$rd = "$j\patches\$repo"; $pd = "$rd\$tag"
+$rd = "$j\$repo\patches"; $pd = "$rd\$tag"
 if ((Test-Path $rd) -and -not (Test-Path $pd)) { "STOP: herdr-jay has no patches for $repo $tag yet: stay on your version" } else {
   Set-Location "$env:USERPROFILE\src\$repo"; git am --abort 2>$null; git fetch --tags --force; git checkout --force $tag
   git submodule update --init --recursive
@@ -538,7 +538,7 @@ Remove the old folders first so deleted files don't linger:
 ```powershell
 $j = "$env:USERPROFILE\src\herdr-jay"; $h = if ($env:HERDR_APP_HOME) { $env:HERDR_APP_HOME } elseif ($env:XDG_CONFIG_HOME) { "$env:XDG_CONFIG_HOME\herdr-app" } else { "$env:USERPROFILE\.config\herdr-app" }
 Remove-Item -Recurse -Force "$h\mods\jay-nvim", "$h\mods\jay-nvim-pick" -ErrorAction SilentlyContinue
-Copy-Item -Recurse -Force "$j\mods\jay-nvim", "$j\mods\jay-nvim-pick" "$h\mods\"
+Copy-Item -Recurse -Force "$j\herdr-app\mods\jay-nvim", "$j\herdr-app\mods\jay-nvim-pick" "$h\mods\"
 Set-Content -Encoding ascii "$h\mods\jay-nvim\.herdr-jay" (git -C $j describe --tags --always --match "for-herdr-v*-r*")
 herdr-app check "$h\mods\jay-nvim" | Out-Host
 herdr-app check "$h\mods\jay-nvim-pick" | Out-Host

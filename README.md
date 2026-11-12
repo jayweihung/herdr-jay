@@ -5,8 +5,8 @@ jayweihung 的 Herdr 通用 mod 與設定。
 
 - **Text only**: JavaScript mods, Lua, JSON, Markdown, text patches. No executables, no scripts, no binaries.
   只有文字檔，沒有執行檔、腳本或 binary。
-- **Herdr itself is not here**: build it from the official source (Apache-2.0) plus the text patches in `patches/`.
-  不含 Herdr 本體：從官方原始碼 build，再套上 `patches/`。
+- **Herdr itself is not here**: build it from the official source (Apache-2.0) plus the text patches in `herdr-core/patches/` (and `herdr-app/patches/` when there are any).
+  不含 Herdr 本體：從官方原始碼 build，再套上 `herdr-core/patches/`（和 `herdr-app/patches/`，有的話）。
 - Third-party mods are not included; install them from their authors.
 
 ## Where to read / 從哪裡看
@@ -20,17 +20,18 @@ jayweihung 的 Herdr 通用 mod 與設定。
 | **jay-nvim** features, keys, macOS vs Windows, security / nvim 功能 | [docs/nvim.md](docs/nvim.md) |
 | **Gerrit panel**: dashboard, change details, notifications / Gerrit 面板 | [docs/gerrit.md](docs/gerrit.md) |
 | New Herdr default keys per release / 各版新增的預設按鍵 | [docs/keys.md](docs/keys.md) |
-| Patches to Herdr's source / 對 Herdr 原始碼的修改 | [patches/README.md](patches/README.md) |
+| Patches to Herdr's source / 對 Herdr 原始碼的修改 | [docs/patches.md](docs/patches.md) |
 | What changed in herdr-jay / 更新紀錄 | [CHANGELOG.md](CHANGELOG.md) |
 
 ## Contents / 內容
 
 | Path | What |
 |---|---|
-| `mods/jay-nvim` | Neovim beside your agent: follow the agent's files, live diff, file tree, comments to the agent, LSP, mouse |
-| `mods/jay-nvim-pick` | `cmd-o` / `ctrl-shift-j`: jump to the jay-nvim pane and list the files the agent read or edited |
-| `mods/gerrit` | Gerrit beside your agents: 輪到你 / 我送出的 / 等我 review…, a change's votes, comment threads and files, notifications ([docs/gerrit.md](docs/gerrit.md)) |
-| `patches/<repo>/<tag>/` | changes to Herdr's own source (only what a mod can't do), one folder per official tag |
+| `herdr-app/mods/jay-nvim` | Neovim beside your agent: follow the agent's files, live diff, file tree, comments to the agent, LSP, mouse |
+| `herdr-app/mods/jay-nvim-pick` | `cmd-o` / `ctrl-shift-j`: jump to the jay-nvim pane and list the files the agent read or edited |
+| `herdr-app/mods/gerrit` | Gerrit beside your agents: 輪到你 / 我送出的 / 等我 review…, a change's votes, comment threads and files, notifications ([docs/gerrit.md](docs/gerrit.md)) |
+| `herdr-app/mods/git-toggle` | a **Git** button in the tab bar that opens and closes the [git-graph](https://github.com/rabeeh-ta/herdr-git-graph) panel (install git-graph from its author; needs a layout with a `git-graph-panel`) |
+| `herdr-core/patches/<tag>/`, `herdr-app/patches/<tag>/` | changes to Herdr's own source (only what a mod can't do), one folder per official tag |
 | `docs/` | the guides above |
 
 ## Versions / 版本
@@ -42,7 +43,7 @@ one was checked.
 
 | herdr-jay | Herdr app | Herdr core | core patches | Checked on macOS | Checked on Windows |
 |---|---|---|---|---|---|
-| `main` (now) | v0.1.15 (`9950887`) | v0.1.20 (`de97ea5`) | none (`patches/herdr-core/v0.1.20` holds only README.md) | 2026-11-12 | not yet |
+| `main` (now) | v0.1.15 (`9950887`) | v0.1.20 (`de97ea5`) | none (`herdr-core/patches/v0.1.20` holds only README.md) | 2026-11-12 | not yet |
 
 The app needs at least the core in its `distribution/core-version` (v0.1.15: core 0.1.11).
 Neovim: **v0.12.6** (the Linux server builds this tag from source; anything ≥ 0.11 works with jay-nvim).

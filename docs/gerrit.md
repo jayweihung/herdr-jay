@@ -25,7 +25,7 @@ bring it to jay.
 
 ## 1. Install / 安裝
 
-The mod is `mods/gerrit` in this repo. It runs on the PC (it talks to Gerrit over HTTPS from there), nothing goes on
+The mod is `herdr-app/mods/gerrit` in this repo. It runs on the PC (it talks to Gerrit over HTTPS from there), nothing goes on
 a server.
 
 **Windows** (PowerShell, after `git pull` in herdr-jay):
@@ -33,11 +33,11 @@ a server.
 ```powershell
 $j = "$env:USERPROFILE\src\herdr-jay"; $h = if ($env:HERDR_APP_HOME) { $env:HERDR_APP_HOME } elseif ($env:XDG_CONFIG_HOME) { "$env:XDG_CONFIG_HOME\herdr-app" } else { "$env:USERPROFILE\.config\herdr-app" }
 Remove-Item -Recurse -Force "$h\mods\gerrit" -ErrorAction SilentlyContinue
-Copy-Item -Recurse -Force "$j\mods\gerrit" "$h\mods\"
+Copy-Item -Recurse -Force "$j\herdr-app\mods\gerrit" "$h\mods\"
 herdr-app check "$h\mods\gerrit" | Out-Host
 ```
 
-**macOS**: `ln -s ~/src/herdr-jay/mods/gerrit ~/.config/herdr-app/mods/gerrit`, then `herdr-app check ~/.config/herdr-app/mods/gerrit`.
+**macOS**: `ln -s ~/src/herdr-jay/herdr-app/mods/gerrit ~/.config/herdr-app/mods/gerrit`, then `herdr-app check ~/.config/herdr-app/mods/gerrit`.
 
 The first time Herdr sees the folder it docks the panel at the far right of the window, outside the work area. The
 panel then shows a big **移到上排** button: press it once and the panel moves next to the other panels: a **Gerrit**

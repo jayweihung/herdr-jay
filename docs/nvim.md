@@ -138,7 +138,7 @@ agent's.
 ## 5. How it is built / 程式結構
 
 ```
-mods/jay-nvim/
+herdr-app/mods/jay-nvim/
   main.js     picks the launcher: Windows + a pane on this computer → windows.js, otherwise unix.js
   unix.js     macOS / Linux / other machines: /bin/sh finds nvim
   windows.js  Windows: .init.lua + :source
@@ -146,7 +146,7 @@ mods/jay-nvim/
   nvim.js     the Lua (one string, NVIM_INIT), run by nvim on the machine where the pane opens
                 PLATFORM  every OS difference, in one table P (nothing below tests the OS)
                 then: reload + diff, swap-file heads-up, tree, agent + follow, comments, keys, LSP, mouse
-mods/jay-nvim-pick/
+herdr-app/mods/jay-nvim-pick/
   main.js     finds the pane by the argv item `let g:jay_nvim = 1`, focuses it, sends alt+o (nvim: <M-o>)
 ```
 

@@ -53,7 +53,7 @@ Zig and no build memory.
 server 的 core 在 Windows PC 上 build 好再複製過去；server 不用裝 Rust、Zig，也不用在 server 上編。
 
 **What to build**: herdr-core at the tag in the [README versions table](../README.md#versions--版本), plus
-`patches/herdr-core/<tag>/` (as in [windows.md step 2](windows.md#2-herdr-core-hc)), for **Linux x86_64**
+`herdr-core/patches/<tag>/` (as in [windows.md step 2](windows.md#2-herdr-core-hc)), for **Linux x86_64**
 (`x86_64-unknown-linux-musl`, a static program like the official Linux release, so it runs on any distro;
 ARM server: `aarch64-unknown-linux-musl`). The version must equal the PC's core (`hc --version`).
 

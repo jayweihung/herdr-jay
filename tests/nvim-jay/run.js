@@ -8,8 +8,17 @@ import { join, dirname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawnSync } from "node:child_process";
 
-if (process.platform === "win32") { console.log("skipped: the fake hc is a shell script (macOS / Linux only)"); process.exit(0); }
 const here = dirname(fileURLToPath(import.meta.url));
+// nvim-jay's launchers and nvim-jay-agent-files must agree on MARK (mods can't import from each other)
+{
+  const mods = join(here, "..", "..", "herdr-app", "mods");
+  const { MARK } = await import(pathToFileURL(join(mods, "nvim-jay", "mark.js")));
+  const files = readFileSync(join(mods, "nvim-jay-agent-files", "main.js"), "utf8");
+  const theirs = files.match(/^const MARK = "([^"]*)";$/m)?.[1];
+  if (theirs !== MARK) { console.log(`MARK differs: mark.js ${JSON.stringify(MARK)}, nvim-jay-agent-files ${JSON.stringify(theirs)}`); process.exit(1); }
+  console.log("ok    MARK is the same in nvim-jay/mark.js and nvim-jay-agent-files");
+}
+if (process.platform === "win32") { console.log("skipped: the fake hc is a shell script (macOS / Linux only)"); process.exit(0); }
 const { NVIM_INIT } = await import(pathToFileURL(join(here, "..", "..", "herdr-app", "mods", "nvim-jay", "nvim.js")));
 const nvim = spawnSync("sh", ["-c", "command -v nvim"], { encoding: "utf8" }).stdout.trim();
 const git = spawnSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).stdout.trim();

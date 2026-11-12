@@ -8,8 +8,10 @@ import { closeOverlay, focused, hc, notify, panes, props, run, terminals } from 
 // Recognised by argv: terminal.open's `name` doesn't show up in terminals() (hc ls name is null). Both nvim-jay
 // launchers pass MARK (nvim-jay/mark.js; keep the two identical).
 const MARK = "let g:nvim_jay = 1";
+// 下一版拿掉: what panes opened before the rename to nvim-jay carry (they stay open until closed)
+const OLD_MARK = "let g:jay_nvim = 1";
 const PICK_KEY = "alt+o";
-const isNvimJay = (t) => Array.isArray(t?.argv) && t.argv.some((a) => a === MARK);
+const isNvimJay = (t) => Array.isArray(t?.argv) && t.argv.some((a) => a === MARK || a === OLD_MARK);
 
 export default class NvimJayAgentFiles extends View {
   init() {

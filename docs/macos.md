@@ -1,8 +1,7 @@
 # Herdr + herdr-jay on macOS / 在 Mac 上用
 
 Build Herdr from the official source (plus jay's text patches), then install two mods (and the kit mod if you use kit).
-jay's own Mac is built from these same public sources and patches (jay keeps private forks of the two Herdr repos
-with the same patches applied; the result is the same). Checked on Apple Silicon with only the Command Line Tools
+jay's own Mac is built from these same public sources and patches. Checked on Apple Silicon with only the Command Line Tools
 (no full Xcode), Herdr app v0.1.15 and core v0.1.20. Intel Macs are fine too: the official releases are
 Apple-Silicon-only, so building from source is the way there.
 從官方原始碼 build Herdr（加上 jay 的文字補丁），再裝兩個 mod（有用 kit 再加 kit 的 mod）。jay 自己的 Mac 就是這樣裝的。
@@ -170,18 +169,10 @@ herdr-app check ~/.config/herdr-app/mods/nvim-jay
 herdr-app check ~/.config/herdr-app/mods/nvim-jay-agent-files
 ```
 
-**kit** (optional, only if you use kit, a version where `kit api` prints `1`; installed per kit's own guide): the
-`kit` mod puts kit's buttons on every agent pane and its panels in the window ([kit.md](kit.md)); it goes with jay's
-layout ([layout.md](layout.md), which has the same link step):
-kit 的 mod（選用，有裝 kit 才要），配 jay 的 layout：
-
-```sh
-cd ~/.config/herdr-app/mods
-rm -rf kit-agents kit-pane            # an older kit's own mods, now part of kit
-[ -L kit ] || rm -rf kit              # an older kit's own copy of kit (a folder, not a link)
-ln -sfn ~/src/herdr-jay/herdr-app/mods/kit .
-herdr-app check ~/.config/herdr-app/mods/kit
-```
+**kit** (optional, only if you use kit: kit 0.3.0 or later, installed per kit's own guide): the `kit` mod puts kit's
+buttons on every agent pane and its panels in the window; it goes with jay's layout. Install it with
+[kit.md → Install](kit.md#install--安裝), then the layout with [layout.md](layout.md).
+kit 的 mod（選用，有裝 kit 0.3.0 以上才要）：照 kit.md 的安裝步驟，再照 layout.md 放 jay 的 layout。
 
 ---
 
@@ -193,9 +184,9 @@ herdr-app check ~/.config/herdr-app/mods/kit
 4. `cmd-o` → jumps to that nvim and lists the files Claude read or edited. In nvim: `space o`.
 5. Comment a line: `space a c`. Send all comments to Claude: `space a s`.
 6. Python / TypeScript: open a file; pyright / TypeScript start by themselves
-   ([what they run](nvim.md#3-language-servers--語言伺服器)).
+   ([what they run](nvim-jay.md#3-language-servers--語言伺服器)).
 
-All keys and features: [docs/nvim.md](nvim.md). On a space of another machine (Herdr "machines"), the pane opens
+All keys and features: [docs/nvim-jay.md](nvim-jay.md). On a space of another machine (Herdr "machines"), the pane opens
 there: that machine needs nvim ≥ 0.11, git and `hc`.
 
 ---
@@ -215,7 +206,7 @@ there: that machine needs nvim ≥ 0.11, git and `hc`.
 | Two Herdrs, or Herdr updates itself | an official app is still installed | step 1, remove it |
 | `hc --version` shows another version than you built | `hc update`, "Update herdr-core" or an official installer ran | step 2 `just install` again |
 
-nvim itself (follow, LSP, comments): [docs/nvim.md → 8](nvim.md#8-when-something-goes-wrong--出問題時).
+nvim itself (follow, LSP, comments): [docs/nvim-jay.md → 8](nvim-jay.md#8-when-something-goes-wrong--出問題時).
 
 ---
 

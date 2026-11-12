@@ -3,67 +3,123 @@
 Newest first. Each entry says what you need to do on your machine.
 最新的在上面；每條寫了要做什麼。
 Needs: **mods** = copy the mod folders again (macOS symlinks: nothing) · **gerrit** = copy the Gerrit panel again
-(only if you installed it) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/keys.md).
+(only if you installed it) · **gerrit plugin** = a line in `gerrit.json` (only if you use the Gerrit agent; the entry
+says which) · **kit** = update kit itself on every machine where agents run (`kit self-update`, `kit sync`) ·
+**layout** = jay's layout again (Windows: copy the file; macOS link: nothing), or your own layout as the entry says ·
+**snap hook** = a line in Claude Code's `settings.json` on each machine where you added the hook (the entry says
+which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/keys.md).
 
 ## 2026-11-12 (kit mod, nvim-jay)
 
-Needs: **mods** (new folders, old ones removed), **keys** (two lines), **snap hook** (one line in Claude Code's
-`settings.json`), **kit** (a version with `kit api`, if you use kit), **layout** (Windows, jay's layout); then quit
-and reopen Herdr.
-要做：mods（新資料夾、刪掉舊的）、keys（兩行）、snap hook（Claude Code settings.json 一行）、kit 升到有 `kit api` 的版本（有用 kit 的話）、layout（Windows）；最後重開 Herdr。
+Needs: **kit** (0.3.0 or later, step 1 first), **mods** (new folders, old ones removed), **gerrit** (Windows),
+**layout**, **keys** (two lines), **gerrit plugin** (one line), **snap hook** (one line); then restart Herdr and
+close the old nvim panes.
+要做：kit（0.3.0 以上，先做第 1 步）、mods（新資料夾、刪掉舊的）、gerrit（Windows 重新複製）、layout、keys（兩行）、gerrit.json（一行）、snap hook（一行）；最後重開 Herdr、關掉舊的 nvim 格子。
 
 - **jay-nvim is now nvim-jay**, **jay-nvim-pick is now nvim-jay-agent-files** (same features: `cmd-o` / Windows
   `ctrl-shift-j` jumps to nvim and lists the files the agent read or edited). Everything moved with the names: the
-  mod folders, `tests/nvim-jay`, `~/.cache/nvim-jay` (the old `~/.cache/jay-nvim` can be deleted; it is made again),
-  `~/.config/nvim-jay/snap_hook.lua`, `~/.config/nvim-jay/root_view`. The `.herdr-jay` marker keeps its name.
+  mod folders, `tests/nvim-jay`, `docs/nvim-jay.md` (was `docs/nvim.md`), `~/.cache/nvim-jay`,
+  `~/.config/nvim-jay/snap_hook.lua`, `~/.config/nvim-jay/root_view`. The `.herdr-jay` marker keeps its name. Until
+  the next release nvim-jay-agent-files also finds nvim panes opened before the rename.
   jay-nvim 改名 nvim-jay，jay-nvim-pick 改名 nvim-jay-agent-files，功能不變；快取、hook 檔的路徑也跟著改。
 - **The kit mod is here now** (`herdr-app/mods/kit`, [docs/kit.md](docs/kit.md)): what an older kit installed itself
-  as three mods (`kit`, `kit-agents`, `kit-pane`) is one mod `kit` with a role per part (the pane header is
-  `{ "mod": "kit", "props": { "role": "header" } }`). It runs `kit` from PATH (`kit.cmd` on Windows); no
-  `config.json`. It needs **kit with `kit api`** (after 0.2.0): with an older kit the panels say 「kit 太舊」
-  (`kit self-update`); with a kit newer than the mod, 「Herdr 的 kit mod 太舊」 (update herdr-jay). kit's own
-  `kit herdr-panel install` is gone; don't run it any more.
-  kit 的 Herdr 面板搬到 herdr-jay：三個 mod 合成一個 `kit`，用 PATH 上的 kit，要有 `kit api` 的 kit（0.2.0 之後）。
+  as three mods (`kit`, `kit-agents`, `kit-pane`) is one mod `kit` with a role per part (`repo`, `repo-toggle`,
+  `agent`, `agents`, `agents-toggle`, `header`, `context`; the older names `panel`, `toggle`, `pane` still work). It
+  runs `kit` from PATH (`kit.cmd` on Windows), else from kit's install folder; no `config.json`. It needs **kit 0.3.0
+  or later** (`kit api` prints `1.0`): with an older kit the panels say 「kit 太舊」 (`kit self-update`); with a kit
+  newer than the mod, 「Herdr 的 kit mod 太舊」 (update herdr-jay). kit's own `kit herdr-panel install` is gone; don't
+  run it any more. A layout with Kit's button but an older kit's pieces gets 「更新版面」 in the Kit panel.
+  kit 的 Herdr 面板搬到 herdr-jay：三個 mod 合成一個 `kit`，要 kit 0.3.0 以上。
+- **The Gerrit panel's skills moved into the gerrit mod**: the `gerrit-panel` plugin is now
+  `herdr-app/mods/gerrit/claude-plugin` (was `agents/gerrit-panel`), so it is installed and updated with the mod.
+  The buttons still call `/gerrit-panel:…`.
+  Gerrit 面板的 skill 搬進 gerrit mod 裡（claude-plugin）。
 - jay's layouts (`jay.json`, `jay-win.json`) use the `kit` mod and its roles.
 
 What to do / 要做的事:
 
-1. **kit** (only if you use it): `kit self-update` on this computer and on every machine where agents run, until
-   `kit api` prints `1`.
-   有用 kit：每台都 `kit self-update`，直到 `kit api` 印出 `1`。
-2. **mods**. macOS (links):
+1. **kit** (only if you use it), first, on this computer **and** on every machine where agents run:
+
+   ```sh
+   kit self-update
+   kit sync
+   kit api          # must print 1.0 (any 1.x)
+   ```
+
+   `kit api` prints anything else (an error, `沒有這個指令`, a `0.`): **stop here and tell jay** — the company's
+   Git server doesn't have the new kit yet. Until it does, skip step 3: keep the old kit mods (`kit`, `kit-agents`,
+   `kit-pane`) and your layout as they are (they keep working with the old kit). Steps 2 and 4–6 are fine.
+   有用 kit：每台都先 `kit self-update`、`kit sync`，`kit api` 要印出 `1.0`。印的不是 1.x 就停下來告訴 jay（公司的 Git 伺服器還沒有新版 kit），先不要刪舊的 kit mod、不要動 layout。
+2. **mods** (nvim-jay; Windows also gerrit). macOS (links):
 
    ```sh
    cd ~/.config/herdr-app/mods
    rm -f jay-nvim jay-nvim-pick                 # the old links
-   rm -rf kit-agents kit-pane                   # an older kit's mods, now part of kit
-   [ -L kit ] || rm -rf kit                     # an older kit's own copy of kit
    ln -sfn ~/src/herdr-jay/herdr-app/mods/nvim-jay ~/src/herdr-jay/herdr-app/mods/nvim-jay-agent-files .
-   ln -sfn ~/src/herdr-jay/herdr-app/mods/kit .   # only if you use kit
    ```
 
-   Windows: [windows.md §8.4](docs/windows.md#84-mods) (removes `jay-nvim`, `jay-nvim-pick`, `kit`, `kit-agents`,
-   `kit-pane`, copies `nvim-jay`, `nvim-jay-agent-files` and, if you use kit, `kit`); jay's layout: the Windows block
-   in [layout.md](docs/layout.md) again.
-   Mac 重新連結；Windows 照 §8.4 刪掉舊資料夾、複製新的。
-3. **keys**: in `keys.json` the two lines become (macOS `cmd-e` / `cmd-o`, Windows `ctrl-shift-i` / `ctrl-shift-j`):
+   Windows (PowerShell): the old folders out, then [windows.md §8.4](docs/windows.md#84-mods) (copies `nvim-jay`,
+   `nvim-jay-agent-files`; and `gerrit` again if you use it: the skills now come with it):
+
+   ```powershell
+   $h = if ($env:HERDR_APP_HOME) { $env:HERDR_APP_HOME } elseif ($env:XDG_CONFIG_HOME) { "$env:XDG_CONFIG_HOME\herdr-app" } else { "$env:USERPROFILE\.config\herdr-app" }
+   Remove-Item -Recurse -Force "$h\mods\jay-nvim", "$h\mods\jay-nvim-pick" -ErrorAction SilentlyContinue
+   ```
+
+   Mac 重新連結；Windows 刪掉舊資料夾，再照 §8.4 複製。
+3. **kit mod and layout** (only after step 1 printed `1.x`). The older kit's own mods out:
+
+   ```sh
+   cd ~/.config/herdr-app/mods                  # macOS
+   rm -rf kit-agents kit-pane                   # an older kit's mods, now part of kit
+   [ -L kit ] || rm -rf kit                     # an older kit's own copy of kit (a folder, not a link)
+   ```
+   ```powershell
+   Remove-Item -Recurse -Force "$h\mods\kit-agents", "$h\mods\kit-pane" -ErrorAction SilentlyContinue   # Windows ($h as in step 2)
+   ```
+
+   then the kit mod: [kit.md → Install](docs/kit.md#install--安裝). The layout:
+   - **jay's layout**: macOS nothing (a link); Windows copy `jay-win.json` again ([layout.md](docs/layout.md#install--安裝) step 3).
+   - **Your own layout** (one where an older kit put its buttons): after the restart (step 5) open the Kit panel and
+     press 「更新版面」. Or by hand, three places in your layout's JSON:
+     `{ "mod": "kit-agents", "props": { "role": "toggle" } }` → `{ "mod": "kit", "props": { "role": "agents-toggle" } }`;
+     `{ "mod": "kit-agents" }` → `{ "mod": "kit", "props": { "role": "agents" } }`;
+     the pane header's `{ "mod": "kit-pane" }` → `{ "mod": "kit", "props": { "role": "header" } }`.
+     Until then those places show an error.
+   自己的 layout：重開後在 Kit 面板按「更新版面」，或手動改上面三個地方。
+4. **keys** and **gerrit plugin**. In `keys.json` the two lines become:
 
    ```json
    "cmd-e": "mod.open:nvim-jay",
    "cmd-o": "mod.open:nvim-jay-agent-files",
    ```
 
-   keys.json 那兩行改成新名字。
-4. **snap hook**, on every machine where you added it (the PC, a Mac, a Linux server): in Claude Code's
-   `settings.json` (`~/.claude/settings.json`; Windows `%USERPROFILE%\.claude\settings.json`) the PreToolUse command's
-   path `~/.config/jay-nvim/snap_hook.lua` becomes `~/.config/nvim-jay/snap_hook.lua` (keep the rest of the line:
-   the `nvim` path, Windows' `<home>`). Open nvim-jay once on that machine first: it writes the new file. Without
-   the change the old hook keeps its copies where the new nvim-jay doesn't look (no red / green for Bash edits
-   outside a repo). Then restart Claude Code (or `/hooks`). A `~/.config/jay-nvim/root_view` moves to
-   `~/.config/nvim-jay/root_view`; the old `~/.config/jay-nvim` and `~/.cache/jay-nvim` can be deleted.
-   每台有裝 snap hook 的機器：先開一次 nvim-jay（寫出新的 hook 檔），再把 settings.json 裡那一行的路徑 jay-nvim 改成 nvim-jay，重開 Claude Code。
-5. Quit and reopen Herdr; `herdr-app check` each mod.
-   重開 Herdr。
+   Windows:
+
+   ```json
+   "ctrl-shift-i": "mod.open:nvim-jay",
+   "ctrl-shift-j": "mod.open:nvim-jay-agent-files",
+   ```
+
+   Gerrit agent (only if `gerrit.json` has `agent.start`): its second `--plugin-dir`, `…/herdr-jay/agents/gerrit-panel`,
+   becomes `<Herdr home>/mods/gerrit/claude-plugin` (e.g. `C:/Users/you/.config/herdr-app/mods/gerrit/claude-plugin`,
+   macOS `/Users/you/.config/herdr-app/mods/gerrit/claude-plugin`; [gerrit.md §8 step 5](docs/gerrit.md#8-a-gerrit-agent-step-by-step--gerrit-agent-安裝步驟)).
+   Then close the Gerrit agent's pane and start it again with ＋.
+   keys.json 那兩行改成新名字；gerrit.json 的第二個 `--plugin-dir` 改成 Herdr 家目錄裡的 `mods/gerrit/claude-plugin`。
+5. **Restart**: quit and reopen Herdr. Then **close every nvim pane opened before the update**, on the PC and on the
+   server (restarting Herdr doesn't close them; they still run the old code), and open new ones (`cmd-e` /
+   `ctrl-shift-i`). `herdr-app check` each mod.
+   重開 Herdr，然後把更新前開的 nvim 格子全部關掉（PC 和 server 都要；重開 Herdr 不會關掉它們），再開新的。
+6. **snap hook**, on every machine where you added it (the PC, a Mac, a Linux server): first open a new nvim pane
+   there (step 5; it writes the new hook file). Then in Claude Code's `settings.json` (`~/.claude/settings.json`;
+   Windows `%USERPROFILE%\.claude\settings.json`), in the PreToolUse hook's `command` (or `args`), replace
+   `/.config/jay-nvim/` with `/.config/nvim-jay/`; keep the rest of the line (the `nvim` path, Windows' `<home>`).
+   Without the change the old hook keeps its copies where nvim-jay no longer looks (no red / green for Bash edits
+   outside a repo). Restart Claude Code (or `/hooks`). A `root_view` file moves from `~/.config/jay-nvim/` to
+   `~/.config/nvim-jay/`. Then the old folders can be deleted: `~/.config/jay-nvim` and `~/.cache/jay-nvim`; on
+   Windows `<home>\.config\jay-nvim` and `<home>\.cache\jay-nvim`, where `<home>` is nvim's home folder
+   ([windows.md §6 step 3](docs/windows.md#6-test-checklist--實測清單)), which may not be `%USERPROFILE%`.
+   每台有裝 snap hook 的機器：先開一格新的 nvim（寫出新的 hook 檔），再把 settings.json 那一行裡的 `/.config/jay-nvim/` 改成 `/.config/nvim-jay/`，重開 Claude Code。
 
 ## 2026-11-12 (folders)
 
@@ -100,7 +156,7 @@ Needs: **core** (build v0.1.20, no patches), **app** (build v0.1.15), in that or
 - macOS: terminals opened by a core older than 0.1.20 can still end when Herdr quits. Install core first; after
   that, close and reopen old terminals when convenient (or restart the Mac).
 - Tag `for-herdr-v0.1.15-r1`: checked on macOS only so far (see the README tag table).
-- **jay-nvim finds newer Claude Code's session** ([docs/nvim.md](docs/nvim.md)). Needs **mods** (macOS symlinks:
+- **jay-nvim finds newer Claude Code's session** ([docs/nvim-jay.md](docs/nvim-jay.md)). Needs **mods** (macOS symlinks:
   nothing; reopen the nvim pane). Claude Code 2.1.322 no longer writes `~/.claude/sessions/<pid>.json`, so follow
   found nothing. Now, after that file: Claude Code's `~/.claude/daemon/roster.json` (background / remote-control
   sessions: the worker whose `pid` or `replPid` is the agent or under the pane), then, on every system, the agent's
@@ -108,7 +164,7 @@ Needs: **core** (build v0.1.20, no patches), **app** (build v0.1.15), in that or
   Code started (else in the last 24 h); `/clear`'s new log is followed. Two Claude Codes in one folder may swap.
   Only a plain file inside `~/.claude/projects` is followed (no link out of it). Snap hook unchanged.
   新版 Claude Code 不再寫 `sessions/<pid>.json`，跟檔改從 roster 或 agent 所在資料夾找對話紀錄。
-- **jay-nvim follow fixes** ([docs/nvim.md](docs/nvim.md)). Needs **mods** (macOS symlinks: nothing; reopen the nvim
+- **jay-nvim follow fixes** ([docs/nvim-jay.md](docs/nvim-jay.md)). Needs **mods** (macOS symlinks: nothing; reopen the nvim
   pane). Follow keeps going after a Bash command that fails, follows a background Bash when it ends, follows
   sub-agents (Task), opens a new file the agent writes once it is there, prefers the files a Bash command names over
   other changes in the repo, `~/x` and `$HOME/x` count as paths (also in the snap hook, which jay-nvim rewrites
@@ -117,7 +173,7 @@ Needs: **core** (build v0.1.20, no patches), **app** (build v0.1.15), in that or
   `old_string` first. Root view: records carry `pid`; only the root agent under this pane counts. Tests:
   `node tests/jay-nvim/run.js`.
   jay-nvim 跟檔修正：Bash 失敗後還會跟、背景 Bash、sub-agent、新寫的檔、hc／git 卡住不再凍住 nvim 等。
-- **jay-nvim review fixes** ([docs/nvim.md](docs/nvim.md)). Needs **mods** (macOS symlinks: nothing; reopen the nvim
+- **jay-nvim review fixes** ([docs/nvim-jay.md](docs/nvim-jay.md)). Needs **mods** (macOS symlinks: nothing; reopen the nvim
   pane). The 4 MB cap now also holds for the committed copy a file is marked against (a committed 20 MB log the agent
   emptied no longer makes millions of red lines), and at most 50 removed lines show per change, then 「…還有 N 行」.
   A program nvim gave up on is killed with what it started (Windows: `taskkill /T /F`, for Git for Windows' launcher
@@ -155,7 +211,7 @@ Needs: **core** (build v0.1.20, no patches), **app** (build v0.1.15), in that or
 
 - **Gerrit panel: reply, vote, submit without the web page** ([docs/gerrit.md §3](docs/gerrit.md#3-what-you-see--畫面)): big score buttons per label, a reply box, 💬 送出回覆 (message + scores + drafts), ✅ 合併 (press twice); under comment threads ✓ Done / Ack / 💬 回覆. Tested against a local Gerrit 3.14. Needs **gerrit**, restart Herdr.
 
-- **jay-nvim follows a root agent through a root view** ([docs/nvim.md §6](docs/nvim.md#6-agent-running-as-root--agent-用-root-跑)): when a root-side hook keeps copies you can read (`index.jsonl` + `blobs/`), name its folder in `~/.config/jay-nvim/root_view` and nvim opens root's file as a read-only copy, marked and at the line. The root-agent notice is one short line (no more "Press ENTER"), kept in `:messages`. Needs **mods**; nothing to do on machines without a root agent.
+- **jay-nvim follows a root agent through a root view** ([docs/nvim-jay.md §6](docs/nvim-jay.md#6-agent-running-as-root--agent-用-root-跑)): when a root-side hook keeps copies you can read (`index.jsonl` + `blobs/`), name its folder in `~/.config/jay-nvim/root_view` and nvim opens root's file as a read-only copy, marked and at the line. The root-agent notice is one short line (no more "Press ENTER"), kept in `:messages`. Needs **mods**; nothing to do on machines without a root agent.
 
 - **Gerrit panel sits with the other panels**: a **Gerrit** button in the tab bar (number = changes waiting for you) opens and closes it, and keeps checking and notifying while it's closed. A panel still docked outside shows a **移到上排** button that moves it there (on Herdr's own layout it first makes `main-jay`). Header buttons are bigger. Fixed: on Gerrit 3.14+ four default sections said 讀不到 (`-is:ignored` no longer exists there; dropped). Needs **gerrit** (copy `mods/gerrit`), restart Herdr, press 移到上排 once.
 
@@ -179,7 +235,7 @@ Needs: **mods** (copy both again), **app** (build v0.1.14), and once per machine
   `/proc/self/environ` was copied; a file swapped for a FIFO after the check could stall the command; jay-nvim now
   writes the hook file via a temp file + rename, so a hook starting meanwhile never runs half a file.
   修 snap hook：/proc 等沒真的跳過、FIFO 可能卡住、寫 hook 檔改成先寫暫存再換名。
-- docs/nvim.md: §4 (macOS vs Windows), §5 (how it is built) and §6 (agent as root) were cut by mistake in the
+- docs/nvim-jay.md: §4 (macOS vs Windows), §5 (how it is built) and §6 (agent as root) were cut by mistake in the
   previous change; back.
 - docs/windows.md: build tools reduced to the versions needed; **§8 Updating** now covers everything that gets
   updated — herdr-jay, core on the PC and the Linux server, app, mods, Neovim — in one order. README names the Neovim version.
@@ -192,7 +248,7 @@ Needs: **mods** (copy both again), **app** (build v0.1.14), and once per machine
   zones. 修正：別人的 repo 還有幾種方法讓 nvim 的 git 跑程式，全部擋掉；夏令時間差一小時。
 - **Snap hook** (jay-nvim): the Claude Code hook that saves a file before a Bash command changes it is now part of
   jay-nvim (Lua, run with `nvim -l`, written to `~/.config/jay-nvim/snap_hook.lua` on every machine jay-nvim runs on;
-  macOS, Windows, Linux). Turn it on in Claude Code's settings: [docs/nvim.md §7](docs/nvim.md#7-snapshots-for-bash-edits-optional--bash-改檔的快照選用).
+  macOS, Windows, Linux). Turn it on in Claude Code's settings: [docs/nvim-jay.md §7](docs/nvim-jay.md#7-snapshots-for-bash-edits-optional--bash-改檔的快照選用).
   snap hook 進 jay-nvim，三個系統都能用。
 - docs/linux-remote.md: the server's herdr-core is now **built on the Windows PC** for Linux
   (`x86_64-unknown-linux-musl`) and copied over; the server needs no Rust or Zig and builds nothing for it. Only
@@ -211,7 +267,7 @@ Needs: **mods** (copy both again), **app** (build v0.1.14), and once per machine
 - New [docs/agent-install.md](docs/agent-install.md): runbook for a coding agent installing PC + server. jay-nvim also finds `~/.local/bin/herdr-core`.
 
 - nvim opens in the focused pane's folder (it could start in the space's folder).
-- Root handoff removed: a sudo'd agent beside the pane gets a one-time warning, no follow (docs/nvim.md 6).
+- Root handoff removed: a sudo'd agent beside the pane gets a one-time warning, no follow (docs/nvim-jay.md 6).
 - git safety: also the repo's own clean / smudge filters are off for nvim's git calls (not only fsmonitor);
   no git at all on Windows when only a project-folder git exists.
 - Re-sourcing keeps the tree and unsent comments; trust-file lines for home or above are ignored.
@@ -244,7 +300,7 @@ Needs: **mods**, and **core** (apply `patches/herdr-core/v0.1.19`).
   before checking it out. Built on `2e8ebb3` already? Nothing changes for you; rebuilding is optional.
 
 - Install guides for macOS and Windows ([docs/macos.md](docs/macos.md), [docs/windows.md](docs/windows.md)),
-  jay-nvim guide [docs/nvim.md](docs/nvim.md), this changelog, [docs/keys.md](docs/keys.md), versions table in README.
+  jay-nvim guide [docs/nvim-jay.md](docs/nvim-jay.md), this changelog, [docs/keys.md](docs/keys.md), versions table in README.
 - Core patch: skip Ghostty's xcframework, so core builds with only the macOS Command Line Tools (harmless on Windows).
 - jay-nvim:
   - split into `main.js` / `unix.js` / `windows.js`; every OS difference in the Lua's PLATFORM section.

@@ -16,44 +16,38 @@ puts the three buttons **left** of the tabs so ✕ stays in the corner; `jay.jso
 its window buttons on the left). Otherwise the two are the same.
 Windows 的關閉鈕在分頁列最右邊，所以 Windows 版把三顆按鈕放在分頁左邊。
 
-**What it needs**: the `kit` mod and **kit** itself (a separate tool, with `kit api`: see [kit.md](kit.md#needs--需要什麼);
+**What it needs**: the `kit` mod and **kit** itself (a separate tool, 0.3.0 or later: see [kit.md](kit.md#needs--需要什麼);
 at the company from the company's own Git server, never from GitHub), and the `gerrit` mod. Without a mod, its
 place in the layout stays empty or shows an error (without `kit`, every terminal's top bar does); everything else
 works. Without kit, keep Herdr's `main`.
-需要 `kit` mod 和 kit 本身（要有 `kit api` 的版本；公司從自己的 Git 伺服器拿，怎麼裝看 kit 的說明），以及 `gerrit` mod。沒有 kit 就繼續用 Herdr 的 main。
+需要 `kit` mod 和 kit 本身（kit 0.3.0 以上；公司從自己的 Git 伺服器拿，怎麼裝看 kit 的說明），以及 `gerrit` mod。沒有 kit 就繼續用 Herdr 的 main。
 
 ## Install / 安裝
 
-Order: kit (the tool, `kit api` prints `1`), the mods, then the layout.
-順序：先裝好 kit，再放 mod，最後放 layout 並選它。
+Order: kit (the tool, 0.3.0 or later: `kit api` prints `1.0`), the `kit` mod, then the layout.
+順序：先裝好 kit（0.3.0 以上），再放 kit mod，最後放 layout 並選它。
 
-**macOS** (links: `git pull` in herdr-jay updates them):
+1. **kit** itself: kit's own guide (at the company: from the company's own Git server).
+2. **The `kit` mod**: [kit.md → Install](kit.md#install--安裝) (macOS and Windows).
+3. **The layout file**. macOS (a link: `git pull` in herdr-jay updates it):
 
-```sh
-cd ~/.config/herdr-app/mods
-rm -rf kit-agents kit-pane            # an older kit's own mods, now part of kit
-[ -L kit ] || rm -rf kit              # an older kit's own copy of kit (a folder, not a link)
-ln -sfn ~/src/herdr-jay/herdr-app/mods/kit .
-ln -sfn ~/src/herdr-jay/herdr-app/layouts/jay.json ~/.config/herdr-app/layouts/jay.json
-herdr-app check ~/.config/herdr-app/mods/kit
-```
+   ```sh
+   ln -sfn ~/src/herdr-jay/herdr-app/layouts/jay.json ~/.config/herdr-app/layouts/jay.json
+   ```
 
-**Windows** (PowerShell):
+   Windows (PowerShell):
 
-```powershell
-$j = "$env:USERPROFILE\src\herdr-jay"
-$h = if ($env:HERDR_APP_HOME) { $env:HERDR_APP_HOME } elseif ($env:XDG_CONFIG_HOME) { "$env:XDG_CONFIG_HOME\herdr-app" } else { "$env:USERPROFILE\.config\herdr-app" }
-Remove-Item -Recurse -Force "$h\mods\kit", "$h\mods\kit-agents", "$h\mods\kit-pane" -ErrorAction SilentlyContinue
-Copy-Item -Recurse -Force "$j\herdr-app\mods\kit" "$h\mods\"
-Copy-Item -Force "$j\herdr-app\layouts\jay-win.json" "$h\layouts\jay-win.json"
-herdr-app check "$h\mods\kit" | Out-Host       # check passed
-Test-Path "$h\layouts\jay-win.json"            # must be True
-```
+   ```powershell
+   $j = "$env:USERPROFILE\src\herdr-jay"
+   $h = if ($env:HERDR_APP_HOME) { $env:HERDR_APP_HOME } elseif ($env:XDG_CONFIG_HOME) { "$env:XDG_CONFIG_HOME\herdr-app" } else { "$env:USERPROFILE\.config\herdr-app" }
+   Copy-Item -Force "$j\herdr-app\layouts\jay-win.json" "$h\layouts\jay-win.json"
+   Test-Path "$h\layouts\jay-win.json"            # must be True
+   ```
 
-The Gerrit panel, if you use it: [gerrit.md](gerrit.md). Then in Herdr's layout menu pick **jay** (macOS) or
-**jay-win** (Windows), and quit and reopen Herdr.
-然後在 Herdr 的 layout 選單選 jay（Mac）／jay-win（Windows），重開 Herdr。
+4. The Gerrit panel, if you use it: [gerrit.md](gerrit.md). Then in Herdr's layout menu pick **jay** (macOS) or
+   **jay-win** (Windows), and quit and reopen Herdr.
+   然後在 Herdr 的 layout 選單選 jay（Mac）／jay-win（Windows），重開 Herdr。
 
-**Updating**: macOS follows `git pull` through the links. Windows: run the Windows block again after a herdr-jay
-update whose CHANGELOG says **layout** or **mods**. The panel's 「放進上排」 only shows on a layout without kit's
-buttons; it never edits jay's.
+**Updating**: macOS follows `git pull` through the links. Windows: copy the layout file again (step 3) after a
+herdr-jay update whose CHANGELOG says **layout**, and the kit mod (kit.md) when it says **mods** or **kit**. The kit
+panel's 「放進上排」 / 「更新版面」 only show on a layout that still needs them; jay's never does.

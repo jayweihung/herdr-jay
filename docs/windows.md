@@ -338,25 +338,16 @@ Optional, for go-to-definition and errors (skip if Node or Python are not allowe
    herdr-app check "$h\mods\nvim-jay" | Out-Host
    herdr-app check "$h\mods\nvim-jay-agent-files" | Out-Host
    ```
-5. Optional, only if you use **kit** (installed per kit's own guide, a version with `kit api`: `kit api` prints `1`)
-   / 選用，有用 kit 才要：the `kit` mod (Kit buttons on every agent pane, the repository and Agents panels,
-   [kit.md](kit.md)). It needs a layout with kit in it: jay's layout, the next step.
-
-   ```powershell
-   $j = "$env:USERPROFILE\src\herdr-jay"
-   $h = if ($env:HERDR_APP_HOME) { $env:HERDR_APP_HOME } elseif ($env:XDG_CONFIG_HOME) { "$env:XDG_CONFIG_HOME\herdr-app" } else { "$env:USERPROFILE\.config\herdr-app" }
-   Remove-Item -Recurse -Force "$h\mods\kit", "$h\mods\kit-agents", "$h\mods\kit-pane" -ErrorAction SilentlyContinue   # an older kit's own copies
-   Copy-Item -Recurse -Force "$j\herdr-app\mods\kit" "$h\mods\"
-   herdr-app check "$h\mods\kit" | Out-Host       # check passed
-   ```
-
-   kit 的 mod：有裝 kit（有 `kit api` 的版本）才放；要配 jay 的 layout（下一步）。
+5. Optional, only if you use **kit** (kit 0.3.0 or later, installed per kit's own guide) / 選用，有用 kit 才要：the
+   `kit` mod (Kit buttons on every agent pane, the repository and Agents panels): the Windows block in
+   [kit.md → Install](kit.md#install--安裝). It needs a layout with kit in it: jay's layout, the next step.
+   kit 的 mod：有裝 kit 0.3.0 以上才放，照 kit.md 的 Windows 步驟；要配 jay 的 layout（下一步）。
 6. Optional / 選用: jay's layout (Agents / Kit / Gerrit buttons; needs kit and the kit mod above) → [layout.md](layout.md); the
    Gerrit panel → [gerrit.md](gerrit.md). 想要 jay 的畫面排法看 layout.md。
 
 ### 5a. Snap hook for Claude Code / snap hook
 
-Lets nvim-jay mark what a Bash command changed in a file **outside** a git repo ([nvim.md §7](nvim.md#7-snapshots-for-bash-edits-optional--bash-改檔的快照選用)).
+Lets nvim-jay mark what a Bash command changed in a file **outside** a git repo ([nvim-jay.md §7](nvim-jay.md#7-snapshots-for-bash-edits-optional--bash-改檔的快照選用)).
 Do it during §6 (step 3 sends you here): nvim-jay's first start (§6 step 2) writes `<home>\.config\nvim-jay\snap_hook.lua`. `<home>` is
 the **first** folder §6 step 3 prints (`vim.uv.os_homedir()`): usually `C:\Users\<you>`, but a company may set it to
 another drive (e.g. `H:\`); use that one below.
@@ -391,7 +382,7 @@ nvim-jay 開過一次後，在 Claude Code 設定加這個 hook（一次就好�
 
 ## 6. Test checklist / 實測清單
 
-About 15 minutes. What each step does is explained in [docs/nvim.md](nvim.md). If a step fails, take a photo of
+About 15 minutes. What each step does is explained in [docs/nvim-jay.md](nvim-jay.md). If a step fails, take a photo of
 the screen and of `:messages` in nvim, note the step number, go on.
 大約 15 分鐘；哪一步失敗就拍照（含 nvim 的 `:messages`），記下第幾步，繼續下一步。
 
@@ -424,7 +415,7 @@ the screen and of `:messages` in nvim, note the step number, go on.
 
 ## 7. When something goes wrong / 出問題時
 
-nvim itself (follow, LSP, comments): [docs/nvim.md → 8](nvim.md#8-when-something-goes-wrong--出問題時).
+nvim itself (follow, LSP, comments): [docs/nvim-jay.md → 8](nvim-jay.md#8-when-something-goes-wrong--出問題時).
 Here: install and Windows.
 
 | What you see / 看到什麼 | Why / 原因 | Fix / 怎麼修 |
@@ -461,12 +452,12 @@ What gets updated, and where / 要更新的東西：
 | herdr-core | PC (Windows) **and** the Linux server | build the README tag + patches for both, install / copy (8.2, 8.3) | the README table names a new core |
 | Herdr app | PC | build the README tag + patches (8.2) | the README table names a new app |
 | nvim-jay mods (`nvim-jay`, `nvim-jay-agent-files`) | PC (they open nvim on the server too) | copy the two folders (8.4) | the CHANGELOG says **mods** |
-| kit mod (optional) | PC (it asks kit on the server too) | copy `mods\kit` (8.4) | the CHANGELOG says **mods** |
-| kit itself (optional) | PC and every machine where agents run | kit's own guide (`kit self-update`) | the CHANGELOG or the kit panel says so |
+| kit mod (optional) | PC (it asks kit on the server too) | the Windows block in [kit.md → Install](kit.md#install--安裝) | the CHANGELOG says **mods** or **kit** |
+| kit itself (optional) | PC and every machine where agents run | `kit self-update`, then `kit sync` (kit's own guide) | the CHANGELOG says **kit**, or the kit panel says so |
 | Gerrit panel (optional) | PC | copy `mods\gerrit` (8.4) | the CHANGELOG says **gerrit** |
 | Neovim | PC (Windows build) and the server (**built on the server** from source) | new version (8.5) | only when the README says so (needs ≥ 0.11) |
 | pyright (optional) | the server | [linux-remote.md §3b](linux-remote.md#3b-python-go-to-definition-pyright-optional--python-跳定義選用) with the new version | only when the README says so |
-| Claude Code snap hook | wherever nvim-jay runs | nothing: nvim-jay rewrites it | — |
+| Claude Code snap hook | wherever nvim-jay runs | nothing: nvim-jay rewrites the hook file. Except when the CHANGELOG says **snap hook**: then change the line in `settings.json` as it says (on the PC and the server) | the CHANGELOG says **snap hook** |
 
 Windows follows **herdr-jay**, never upstream directly: build only the versions in the
 [README versions table](../README.md#versions--版本). How to know there is something new: the
@@ -554,29 +545,23 @@ PC 的 core 更新完，用同一份原始碼 build Linux 版，複製到 server
 
 ### 8.4 Mods
 
-Remove the old folders first so deleted files don't linger (`jay-nvim`, `jay-nvim-pick`: the names before 2026-11-12):
+Remove the old folders first so deleted files don't linger (the names before 2026-11-12 are removed once by the
+CHANGELOG's 2026-11-12 steps):
 
 ```powershell
 $j = "$env:USERPROFILE\src\herdr-jay"; $h = if ($env:HERDR_APP_HOME) { $env:HERDR_APP_HOME } elseif ($env:XDG_CONFIG_HOME) { "$env:XDG_CONFIG_HOME\herdr-app" } else { "$env:USERPROFILE\.config\herdr-app" }
-Remove-Item -Recurse -Force "$h\mods\nvim-jay", "$h\mods\nvim-jay-agent-files", "$h\mods\jay-nvim", "$h\mods\jay-nvim-pick" -ErrorAction SilentlyContinue
+Remove-Item -Recurse -Force "$h\mods\nvim-jay", "$h\mods\nvim-jay-agent-files" -ErrorAction SilentlyContinue
 Copy-Item -Recurse -Force "$j\herdr-app\mods\nvim-jay", "$j\herdr-app\mods\nvim-jay-agent-files" "$h\mods\"
 Set-Content -Encoding ascii "$h\mods\nvim-jay\.herdr-jay" (git -C $j describe --tags --always --match "for-herdr-v*-r*")
 herdr-app check "$h\mods\nvim-jay" | Out-Host
 herdr-app check "$h\mods\nvim-jay-agent-files" | Out-Host
 ```
 
-kit mod, only if you use kit ([kit.md](kit.md)); `kit-agents` and `kit-pane` are an older kit's, now part of `kit`:
-
-```powershell
-$j = "$env:USERPROFILE\src\herdr-jay"; $h = if ($env:HERDR_APP_HOME) { $env:HERDR_APP_HOME } elseif ($env:XDG_CONFIG_HOME) { "$env:XDG_CONFIG_HOME\herdr-app" } else { "$env:USERPROFILE\.config\herdr-app" }
-Remove-Item -Recurse -Force "$h\mods\kit", "$h\mods\kit-agents", "$h\mods\kit-pane" -ErrorAction SilentlyContinue
-Copy-Item -Recurse -Force "$j\herdr-app\mods\kit" "$h\mods\"
-herdr-app check "$h\mods\kit" | Out-Host
-```
+kit mod, only if you use kit: the Windows block in [kit.md → Install](kit.md#install--安裝).
 
 Gerrit panel, only if you installed it ([gerrit.md](gerrit.md)): the same for `mods\gerrit`, then quit and reopen Herdr
 (your `gerrit.json` is outside the folder and stays). jay's layout, if you use it: when the CHANGELOG says
-**layout**, run the Windows block in [layout.md](layout.md) again.
+**layout**, copy the layout file again ([layout.md](layout.md#install--安裝) step 3).
 
 Nothing to copy to the server: nvim-jay hands nvim its Lua each time it opens a pane there. Already open nvim panes
 keep the old version until you close and reopen them. If `check` fails, go back to your previous herdr-jay

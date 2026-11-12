@@ -3,8 +3,8 @@
 Neovim in a pane beside your coding agent, inside [Herdr](https://github.com/herdrdev/herdr-app).
 在 Herdr 裡，agent 旁邊開一格 Neovim。
 
-Features, keys, macOS vs Windows, security: **[docs/nvim.md](../../../docs/nvim.md)**
-(online: <https://github.com/jayweihung/herdr-jay/blob/main/docs/nvim.md>).
+Features, keys, macOS vs Windows, security: **[docs/nvim-jay.md](../../../docs/nvim-jay.md)**
+(online: <https://github.com/jayweihung/herdr-jay/blob/main/docs/nvim-jay.md>).
 Install: [macOS](../../../docs/macos.md) · [Windows](../../../docs/windows.md).
 
 Quick install: copy (or symlink) `nvim-jay` and `nvim-jay-agent-files` into your Herdr home's `mods/`

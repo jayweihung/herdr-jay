@@ -276,7 +276,7 @@ dependencies. npm 9 itself needs Node ≥ 14.17, so any server with npm 9 is new
 1. Close the nvim pane and open it again (`ctrl-shift-i`): nvim looks for pyright when it opens.
    nvim 那格關掉重開（`ctrl-shift-i`），它開的時候才會找 pyright。
 2. Open a `.py` file of the project. pyright starts by itself; nothing to type (no `:JayTrust`).
-   It runs the project's Python, so don't open repos you don't trust ([nvim.md §3](nvim.md#3-language-servers--語言伺服器)).
+   It runs the project's Python, so don't open repos you don't trust ([nvim-jay.md §3](nvim-jay.md#3-language-servers--語言伺服器)).
    打開 `.py` 檔 pyright 就會自己啟動，不用打任何指令。
 3. Then, on a name:
    - **right-click** → 跳到定義 / 看型別 / 找所有用到的地方 / 改名 (Shift + right-click is Herdr's own menu);
@@ -306,7 +306,7 @@ Agents on the Windows PC and on the server can sit in different tabs of the same
 
 nvim-jay follows the agent **in the same tab and on the same machine** as the nvim pane.
 
-**Snap hook** (so nvim marks Bash edits outside a repo, [nvim.md §7](nvim.md#7-snapshots-for-bash-edits-optional--bash-改檔的快照選用)):
+**Snap hook** (so nvim marks Bash edits outside a repo, [nvim-jay.md §7](nvim-jay.md#7-snapshots-for-bash-edits-optional--bash-改檔的快照選用)):
 after nvim-jay has opened on the server once (§5 step 2 writes `~/.config/nvim-jay/snap_hook.lua`), back up the
 server's `~/.claude/settings.json` and merge in (keep its other settings; if `"PreToolUse"` already exists, add this
 entry to its list; no settings.json yet → wrap the snippet in `{ }`):
@@ -323,6 +323,11 @@ server 上的 Claude Code 也要加一次 hook（nvim-jay 在 server 開過一�
 
 Restart the agent. **Check**: after it changes a file outside the repo with a shell command naming its full path,
 `~/.cache/nvim-jay/snap/` has a new folder.
+Added before 2026-11-12? Then the line says `~/.config/jay-nvim/snap_hook.lua` (nvim-jay was called jay-nvim): that
+old file is no longer updated, and its copies go where nvim-jay no longer looks. Change `/.config/jay-nvim/` to
+`/.config/nvim-jay/` in the line (after a new nvim-jay pane has opened there once), restart the agent; the old
+`~/.config/jay-nvim` and `~/.cache/jay-nvim` can be deleted ([CHANGELOG](../CHANGELOG.md) 2026-11-12).
+2026-11-12 以前加的 hook 寫的是 `~/.config/jay-nvim/…`：改成 `nvim-jay`，再重開 agent。
 
 ---
 

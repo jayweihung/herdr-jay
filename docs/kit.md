@@ -31,48 +31,54 @@ Windows（和 Linux）的分頁列自己畫最小化、最大化、關閉，所�
 
 ## Needs / 需要什麼
 
-- **kit with `kit api`** (the versions after 0.2.0) on this computer, and on every machine where agents run (Herdr's
-  remote spaces: the Kit button asks kit **there**). How to install or update kit: see kit's own guide (at the
-  company: from the company's own Git server, never from GitHub). Check: `kit api` prints `1`.
-  要有 kit，而且是有 `kit api` 的版本（0.2.0 之後）；每台跑 agent 的主機都要裝（遠端 space 的 Kit 按鈕會到那台去問 kit）。
-  kit 怎麼裝、怎麼更新，看 kit 的說明（公司從自己的 Git 伺服器拿，不從 GitHub）。檢查：`kit api` 印出 `1`。
-- kit on **PATH**: the mod runs `kit` (Windows: `kit.cmd`). Herdr opened from the Dock / Finder loads your login
-  shell's PATH, so kit's usual `~/.local/bin` is found. On another machine it also looks in `~/.local/bin`.
-  kit 要在 PATH 上（Windows 是 `kit.cmd`）。
+- **kit 0.3.0 or later** on this computer, and on every machine where agents run (Herdr's remote spaces: the Kit
+  button asks kit **there**). How to install or update kit: see kit's own guide (at the company: from the company's
+  own Git server, never from GitHub). Check: `kit api` prints `1.0` (any `1.x` works).
+  要 kit 0.3.0 以上；每台跑 agent 的主機都要裝（遠端 space 的 Kit 按鈕會到那台去問 kit）。
+  kit 怎麼裝、怎麼更新，看 kit 的說明（公司從自己的 Git 伺服器拿，不從 GitHub）。檢查：`kit api` 印出 `1.0`（`1.` 開頭都可以）。
+- Where the mod finds kit: `kit` on **PATH** (Windows: `kit.cmd`), else where kit installs itself:
+  `~/.local/bin/kit` (Windows: `%LOCALAPPDATA%\Programs\agentkit\kit.cmd`). Herdr opened from the Dock / Finder loads
+  your login shell's PATH; a Linux desktop launcher may not, and a Windows PATH may not have caught up yet: the
+  install folder covers both. On another machine: PATH, then `~/.local/bin/kit`, then `kit.cmd`.
+  mod 先找 PATH 上的 kit（Windows 是 `kit.cmd`），找不到再找 kit 自己的安裝資料夾。
 - **A layout with kit in it**: jay's layout ([layout.md](layout.md)) already has the Agents / Kit buttons, both panels
   and kit's header on every pane.
   畫面要有 kit 的位置：jay 的 layout 已經放好了。
 
-When Herdr starts, the mod first runs `kit api` (once, shared by every part, again every few minutes). Until it
-answers `1`, the panels and the Kit button say what is wrong instead of their content:
-Herdr 一開，mod 先跑 `kit api`。答案不是 `1` 時，面板和 Kit 按鈕會直接說哪裡不對：
+When Herdr starts, the mod first runs `kit api` (once, shared by every part, again every few minutes; the first time
+it waits up to 40 seconds, since a company's virus scanner may hold kit's first start). `kit api` prints
+`major.minor`: a new major means this mod can't read that kit, a new minor only adds things. Until it answers `1.x`,
+the panels, the tab-bar buttons (a red `!`) and the Kit button say what is wrong instead of their content:
+Herdr 一開，mod 先跑 `kit api`（第一次最多等 40 秒）。答案不是 `1.` 開頭時，面板、上排按鈕（紅色 `!`）和 Kit 按鈕會直接說哪裡不對：
 
 | 畫面上 | 原因 | 怎麼辦 |
 |---|---|---|
-| 找不到 kit（Kit 按鈕：沒有 kit） | PATH 上沒有 kit／kit.cmd（別台主機：連不到，或那台沒裝 kit） | 照 kit 的說明裝好 kit；裝好還是找不到就重開 Herdr（讓它重新讀 PATH） |
-| kit 太舊（Kit 按鈕：kit 太舊） | kit 沒有 `kit api`，或答的不是數字 | 在那台的終端機打 `kit self-update`，再按面板上的「⟳ 再檢查一次」 |
-| Herdr 的 kit mod 太舊（Kit 按鈕：mod 太舊） | kit 比這個 mod 新（`kit api` 大於 1） | 更新 herdr-jay，重新連結或複製 `mods/kit`（下面），重開 Herdr |
+| 找不到 kit（Kit 按鈕：沒有 kit） | PATH 上和 kit 的安裝資料夾裡都沒有 kit／kit.cmd（別台主機：連不到，或那台沒裝 kit） | 照 kit 的說明裝好 kit；裝好還是找不到就重開 Herdr（讓它重新讀 PATH） |
+| kit 沒回應（Kit 按鈕：kit 沒回應） | kit 開了，但沒在時間內回答（第一次開、防毒軟體在檢查、那台很忙） | 等一下再按「⟳ 再檢查一次」 |
+| kit 太舊（Kit 按鈕：kit 太舊） | kit 沒有 `kit api`、答的是 `0.x`，或答的不是版本號 | 在那台的終端機打 `kit self-update`（要 0.3.0 以上），再按面板上的「⟳ 再檢查一次」 |
+| Herdr 的 kit mod 太舊（Kit 按鈕：mod 太舊） | kit 比這個 mod 新（`kit api` 是 `2.x` 以上） | 更新 herdr-jay，重新連結或複製 `herdr-app/mods/kit`（下面），重開 Herdr |
 
 ## Install / 安裝
+
+The one place for these steps (the macOS, Windows and layout guides link here). Coming from an older kit that
+installed its own Herdr panel (`kit herdr-panel`): the CHANGELOG's 2026-11-12 entry first.
+這裡是裝 kit mod 唯一的地方（其他文件都連到這裡）。以前用 kit 自己裝過面板的，先照 CHANGELOG 2026-11-12 那條做。
 
 **macOS** (a link: `git pull` in herdr-jay updates it):
 
 ```sh
-cd ~/.config/herdr-app/mods
-rm -rf kit-agents kit-pane            # an older kit's own mods, now part of kit
-[ -L kit ] || rm -rf kit              # an older kit's own copy of kit (a folder, not a link)
-ln -sfn ~/src/herdr-jay/herdr-app/mods/kit .
-herdr-app check ~/.config/herdr-app/mods/kit
+ln -sfn ~/src/herdr-jay/herdr-app/mods/kit ~/.config/herdr-app/mods/kit
+herdr-app check ~/.config/herdr-app/mods/kit      # check passed
 ```
 
-**Windows** (PowerShell; copy again after each herdr-jay update whose CHANGELOG says **mods**):
+**Windows** (PowerShell; copy again after each herdr-jay update whose CHANGELOG says **mods** or **kit**):
 
 ```powershell
 $j = "$env:USERPROFILE\src\herdr-jay"
 $h = if ($env:HERDR_APP_HOME) { $env:HERDR_APP_HOME } elseif ($env:XDG_CONFIG_HOME) { "$env:XDG_CONFIG_HOME\herdr-app" } else { "$env:USERPROFILE\.config\herdr-app" }
-Remove-Item -Recurse -Force "$h\mods\kit", "$h\mods\kit-agents", "$h\mods\kit-pane" -ErrorAction SilentlyContinue
+Remove-Item -Recurse -Force "$h\mods\kit" -ErrorAction SilentlyContinue      # the old copy: no deleted file stays behind
 Copy-Item -Recurse -Force "$j\herdr-app\mods\kit" "$h\mods\"
-herdr-app check "$h\mods\kit" | Out-Host
+herdr-app check "$h\mods\kit" | Out-Host       # check passed
 ```
 
 `check passed` → then the layout ([layout.md](layout.md)), and quit and reopen Herdr.
@@ -81,17 +87,24 @@ herdr-app check "$h\mods\kit" | Out-Host
 **Your own layout instead of jay's**: the first time Herdr sees `mods/kit` it docks the repository panel on the right
 of the layout in use (not on Herdr's own `main`, `terminals`, `win98`: duplicate one first from the command palette).
 The panel then shows 「放進上排」: it puts the Agents and Kit buttons in the tab bar (after it on a Mac, before it where
-the bar draws the window buttons), both panels beside the work area, and kit's header on every pane. The nodes are
-`kit-agents-toggle`, `kit-toggle`, `kit-panel`, `kit-agents-panel`; to arrange them by hand, these are the blocks:
-自己的 layout：Herdr 第一次看到 `mods/kit` 會把倉庫面板放在右邊，面板上的「放進上排」會把按鈕和面板放好。要自己排的話，用這些區塊：
+the bar draws the window buttons), both panels beside the work area, and kit's header on every pane. A layout that
+already has the Kit button but still an older kit's pieces (`kit-agents`, `kit-pane`) or a pane header that isn't
+kit's gets 「更新版面」 instead: the same, done again. Neither ever shows on a layout that is already right (jay's).
+The nodes are `kit-agents-toggle`, `kit-toggle`, `kit-panel`, `kit-agents-panel`; to arrange them by hand, these are
+the blocks:
+自己的 layout：Herdr 第一次看到 `mods/kit` 會把倉庫面板放在右邊，面板上的「放進上排」會把按鈕和面板放好；版面裡還有舊 kit 的東西時，按「更新版面」。要自己排的話，用這些區塊：
 
 | What / 什麼 | Block content |
 |---|---|
-| repository panel / 倉庫 | `{ "mod": "kit" }` |
-| its tab-bar button / Kit 按鈕 | `{ "mod": "kit", "props": { "role": "toggle" } }` |
+| repository panel / 倉庫 | `{ "mod": "kit" }` (role `repo`) |
+| its tab-bar button / Kit 按鈕 | `{ "mod": "kit", "props": { "role": "repo-toggle" } }` |
 | Agents panel | `{ "mod": "kit", "props": { "role": "agents" } }` |
 | its tab-bar button / Agents 按鈕 | `{ "mod": "kit", "props": { "role": "agents-toggle" } }` |
 | every pane's header / 每個窗格的標題列 | in the tab block: `"pane": { "header": { "content": { "mod": "kit", "props": { "role": "header" } } } }` |
+
+The roles' older names still work (`panel` = `repo`, `toggle` = `repo-toggle`, `pane` = `agent`, the popup). A role
+the mod doesn't know shows a card 「不認得的 role」 naming it: check the spelling in the layout.
+舊的 role 名字還能用；打錯的 role 會顯示「不認得的 role」。
 
 **Remove / 拿掉**: pick a layout without kit (or take kit's blocks out of yours; the pane header back to
 `{ "mod": "pane" }`), then delete `mods/kit`.
@@ -338,7 +351,7 @@ Kit 按鈕右邊的 `[context 35% 139k/400k]` 是這個 agent 的 context 用了
 
 | 畫面上 | 等於打 |
 |---|---|
-| Herdr 一開（每台主機一次，之後每幾分鐘）、「⟳ 再檢查一次」 | `kit api`（要印出 `1`） |
+| Herdr 一開（每台主機一次，之後每幾分鐘）、「⟳ 再檢查一次」 | `kit api`（要印出 `1.x`） |
 | 視窗按鈕的清單 | `kit list --json --dir <資料夾> --pid <行程>` |
 | 加到整個帳號／從帳號拿掉 | `kit add` ／ `kit rm` |
 | 加到這個資料夾／從資料夾拿掉 | `kit add --dir <資料夾>` ／ `kit rm --dir <資料夾>` |
@@ -361,10 +374,12 @@ Kit 按鈕右邊的 `[context 35% 139k/400k]` 是這個 agent 的 context 用了
 
 ## For developers / 改 mod 的人
 
-`herdr-app/mods/kit/`: `main.js` picks the part by `props.role`; `panel.js` (panel, toggle, pane, editor),
-`agents.js` (agents, agents-toggle), `header.js` (header, context), `context.js` (the context window's logic, no
-Herdr in it), `common.js` (running kit, `kit api`, the shared state keys, the shared UI pieces). The mod reads
-`kit api` version 1 (`KIT_API` in `common.js`); when kit's JSON changes in a way this mod must follow, kit raises
-`kit api` and this mod follows it.
-Tests: `node tests/kit/run.js` (Node 18+; a fake Herdr and a fake kit; asks the real `kit api` when kit is on PATH,
-else says it skipped that one).
+`herdr-app/mods/kit/`: `main.js` picks the part by `props.role`; `repo.js` (repo, repo-toggle, editor), `agent.js`
+(agent), `agents.js` (agents, agents-toggle), `header.js` (header, context), `layout.js` (where kit sits in a
+layout: 放進上排 / 更新版面), `context.js` (what the context window and chip compute, from plain values), `common.js`
+(running kit, `kit api`, the shared state keys, the layout's node ids, one kit action at a time, the shared UI
+pieces). The mod reads `kit api` major 1, minor 0 or later (`KIT_API` in `common.js`): kit raises the minor when it
+adds something and the major when it changes what this mod reads; a new major needs a new mod.
+Tests: `node tests/kit/run.js` (Node 18+; a fake Herdr and a fake kit; at the end asks a real `kit api`: the kit in
+`KIT=<path>` if set, else the one on PATH, else says it skipped that one). `node tests/check-mods.js` runs
+`herdr-app check` on every mod and on the kit mod once per role (skipped without herdr-app on PATH).

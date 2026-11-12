@@ -83,9 +83,9 @@
               "id": "kit-agents-toggle",
               "type": "block",
               "content": {
-                "mod": "kit-agents",
+                "mod": "kit",
                 "props": {
-                  "role": "toggle"
+                  "role": "agents-toggle"
                 }
               },
               "size": {
@@ -147,7 +147,10 @@
                 "pane": {
                   "header": {
                     "content": {
-                      "mod": "kit-pane"
+                      "mod": "kit",
+                      "props": {
+                        "role": "header"
+                      }
                     },
                     "reveal": "always",
                     "height": 30,
@@ -244,7 +247,10 @@
                   "id": "kit-agents",
                   "type": "block",
                   "content": {
-                    "mod": "kit-agents"
+                    "mod": "kit",
+                    "props": {
+                      "role": "agents"
+                    }
                   }
                 }
               ],

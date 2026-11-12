@@ -2,14 +2,14 @@
 
 The `kit` mod (`herdr-app/mods/kit`) puts **kit** (a separate tool for the rules, skills and MCP your coding agents
 use) into Herdr: a Kit button on every agent's pane, a repository panel and an Agents panel. It runs the `kit`
-command and nothing else.
-`kit` mod 把 kit 放進 Herdr：每個 agent 視窗上的 Kit 按鈕、倉庫面板、Agents 面板。它只執行 `kit` 指令。
+command and nothing else; the agents' logos it draws itself.
+`kit` mod 把 kit 放進 Herdr：每個 agent 視窗上的 Kit 按鈕、倉庫面板、Agents 面板。它只執行 `kit` 指令；agent 的 logo 是它自己畫的。
 
 | 在哪裡 | 做什麼 |
 |---|---|
 | 每個 agent 視窗上面的 **Kit 按鈕** | 看這個 agent 在用哪些規則、skill、MCP，加上或拿掉 |
 | 上排的 **Kit** 按鈕 → 倉庫 | 看、改、新增規則、skill、MCP；改過的會在清單上面出現黃色的「有改動還沒送出」，按「送出」送出 |
-| 上排的 **Agents** 按鈕 → Agents | 管 kit 做好的 agent（用哪些東西），用 Claude、Codex 或 omp 開起來 |
+| 上排的 **Agents** 按鈕 → Agents | 管 kit 做好的 agent（用哪些東西、它的 logo），用 Claude、Codex 或 omp 開起來 |
 
 上排長這樣（Kit 和 Agents 各開各的面板，可以只開一個，也可以兩個一起開）：
 
@@ -332,13 +332,16 @@ Kit 按鈕右邊的 `[context 35% 139k/400k]` 是這個 agent 的 context 用了
 │ Agents                              ⟳ ✕ │
 │        2 個 agent · 用 kit run 開        │
 ├──────────────────────────────────────────┤
-│ hello                                  › │
-│   測試用 agent · my-team-source          │
-│   規則 1 · skill 1 · MCP 0               │
-│ ping   [改過]                          › │
-│   ...                                    │
+│ (熊)  hello                            › │
+│       測試用 agent · my-team-source      │
+│       規則 1 · skill 1 · MCP 0           │
+│ (狗)  ping   [改過]                    › │
+│       ...                                │
 └──────────────────────────────────────────┘
 ```
+
+每個 agent 都有一個 logo：可愛的動物機器人頭。10 種動物各有自己的原色和特徵（貓的虎斑、兔子折下來的耳朵、青蛙的皇冠、
+熊貓頭上的竹葉……），也可以換成 10 種顏色之一。agent 檔裡沒寫 `bot:` 的話，會照名字挑一隻（原色），每台電腦都一樣。
 
 點一個 agent：
 
@@ -346,6 +349,11 @@ Kit 按鈕右邊的 `[context 35% 139k/400k]` 是這個 agent 的 context 用了
 - 改完一樣回倉庫，按清單上面黃色那條的「送出」。
 - 選 Claude、Codex 或 omp，按「開啟」，會在新分頁用 `kit run <名字> --tool ...` 開起來。這只影響這次開的 agent，不改你的設定檔。
 - 「編輯檔案」可以直接改 agent 檔（提示、說明）。
+- 上面的大頭是即時畫的：點進來、換 logo 或點它一下，它會轉頭、眨眼打招呼。
+- 「換 logo…」：選動物、顏色（「原色」是那隻動物自己的顏色），或按「隨機」。選了就寫進 agent 檔開頭的
+  `bot: <動物>` 或 `bot: <動物> <顏色>`（例如 `bot: fox`、`bot: fox sky`），跟其他改動一樣按「送出」或 `kit push`。
+  「照名字」會拿掉這一行，換回照名字挑的。
+- logo 是 mod 用 Zdog 自己畫的，不用裝任何東西。清單上的小圖是 SVG，每種組合只寫一次，存在 `~/.config/herdr-app/data/kit/bots/`。
 
 ## 指令對照
 
@@ -378,7 +386,12 @@ Kit 按鈕右邊的 `[context 35% 139k/400k]` 是這個 agent 的 context 用了
 (agent), `agents.js` (agents, agents-toggle), `header.js` (header, context), `layout.js` (where kit sits in a
 layout: 放進上排 / 更新版面), `context.js` (what the context window and chip compute, from plain values), `common.js`
 (running kit, `kit api`, the shared state keys, the layout's node ids, one kit action at a time, the shared UI
-pieces, and `kitJson`: kit's JSON and its error codes). The mod reads only kit's JSON (kit list / agents / push
+pieces, and `kitJson`: kit's JSON and its error codes), `bots.js` (the agents' logos: an agent file's `bot:`, the
+still SVGs, the live `LiveBot` view), `bot-models.js` (the animals in Zdog, their colors), `bot-paint.js` (Zdog draws
+through a canvas; a mod has none, so this records what it drew and turns it into Herdr's own filled paths:
+`window.paint_path`), `zdog.js` (Zdog 1.1.3, MIT, bundled as one ES module). A change to how the logos look: raise
+`BOT_VERSION` in `bots.js`, so every computer writes the SVGs again. A render may take 50 ms and every polygon is an
+element, so a live logo is its own view (`cx.new`) and redraws alone. The mod reads only kit's JSON (kit list / agents / push
 `--json`, kit collect `--look`, kit context), never kit's words for people (it shows them as they are) and never git
 itself; the list it reads is kit's README, 「給程式讀的介面」. It reads `kit api` major 1, minor 0 or later
 (`KIT_API` in `common.js`): kit raises the minor when it adds something and the major when it changes what this mod

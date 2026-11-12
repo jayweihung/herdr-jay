@@ -9,6 +9,21 @@ says which) · **kit** = update kit itself on every machine where agents run (`k
 **snap hook** = a line in Claude Code's `settings.json` on each machine where you added the hook (the entry says
 which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/keys.md).
 
+## 2026-11-13, agent logos
+
+Needs: **mods** (the kit mod changed: Windows copies it again; macOS symlink: nothing, Herdr picks it up on its next
+start).
+要做：mods（kit mod 有改）。
+
+- **Every agent in the Agents panel has a logo**: a cute animal-robot head, drawn by the kit mod itself with
+  [Zdog](https://zzz.dog) (nothing to install). Ten animals, each in its own colors and with something only it has
+  (the cat's stripes, the rabbit's folded ear, the frog's crown, the panda's bamboo leaf ...), or in one of ten
+  colors. In the list a still SVG (kept in `~/.config/herdr-app/data/kit/bots/`); in an agent's page drawn live: it
+  turns its head and blinks. 「換 logo…」 picks the animal and color (or 隨機): it's written in the agent file as
+  `bot: <animal>` or `bot: <animal> <color>` and sent with kit push like the rest; without one, the agent's name
+  picks the animal, the same on every computer.
+  Agents 面板每個 agent 都有一個動物機器人 logo（Zdog 畫的，點進去會轉頭眨眼）；「換 logo…」選動物和顏色，寫進 agent 檔的 `bot:`。
+
 ## 2026-11-13, later (agent-files)
 
 Needs: **kit** (0.4.0 or later, for the new list; optional, see below), **mods** (a new folder, an old one removed;

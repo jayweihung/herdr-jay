@@ -11,12 +11,17 @@
 //   kit agents --json                              every agent and what it uses, what there is to add
 //   kit agent <name> add|rm rule|skill|mcp <item>  change an agent (its file in the source)
 //   kit run <name> --tool claude|codex|omp         open it (in a new tab)
+// Each agent has a logo (bots.js): a cute animal-robot head, `bot: <animal>` or `bot: <animal> <color>` in its file's
+// frontmatter (written here, not by kit; kit keeps the line and kit push sends it), or one its name picks. In the list
+// a still picture; in its page drawn live (it says hello).
 import { div } from "gpui-kit";
 import { v_flex, h_flex, Editor } from "gpui-base";
 import { theme, run, shared, setShared, readTextFile, writeTextFile, closeOverlay, openOverlay, props, spaces, focused, layout } from "herdr";
 import { AGENTS_DATA, AGENTS_LOAD, AGENTS_MSG, NODES, fs, stop, isWindows, shortDir, spin, waiting, find, textBlock, copyOnRight, btn,
   busyNow, dropStaleBusy, giveBusy, markRepoStale, kit, kitJson, localKit, apiState, apiKnown, checkApi, apiCard, messageBox, problemCard, newEditor,
   localGet, localSet, kitAction, loadNewest, loadingNow } from "./common.js";
+import { ANIMALS, COLORS } from "./bot-models.js";
+import { readBot, withBot, pickBot, botIcon, botProblem, LiveBot } from "./bots.js";
 
 const PANEL = NODES.agents;
 const SHORT = 120000, STALE = 50000;
@@ -24,10 +29,15 @@ const KINDS = [["rule", "rules", "規則"], ["skill", "skills", "Skills"], ["mcp
 const TOOL_NAMES = { claude: "Claude", codex: "Codex", omp: "omp" };
 const GIT = { new: "新的，還沒送出", changed: "改過" };
 
+// kit agents --json, and each agent's logo from its file (bot, null: none named there)
 async function loadAgents() {
   const { data, error } = kitJson(await kit(["agents", "--json"], 60000), "kit agents --json");
-  return error ? { error: error.message, code: error.code, at: Date.now() } : { ...data, at: Date.now() };
+  if (error) return { error: error.message, code: error.code, at: Date.now() };
+  const agents = await Promise.all((data.agents ?? []).map(async (a) => ({ ...a, bot: readBot(await readTextFile(a.path).catch(() => null)) })));
+  return { ...data, agents, at: Date.now() };
 }
+// its logo: the one its file names, else the one its name picks
+const botOf = (a) => a.bot ?? pickBot(a.name);
 
 export class Agents {
   constructor(role) { this.role = role; }
@@ -56,6 +66,8 @@ export class Agents {
     giveBusy(this.mine);
     this.code?.release();
     this.code = null;
+    this.live?.release();
+    this.live = null;
   }
 
   get data() { return shared(AGENTS_DATA) ?? null; }
@@ -65,7 +77,16 @@ export class Agents {
   refresh(cx) {
     if (apiState(null)?.ok === false) return checkApi(null, cx, true);   // ⟳ while kit can't be used: ask kit api again
     this.first = false;
-    cx.spawn(async (cx) => { await loadNewest(AGENTS_LOAD, AGENTS_DATA, loadAgents); cx.notify(); });
+    cx.spawn(async (cx) => { await loadNewest(AGENTS_LOAD, AGENTS_DATA, loadAgents); this.liveBot(); cx.notify(); });
+  }
+  // the agent page's logo, drawn live: one view, made on the first agent opened (cx: an event's), told when the agent
+  // shown or its logo changes
+  liveBot(cx = null) {
+    const a = this.open && (this.data?.agents ?? []).find((x) => x.name === this.open);
+    if (!a) return;
+    const p = { ...botOf(a), size: 84 };
+    if (this.live) this.live.set_props(p);
+    else if (cx) this.live = cx.new(LiveBot, p);
   }
   // an agent file changed: this list and the repository's (改過 / 送出) are out of date
   changed(cx) {
@@ -141,6 +162,29 @@ export class Agents {
     });
   }
 
+  // its logo: `bot:` in its file set to b (null: taken out, its name picks again); shown at once, saved only if
+  // nobody changed the file meanwhile
+  setBot(a, b, cx) {
+    if (this.savingBot) return;
+    this.savingBot = true;
+    cx.spawn(async (cx) => {
+      const fail = (text) => setShared(AGENTS_MSG, { ok: false, label: "Logo", text, at: Date.now() });
+      try {
+        const text = await readTextFile(a.path);
+        const next = text === null ? null : withBot(text, b);
+        if (next === null) fail(`${shortDir(a.path)} 讀不到，或開頭沒有 --- 區塊：logo 沒改`);
+        else if (next !== text) {
+          await writeTextFile(a.path, next, text);
+          const d = this.data;
+          if (d?.agents) setShared(AGENTS_DATA, { ...d, agents: d.agents.map((x) => (x.name === a.name ? { ...x, bot: b } : x)) });
+          this.liveBot();
+          this.changed(cx);
+        }
+      } catch (e) { fail(`logo 存不進去：${e?.message ?? e}`); }
+      finally { this.savingBot = false; cx.notify(); }
+    });
+  }
+
   // The tab-bar button: "Agents", with how many agent files are changed and not sent; click shows / hides the panel
   // (no panel in this layout: the Agents window).
   renderToggle() {
@@ -202,9 +246,10 @@ export class Agents {
     if (!ags.length) return body.child(div().p(8).text_color(t.muted).child("來源裡還沒有 agent。在終端機打  kit new agent <名字>  寫一個。"));
     for (const a of ags) {
       const counts = `規則 ${(a.rules ?? []).length} · skill ${(a.skills ?? []).length} · MCP ${(a.mcp ?? []).length}`;
-      body.child(h_flex().id(`ag-${a.name}`).gap(8).items_center().px(8).py(6).rounded(6).cursor_pointer()
+      body.child(h_flex().id(`ag-${a.name}`).gap(10).items_center().px(8).py(6).rounded(6).cursor_pointer()
         .hover((s) => s.bg(t.hover)).on_mouse_down("left", stop)
-        .on_click((_e, cx) => { this.open = a.name; this.adding = {}; setShared(AGENTS_MSG, null); cx.notify(); })
+        .on_click((_e, cx) => { this.open = a.name; this.adding = {}; this.picking = false; this.liveBot(cx); setShared(AGENTS_MSG, null); cx.notify(); })
+        .child(botIcon(t, botOf(a), 44))
         .child(v_flex().flex_1().min_w(0).gap(1)
           .child(h_flex().gap(5).items_center().min_w(0)
             .child(copyOnRight(div().min_w(0).truncate().font_semibold().child(a.name), a.name))
@@ -221,10 +266,17 @@ export class Agents {
   detail(t, z, d, a) {
     const busy = Boolean(this.busy), avail = d.available ?? {};
     const body = v_flex().flex_1().min_h(0).overflow_y_scrollbar().px(10).py(8).gap(8);
-    body.child(v_flex().gap(2)
-      .child(a.description ? textBlock(`kit-agents-desc-${a.name}`, a.description) : div().child("（還沒寫說明）"))
-      .when(Boolean(GIT[a.git]), (el) => el.child(div().text_size(z - 1.5).text_color(a.git === "new" ? t.done : t.working)
-        .child(`${GIT[a.git]}：改好按倉庫的「送出」，或在終端機打  kit push`))));
+    body.child(h_flex().gap(10).items_center()
+      .child(this.live ?? botIcon(t, botOf(a), 84))
+      .child(v_flex().flex_1().min_w(0).gap(2)
+        .child(a.description ? textBlock(`kit-agents-desc-${a.name}`, a.description) : div().child("（還沒寫說明）"))
+        .when(Boolean(GIT[a.git]), (el) => el.child(div().text_size(z - 1.5).text_color(a.git === "new" ? t.done : t.working)
+          .child(`${GIT[a.git]}：改好按倉庫的「送出」，或在終端機打  kit push`)))
+        .child(h_flex().id("bot-pick").gap(6).items_center().cursor_pointer().text_size(z - 1.5).text_color(t.muted)
+          .hover((s) => s.text_color(t.foreground)).on_mouse_down("left", stop)
+          .on_click((_e, cx) => { this.picking = !this.picking; cx.notify(); })
+          .child(div().w(12).child(this.picking ? "▾" : "▸")).child("換 logo…"))));
+    if (this.picking) body.child(this.botPicker(t, z, a));
     // open: pick the tool, then kit run in a new tab
     const tools = d.tools ?? ["claude"], cur = tools.includes(this.tool) ? this.tool : "claude";
     body.child(h_flex().gap(4).items_center().flex_wrap()
@@ -264,6 +316,44 @@ export class Agents {
       .child(div().font_semibold().child("Prompt"))
       .child(div().p(8).rounded(6).bg(t.raised).text_size(z - 1.5).text_color(t.muted).child(textBlock(`kit-agents-prompt-${a.name}`, a.prompt))));
     return body;
+  }
+
+  // the logo's animal (each in the colors chosen) and color (原色: the animal's own); each click saves it in the
+  // file; a random one, or back to the one its name picks
+  botPicker(t, z, a) {
+    const cur = botOf(a), off = Boolean(this.savingBot), problem = botProblem();
+    const set = (b) => (cx) => { if (!off) this.setBot(a, b, cx); };
+    const animal = ANIMALS.find((x) => x.key === cur.animal), color = COLORS.find((c) => c.key === cur.color);
+    const any = (list) => list[Math.floor(Math.random() * list.length)];
+    const random = () => {
+      let b;
+      do b = { animal: any(ANIMALS).key, color: Math.random() < 0.5 ? null : any(COLORS).key };
+      while (b.animal === cur.animal && b.color === cur.color);
+      return b;
+    };
+    const ring = (on) => (on ? t.foreground : t.surface);
+    return v_flex().gap(8).p(8).rounded(6).border_1().border_color(t.border).text_size(z - 1.5)
+      .child(h_flex().gap(6).items_center()
+        .child(div().flex_1().min_w(0).text_color(t.muted).child(`${animal?.name ?? cur.animal} · ${color?.name ?? "原色"}`
+          + (a.bot ? "（寫在檔案的 bot: 裡）" : "（照名字挑的：選一個就寫進檔案）")))
+        .child(btn(t, z, "bot-random", "隨機", { small: true, off, on: set(random()) }))
+        .when(Boolean(a.bot), (el) => el.child(btn(t, z, "bot-reset", "照名字", { small: true, off, on: set(null) }))))
+      .child(h_flex().gap(2).flex_wrap().children(ANIMALS.map((x) => {
+        const on = x.key === cur.animal;
+        return v_flex().id(`bot-animal-${x.key}`).items_center().px(3).py(2).rounded(8).cursor_pointer()
+          .bg(on ? t.selected : t.surface).border_1().border_color(on ? t.accent : t.surface).hover((s) => s.bg(t.hover))
+          .on_mouse_down("left", stop).on_click((_e, cx) => set({ animal: x.key, color: cur.color })(cx))
+          .child(botIcon(t, { animal: x.key, color: cur.color }, 40))
+          .child(div().text_size(z - 2.5).text_color(on ? t.foreground : t.muted).child(x.name));
+      })))
+      .child(h_flex().gap(6).flex_wrap().items_center()
+        .child(div().id("bot-color-own").h(22).px(8).rounded(11).flex().items_center().cursor_pointer().bg(animal?.main ?? t.raised)
+          .text_size(z - 2.5).text_color("#262a33").border_2().border_color(ring(!cur.color))
+          .on_mouse_down("left", stop).on_click((_e, cx) => set({ animal: cur.animal, color: null })(cx)).child("原色"))
+        .children(COLORS.map((c) => div().id(`bot-color-${c.key}`).size(22).rounded(11).cursor_pointer().bg(c.hex)
+          .border_2().border_color(ring(c.key === cur.color))
+          .on_mouse_down("left", stop).on_click((_e, cx) => set({ animal: cur.animal, color: c.key })(cx)))))
+      .when(Boolean(problem), (el) => el.child(div().text_color(t.blocked).child(textBlock("kit-bots-problem", problem ?? ""))));
   }
 
   editor(t, z) {

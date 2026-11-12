@@ -20,7 +20,7 @@ Object.defineProperty(globalThis, "localStorage", { configurable: true, value: {
 const H = (globalThis.__H = {
   store: {}, props: {}, layout: { id: "root", children: [] }, window: { platform: "macos" }, home: "/Users/amy",
   calls: [], answer: () => ({ code: 0, stdout: "", stderr: "" }), overlays: [], runs: [], notes: [], timeouts: [],
-  texts: [], strings: [], panes: [], spaces: [], tasks: [], clicks: {}, lastId: null,
+  texts: [], strings: [], panes: [], spaces: [], tasks: [], clicks: {}, lastId: null, files: null, writes: [],
 });
 const COLOR_METHODS = /(^bg$|color|^border_color$|^text_color$)/;
 const el = new Proxy(function () {}, {
@@ -57,7 +57,10 @@ globalThis.__stubs = {
   hc: async (args) => { H.calls.push({ argv: ["hc", ...args], on: null }); return { code: 0, stdout: JSON.stringify({ pid: 4242 }), stderr: "" }; },
   run: (name, args) => { H.runs.push([name, args]); }, layout: () => H.layout,
   shared: (k) => H.store[k], setShared: (k, v) => { H.store[k] = v; return null; }, props: () => H.props,
-  readTextFile: async () => "", writeTextFile: async () => {}, appHome: () => "/Users/amy/.config/herdr-app",
+  // files: path -> text a test gives (others read as ""); writes: every [path, text, expected] written
+  readTextFile: async (p) => (H.files && p in H.files ? H.files[p] : ""),
+  writeTextFile: async (p, text, expected) => { H.writes.push([p, text, expected]); if (H.files) H.files[p] = text; },
+  appHome: () => "/Users/amy/.config/herdr-app",
   openOverlay: (o) => { H.overlays.push(o); return "o1"; }, closeOverlay: () => {}, notify: (n) => H.notes.push(n),
   panes: () => H.panes, spaces: () => H.spaces, agents: () => [], focused: () => null,
 };
@@ -73,7 +76,7 @@ async function loadMod() {
     writeFileSync(join(dir, f), src);
   }
   const at = (f) => import(pathToFileURL(join(dir, f)).href);
-  const m = { main: await at("main.js"), common: await at("common.js"), layout: await at("layout.js"), context: await at("context.js") };
+  const m = { main: await at("main.js"), common: await at("common.js"), layout: await at("layout.js"), context: await at("context.js"), bots: await at("bots.js") };
   rmSync(dir, { recursive: true, force: true });
   return m;
 }
@@ -88,10 +91,11 @@ const cx = {
   notify() {}, stop_propagation() {}, write_to_clipboard() {},
   spawn: (f) => { const p = Promise.resolve().then(() => f(cx)); H.tasks.push(p); return p; },
   timer: { every: (_ms, f) => timers.push(f) },
+  new: (_Class, props) => ({ props, set_props(p) { this.props = p; }, release() { return true; } }),
 };
 async function settle() { for (let i = 0; i < 20 && H.tasks.length; i++) { const t = H.tasks.splice(0); await Promise.all(t); } }
 function fresh() {
-  H.store = {}; H.calls = []; H.runs = []; H.overlays = []; H.notes = []; H.texts = []; H.strings = []; H.tasks = []; H.timeouts = [];
+  H.store = {}; H.calls = []; H.runs = []; H.overlays = []; H.notes = []; H.texts = []; H.strings = []; H.tasks = []; H.timeouts = []; H.files = null; H.writes = [];
   H.props = {}; H.layout = { id: "root", children: [] }; H.window = { platform: "macos" }; H.panes = []; H.spaces = [];
   timers.length = 0; skew = 0;
 }
@@ -333,8 +337,8 @@ test("kit api: the first ask waits 40 s (a slow virus scan), later ones 15 s; an
   render(v);
 });
 test("no config.json, no kit herdr-panel: nothing in the mod reads one or tells you to run it", () => {
-  for (const f of readdirSync(MOD).filter((f) => !/^jsconfig\.json$|\.d\.ts$/.test(f))) {   // not what herdr-app check writes
-    const s = readFileSync(join(MOD, f), "utf8");
+  for (const e of readdirSync(MOD, { withFileTypes: true }).filter((e) => e.isFile() && !/^jsconfig\.json$|\.d\.ts$/.test(e.name))) {   // not what herdr-app check writes
+    const f = e.name, s = readFileSync(join(MOD, f), "utf8");
     assert.doesNotMatch(s, /herdr-panel/, f); assert.doesNotMatch(s, /config\.json/, f); assert.doesNotMatch(s, /\/usr\/bin\/env/, f);
   }
 });
@@ -386,6 +390,42 @@ test("agents: kit api first; ok: kit agents --json; too old: the card, no kit ag
   v = view(M, { role: "agents" }); await settle(); await tick();
   assert.equal(kitCalls("agents").length, 0);
   assert.match(render(v), /kit self-update/);
+});
+test("agent logo: bot: in the frontmatter is read, set after description, replaced, taken out; line ends and the prompt kept", (M) => {
+  const { readBot, withBot } = M.bots;
+  const file = "---\nname: hi\ndescription: 測試\nrules: [zh-tw]\n---\nbot: not this one\n";
+  assert.equal(readBot(file), null);
+  const set = withBot(file, { animal: "fox", color: "amber" });
+  assert.equal(set, "---\nname: hi\ndescription: 測試\nbot: fox amber\nrules: [zh-tw]\n---\nbot: not this one\n");
+  assert.deepEqual(readBot(set), { animal: "fox", color: "amber" });
+  assert.equal(withBot(set, { animal: "owl", color: "sky" }), set.replace("bot: fox amber", "bot: owl sky"));
+  assert.equal(withBot(set, null), file);
+  const crlf = file.replace(/\n/g, "\r\n");
+  assert.equal(withBot(crlf, { animal: "cat", color: "mint" }), set.replace("fox amber", "cat mint").replace(/\n/g, "\r\n"));
+  assert.equal(readBot("---\nname: x\nbot: fox purple\n---\n"), null, "a color there isn't");
+  assert.deepEqual(readBot("---\nname: x\nbot: fox\n---\n"), { animal: "fox", color: null }, "an animal alone: its own colors");
+  assert.equal(withBot(file, { animal: "fox", color: null }), set.replace("fox amber", "fox"));
+  assert.equal(withBot("no frontmatter\n", { animal: "cat", color: "mint" }), null);
+});
+test("agents: 換 logo — an animal / color click writes bot: into the agent's file (as it was read) and shows it at once; 照名字 takes it out", async (M) => {
+  fresh();
+  const path = "/s/agents/reviewer.md", orig = "---\nname: reviewer\ndescription: 看 PR\n---\nprompt\n";
+  H.files = { [path]: orig };
+  fakeKit({ agents: { kit: "0.3.0", tools: ["claude"], available: {}, agents: [{ name: "reviewer", description: "看 PR", rules: [], skills: [], mcp: [], source: "team", path }] } });
+  const v = view(M, { role: "agents" }); await settle(); await tick();
+  const agent = () => H.store["kit.agents.data.v1"].agents[0];
+  assert.equal(agent().bot, null, "no bot: line: its name picks one");
+  const mine = () => H.writes.filter((w) => w[0] === path);   // (the logos' SVGs are written too)
+  render(v); H.clicks["ag-reviewer"]({}, cx);
+  render(v); H.clicks["bot-pick"]({}, cx);
+  render(v); H.clicks["bot-animal-owl"]({}, cx); await settle();
+  assert.deepEqual(mine(), [[path, "---\nname: reviewer\ndescription: 看 PR\nbot: owl\n---\nprompt\n", orig]], "its name's pick is in its own colors: the animal alone");
+  assert.deepEqual(agent().bot, { animal: "owl", color: null });
+  render(v); H.clicks["bot-color-teal"]({}, cx); await settle();
+  assert.match(H.files[path], /^bot: owl teal$/m);
+  render(v); H.clicks["bot-reset"]({}, cx); await settle();
+  assert.equal(H.files[path], orig);
+  assert.equal(agent().bot, null);
 });
 test("agents toggle: shows / hides the Agents panel; without one in the layout, opens the Agents window (mod kit, role agents)", async (M) => {
   fresh(); fakeKit();

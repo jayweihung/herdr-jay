@@ -43,14 +43,14 @@ function P.abs_paths(cmd)
 end
 `;
 
-// The snap hook, a Claude Code PreToolUse hook (matcher Bash) run with `nvim -l`. jay-nvim writes it to
-// ~/.config/jay-nvim/snap_hook.lua on the machine where it runs, so it exists wherever jay-nvim does (macOS,
+// The snap hook, a Claude Code PreToolUse hook (matcher Bash) run with `nvim -l`. nvim-jay writes it to
+// ~/.config/nvim-jay/snap_hook.lua on the machine where it runs, so it exists wherever nvim-jay does (macOS,
 // Windows, a remote Linux server) and always matches this version's path rules (PATH_RULES, shared with nvim).
-const SNAP_HOOK = String.raw`-- jay-nvim's snap hook: written by jay-nvim (herdr-jay mods/jay-nvim/nvim.js); edits here are overwritten.
+const SNAP_HOOK = String.raw`-- nvim-jay's snap hook: written by nvim-jay (herdr-jay mods/nvim-jay/nvim.js); edits here are overwritten.
 -- Claude Code PreToolUse hook, matcher Bash, run as: nvim -l <this file>. Before a command runs, keep a copy of each
 -- file it names by absolute path (at most 20, each up to 1 MB; not /proc, /sys, /dev, never keys or credentials: ~/.ssh,
--- ~/.aws, ~/.gnupg, ~/.config/gh, ~/.kube, ~/.netrc, ~/.git-credentials, ~/.docker/config.json), so jay-nvim can mark
--- what the command changed in a file outside any git repo. Copies: ~/.cache/jay-nvim/snap/<tool_use_id>/<sha256 of the
+-- ~/.aws, ~/.gnupg, ~/.config/gh, ~/.kube, ~/.netrc, ~/.git-credentials, ~/.docker/config.json), so nvim-jay can mark
+-- what the command changed in a file outside any git repo. Copies: ~/.cache/nvim-jay/snap/<tool_use_id>/<sha256 of the
 -- path>, only you can read them, removed at the next Bash run after 10 minutes. Never blocks the command: prints
 -- nothing, always exits 0.
 pcall(function()
@@ -60,7 +60,7 @@ ${PATH_RULES}
   local id = call.tool_use_id
   if type(id) ~= "string" or not id:match("^[%w_]+$") then return end
   local input = type(call.tool_input) == "table" and call.tool_input or {}
-  local dir = P.home .. "/.cache/jay-nvim/snap"
+  local dir = P.home .. "/.cache/nvim-jay/snap"
   vim.fn.mkdir(dir, "p", 448) -- 0700
   local now = os.time()
   for name in vim.fs.dir(dir) do
@@ -111,13 +111,13 @@ os.exit(0)
 `;
 
 export const NVIM_INIT = String.raw`if vim.fn.has("nvim-0.11") == 0 then
-  vim.api.nvim_echo({ { "jay-nvim needs Neovim 0.11 or newer (this is " .. tostring(vim.version()) .. ")", "ErrorMsg" } }, true, {})
+  vim.api.nvim_echo({ { "nvim-jay needs Neovim 0.11 or newer (this is " .. tostring(vim.version()) .. ")", "ErrorMsg" } }, true, {})
   return
 end
 -- Run again (:source on Windows): stop the old timers, autocmds are in one cleared group.
 local PREV = _G.JN
 if PREV and PREV.timers then for _, t in ipairs(PREV.timers) do pcall(function() t:stop() t:close() end) end end
-local AUG = vim.api.nvim_create_augroup("jay-nvim", { clear = true })
+local AUG = vim.api.nvim_create_augroup("nvim-jay", { clear = true })
 local TIMERS = {}
 local function new_timer() local t = vim.uv.new_timer() TIMERS[#TIMERS + 1] = t return t end
 local JN = { timers = TIMERS }
@@ -325,7 +325,7 @@ local LOG_CATCHUP = 8 * 1024 * 1024 -- log bytes read in one tick; more piled up
 -- Keep the snap hook file current (see SNAP_HOOK at the top of nvim.js; enabling it is a Claude Code setting).
 -- libuv, not io.open: on Windows io.open goes through the ANSI code page (a non-English user name).
 pcall(function()
-  local f, want = HOME .. "/.config/jay-nvim/snap_hook.lua", [=====[
+  local f, want = HOME .. "/.config/nvim-jay/snap_hook.lua", [=====[
 ${SNAP_HOOK}]=====]
   local st = vim.uv.fs_stat(f)
   local fd = st and vim.uv.fs_open(f, "r", 0)
@@ -407,7 +407,7 @@ local NOGIT = { wait = function() return { code = 1, stdout = "", stderr = "git 
 -- Also off for every call: hooks (core.hooksPath to a folder that never has any; status may run post-index-change),
 -- index writes (GIT_OPTIONAL_LOCKS), and any fetch (a partial clone fetches a missing blob with a command the repo
 -- names: uploadpack, core.sshCommand): protocol.allow=never and GIT_NO_LAZY_FETCH.
-local NO_HOOKS = P.home .. "/.cache/jay-nvim/no-hooks"
+local NO_HOOKS = P.home .. "/.cache/nvim-jay/no-hooks"
 local GIT_ENV = { GIT_OPTIONAL_LOCKS = "0", GIT_NO_LAZY_FETCH = "1" }
 local function git(dir, args, opts)
   if not GIT or GIT_STUCK.on then return NOGIT end
@@ -417,7 +417,7 @@ local function git(dir, args, opts)
   local r = git_wait(vim.list_extend(vim.list_extend(base, guard), args), vim.tbl_extend("force", opts or {}, { env = GIT_ENV }))
   return { wait = function() return r end }
 end
-local api, ns, old = vim.api, vim.api.nvim_create_namespace("jay-nvim-changes"), {}
+local api, ns, old = vim.api, vim.api.nvim_create_namespace("nvim-jay-changes"), {}
 api.nvim_create_autocmd("FileChangedShell", { group = AUG, callback = function(a)
   if vim.v.fcs_reason == "deleted" then vim.v.fcs_choice = "ask" return end
   old[a.buf] = api.nvim_buf_get_lines(a.buf, 0, -1, false)
@@ -567,7 +567,7 @@ end
 -- ! puts the tree on the right; the file window keeps focus. Lexplore toggles: not again on a re-run.
 if not has_tree() then vim.cmd("Lexplore! | wincmd h") end
 -- The tree keeps at least 30 columns (25% of a 90-column pane was 16), also after the pane resizes
-local tree_ns = api.nvim_create_namespace("jay-nvim-tree")
+local tree_ns = api.nvim_create_namespace("nvim-jay-tree")
 api.nvim_set_hl(0, "QtTreeCur", { bg = "#1f4f7a", bold = true })
 local function tree_wins()
   return vim.tbl_filter(function(w) return vim.bo[api.nvim_win_get_buf(w)].filetype == "netrw" end,
@@ -719,12 +719,12 @@ local function runs_as_root(t)
   local pid = type(info) == "table" and not info.foreground and tonumber(info.pid)
   return pid and run_wait({ "pgrep", "-u", "0", "-P", tostring(pid) }, {}, 1000).code == 0 and pid or false
 end
--- Root view: a root-side hook (not part of jay-nvim) may keep copies of what a root agent read or changed, readable
+-- Root view: a root-side hook (not part of nvim-jay) may keep copies of what a root agent read or changed, readable
 -- by you: <dir>/index.jsonl, one JSON record per touch {t, tool, path, before, after, line, pid}, and <dir>/blobs/<sha256>
--- holding a file's content. <dir> is the one line of ~/.config/jay-nvim/root_view (none: a root agent can't be
+-- holding a file's content. <dir> is the one line of ~/.config/nvim-jay/root_view (none: a root agent can't be
 -- followed). nvim only reads them: a copy opens read-only, never as the real file.
 local function root_view_dir()
-  local f = io.open(HOME .. "/.config/jay-nvim/root_view", "r")
+  local f = io.open(HOME .. "/.config/nvim-jay/root_view", "r")
   local d = f and vim.trim(f:read("*l") or "")
   if f then f:close() end
   return d and d ~= "" and vim.uv.fs_access(d .. "/index.jsonl", "R") and d or nil
@@ -885,7 +885,7 @@ end
 -- What a file held before a Bash call ran, kept by the snap hook (SNAP_HOOK, a PreToolUse hook): the call reaches the log only
 -- after it ran (root's agent), so nvim cannot keep it itself. Diffed against for a file outside a repo (no HEAD), and
 -- for a file follow opens for the first time
-local SNAP = HOME .. "/.cache/jay-nvim/snap/"
+local SNAP = HOME .. "/.cache/nvim-jay/snap/"
 local function snap_of(ids, p)
   for _, id in ipairs(ids or {}) do -- parallel calls: the first one that named the file saw it before any of them ran
     local f = SNAP .. id .. "/" .. vim.fn.sha256(p)
@@ -1229,7 +1229,7 @@ local function follow_tick()
   end)
   vim.cmd("redrawstatus!")
 end
--- for tests (tests/jay-nvim): the follow pieces, run without Herdr
+-- for tests (tests/nvim-jay): the follow pieces, run without Herdr
 JN.test = { abs_paths = P.abs_paths, paths_in = paths_in, scan = scan, scan_root = scan_root, new_state = new_state,
   bash_changed = bash_changed, edit_line = edit_line, show_root = show_root, follow = follow, follow_tick = follow_tick,
   session = P.session, session_log = session_log, started = P.started, git = git, run_wait = run_wait,
@@ -1289,7 +1289,7 @@ function JN.pick()
 end
 
 -- Comments: a line span kept by an extmark, so it follows later edits.
-local cns = vim.api.nvim_create_namespace("jay-nvim-comments")
+local cns = vim.api.nvim_create_namespace("nvim-jay-comments")
 local notes = PREV and PREV.notes_list and PREV.notes_list() or {} -- a re-run keeps unsent comments
 function JN.notes_list() return notes end
 
@@ -1389,7 +1389,7 @@ end
 
 local map = vim.keymap.set
 map("n", "<leader>o", JN.pick, { desc = "agent 讀過／改過的檔" })
--- jay-nvim-pick presses <M-o> (alt+o) in whatever mode nvim is in; <D-o> is cmd-o typed in nvim on a Mac.
+-- nvim-jay-agent-files presses <M-o> (alt+o) in whatever mode nvim is in; <D-o> is cmd-o typed in nvim on a Mac.
 -- It sends no Esc first: in a legacy-keyboard terminal Esc + Alt-o can read as <M-Esc> then "o" (a new line).
 for _, k in ipairs({ "<D-o>", "<M-o>" }) do
   map("n", k, JN.pick, { desc = "agent 讀過／改過的檔" })

@@ -15,7 +15,7 @@ Not yet run on a real company server: note what differs and bring it to jay.
 | [3a](#3a-server-cant-download--server-不能上網) | Server can't download: Neovim from a pack / server 不能上網 |
 | [3b](#3b-python-go-to-definition-pyright-optional--python-跳定義選用) | Python go-to-definition: pyright (optional) / Python 跳定義 |
 | [4](#4-agents-on-the-server--server-上的-agent) | Agents on the server |
-| [5](#5-try-jay-nvim-there--試-jay-nvim) | Try jay-nvim there |
+| [5](#5-try-nvim-jay-there--試-nvim-jay) | Try nvim-jay there |
 | [6](#6-when-something-goes-wrong--出問題時) | When something goes wrong / 出問題時 |
 
 ---
@@ -84,9 +84,9 @@ ssh <user>@<server> 'cd ~/.local/bin && chmod 755 herdr-core.new && ./herdr-core
 No `~/.local/bin` on the server yet: `ssh <user>@<server> mkdir -p .local/bin` first.
 
 **Where it goes on the server**: `~/.local/bin/herdr-core` (mode 755), plus `~/.local/bin/hc` as a link to it if
-there is no `hc` yet. That folder matters: Herdr's "Add machine" and jay-nvim look for the core there. After
+there is no `hc` yet. That folder matters: Herdr's "Add machine" and nvim-jay look for the core there. After
 replacing it, `~/.local/bin/herdr-core server restart` (terminals there keep running).
-放在 `~/.local/bin/herdr-core`（再加一個 `hc` 連結）；Herdr 和 jay-nvim 都在那裡找。
+放在 `~/.local/bin/herdr-core`（再加一個 `hc` 連結）；Herdr 和 nvim-jay 都在那裡找。
 
 **Check** on the server: `~/.local/bin/herdr-core --version` prints the same version as `hc --version` on the PC.
 There must be no other `herdr-core` on the server's PATH (`command -v herdr-core` prints nothing or your
@@ -115,7 +115,7 @@ If it needs a password, a new host key or something installed, it tells you what
 
 ## 3. Neovim and git on the server / server 上的 Neovim 和 git
 
-jay-nvim on a server pane looks for nvim in `~/.local/bin`, `/usr/local/bin`, `/usr/bin` and needs **0.11 or newer**.
+nvim-jay on a server pane looks for nvim in `~/.local/bin`, `/usr/local/bin`, `/usr/bin` and needs **0.11 or newer**.
 Ubuntu's apt Neovim is older (22.04: 0.6, 24.04: 0.9).
 
 **Build Neovim on the server itself, not on the PC.** Unlike herdr-core (step 2: one static program, cross-built on
@@ -160,7 +160,7 @@ files under `test/` (sample data for its tests, not programs).
 Updating to a newer Neovim: only when the README says so; the same block with the new tag (`rm -rf build .deps` first).
 
 Optional LSP for Python: the **pip** packages are prebuilt (`ruff` is a compiled program; `pyright` downloads Node.js),
-so they are **not** for a source-only server. Without them jay-nvim works the same, only without go-to-definition,
+so they are **not** for a source-only server. Without them nvim-jay works the same, only without go-to-definition,
 hover types and lint errors. For go-to-definition see [3b](#3b-python-go-to-definition-pyright-optional--python-跳定義選用) (npm's pyright on the server's own Node).
 Python 的 LSP 用 pip 裝的是現成程式，只能用原始碼的 server 不要裝；要跳定義看 3b。
 
@@ -221,7 +221,7 @@ git -c core.fileMode=true -c core.symlinks=true reset -q --hard
 Then `mkdir -p ~/.local/bin` and step 3's block from `cd ~/hp/neovim` on (skip its first three lines). The `core.autocrlf=false` keeps the
 Linux line endings Neovim's build scripts need.
 Checked: Neovim v0.12.6 builds with the network blocked from these 14 files (on macOS). Done for real at the company:
-source fetched on an office Linux server, built on the RD server, jay-nvim follows there. The PowerShell part has not
+source fetched on an office Linux server, built on the RD server, nvim-jay follows there. The PowerShell part has not
 run on Windows yet.
 
 ---
@@ -233,7 +233,7 @@ Right-click → 跳到定義 / 看型別, `gd`, `K` need **pyright** (ruff only 
 
 **Ask first**: npm's `pyright` is Microsoft's packed **JavaScript** (no compiled program inside; it runs on the
 server's own Node). It is not plain source: pyright's own build needs `rspack`, which only comes prebuilt, so it
-can't be built from source alone. If the company only allows source, skip this step (jay-nvim works without it).
+can't be built from source alone. If the company only allows source, skip this step (nvim-jay works without it).
 先問公司：npm 的 pyright 是微軟打包好的 JavaScript（裡面沒有編好的執行檔，用 server 自己的 Node 跑），不是原始碼；
 pyright 本身沒辦法只用原始碼 build。公司不准的話就跳過這步。
 
@@ -287,7 +287,7 @@ dependencies. npm 9 itself needs Node ≥ 14.17, so any server with npm 9 is new
 
 | What you see / 看到什麼 | Why / 原因 | Fix / 怎麼修 |
 |---|---|---|
-| Right-click shows Herdr's menu (or nvim's English one), not the Chinese one | this nvim wasn't opened by jay-nvim, or the pane didn't get the `herdr.right-click=program` label | open nvim with `ctrl-shift-i`, not by typing `nvim`; `:lua print(JN ~= nil, vim.env.HC_TERMINAL_ID)` must print `true` and an id |
+| Right-click shows Herdr's menu (or nvim's English one), not the Chinese one | this nvim wasn't opened by nvim-jay, or the pane didn't get the `herdr.right-click=program` label | open nvim with `ctrl-shift-i`, not by typing `nvim`; `:lua print(JN ~= nil, vim.env.HC_TERMINAL_ID)` must print `true` and an id |
 | The menu is there but 跳到定義 / 看型別 are grey | pyright not running here | no pyright (Check above); or the file was open before pyright was installed (`:e`) |
 | `:checkhealth vim.lsp`: pyright exits, "env: node: No such file" | `node` not on the pane's PATH | ask IT where node is; it must be in `/usr/bin`, `/usr/local/bin` or `~/.local/bin` |
 | `npm install` tries the network with `--offline` | an old npm, or the `.tgz` name differs | use the full path to the `.tgz`; `npm --version` ≥ 7 |
@@ -304,29 +304,29 @@ yourself on a source-only server; its login is per machine). No agent there → 
 Agents on the Windows PC and on the server can sit in different tabs of the same Herdr window.
 要改 server 上的檔，agent 就在 server 上跑（在那台機器的分頁裡開）。
 
-jay-nvim follows the agent **in the same tab and on the same machine** as the nvim pane.
+nvim-jay follows the agent **in the same tab and on the same machine** as the nvim pane.
 
 **Snap hook** (so nvim marks Bash edits outside a repo, [nvim.md §7](nvim.md#7-snapshots-for-bash-edits-optional--bash-改檔的快照選用)):
-after jay-nvim has opened on the server once (§5 step 2 writes `~/.config/jay-nvim/snap_hook.lua`), back up the
+after nvim-jay has opened on the server once (§5 step 2 writes `~/.config/nvim-jay/snap_hook.lua`), back up the
 server's `~/.claude/settings.json` and merge in (keep its other settings; if `"PreToolUse"` already exists, add this
 entry to its list; no settings.json yet → wrap the snippet in `{ }`):
-server 上的 Claude Code 也要加一次 hook（jay-nvim 在 server 開過一次之後）：
+server 上的 Claude Code 也要加一次 hook（nvim-jay 在 server 開過一次之後）：
 
 ```json
 "hooks": {
   "PreToolUse": [
     { "matcher": "Bash", "hooks": [{ "type": "command", "timeout": 15,
-      "command": "~/.local/bin/nvim -l ~/.config/jay-nvim/snap_hook.lua" }] }
+      "command": "~/.local/bin/nvim -l ~/.config/nvim-jay/snap_hook.lua" }] }
   ]
 }
 ```
 
 Restart the agent. **Check**: after it changes a file outside the repo with a shell command naming its full path,
-`~/.cache/jay-nvim/snap/` has a new folder.
+`~/.cache/nvim-jay/snap/` has a new folder.
 
 ---
 
-## 5. Try jay-nvim there / 試 jay-nvim
+## 5. Try nvim-jay there / 試 nvim-jay
 
 1. Open a tab on the server machine in a project folder, start Claude Code there.
 2. With its pane focused: `ctrl-shift-i` (Windows) / `cmd-e` (Mac) → nvim opens **on the server**, beside it.
@@ -352,7 +352,7 @@ Bring jay the results like the Windows checklist (photos, `:messages`, and `hc m
 | Neovim build: a library download fails (`cmake.deps`, SSL / "unsupported protocol") | cmake without SSL, or a host blocked | ask IT for a cmake with SSL, or use [3a](#3a-server-cant-download--server-不能上網) (nothing downloaded) |
 | Neovim build: `cmake: command not found` / "CMake 3.16 or higher is required" | no or old cmake | ask IT for cmake ≥ 3.16; then `rm -rf build .deps` (pack: keep `.deps/build/downloads`, delete the rest of `.deps`) and build again |
 | Neovim build from the pack tries to download | a library file is missing or has another name | on the PC the count must be 14 (step 3a); copy the pack again |
-| "jay-nvim needs Neovim 0.11 or newer" | apt's old nvim found first | step 3 (`~/.local/bin` is searched first) |
+| "nvim-jay needs Neovim 0.11 or newer" | apt's old nvim found first | step 3 (`~/.local/bin` is searched first) |
 | "找不到 hc" in nvim on the server | core not in `~/.local/bin` | step 2 |
 | nvim never follows the agent | the agent runs on the PC, not on the server (or in another tab) | step 4 |
 | Machine shows `unreachable` (or `connecting`) after a while | ssh dropped (VPN, sleep) | Herdr reconnects; terminals on the server keep running |

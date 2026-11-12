@@ -5,7 +5,7 @@ and pops a notification when a change turns to you or someone replies. Same on W
 Herdr 右邊的 Gerrit 面板：跟 Gerrit 網頁首頁一樣的分區，點一下看細節，輪到你或有人回覆時跳通知。
 
 Status: list, search, details, notifications, reply / vote / submit, reviewers / CC, rebase / abandon / WIP, comparing patch sets, topics, Jenkins builds, comment-thread replies, diffs with line comments. Next: opening a commented line in
-jay-nvim. Tested with a login against a local Gerrit 3.14.5 (every
+nvim-jay. Tested with a login against a local Gerrit 3.14.5 (every
 button, notifications, whole-topic submit, submit requirements) and against a fake Jenkins; `node tests/gerrit/run.js`
 checks the same without either. **It has not run on a real company Gerrit or Jenkins yet**: note what differs and
 bring it to jay.

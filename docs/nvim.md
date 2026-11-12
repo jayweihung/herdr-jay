@@ -1,9 +1,9 @@
-# jay-nvim: Neovim beside your agent / agent 旁邊的 Neovim
+# nvim-jay: Neovim beside your agent / agent 旁邊的 Neovim
 
 What it does and how to use it, the same on every OS. Installing: [macOS](macos.md) · [Windows](windows.md).
 功能和用法（各系統一樣）。安裝請看 [macOS](macos.md)、[Windows](windows.md)。
 
-Two Herdr mods: `jay-nvim` opens the pane, `jay-nvim-pick` jumps to it and lists the agent's files.
+Two Herdr mods: `nvim-jay` opens the pane, `nvim-jay-agent-files` jumps to it and lists the agent's files.
 Needs **Neovim 0.11 or newer**, `git`, and `hc` on the machine where the pane opens.
 
 ## Contents / 目錄
@@ -46,7 +46,7 @@ Needs **Neovim 0.11 or newer**, `git`, and `hc` on the machine where the pane op
 - **Files the agent touched**: a list of files the agent read or edited, newest first, plus files git shows as changed.
 - **Language servers**: go to definition, hover, errors — see [3](#3-language-servers--語言伺服器).
 - **Mouse**: rest the pointer on a name for its type, on an error to read it; right-click menu in Chinese. Herdr gives
-  right-clicks to the program only when the pane is labelled `herdr.right-click=program`; jay-nvim sets that label.
+  right-clicks to the program only when the pane is labelled `herdr.right-click=program`; nvim-jay sets that label.
   Shift + right-click still opens Herdr's menu.
 - **Two panes on one file**: a heads-up the first time you change a file another nvim also has open.
 - **Bash edits**: when a shell command of the agent ends (also with an error, also one run in the background), nvim
@@ -62,7 +62,7 @@ Herdr keys (in `keys.json`, `global`) — differ per OS because Windows has no c
 
 | | macOS | Windows |
 |---|---|---|
-| Open jay-nvim beside the focused pane | `cmd-e` | `ctrl-shift-i` |
+| Open nvim-jay beside the focused pane | `cmd-e` | `ctrl-shift-i` |
 | Jump to it and list the agent's files | `cmd-o` | `ctrl-shift-j` |
 
 Inside nvim (`space` is the leader), the same everywhere:
@@ -115,14 +115,14 @@ One `nvim.js` for both; all OS differences sit in its PLATFORM section ([5](#5-h
 |---|---|---|
 | Herdr home | `~/.config/herdr-app` | `%USERPROFILE%\.config\herdr-app` |
 | Keys | `cmd-e`, `cmd-o` | `ctrl-shift-i`, `ctrl-shift-j` |
-| Launcher | `unix.js`: `/bin/sh` finds nvim in `~/.local/bin`, `/opt/homebrew/bin`, `/usr/local/bin`, `/usr/bin`; the Lua goes on the command line | `windows.js`: writes `mods\jay-nvim\.init.lua` (a command line holds at most 32767 characters), nvim `:source`s it; nvim from PATH |
+| Launcher | `unix.js`: `/bin/sh` finds nvim in `~/.local/bin`, `/opt/homebrew/bin`, `/usr/local/bin`, `/usr/bin`; the Lua goes on the command line | `windows.js`: writes `mods\nvim-jay\.init.lua` (a command line holds at most 32767 characters), nvim `:source`s it; nvim from PATH |
 | Finding the agent's session | the pane's process (`~/.claude/sessions/<pid>.json`, Claude Code up to about 2.1.309), or a process under it; then Claude Code's `~/.claude/daemon/roster.json` (background / remote-control sessions); then the agent's folder (below) | a process under the pane's (agents run inside pwsh); then the roster; then the live session in `sessions/*.json` whose folder is the pane's; then the agent's folder (below) |
 | Paths | as they are | one spelling (`C:/x/y`), case ignored when comparing |
 | Paths in Bash commands | `/abs/path`, `~/x`, `$HOME/x` | `C:\x`, `C:/x`, `/c/x`, `~\x`, `$HOME\x`, `$env:USERPROFILE\x` |
 | Agent running as root | follows root's copies if a root view is set up, else a one-line note ([6](#6-agent-running-as-root--agent-用-root-跑)) | — |
 | Pick key nvim receives | `<M-o>` (alt+o) | `<M-o>` (alt+o) |
 
-Newer Claude Code (2.1.322 on macOS) no longer writes `~/.claude/sessions/<pid>.json`, so on every system jay-nvim
+Newer Claude Code (2.1.322 on macOS) no longer writes `~/.claude/sessions/<pid>.json`, so on every system nvim-jay
 falls back to the agent's folder: Claude Code keeps its logs in `~/.claude/projects/<folder>/`, the folder being the
 agent's cwd (the agent process's own, else the pane's) with every character but A-Z, a-z, 0-9 turned into `-`
 (`/Users/me/my.app` → `-Users-me-my-app`, `C:\Users\x` → `C--Users-x`). It follows the newest `<id>.jsonl` there that changed
@@ -138,24 +138,24 @@ agent's.
 ## 5. How it is built / 程式結構
 
 ```
-herdr-app/mods/jay-nvim/
+herdr-app/mods/nvim-jay/
   main.js     picks the launcher: Windows + a pane on this computer → windows.js, otherwise unix.js
   unix.js     macOS / Linux / other machines: /bin/sh finds nvim
   windows.js  Windows: .init.lua + :source
-  mark.js     the argv item both launchers pass, so jay-nvim-pick finds the pane
+  mark.js     the argv item both launchers pass, so nvim-jay-agent-files finds the pane
   nvim.js     the Lua (one string, NVIM_INIT), run by nvim on the machine where the pane opens
                 PLATFORM  every OS difference, in one table P (nothing below tests the OS)
                 then: reload + diff, swap-file heads-up, tree, agent + follow, comments, keys, LSP, mouse
-herdr-app/mods/jay-nvim-pick/
-  main.js     finds the pane by the argv item `let g:jay_nvim = 1`, focuses it, sends alt+o (nvim: <M-o>)
+herdr-app/mods/nvim-jay-agent-files/
+  main.js     finds the pane by the argv item `let g:nvim_jay = 1`, focuses it, sends alt+o (nvim: <M-o>)
 ```
 
 `nvim.js` stays a single file: the unix launcher puts the whole Lua on one command line, and a root-side copy can be
 pinned by its sha256.
 
-**Tests** (after changing the follow code): `node tests/jay-nvim/run.js` in herdr-jay (Node 18+, Neovim, git;
+**Tests** (after changing the follow code): `node tests/nvim-jay/run.js` in herdr-jay (Node 18+, Neovim, git;
 macOS / Linux). It runs the Lua in a headless nvim with a temp HOME and a fake `hc`, so nothing of yours is touched.
-改了之後跑 `node tests/jay-nvim/run.js`，全部 ok 才算過。
+改了之後跑 `node tests/nvim-jay/run.js`，全部 ok 才算過。
 
 Programs nvim waits for get a time limit, so a stuck one can't freeze it: `hc` 2 s, `git` 5 s (a git that can't
 read the repo's filters in time isn't run at all), `pgrep` 1 s. At the limit the program is killed together with
@@ -167,55 +167,55 @@ being opened, the key pressed).
 
 ## 6. Agent running as root / agent 用 root 跑
 
-When the agent beside the pane runs under `sudo`, its session log is root's: jay-nvim can't read it, says so once,
+When the agent beside the pane runs under `sudo`, its session log is root's: nvim-jay can't read it, says so once,
 and doesn't follow that agent (everything else works). There is no root mode on purpose: an editor running as root
 that any program running as you can type into (`hc keys`) would be a root door.
-旁邊的 agent 用 sudo 跑時，jay-nvim 讀不到它的紀錄，只提示一次、不跟著開檔；故意不提供 root 模式。
+旁邊的 agent 用 sudo 跑時，nvim-jay 讀不到它的紀錄，只提示一次、不跟著開檔；故意不提供 root 模式。
 
 **Root view (optional).** If something on the machine, run by root, keeps copies of what the root agent read or
-changed where you can read them, jay-nvim follows those instead. jay-nvim itself never installs or runs that part;
+changed where you can read them, nvim-jay follows those instead. nvim-jay itself never installs or runs that part;
 it only reads:
 
 - `<dir>/index.jsonl`: one JSON line per touch: `{"t": <unix time>, "tool": "Read"|"Edit"|"Write"|"Bash"|…,
   "path": "/abs/path", "before": "<sha256>"|null, "after": "<sha256>", "line": <n>|null, "pid": <n>,
-  "session_id": "<id>"|null}`. `pid` is the root Claude Code process itself: jay-nvim follows a record only if that
+  "session_id": "<id>"|null}`. `pid` is the root Claude Code process itself: nvim-jay follows a record only if that
   process runs under the pane of the agent beside it (anywhere below the pane's process: shell → sudo → claude), so
   root agents in other tabs don't move it. A record without `pid` (an older root side) counts only while no record in
   the index has one, and only if its `t` is after nvim started following (never an old touch on open).
-  `session_id` is not used by jay-nvim;
+  `session_id` is not used by nvim-jay;
 - `<dir>/blobs/<sha256>`: the file's content at that moment (up to 4 MB is shown).
 
-Put `<dir>` as the only line of `~/.config/jay-nvim/root_view` (as you, on that machine). Then the file shows as
+Put `<dir>` as the only line of `~/.config/nvim-jay/root_view` (as you, on that machine). Then the file shows as
 `root:/abs/path` in a read-only buffer (colors, but no language server or plugins), the change marked against
 `before`, the title bar saying 「root 的檔，複本，唯讀」, the cursor on `line`. The tree moves to the folder only if
 you can open it. Without the file, a root agent gets the one-line note 「root 的 agent：跟不到（沒有 root_view）」.
-有 root 端的複本（root 讀過／改過的檔複製一份給你看）時，在 `~/.config/jay-nvim/root_view` 寫它的資料夾，jay-nvim
+有 root 端的複本（root 讀過／改過的檔複製一份給你看）時，在 `~/.config/nvim-jay/root_view` 寫它的資料夾，nvim-jay
 就跟著開那份複本（唯讀）；沒有就只提示一行，不會停在「Press ENTER」。
 
 ## 7. Snapshots for Bash edits (optional) / Bash 改檔的快照（選用）
 
 A file changed by a Bash command outside a git repo has no "before" to diff against. The **snap hook** keeps one:
 a Claude Code PreToolUse hook that, before each Bash command, saves the files the command names by absolute path,
-`~/x` or `$HOME/x` (at most 20, each up to 1 MB, not `/proc`, `/sys`, `/dev`) to `~/.cache/jay-nvim/snap/<tool_use_id>/` (only you can
-read them; a copy older than 10 minutes is removed at the next Bash run). jay-nvim then marks what the command
+`~/x` or `$HOME/x` (at most 20, each up to 1 MB, not `/proc`, `/sys`, `/dev`) to `~/.cache/nvim-jay/snap/<tool_use_id>/` (only you can
+read them; a copy older than 10 minutes is removed at the next Bash run). nvim-jay then marks what the command
 changed. Without it those files just reload.
 Keys and credentials are never copied, also not through a link to them: `~/.ssh`, `~/.aws`, `~/.gnupg`,
 `~/.config/gh`, `~/.kube`, `~/.netrc` (Windows also `_netrc`), `~/.git-credentials`, `~/.docker/config.json`
 (Windows: the same under `%USERPROFILE%`, plus `%APPDATA%\GitHub CLI` and `%APPDATA%\gnupg`).
-repo 外的檔被 Bash 指令改掉時，沒有「改之前」可比；snap hook 會在指令跑之前先存一份，jay-nvim 才標得出改了哪裡。
+repo 外的檔被 Bash 指令改掉時，沒有「改之前」可比；snap hook 會在指令跑之前先存一份，nvim-jay 才標得出改了哪裡。
 金鑰、帳密檔（`~/.ssh`、`~/.aws` 等）一律不存；超過 10 分鐘的複本在下一次跑 Bash 時刪掉。
 
-The hook is a Lua file jay-nvim writes itself, on every machine where it runs (macOS, Windows, a Linux server):
-`~/.config/jay-nvim/snap_hook.lua` (Windows: under `vim.uv.os_homedir()`, usually `%USERPROFILE%`), refreshed when
-jay-nvim updates. It runs with `nvim -l`, so it needs nothing but Neovim. To turn it on, open jay-nvim once on that
+The hook is a Lua file nvim-jay writes itself, on every machine where it runs (macOS, Windows, a Linux server):
+`~/.config/nvim-jay/snap_hook.lua` (Windows: under `vim.uv.os_homedir()`, usually `%USERPROFILE%`), refreshed when
+nvim-jay updates. It runs with `nvim -l`, so it needs nothing but Neovim. To turn it on, open nvim-jay once on that
 machine, then add this to Claude Code's `~/.claude/settings.json` there (back it up first; keep its other settings;
 if `"PreToolUse"` already exists, add this entry to its list; no settings.json yet → wrap the snippet in `{ }`):
-jay-nvim 會自己把 hook 寫到每台機器上；在那台機器的 Claude Code 設定加這段就啟用：
+nvim-jay 會自己把 hook 寫到每台機器上；在那台機器的 Claude Code 設定加這段就啟用：
 
 ```json
 "hooks": {
   "PreToolUse": [
-    { "matcher": "Bash", "hooks": [{ "type": "command", "command": "nvim -l ~/.config/jay-nvim/snap_hook.lua" }] }
+    { "matcher": "Bash", "hooks": [{ "type": "command", "command": "nvim -l ~/.config/nvim-jay/snap_hook.lua" }] }
   ]
 }
 ```
@@ -224,7 +224,7 @@ jay-nvim 會自己把 hook 寫到每台機器上；在那台機器的 Claude Cod
 `/opt/homebrew/bin/nvim`, a Linux server `~/.local/bin/nvim`). Windows (not yet tested there): full paths, and
 matcher `Bash|PowerShell`; see [windows.md §5a](windows.md#5a-snap-hook-for-claude-code--snap-hook). The hook prints nothing and
 always exits 0; only if nvim itself can't start does the hook fail (`"onFailure": "continue"` keeps that from blocking).
-Check: after the agent runs a Bash command naming a file, `~/.cache/jay-nvim/snap/` has a folder for it.
+Check: after the agent runs a Bash command naming a file, `~/.cache/nvim-jay/snap/` has a folder for it.
 
 ## 8. When something goes wrong / 出問題時
 
@@ -232,7 +232,7 @@ OS-specific problems (install, PATH, keys) are in each install guide. These are 
 
 | What you see / 看到什麼 | Why / 原因 | Fix / 怎麼修 |
 |---|---|---|
-| "jay-nvim needs Neovim 0.11 or newer" | Neovim older than 0.11 (e.g. Ubuntu's apt) | install a newer Neovim (the official release or a PPA) |
+| "nvim-jay needs Neovim 0.11 or newer" | Neovim older than 0.11 (e.g. Ubuntu's apt) | install a newer Neovim (the official release or a PPA) |
 | "找不到 hc" inside nvim | `hc` not found | install Herdr core; check `hc --version` |
 | nvim never follows the agent | agent isn't Claude Code, nothing read yet, or follow is off | `space a f`; on Windows see [4](#4-macos-vs-windows--兩個系統的差別) |
 | No hover / go-to-definition | server not installed on that machine | install it; `:checkhealth vim.lsp` |

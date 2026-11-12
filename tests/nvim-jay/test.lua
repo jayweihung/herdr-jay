@@ -1,4 +1,4 @@
--- Run by run.js inside a headless nvim that has just run jay-nvim's Lua (JN.test holds the follow pieces).
+-- Run by run.js inside a headless nvim that has just run nvim-jay's Lua (JN.test holds the follow pieces).
 local T = JN.test
 for _, t in ipairs(JN.timers) do pcall(function() t:stop() end) end -- the tests drive follow themselves
 local ROOT, FAKE, HOME = vim.env.JN_TEST_ROOT, vim.env.JN_FAKE, vim.env.HOME
@@ -188,14 +188,14 @@ test("follow end to end", function()
   sh("cd '" .. repo .. "' && printf '1\\n2\\n3\\n4\\n5\\n' > c.txt && git add c.txt && git commit -qm c")
   write(repo .. "/c.txt", "1\nTWO\n3\n4\n5\n") -- an older uncommitted change
   local c = repo .. "/c.txt"
-  write(HOME .. "/.cache/jay-nvim/snap/toolu_s1/" .. vim.fn.sha256(c), "1\nTWO\n3\n4\n5\n")
+  write(HOME .. "/.cache/nvim-jay/snap/toolu_s1/" .. vim.fn.sha256(c), "1\nTWO\n3\n4\n5\n")
   append(log, { bash("toolu_s1", "sed -i s/4/FOUR/ " .. c) })
   tick()
   write(c, "1\nTWO\n3\nFOUR\n5\n")
   append(log, { result("toolu_s1", repo, { stdout = "", stderr = "" }) })
   tick()
   local b = vim.fn.bufnr(c)
-  local marks = b > 0 and vim.api.nvim_buf_get_extmarks(b, vim.api.nvim_create_namespace("jay-nvim-changes"), 0, -1, { details = true }) or {}
+  local marks = b > 0 and vim.api.nvim_buf_get_extmarks(b, vim.api.nvim_create_namespace("nvim-jay-changes"), 0, -1, { details = true }) or {}
   local rows = {}
   for _, m in ipairs(marks) do if m[4].line_hl_group then rows[#rows + 1] = m[2] + 1 end end
   check("snapshot is the base: only line 4 marked (not line 2 from before)", vim.deep_equal(rows, { 4 }), { rows, F.last, vim.api.nvim_buf_get_name(0) })
@@ -272,7 +272,7 @@ test("marks against HEAD", function()
   local b = vim.fn.bufnr(big)
   local head, too_big = T.head_lines(b)
   check("HEAD over 4 MB: not read (in a repo, not marked)", head == nil and too_big == true, { head and #head, too_big })
-  local ns = vim.api.nvim_create_namespace("jay-nvim-changes")
+  local ns = vim.api.nvim_create_namespace("nvim-jay-changes")
   check("HEAD over 4 MB: no marks", #vim.api.nvim_buf_get_extmarks(b, ns, 0, -1, {}) == 0)
   local long, lines = repo .. "/long.txt", {}
   for i = 1, 200 do lines[i] = "line " .. i end
@@ -300,7 +300,7 @@ end)
 
 -- review 5: the snap hook never copies keys or credentials (also through a link)
 test("snap hook secrets", function()
-  local hook = HOME .. "/.config/jay-nvim/snap_hook.lua"
+  local hook = HOME .. "/.config/nvim-jay/snap_hook.lua"
   check("snap hook written", vim.uv.fs_stat(hook) ~= nil)
   for _, p in ipairs({ "/.ssh/config", "/.aws/credentials", "/.gnupg/x", "/.config/gh/hosts.yml", "/.kube/config", "/.netrc",
     "/.git-credentials", "/.docker/config.json", "/.docker/other.txt", "/notes.txt" }) do write(HOME .. p, "data\n") end
@@ -311,7 +311,7 @@ test("snap hook secrets", function()
     { stdin = vim.json.encode({ tool_use_id = "toolu_snap1", tool_input = { command = cmd } }), text = true }):wait(20000)
   check("snap hook: prints nothing, exit 0", r.code == 0 and r.stdout == "", r)
   local got = {}
-  for name in vim.fs.dir(HOME .. "/.cache/jay-nvim/snap/toolu_snap1") do got[#got + 1] = name end
+  for name in vim.fs.dir(HOME .. "/.cache/nvim-jay/snap/toolu_snap1") do got[#got + 1] = name end
   table.sort(got)
   local want = { vim.fn.sha256(HOME .. "/.docker/other.txt"), vim.fn.sha256(HOME .. "/notes.txt") }
   table.sort(want)

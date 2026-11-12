@@ -29,7 +29,7 @@ Add `| Out-Host` (as below) to see its output in order.
 `herdr-app` 的輸出會跑到提示字元後面，後面加 `| Out-Host` 就正常。
 
 
-A **Linux server** to work on over ssh (agents there, jay-nvim there): after this guide, see
+A **Linux server** to work on over ssh (agents there, nvim-jay there): after this guide, see
 [docs/linux-remote.md](linux-remote.md).
 An agent doing the install for you: [docs/agent-install.md](agent-install.md).
 
@@ -102,7 +102,7 @@ Or on GitHub **Code → Download ZIP**, extract into `%USERPROFILE%\src` and ren
 Check / 檢查:
 
 ```powershell
-Test-Path "$env:USERPROFILE\src\herdr-jay\herdr-app\mods\jay-nvim\mod.json"   # must be True
+Test-Path "$env:USERPROFILE\src\herdr-jay\herdr-app\mods\nvim-jay\mod.json"   # must be True
 ```
 
 Every block below sets the folders it uses, so it works in any new window (except where it says "same window").
@@ -261,16 +261,16 @@ it creates its home (`%USERPROFILE%\.config\herdr-app`, or `HERDR_APP_HOME` if y
 
 ## 4. Neovim
 
-jay-nvim does **not** install Neovim. It needs **Neovim 0.11 or newer** on PATH. Any one of:
-jay-nvim 不會幫你裝 Neovim，要 **0.11 以上**：
+nvim-jay does **not** install Neovim. It needs **Neovim 0.11 or newer** on PATH. Any one of:
+nvim-jay 不會幫你裝 Neovim，要 **0.11 以上**：
 
-**Only working on a Linux server?** Then skip this step: next to a server pane jay-nvim opens nvim **on the server**
+**Only working on a Linux server?** Then skip this step: next to a server pane nvim-jay opens nvim **on the server**
 (its own Neovim, [linux-remote.md §3](linux-remote.md#3-neovim-and-git-on-the-server--server-上的-neovim-和-git)), and the snap hook (§5a) is only for a Claude Code running
 on this PC. Windows' Neovim is needed only for nvim beside a **local** Windows pane.
 只在 Linux server 上工作的話可以跳過這步：server 那格旁邊的 nvim 開在 server 上；Windows 的 Neovim 只有本機的格子要用。
 
-**Not using jay-nvim at all** (only Herdr and agents, e.g. colleagues who just run Claude Code / Codex)? Skip this step and §5: Herdr itself doesn't need Neovim.
-完全不用 jay-nvim（只用 Herdr 跑 agent，例如只用 Claude Code 的同事）的話，這步和 §5 都不用做：Herdr 本身不需要 Neovim。
+**Not using nvim-jay at all** (only Herdr and agents, e.g. colleagues who just run Claude Code / Codex)? Skip this step and §5: Herdr itself doesn't need Neovim.
+完全不用 nvim-jay（只用 Herdr 跑 agent，例如只用 Claude Code 的同事）的話，這步和 §5 都不用做：Herdr 本身不需要 Neovim。
 
 - `winget install Neovim.Neovim` (an MSI for all users: may need admin)
 - `scoop install neovim` (per user; needs scoop, which itself needs scripts allowed)
@@ -286,7 +286,7 @@ on this PC. Windows' Neovim is needed only for nvim beside a **local** Windows p
 If it is missing, install it the way your company allows.
 `claude --version` 要能跑；沒有就照公司允許的方式裝。
 
-Optional, for go-to-definition and errors (skip if Node or Python are not allowed; jay-nvim works without them)
+Optional, for go-to-definition and errors (skip if Node or Python are not allowed; nvim-jay works without them)
 選用（LSP），公司不准裝 Node / Python 就跳過：
 
 - Python: `npm i -g pyright`, `py -m pip install --user ruff` (then `ruff --version` must work in a new PowerShell; if not, add pip's
@@ -302,15 +302,15 @@ Optional, for go-to-definition and errors (skip if Node or Python are not allowe
 
    ```powershell
    $j = "$env:USERPROFILE\src\herdr-jay"
-   Test-Path "$j\herdr-app\mods\jay-nvim\mod.json"          # must be True; otherwise fix $j
+   Test-Path "$j\herdr-app\mods\nvim-jay\mod.json"          # must be True; otherwise fix $j
    $h = if ($env:HERDR_APP_HOME) { $env:HERDR_APP_HOME } elseif ($env:XDG_CONFIG_HOME) { "$env:XDG_CONFIG_HOME\herdr-app" } else { "$env:USERPROFILE\.config\herdr-app" }
    New-Item -ItemType Directory -Force "$h\mods" | Out-Null
-   Copy-Item -Recurse -Force "$j\herdr-app\mods\jay-nvim", "$j\herdr-app\mods\jay-nvim-pick" "$h\mods\"
-   Set-Content -Encoding ascii "$h\mods\jay-nvim\.herdr-jay" (git -C $j describe --tags --always --match "for-herdr-v*-r*")   # which herdr-jay you copied
+   Copy-Item -Recurse -Force "$j\herdr-app\mods\nvim-jay", "$j\herdr-app\mods\nvim-jay-agent-files" "$h\mods\"
+   Set-Content -Encoding ascii "$h\mods\nvim-jay\.herdr-jay" (git -C $j describe --tags --always --match "for-herdr-v*-r*")   # which herdr-jay you copied
    ```
 
    Got herdr-jay as a ZIP (no git)? Use this instead for the last line:
-   `Set-Content -Encoding ascii "$h\mods\jay-nvim\.herdr-jay" "zip $(Get-Date -Format yyyy-MM-dd)"`
+   `Set-Content -Encoding ascii "$h\mods\nvim-jay\.herdr-jay" "zip $(Get-Date -Format yyyy-MM-dd)"`
 
    (`$h` is Herdr's home: `HERDR_APP_HOME` if set, else `XDG_CONFIG_HOME\herdr-app`, else `%USERPROFILE%\.config\herdr-app`.
    設了 `HERDR_APP_HOME` 的話，Herdr 的設定目錄在那裡，上面這行會自己找對。)
@@ -325,8 +325,8 @@ Optional, for go-to-definition and errors (skip if Node or Python are not allowe
    找到 `"global": {` 那一行，把下面兩行貼在它**正下方**（引號、逗號都要），存檔：
 
    ```json
-   "ctrl-shift-i": "mod.open:jay-nvim",
-   "ctrl-shift-j": "mod.open:jay-nvim-pick",
+   "ctrl-shift-i": "mod.open:nvim-jay",
+   "ctrl-shift-j": "mod.open:nvim-jay-agent-files",
    ```
 
    Herdr reloads `keys.json` by itself. Once you edit it, new Herdr versions no longer add their new default keys:
@@ -335,19 +335,19 @@ Optional, for go-to-definition and errors (skip if Node or Python are not allowe
 
    ```powershell
    $h = if ($env:HERDR_APP_HOME) { $env:HERDR_APP_HOME } elseif ($env:XDG_CONFIG_HOME) { "$env:XDG_CONFIG_HOME\herdr-app" } else { "$env:USERPROFILE\.config\herdr-app" }
-   herdr-app check "$h\mods\jay-nvim" | Out-Host
-   herdr-app check "$h\mods\jay-nvim-pick" | Out-Host
+   herdr-app check "$h\mods\nvim-jay" | Out-Host
+   herdr-app check "$h\mods\nvim-jay-agent-files" | Out-Host
    ```
 5. Optional / 選用: jay's layout (Agents / Kit / Gerrit buttons; needs kit) → [layout.md](layout.md); the Gerrit panel →
    [gerrit.md](gerrit.md). 想要 jay 的畫面排法看 layout.md。
 
 ### 5a. Snap hook for Claude Code / snap hook
 
-Lets jay-nvim mark what a Bash command changed in a file **outside** a git repo ([nvim.md §7](nvim.md#7-snapshots-for-bash-edits-optional--bash-改檔的快照選用)).
-Do it during §6 (step 3 sends you here): jay-nvim's first start (§6 step 2) writes `<home>\.config\jay-nvim\snap_hook.lua`. `<home>` is
+Lets nvim-jay mark what a Bash command changed in a file **outside** a git repo ([nvim.md §7](nvim.md#7-snapshots-for-bash-edits-optional--bash-改檔的快照選用)).
+Do it during §6 (step 3 sends you here): nvim-jay's first start (§6 step 2) writes `<home>\.config\nvim-jay\snap_hook.lua`. `<home>` is
 the **first** folder §6 step 3 prints (`vim.uv.os_homedir()`): usually `C:\Users\<you>`, but a company may set it to
 another drive (e.g. `H:\`); use that one below.
-jay-nvim 開過一次後，在 Claude Code 設定加這個 hook（一次就好，之後 jay-nvim 會自己更新 hook 檔）。
+nvim-jay 開過一次後，在 Claude Code 設定加這個 hook（一次就好，之後 nvim-jay 會自己更新 hook 檔）。
 
 1. Back up `%USERPROFILE%\.claude\settings.json` (if it exists).
 2. Merge into it (keep everything else; if `"hooks"` already has `"PreToolUse"`, add this entry to that list).
@@ -359,20 +359,20 @@ jay-nvim 開過一次後，在 Claude Code 設定加這個 hook（一次就好�
      "PreToolUse": [
        { "matcher": "Bash|PowerShell", "hooks": [{ "type": "command", "timeout": 15,
          "onFailure": "continue",
-         "command": "nvim -l <home>/.config/jay-nvim/snap_hook.lua" }] }
+         "command": "nvim -l <home>/.config/nvim-jay/snap_hook.lua" }] }
      ]
    }
    ```
 
-   e.g. `"nvim -l C:/Users/amy/.config/jay-nvim/snap_hook.lua"`. `"onFailure": "continue"` keeps a failed start
+   e.g. `"nvim -l C:/Users/amy/.config/nvim-jay/snap_hook.lua"`. `"onFailure": "continue"` keeps a failed start
    of nvim from blocking commands (older Claude Code ignores it).
    `nvim` not found by the hook → write nvim.exe's full path (`where.exe nvim`) with forward slashes, e.g.
    `C:/Users/amy/AppData/Local/Programs/nvim-win64/bin/nvim.exe -l …`. A path with a space (winget's
    `C:/Program Files/Neovim/…`): Claude Code runs hook commands in Git Bash if it finds it, otherwise PowerShell, and
    the two quote differently; use the no-shell form instead (newer Claude Code): `"command": "C:/Program Files/Neovim/bin/nvim.exe"`,
-   `"args": ["-l", "<home>/.config/jay-nvim/snap_hook.lua"]`.
+   `"args": ["-l", "<home>/.config/nvim-jay/snap_hook.lua"]`.
 3. Restart Claude Code (or `/hooks` once). **Check**: §6 step 7 — after Claude changes a file outside the repo with
-   a shell command, `<home>\.cache\jay-nvim\snap\` has a new folder and nvim shows red / green.
+   a shell command, `<home>\.cache\nvim-jay\snap\` has a new folder and nvim shows red / green.
 
 ---
 
@@ -385,7 +385,7 @@ the screen and of `:messages` in nvim, note the step number, go on.
 1. New PowerShell: `nvim --version`, `hc --version`, `git --version` → NVIM ≥ 0.11, `hc 0.1.20`, a git version.
 2. In Herdr make a space for a git project (`ctrl-shift-n`, pick the folder); in a tab there run `claude`
    (no `cd` first). With that pane focused: `ctrl-shift-i` → nvim on the right in that pane's folder, file tree beside it, and
-   `Test-Path "$h\mods\jay-nvim\.init.lua"` is True (`$h` as in §5 step 2).
+   `Test-Path "$h\mods\nvim-jay\.init.lua"` is True (`$h` as in §5 step 2).
 3. In nvim: `:lua print(vim.uv.os_homedir(), vim.env.USERPROFILE)` → the same `C:\Users\<you>` twice.
    If the first is another drive (e.g. `H:\`), write it down. That first folder is `<home>`: now do
    [§5a](#5a-snap-hook-for-claude-code--snap-hook), then restart `claude` in the step-2 tab (or run `/hooks` there).
@@ -395,7 +395,7 @@ the screen and of `:messages` in nvim, note the step number, go on.
 7. Ask Claude to change a repo file with a shell command (e.g. `sed -i`) → nvim follows it.
    Then a file **outside** the repo by absolute path → nvim should follow it too; note which path form Claude used
    (`C:\…`, `C:/…` or `/c/…`). With the snap hook (§5a): old lines red, new green, and
-   `<home>\.cache\jay-nvim\snap\` (§5a) has a new folder. Without it the file just reloads.
+   `<home>\.cache\nvim-jay\snap\` (§5a) has a new folder. Without it the file just reloads.
 8. In nvim `space o` → files Claude touched (newest first) plus git changes; pick one → it opens.
 9. Focus Claude's pane, press `ctrl-shift-j` → focus jumps to nvim and the list opens. `Esc`, then `:set modified?`
    → `nomodified` (nothing typed into the file). Again from insert mode (`i` first).
@@ -403,7 +403,7 @@ the screen and of `:messages` in nvim, note the step number, go on.
 11. Python file, pyright installed: no note, nothing to type (no `:JayTrust` any more). Rest the mouse on a function name → a type popup after ~0.6 s. Right-click → the Chinese menu
     (Shift + right-click → Herdr's).
 12. Put an error in the Python file → a message shows inline; `gd` on a name → jumps to its definition.
-13. A second jay-nvim (another tab, same file): type in one → a yellow note "… 的 nvim 也開著這個檔".
+13. A second nvim-jay (another tab, same file): type in one → a yellow note "… 的 nvim 也開著這個檔".
 14. `hc get <nvim pane>` (the address in Herdr, e.g. `t3`) → labels include `herdr.right-click=program`.
 15. Bring jay the photos plus the lines of [8.0](#80-what-do-i-have--目前裝的是什麼).
 
@@ -418,7 +418,7 @@ Here: install and Windows.
 |---|---|---|
 | `ctrl-shift-i` does nothing | key missing, or a typo in `keys.json` | with Herdr open: `herdr-app status \| Out-Host` shows keys.json errors; check quotes and commas |
 | Error "nvim: not found on PATH" | Neovim not installed / not on PATH | step 4; `nvim --version` in a new PowerShell |
-| Notification "jay-nvim 開不起來" | could not write `mods\jay-nvim\.init.lua` | the home folder must be writable; bring the message to jay |
+| Notification "nvim-jay 開不起來" | could not write `mods\nvim-jay\.init.lua` | the home folder must be writable; bring the message to jay |
 | "找不到 hc" inside nvim | `hc` not on PATH | `hc --version`; step 2 |
 | nvim never follows Claude | Claude started after a `cd`, or two Claudes in one folder | start Claude in the tab's own folder (step 6.2) |
 | Herdr shows a core setup screen | no core found, or older than the app needs | **don't press Install / Update there** (it installs the official core); do step 2 (or 8), then reopen Herdr |
@@ -447,11 +447,11 @@ What gets updated, and where / 要更新的東西：
 | herdr-jay | PC | `git pull` (8.1) | first, always |
 | herdr-core | PC (Windows) **and** the Linux server | build the README tag + patches for both, install / copy (8.2, 8.3) | the README table names a new core |
 | Herdr app | PC | build the README tag + patches (8.2) | the README table names a new app |
-| jay-nvim mods | PC (they open nvim on the server too) | copy the two folders (8.4) | the CHANGELOG says **mods** |
+| nvim-jay mods | PC (they open nvim on the server too) | copy the two folders (8.4) | the CHANGELOG says **mods** |
 | Gerrit panel (optional) | PC | copy `mods\gerrit` (8.4) | the CHANGELOG says **gerrit** |
 | Neovim | PC (Windows build) and the server (**built on the server** from source) | new version (8.5) | only when the README says so (needs ≥ 0.11) |
 | pyright (optional) | the server | [linux-remote.md §3b](linux-remote.md#3b-python-go-to-definition-pyright-optional--python-跳定義選用) with the new version | only when the README says so |
-| Claude Code snap hook | wherever jay-nvim runs | nothing: jay-nvim rewrites it | — |
+| Claude Code snap hook | wherever nvim-jay runs | nothing: nvim-jay rewrites it | — |
 
 Windows follows **herdr-jay**, never upstream directly: build only the versions in the
 [README versions table](../README.md#versions--版本). How to know there is something new: the
@@ -467,7 +467,7 @@ $j = "$env:USERPROFILE\src\herdr-jay"; $h = if ($env:HERDR_APP_HOME) { $env:HERD
 hc --version
 herdr-app --version | Out-Host
 git -C $j describe --tags --always --match "for-herdr-v*-r*"
-Get-Content "$h\mods\jay-nvim\.herdr-jay"
+Get-Content "$h\mods\nvim-jay\.herdr-jay"
 nvim --version | Select-Object -First 1
 hc machine ls                                        # the server: connected, its version = hc --version
 ssh <user>@<server> '~/.local/bin/herdr-core --version; ~/.local/bin/nvim --version | head -1'
@@ -543,25 +543,25 @@ Remove the old folders first so deleted files don't linger:
 
 ```powershell
 $j = "$env:USERPROFILE\src\herdr-jay"; $h = if ($env:HERDR_APP_HOME) { $env:HERDR_APP_HOME } elseif ($env:XDG_CONFIG_HOME) { "$env:XDG_CONFIG_HOME\herdr-app" } else { "$env:USERPROFILE\.config\herdr-app" }
-Remove-Item -Recurse -Force "$h\mods\jay-nvim", "$h\mods\jay-nvim-pick" -ErrorAction SilentlyContinue
-Copy-Item -Recurse -Force "$j\herdr-app\mods\jay-nvim", "$j\herdr-app\mods\jay-nvim-pick" "$h\mods\"
-Set-Content -Encoding ascii "$h\mods\jay-nvim\.herdr-jay" (git -C $j describe --tags --always --match "for-herdr-v*-r*")
-herdr-app check "$h\mods\jay-nvim" | Out-Host
-herdr-app check "$h\mods\jay-nvim-pick" | Out-Host
+Remove-Item -Recurse -Force "$h\mods\nvim-jay", "$h\mods\nvim-jay-agent-files" -ErrorAction SilentlyContinue
+Copy-Item -Recurse -Force "$j\herdr-app\mods\nvim-jay", "$j\herdr-app\mods\nvim-jay-agent-files" "$h\mods\"
+Set-Content -Encoding ascii "$h\mods\nvim-jay\.herdr-jay" (git -C $j describe --tags --always --match "for-herdr-v*-r*")
+herdr-app check "$h\mods\nvim-jay" | Out-Host
+herdr-app check "$h\mods\nvim-jay-agent-files" | Out-Host
 ```
 
 Gerrit panel, only if you installed it ([gerrit.md](gerrit.md)): the same for `mods\gerrit`, then quit and reopen Herdr
 (your `gerrit.json` is outside the folder and stays). jay's layout, if you use it: when the CHANGELOG says
 **layout**, run the Windows block in [layout.md](layout.md) again.
 
-Nothing to copy to the server: jay-nvim hands nvim its Lua each time it opens a pane there. Already open nvim panes
+Nothing to copy to the server: nvim-jay hands nvim its Lua each time it opens a pane there. Already open nvim panes
 keep the old version until you close and reopen them. If `check` fails, go back to your previous herdr-jay
 (`git checkout <old tag or commit>`) and copy again.
-server 不用複製：jay-nvim 每次開格子都把程式帶過去；開著的 nvim 要關掉重開才是新版。
+server 不用複製：nvim-jay 每次開格子都把程式帶過去；開著的 nvim 要關掉重開才是新版。
 
 ### 8.5 Neovim
 
-Only when the README says so (jay-nvim needs ≥ 0.11). PC: the same way you installed it (step 4: winget / scoop /
+Only when the README says so (nvim-jay needs ≥ 0.11). PC: the same way you installed it (step 4: winget / scoop /
 a new `nvim-win64.zip` over the old folder). Server: **build it on the server** (not on the PC; it only builds on Linux), [linux-remote.md step 3](linux-remote.md#3-neovim-and-git-on-the-server--server-上的-neovim-和-git)
 with the new tag (`rm -rf build .deps` first; from a pack: a new pack). **Check**: `nvim --version` on both.
 

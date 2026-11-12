@@ -132,7 +132,7 @@ Privacy permissions (microphone, automation…) may have to be granted again aft
 
 ## 4. Neovim
 
-jay-nvim needs **Neovim 0.11 or newer** in `~/.local/bin`, `/opt/homebrew/bin`, `/usr/local/bin` or `/usr/bin`
+nvim-jay needs **Neovim 0.11 or newer** in `~/.local/bin`, `/opt/homebrew/bin`, `/usr/local/bin` or `/usr/bin`
 (Herdr starts panes with a bare PATH, so it looks only there). `brew install neovim` (step 1) is fine.
 MacPorts / nix installs: link `nvim` into `~/.local/bin`.
 
@@ -147,7 +147,7 @@ TypeScript starts only in projects that have `node_modules/typescript`.
 
 ```sh
 cd ~/.config/herdr-app/mods
-ln -s ~/src/herdr-jay/herdr-app/mods/jay-nvim ~/src/herdr-jay/herdr-app/mods/jay-nvim-pick .
+ln -s ~/src/herdr-jay/herdr-app/mods/nvim-jay ~/src/herdr-jay/herdr-app/mods/nvim-jay-agent-files .
 ```
 
 Symlinks follow `git pull` in herdr-jay (jay's setup). Copying (`cp -R`) works too, but then copy again after each update.
@@ -156,8 +156,8 @@ Symlinks follow `git pull` in herdr-jay (jay's setup). Copying (`cp -R`) works t
 Keys: open `~/.config/herdr-app/keys.json` and paste **directly under** the line `  "global": {`:
 
 ```json
-"cmd-e": "mod.open:jay-nvim",
-"cmd-o": "mod.open:jay-nvim-pick",
+"cmd-e": "mod.open:nvim-jay",
+"cmd-o": "mod.open:nvim-jay-agent-files",
 ```
 
 Herdr reloads `keys.json` by itself. Once edited, new Herdr versions no longer add their new default keys to it:
@@ -166,8 +166,8 @@ Herdr reloads `keys.json` by itself. Once edited, new Herdr versions no longer a
 **Check** → both print `check passed: ...`:
 
 ```sh
-herdr-app check ~/.config/herdr-app/mods/jay-nvim
-herdr-app check ~/.config/herdr-app/mods/jay-nvim-pick
+herdr-app check ~/.config/herdr-app/mods/nvim-jay
+herdr-app check ~/.config/herdr-app/mods/nvim-jay-agent-files
 ```
 
 ---

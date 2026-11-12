@@ -15,7 +15,7 @@ function onThisComputer() {
   return !s?.machine;
 }
 
-export default class JayNvim extends View {
+export default class NvimJay extends View {
   init(_props, cx) {
     const { overlay } = props() ?? {};
     // the focused pane's live folder (the agent's project); terminal.open alone may start in the space's folder
@@ -25,7 +25,7 @@ export default class JayNvim extends View {
         try {
           await openWindows(cwd);
         } catch (e) {
-          notify({ title: "jay-nvim 開不起來", body: String(e?.message ?? e), level: "error" });
+          notify({ title: "nvim-jay 開不起來", body: String(e?.message ?? e), level: "error" });
         }
         if (overlay) closeOverlay(overlay);
       });

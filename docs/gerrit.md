@@ -300,8 +300,8 @@ A change's page has a **問 agent** card. It offers only the agent its **＋ 開
 Code with the Gerrit tools, §8): any other agent may lack them, and a request it can't do would look like it went
 through. Press a preset and the panel sends that agent a ready-made request about this change with `hc send`, then
 brings it to the front. Presets: **Review**, **整理留言**, **為什麼沒過**, **幫我回覆**. Each one calls a skill
-(`/gerrit-panel:review 7 3 <url>` and so on) from the `gerrit-panel` plugin in this repo
-([agents/gerrit-panel](../agents/gerrit-panel/skills)): how to do the job is written in the skill, the button only says
+(`/gerrit-panel:review 7 3 <url>` and so on) from the `gerrit-panel` plugin that comes with the mod
+([herdr-app/mods/gerrit/claude-plugin](../herdr-app/mods/gerrit/claude-plugin/skills)): how to do the job is written in the skill, the button only says
 which skill and which change. The skills don't post or vote on Gerrit until you agree, and answer in Traditional
 Chinese; the agent loads them with a second `--plugin-dir` (§8 step 5). **✎ 編輯問題** edits them in the panel: one block
 per button with the words on it, what the agent is asked, and what would be sent for this change (updates as you
@@ -310,7 +310,7 @@ it: `--props '{"open":"7","edit_prompts":true}'`. The panel remembers the agents
 `gerrit.json` the card says how to set one up.
 「問 agent」只列出用「＋ 開 gerrit agent」開出來的 agent（有 Gerrit MCP 的），別的 agent 不列，免得以為送出去就會做。
 選好按預設按鈕，就用 hc send 叫它用對應的 skill 處理這個 change（例如 `/gerrit-panel:review 7 3 網址`）；做法寫在
-skill 裡（agents/gerrit-panel），都用繁體中文回答、沒問過你不會在 Gerrit 留言或給分。按「✎ 編輯問題」可以改按鈕。
+skill 裡（gerrit mod 裡的 claude-plugin），都用繁體中文回答、沒問過你不會在 Gerrit 留言或給分。按「✎ 編輯問題」可以改按鈕。
 
 Optional, in `gerrit.json`:
 
@@ -397,22 +397,23 @@ mkdir -p ~/gerrit-agent                                                         
 ```
 
 **5. The start button**: add to `gerrit.json` (Windows paths with `/`). The first `--plugin-dir` gives the Gerrit
-tools, the second the skills the buttons call (`agents/gerrit-panel` in your herdr-jay clone; `git pull` there updates
-them, nothing to copy):
+tools, the second the skills the buttons call: the `claude-plugin` folder inside the gerrit mod, in `<Herdr home>/mods`
+(`~/.config/herdr-app/mods/gerrit/claude-plugin`; Windows normally `%USERPROFILE%\.config\herdr-app\mods\gerrit\claude-plugin`).
+It comes with the mod: linking (macOS) or copying (Windows) the gerrit mod again updates it.
 
 ```json
   "agent": {
     "name": "gerrit",
     "start": ["claude", "--plugin-dir", "C:/Users/you/src/gerrit-mcp-server",
-              "--plugin-dir", "C:/Users/you/src/herdr-jay/agents/gerrit-panel"],
+              "--plugin-dir", "C:/Users/you/.config/herdr-app/mods/gerrit/claude-plugin"],
     "cwd": "C:/Users/you/gerrit-agent"
   }
 ```
 
-(macOS: `"/Users/you/src/gerrit-mcp-server"`, `"/Users/you/src/herdr-jay/agents/gerrit-panel"` and
+(macOS: `"/Users/you/src/gerrit-mcp-server"`, `"/Users/you/.config/herdr-app/mods/gerrit/claude-plugin"` and
 `"/Users/you/gerrit-agent"`.) Quit and reopen Herdr. An agent already open keeps its old plugins: close its pane and
 press ＋ again.
-第二個 `--plugin-dir` 是按鈕要叫的 skill（herdr-jay 裡的 agents/gerrit-panel），git pull 就會更新，不用複製。
+第二個 `--plugin-dir` 是按鈕要叫的 skill：Herdr 家目錄裡 `mods/gerrit/claude-plugin`，跟著 gerrit mod 一起裝、一起更新。
 已經開著的 agent 要關掉重開才會有。
 
 **6. Try it**: open a change in the panel → **＋ 開 gerrit agent**. The first start takes a minute (uv installs the

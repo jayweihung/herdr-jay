@@ -519,7 +519,7 @@ test("ask an agent: presets call the gerrit-panel skills; ✎ edits them (saved 
   assert.equal(g.promptVars({ _number: 6, project: "demo" }).requirements, "", "nothing known: nothing added");
   for (const p of builtIn) {
     const name = p.text.match(/^\/gerrit-panel:([a-z-]+)/)[1];
-    const md = readFileSync(new URL(`../../agents/gerrit-panel/skills/${name}/SKILL.md`, import.meta.url), "utf8");
+    const md = readFileSync(new URL(`../../herdr-app/mods/gerrit/claude-plugin/skills/${name}/SKILL.md`, import.meta.url), "utf8");
     assert.ok(new RegExp(`^name: ${name}$`, "m").test(md), `skill ${name} exists with that name`);
     assert.ok(/Traditional Chinese/.test(md), `skill ${name} answers in Traditional Chinese`);
   }

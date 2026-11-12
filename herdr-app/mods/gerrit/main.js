@@ -138,7 +138,7 @@ const shortLink = (url) => {
   catch { return url.slice(0, 60); }
 };
 // Asking an agent about a change: preset prompts sent to a Herdr agent (e.g. Claude Code with a Gerrit MCP) by `hc send`.
-// Each button calls a skill of the gerrit-panel plugin (agents/gerrit-panel in this repo, loaded with --plugin-dir):
+// Each button calls a skill of the gerrit-panel plugin (this mod's claude-plugin folder, loaded with --plugin-dir):
 // how to do the job lives in the skill, the button only says which skill and which change.
 const AGENT_PROMPTS = [
   { label: "Review", text: "/gerrit-panel:review {change} {patchset} {url}" },

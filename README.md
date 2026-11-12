@@ -30,8 +30,8 @@ jayweihung 的 Herdr 通用 mod 與設定。
 | `herdr-app/mods/jay-nvim` | Neovim beside your agent: follow the agent's files, live diff, file tree, comments to the agent, LSP, mouse |
 | `herdr-app/mods/jay-nvim-pick` | `cmd-o` / `ctrl-shift-j`: jump to the jay-nvim pane and list the files the agent read or edited |
 | `herdr-app/mods/gerrit` | Gerrit beside your agents: 輪到你 / 我送出的 / 等我 review…, a change's votes, comment threads and files, notifications ([docs/gerrit.md](docs/gerrit.md)) |
-| `herdr-app/mods/git-toggle` | a **Git** button in the tab bar that opens and closes the [git-graph](https://github.com/rabeeh-ta/herdr-git-graph) panel (install git-graph from its author; needs a layout with a `git-graph-panel`) |
-| `herdr-core/patches/<tag>/`, `herdr-app/patches/<tag>/` | changes to Herdr's own source (only what a mod can't do), one folder per official tag |
+| `herdr-app/mods/git-toggle` | a **Git** button in the tab bar that opens and closes the [git-graph](https://github.com/rabeeh-ta/herdr-git-graph) panel (git-graph from its author + jay's patch: [docs/git-graph.md](docs/git-graph.md)) |
+| `herdr-core/patches/<tag>/`, `herdr-app/patches/<tag>/`, `herdr-app/patches/git-graph/<tag>/` | changes to Herdr's own source (only what a mod can't do), one folder per official tag |
 | `docs/` | the guides above |
 
 ## Versions / 版本

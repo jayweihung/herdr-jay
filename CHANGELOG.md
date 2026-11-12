@@ -17,6 +17,8 @@ Needs: **mods** (they moved: copy again from the new folder; macOS symlinks: lin
   (and `gerrit` the same way if you use it).
   Windows: the copy block in [windows.md §8](docs/windows.md) (already uses the new folder).
 - New `herdr-app/mods/git-toggle`: a Git button for the [git-graph](https://github.com/rabeeh-ta/herdr-git-graph) panel.
+- New `herdr-app/patches/git-graph/v0.3.1/`: jay's changes to the git-graph mod (asks before a checkout; selectable,
+  copyable text). Install: [docs/git-graph.md](docs/git-graph.md).
 
 ## 2026-11-12
 

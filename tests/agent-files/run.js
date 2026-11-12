@@ -46,7 +46,7 @@ globalThis.__stubs = {
     return { code: 0, stdout: "{}", stderr: "" };
   },
   run: (name, args) => { H.runs.push([name, args]); },
-  props: () => ({ overlay: "o1" }), closeOverlay: (o) => { H.closed.push(o); }, notify: (n) => H.notes.push(n),
+  props: () => ({ overlay: "o1" }), closeOverlay: (o) => { H.closed.push(o); H.calls.push({ argv: ["closeOverlay"], on: null }); }, notify: (n) => H.notes.push(n),
   readTextFile: async (p) => (p.endsWith("agent-files.json") ? H.config : null),
   agents: () => H.agents, panes: () => H.panes, spaces: () => H.spaces, terminals: () => H.terms, focused: () => H.focused,
 };
@@ -148,6 +148,8 @@ test("no nvim-jay pane: a new pane right of the agent with the editor found on t
   const res = H.calls.find((c) => c.argv[0] === "/bin/sh" && /command -v/.test(c.argv[2]));
   assert.equal(res.on, "box");
   assert.deepEqual(res.argv.slice(3), ["sh"]); // no editor set: the script picks $VISUAL / $EDITOR / vi
+  const at = (f) => H.calls.findIndex(f);
+  assert.ok(at((x) => /command -v/.test(x.argv[2] ?? "")) < at((x) => x.argv[0] === "closeOverlay"), "closed before the editor was found");
   assert.deepEqual(H.runs.slice(-2), [["pane.focus", { terminal: "box/t1" }],
     ["terminal.open", { argv: ["/usr/bin/hx", "/w/app/README.md"], folder: "/w/app", place: "right", name: "editor" }]]);
   assert.deepEqual(H.closed, ["o1"]);
@@ -163,6 +165,9 @@ test("an nvim-jay pane in the tab: the file goes to it through its server, and i
   assert.equal(c.argv[4], "909");
   const hex = c.argv[5].match(/^v:lua\.JN\.open_hex\('([0-9a-f]+)'\)$/)[1];
   assert.equal(Buffer.from(hex, "hex").toString("utf8"), "/w/app/src/a.js");
+  // the popup closes only after nvim answered: Herdr drops a closed popup's unfinished work
+  const at = (f) => H.calls.findIndex(f);
+  assert.ok(at((x) => /--remote-expr/.test(x.argv[2] ?? "")) < at((x) => x.argv[0] === "closeOverlay"), "closed before nvim was asked");
   // non-ASCII, quotes, spaces: the UTF-8 bytes
   H.calls = [];
   v.pick({ path: "/w/資料 'x' \"y\" ~.md", tag: "read", exists: true }, cx);
@@ -189,7 +194,8 @@ test("agent-files.json: editor and gui (a window app, no pane); nvim_jay false s
   assert.ok(!H.calls.some((c) => /--remote-expr/.test(c.argv[2] ?? "")));
   const res = H.calls.find((c) => c.argv[0] === "/bin/sh" && /command -v/.test(c.argv[2]));
   assert.deepEqual(res.argv.slice(3), ["sh", "code", "-g"]);
-  assert.deepEqual(H.calls.at(-1).argv, ["/usr/local/bin/code", "-g", "/w/app/src/a.js"]);
+  assert.deepEqual(H.calls.at(-2).argv, ["/usr/local/bin/code", "-g", "/w/app/src/a.js"]);
+  assert.deepEqual(H.calls.at(-1).argv, ["closeOverlay"]);
   assert.ok(!H.runs.some(([n]) => n === "terminal.open"));
 });
 

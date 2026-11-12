@@ -103,7 +103,7 @@ for n in "$HOME/.local/bin/nvim" /opt/homebrew/bin/nvim /usr/local/bin/nvim /usr
   [ -x "$n" ] && exec "$n" --server "$sock" --remote-expr "$1"
 done
 echo "nvim not found" >&2; exit 127`;
-async function toNvimJay(pane, path, machine) {
+async function toNvimJay(pane, path, machine, close) {
   const pid = await fgPid(pane.terminal);
   if (!pid) return false;
   const expr = `v:lua.JN.open_hex('${hex(path)}')`;
@@ -114,6 +114,7 @@ async function toNvimJay(pane, path, machine) {
       : await exec("/bin/sh", ["-c", NVIM_CLIENT, "sh", String(pid), expr], { timeout: 10000, on: machine });
   } catch { return false; }
   if (r.code !== 0 || String(r.stdout).trim() !== "ok") return false;
+  close();
   run("pane.focus", { pane: pane.pane });
   return true;
 }
@@ -127,14 +128,16 @@ async function editorArgv(cfg, machine) {
   if (r.code !== 0) throw new Error(clean(r.stderr) || "找不到編輯器");
   return String(r.stdout).split("\n").slice(0, -1); // one word a line, the last one ends with a newline too
 }
-async function openFile(target, path) {
+// close: closes the popup. Called only when the waiting is over, right before the last (instant) steps: work still
+// waiting when the popup closes is dropped with it.
+async function openFile(target, path, close) {
   const cfg = await config();
   const { machine } = target;
   if (cfg.nvimJay) {
     const byAddr = new Map(terminals().map((t) => [t.address, t]));
     const nv = panes().find((p) => p.tab === target.tab && p.terminal && isNvimJay(byAddr.get(p.terminal)));
     if (nv) {
-      if (await toNvimJay(nv, path, machine)) return;
+      if (await toNvimJay(nv, path, machine, close)) return;
       notify({ title: "nvim-jay 沒接到", body: "這格 nvim-jay 可能是更新前開的：關掉重開一格。這次先用編輯器開。", level: "warning" });
     }
   }
@@ -142,8 +145,10 @@ async function openFile(target, path) {
   if (cfg.gui) {
     const r = await exec(argv[0], [...argv.slice(1), path], { timeout: 30000, on: machine });
     if (r.code !== 0) throw new Error(clean(r.stderr) || `${argv[0]} 結束碼 ${r.code}`);
+    close();
     return;
   }
+  close();
   // terminal.open opens right of the focused pane, on its machine: the agent's
   run("pane.focus", { terminal: target.address });
   run("terminal.open", { argv: [...argv, path], folder: target.dir ?? undefined, place: "right", name: "editor" });
@@ -165,7 +170,7 @@ export default class AgentFiles extends View {
     this.load(cx);
   }
 
-  close() { const o = props()?.overlay; if (o) closeOverlay(o); }
+  dismiss() { const o = props()?.overlay; if (o) closeOverlay(o); } // not close(): Herdr calls a View's close() itself when it goes
 
   target() {
     const a = this.list[this.which];
@@ -199,7 +204,7 @@ export default class AgentFiles extends View {
           else if (r.missing || !j) {
             // no kit there, or one without kit files: nvim-jay's own list (Claude Code only), when the tab has one
             error = await kitTrouble(r, t.machine);
-            if (want === this.which && this.nvimJayList(t, error)) return;
+            if (want === this.which && await this.nvimJayList(t, error)) return;
           } else error = await kitTrouble(r, t.machine);
         }
       } catch (e) { error = String(e?.message ?? e); }
@@ -213,13 +218,13 @@ export default class AgentFiles extends View {
   }
 
   // focus the tab's nvim-jay pane and press the key nvim-jay maps to its own list (alt+o: <M-o> in every mode)
-  nvimJayList(t, why) {
+  async nvimJayList(t, why) {
     const byAddr = new Map(terminals().map((x) => [x.address, x]));
     const nv = panes().find((p) => p.tab === t.tab && p.terminal && isNvimJay(byAddr.get(p.terminal)));
     if (!nv) return false;
-    this.close();
+    await hc(["keys", nv.terminal, "alt+o"]).catch(() => {}); // before closing: what still waits then is dropped
+    this.dismiss();
     run("pane.focus", { pane: nv.pane });
-    hc(["keys", nv.terminal, "alt+o"]).catch(() => {});
     notify({ title: "改用 nvim-jay 的清單", body: why, level: "info" });
     return true;
   }
@@ -236,12 +241,25 @@ export default class AgentFiles extends View {
     return s;
   }
 
-  pick(it, _cx) {
-    if (!it) return;
+  // The popup stays open (「開啟中…」) while the file is being opened: Herdr drops a closed popup's unfinished work.
+  pick(it, cx) {
+    if (!it || this.opening) return;
     const t = this.target();
-    this.close();
-    if (!t) return;
-    openFile(t, it.path).catch((e) => notify({ title: "開不起來", body: String(e?.message ?? e), level: "error" }));
+    if (!t) return this.dismiss();
+    this.opening = it.path;
+    cx.notify();
+    let closed = false;
+    const close = () => { if (!closed) { closed = true; this.dismiss(); } };
+    cx.spawn(async (cx) => {
+      try { await openFile(t, it.path, close); }
+      catch (e) {
+        close();
+        notify({ title: "開不起來", body: String(e?.message ?? e), level: "error" });
+      }
+      close();
+      this.opening = null;
+      cx.notify();
+    });
   }
 
   render() {
@@ -268,7 +286,9 @@ export default class AgentFiles extends View {
       .child(div().flex_1().truncate().text_color(it.exists === false ? t.dim : t.foreground).child(this.shown(it.path) + (it.exists === false ? "（已不在）" : "")));
 
     const who = tg ? `${tg.name} · ${tg.address}${this.list.length > 1 ? `（Tab 換下一個，共 ${this.list.length} 個）` : ""}` : "";
-    const body = this.error
+    const body = this.opening
+      ? div().p(10).text_color(t.dim).child(`開啟中…  ${this.shown(this.opening)}`)
+      : this.error
       ? div().p(10).text_color(t.blocked).child(this.error)
       : this.loading ? div().p(10).text_color(t.dim).child("讀取中…")
       : !rows.length ? div().p(10).text_color(t.dim).child(this.filter ? "沒有符合的檔" : (this.data?.note || "agent 還沒讀過或改過檔案，git 也沒有改動"))
@@ -289,7 +309,7 @@ export default class AgentFiles extends View {
       .w_full().min_h(0).p(18).gap(10).bg(t.popover).text_size(13)
       .on_key_down((e, cx) => {
         const k = e.key;
-        if (k === "escape") return this.close();
+        if (k === "escape") return this.dismiss();
         if (k === "down" && rows.length) this.at = (this.at + 1) % rows.length;
         else if (k === "up" && rows.length) this.at = (this.at + rows.length - 1) % rows.length;
         else if (k === "tab" && this.list.length > 1) { this.which = (this.which + 1) % this.list.length; this.load(cx); }
@@ -301,7 +321,7 @@ export default class AgentFiles extends View {
         .child(div().flex_none().text_size(15).font_semibold().text_color(t.foreground).child("agent 讀過／改過的檔"))
         .child(div().flex_1().truncate().text_size(11).text_color(t.dim).child(who))
         .child(div().id("af-esc").px(6).py(2).rounded(5).text_size(11).text_color(t.dim).cursor_pointer()
-          .hover((s) => s.bg(t.hover).text_color(t.foreground)).on_click(() => this.close()).child("Esc")))
+          .hover((s) => s.bg(t.hover).text_color(t.foreground)).on_click(() => this.dismiss()).child("Esc")))
       .child(h_flex().h(36).flex_none().px(10).items_center().rounded(9).border_1().border_color(t.accent).bg(t.background)
         .child(Input.new(this.input).flex_1().h_full().text_size(12.8).text_color(t.foreground)))
       .child(body);

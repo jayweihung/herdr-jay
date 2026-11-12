@@ -19,6 +19,8 @@ jayweihung 的 Herdr 通用 mod 與設定。
 | **Linux server** as a Herdr machine over ssh / Linux server 當遠端機器 | [docs/linux-remote.md](docs/linux-remote.md) |
 | **nvim-jay** features, keys, macOS vs Windows, security / nvim 功能 | [docs/nvim.md](docs/nvim.md) |
 | **Gerrit panel**: dashboard, change details, notifications / Gerrit 面板 | [docs/gerrit.md](docs/gerrit.md) |
+| **kit in Herdr**: Kit button on every agent pane, repository and Agents panels / kit 面板 | [docs/kit.md](docs/kit.md) |
+| **jay's layout** / jay 的畫面排法 | [docs/layout.md](docs/layout.md) |
 | New Herdr default keys per release / 各版新增的預設按鍵 | [docs/keys.md](docs/keys.md) |
 | Patches to Herdr's source / 對 Herdr 原始碼的修改 | [docs/patches.md](docs/patches.md) |
 | What changed in herdr-jay / 更新紀錄 | [CHANGELOG.md](CHANGELOG.md) |
@@ -29,8 +31,9 @@ jayweihung 的 Herdr 通用 mod 與設定。
 |---|---|
 | `herdr-app/mods/nvim-jay` | Neovim beside your agent: follow the agent's files, live diff, file tree, comments to the agent, LSP, mouse |
 | `herdr-app/mods/nvim-jay-agent-files` | `cmd-o` / `ctrl-shift-j`: jump to the nvim-jay pane and list the files the agent read or edited |
+| `herdr-app/mods/kit` | kit (a separate tool, with `kit api`) in Herdr: a Kit button and the context cell on every agent pane, the repository (rules / skills / MCP) and Agents panels ([docs/kit.md](docs/kit.md)) |
 | `herdr-app/mods/gerrit` | Gerrit beside your agents: 輪到你 / 我送出的 / 等我 review…, a change's votes, comment threads and files, notifications ([docs/gerrit.md](docs/gerrit.md)) |
-| `herdr-app/layouts/jay.json` | jay's layout: Agents / Kit / Gerrit buttons and panels, the Kit bar on every terminal ([docs/layout.md](docs/layout.md)) |
+| `herdr-app/layouts/jay.json`, `jay-win.json` | jay's layout (macOS, Windows): Agents / Kit / Gerrit buttons and panels, the Kit bar on every terminal ([docs/layout.md](docs/layout.md)) |
 | `herdr-core/patches/<tag>/`, `herdr-app/patches/<tag>/` | changes to Herdr's own source (only what a mod can't do), one folder per official tag |
 | `docs/` | the guides above |
 

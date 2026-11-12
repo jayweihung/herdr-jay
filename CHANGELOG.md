@@ -2,8 +2,68 @@
 
 Newest first. Each entry says what you need to do on your machine.
 最新的在上面；每條寫了要做什麼。
-Needs: **mods** = copy the two mod folders again (macOS symlinks: nothing) · **gerrit** = copy the Gerrit panel again
+Needs: **mods** = copy the mod folders again (macOS symlinks: nothing) · **gerrit** = copy the Gerrit panel again
 (only if you installed it) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/keys.md).
+
+## 2026-11-12 (kit mod, nvim-jay)
+
+Needs: **mods** (new folders, old ones removed), **keys** (two lines), **snap hook** (one line in Claude Code's
+`settings.json`), **kit** (a version with `kit api`, if you use kit), **layout** (Windows, jay's layout); then quit
+and reopen Herdr.
+要做：mods（新資料夾、刪掉舊的）、keys（兩行）、snap hook（Claude Code settings.json 一行）、kit 升到有 `kit api` 的版本（有用 kit 的話）、layout（Windows）；最後重開 Herdr。
+
+- **jay-nvim is now nvim-jay**, **jay-nvim-pick is now nvim-jay-agent-files** (same features: `cmd-o` / Windows
+  `ctrl-shift-j` jumps to nvim and lists the files the agent read or edited). Everything moved with the names: the
+  mod folders, `tests/nvim-jay`, `~/.cache/nvim-jay` (the old `~/.cache/jay-nvim` can be deleted; it is made again),
+  `~/.config/nvim-jay/snap_hook.lua`, `~/.config/nvim-jay/root_view`. The `.herdr-jay` marker keeps its name.
+  jay-nvim 改名 nvim-jay，jay-nvim-pick 改名 nvim-jay-agent-files，功能不變；快取、hook 檔的路徑也跟著改。
+- **The kit mod is here now** (`herdr-app/mods/kit`, [docs/kit.md](docs/kit.md)): what an older kit installed itself
+  as three mods (`kit`, `kit-agents`, `kit-pane`) is one mod `kit` with a role per part (the pane header is
+  `{ "mod": "kit", "props": { "role": "header" } }`). It runs `kit` from PATH (`kit.cmd` on Windows); no
+  `config.json`. It needs **kit with `kit api`** (after 0.2.0): with an older kit the panels say 「kit 太舊」
+  (`kit self-update`); with a kit newer than the mod, 「Herdr 的 kit mod 太舊」 (update herdr-jay). kit's own
+  `kit herdr-panel install` is gone; don't run it any more.
+  kit 的 Herdr 面板搬到 herdr-jay：三個 mod 合成一個 `kit`，用 PATH 上的 kit，要有 `kit api` 的 kit（0.2.0 之後）。
+- jay's layouts (`jay.json`, `jay-win.json`) use the `kit` mod and its roles.
+
+What to do / 要做的事:
+
+1. **kit** (only if you use it): `kit self-update` on this computer and on every machine where agents run, until
+   `kit api` prints `1`.
+   有用 kit：每台都 `kit self-update`，直到 `kit api` 印出 `1`。
+2. **mods**. macOS (links):
+
+   ```sh
+   cd ~/.config/herdr-app/mods
+   rm -f jay-nvim jay-nvim-pick                 # the old links
+   rm -rf kit-agents kit-pane                   # an older kit's mods, now part of kit
+   [ -L kit ] || rm -rf kit                     # an older kit's own copy of kit
+   ln -sfn ~/src/herdr-jay/herdr-app/mods/nvim-jay ~/src/herdr-jay/herdr-app/mods/nvim-jay-agent-files .
+   ln -sfn ~/src/herdr-jay/herdr-app/mods/kit .   # only if you use kit
+   ```
+
+   Windows: [windows.md §8.4](docs/windows.md#84-mods) (removes `jay-nvim`, `jay-nvim-pick`, `kit`, `kit-agents`,
+   `kit-pane`, copies `nvim-jay`, `nvim-jay-agent-files` and, if you use kit, `kit`); jay's layout: the Windows block
+   in [layout.md](docs/layout.md) again.
+   Mac 重新連結；Windows 照 §8.4 刪掉舊資料夾、複製新的。
+3. **keys**: in `keys.json` the two lines become (macOS `cmd-e` / `cmd-o`, Windows `ctrl-shift-i` / `ctrl-shift-j`):
+
+   ```json
+   "cmd-e": "mod.open:nvim-jay",
+   "cmd-o": "mod.open:nvim-jay-agent-files",
+   ```
+
+   keys.json 那兩行改成新名字。
+4. **snap hook**, on every machine where you added it (the PC, a Mac, a Linux server): in Claude Code's
+   `settings.json` (`~/.claude/settings.json`; Windows `%USERPROFILE%\.claude\settings.json`) the PreToolUse command's
+   path `~/.config/jay-nvim/snap_hook.lua` becomes `~/.config/nvim-jay/snap_hook.lua` (keep the rest of the line:
+   the `nvim` path, Windows' `<home>`). Open nvim-jay once on that machine first: it writes the new file. Without
+   the change the old hook keeps its copies where the new nvim-jay doesn't look (no red / green for Bash edits
+   outside a repo). Then restart Claude Code (or `/hooks`). A `~/.config/jay-nvim/root_view` moves to
+   `~/.config/nvim-jay/root_view`; the old `~/.config/jay-nvim` and `~/.cache/jay-nvim` can be deleted.
+   每台有裝 snap hook 的機器：先開一次 nvim-jay（寫出新的 hook 檔），再把 settings.json 裡那一行的路徑 jay-nvim 改成 nvim-jay，重開 Claude Code。
+5. Quit and reopen Herdr; `herdr-app check` each mod.
+   重開 Herdr。
 
 ## 2026-11-12 (folders)
 

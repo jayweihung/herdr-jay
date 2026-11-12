@@ -1,11 +1,11 @@
 # Herdr + herdr-jay on macOS / 在 Mac 上用
 
-Build Herdr from the official source (plus jay's text patches), then install two mods.
+Build Herdr from the official source (plus jay's text patches), then install two mods (and the kit mod if you use kit).
 jay's own Mac is built from these same public sources and patches (jay keeps private forks of the two Herdr repos
 with the same patches applied; the result is the same). Checked on Apple Silicon with only the Command Line Tools
 (no full Xcode), Herdr app v0.1.15 and core v0.1.20. Intel Macs are fine too: the official releases are
 Apple-Silicon-only, so building from source is the way there.
-從官方原始碼 build Herdr（加上 jay 的文字補丁），再裝兩個 mod。jay 自己的 Mac 就是這樣裝的。
+從官方原始碼 build Herdr（加上 jay 的文字補丁），再裝兩個 mod（有用 kit 再加 kit 的 mod）。jay 自己的 Mac 就是這樣裝的。
 
 | Step / 步驟 | |
 |---|---|
@@ -147,7 +147,7 @@ TypeScript starts only in projects that have `node_modules/typescript`.
 
 ```sh
 cd ~/.config/herdr-app/mods
-ln -s ~/src/herdr-jay/herdr-app/mods/nvim-jay ~/src/herdr-jay/herdr-app/mods/nvim-jay-agent-files .
+ln -sfn ~/src/herdr-jay/herdr-app/mods/nvim-jay ~/src/herdr-jay/herdr-app/mods/nvim-jay-agent-files .
 ```
 
 Symlinks follow `git pull` in herdr-jay (jay's setup). Copying (`cp -R`) works too, but then copy again after each update.
@@ -168,6 +168,19 @@ Herdr reloads `keys.json` by itself. Once edited, new Herdr versions no longer a
 ```sh
 herdr-app check ~/.config/herdr-app/mods/nvim-jay
 herdr-app check ~/.config/herdr-app/mods/nvim-jay-agent-files
+```
+
+**kit** (optional, only if you use kit, a version where `kit api` prints `1`; installed per kit's own guide): the
+`kit` mod puts kit's buttons on every agent pane and its panels in the window ([kit.md](kit.md)); it goes with jay's
+layout ([layout.md](layout.md), which has the same link step):
+kit 的 mod（選用，有裝 kit 才要），配 jay 的 layout：
+
+```sh
+cd ~/.config/herdr-app/mods
+rm -rf kit-agents kit-pane            # an older kit's own mods, now part of kit
+[ -L kit ] || rm -rf kit              # an older kit's own copy of kit (a folder, not a link)
+ln -sfn ~/src/herdr-jay/herdr-app/mods/kit .
+herdr-app check ~/.config/herdr-app/mods/kit
 ```
 
 ---
@@ -247,5 +260,6 @@ A version folder holding only `README.md` means jay checked that tag and it need
 `git am --abort`, run the block again with your old `tag` (the `hc --version` / `herdr-app --version` number with a
 `v` in front), and bring the message to jay.
 
-Then: new default keys from [docs/keys.md](keys.md); quit and reopen Herdr; `herdr-app check` both mods. With
-symlinks the mods are already current (copied: copy again).
+Then: new default keys from [docs/keys.md](keys.md); quit and reopen Herdr; `herdr-app check` each mod (`nvim-jay`,
+`nvim-jay-agent-files`, and `kit`, `gerrit` if you use them). With symlinks the mods are already current (copied:
+copy again). A mod that was renamed or merged (the CHANGELOG says which): link the new folder, remove the old link.

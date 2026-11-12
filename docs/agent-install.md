@@ -28,7 +28,7 @@ jay 請 agent 幫忙裝：Windows 本機 + 用 ssh 連的 Linux server，全部�
 
 | # | Where | What | Guide |
 |---|---|---|---|
-| 1 | PC | Windows steps 0–5 (5a comes in row 2, at §6 step 3): Git, tools, herdr-core, herdr-app, Neovim, herdr-jay mods + keys | [windows.md](windows.md) |
+| 1 | PC | Windows steps 0–5 (5a comes in row 2, at §6 step 3; §5 steps 5–6, kit and the layout, only in row 9): Git, tools, herdr-core, herdr-app, Neovim, herdr-jay mods (`nvim-jay`, `nvim-jay-agent-files`) + keys | [windows.md](windows.md) |
 | 2 | PC | Windows step 6 checklist (jay presses the keys; you read the screens / `:messages`) | [windows.md §6](windows.md#6-test-checklist--實測清單) |
 | 3 | PC → server | ssh key; `ssh <user>@<server> echo ok` without a password | [linux-remote.md §1](linux-remote.md#1-ssh-key--ssh-金鑰) |
 | 4 | PC → server | herdr-core at the README tag + patches built on the PC for Linux (`x86_64-unknown-linux-musl`), copied to `~/.local/bin/herdr-core` (+ `hc` link), restarted | [linux-remote.md §2](linux-remote.md#2-herdr-core-for-the-server-built-on-the-pc--server-的-core在-pc-上-build) |
@@ -36,7 +36,7 @@ jay 請 agent 幫忙裝：Windows 本機 + 用 ssh 連的 Linux server，全部�
 | 6 | PC (jay clicks) | Settings → Add machine; never run `hc machine add` / `hc machine update` it may suggest, answer **n** to "Copy this hc" | [linux-remote.md §2b](linux-remote.md#2b-add-the-machine--加機器) |
 | 7 | both | linux-remote §5 test, with an agent running on the server | [linux-remote.md §5](linux-remote.md#5-try-nvim-jay-there--試-nvim-jay) |
 | 8 | server | Snap hook (PC already done in row 2): if a Claude Code agent runs on the server, after nvim-jay has opened there once, merge the PreToolUse hook into that machine's `~/.claude/settings.json` (keep its other settings; back it up first) | [windows.md §5a](windows.md#5a-snap-hook-for-claude-code--snap-hook), [linux-remote.md §4](linux-remote.md#4-agents-on-the-server--server-上的-agent), [nvim.md §7](nvim.md#7-snapshots-for-bash-edits-optional--bash-改檔的快照選用) |
-| 9 | PC (only if jay asks) | jay's layout: kit from the **company** Git server (agentkit `docs/company.md`), then the layout | [layout.md](layout.md) |
+| 9 | PC (only if jay asks) | jay's layout: kit itself from the **company** Git server (kit's own guide; a version where `kit api` prints `1`), the `kit` mod (windows.md §5 step 5), then the layout | [kit.md](kit.md), [layout.md](layout.md) |
 
 Server steps run through ssh from the PC, e.g. `ssh <user>@<server> 'bash -lc "…"'`, or in a Herdr tab on that
 machine once step 6 is done. A long build: run it in a Herdr terminal on the server (it survives a dropped ssh).

@@ -338,8 +338,21 @@ Optional, for go-to-definition and errors (skip if Node or Python are not allowe
    herdr-app check "$h\mods\nvim-jay" | Out-Host
    herdr-app check "$h\mods\nvim-jay-agent-files" | Out-Host
    ```
-5. Optional / 選用: jay's layout (Agents / Kit / Gerrit buttons; needs kit) → [layout.md](layout.md); the Gerrit panel →
-   [gerrit.md](gerrit.md). 想要 jay 的畫面排法看 layout.md。
+5. Optional, only if you use **kit** (installed per kit's own guide, a version with `kit api`: `kit api` prints `1`)
+   / 選用，有用 kit 才要：the `kit` mod (Kit buttons on every agent pane, the repository and Agents panels,
+   [kit.md](kit.md)). It needs a layout with kit in it: jay's layout, the next step.
+
+   ```powershell
+   $j = "$env:USERPROFILE\src\herdr-jay"
+   $h = if ($env:HERDR_APP_HOME) { $env:HERDR_APP_HOME } elseif ($env:XDG_CONFIG_HOME) { "$env:XDG_CONFIG_HOME\herdr-app" } else { "$env:USERPROFILE\.config\herdr-app" }
+   Remove-Item -Recurse -Force "$h\mods\kit", "$h\mods\kit-agents", "$h\mods\kit-pane" -ErrorAction SilentlyContinue   # an older kit's own copies
+   Copy-Item -Recurse -Force "$j\herdr-app\mods\kit" "$h\mods\"
+   herdr-app check "$h\mods\kit" | Out-Host       # check passed
+   ```
+
+   kit 的 mod：有裝 kit（有 `kit api` 的版本）才放；要配 jay 的 layout（下一步）。
+6. Optional / 選用: jay's layout (Agents / Kit / Gerrit buttons; needs kit and the kit mod above) → [layout.md](layout.md); the
+   Gerrit panel → [gerrit.md](gerrit.md). 想要 jay 的畫面排法看 layout.md。
 
 ### 5a. Snap hook for Claude Code / snap hook
 
@@ -447,7 +460,9 @@ What gets updated, and where / 要更新的東西：
 | herdr-jay | PC | `git pull` (8.1) | first, always |
 | herdr-core | PC (Windows) **and** the Linux server | build the README tag + patches for both, install / copy (8.2, 8.3) | the README table names a new core |
 | Herdr app | PC | build the README tag + patches (8.2) | the README table names a new app |
-| nvim-jay mods | PC (they open nvim on the server too) | copy the two folders (8.4) | the CHANGELOG says **mods** |
+| nvim-jay mods (`nvim-jay`, `nvim-jay-agent-files`) | PC (they open nvim on the server too) | copy the two folders (8.4) | the CHANGELOG says **mods** |
+| kit mod (optional) | PC (it asks kit on the server too) | copy `mods\kit` (8.4) | the CHANGELOG says **mods** |
+| kit itself (optional) | PC and every machine where agents run | kit's own guide (`kit self-update`) | the CHANGELOG or the kit panel says so |
 | Gerrit panel (optional) | PC | copy `mods\gerrit` (8.4) | the CHANGELOG says **gerrit** |
 | Neovim | PC (Windows build) and the server (**built on the server** from source) | new version (8.5) | only when the README says so (needs ≥ 0.11) |
 | pyright (optional) | the server | [linux-remote.md §3b](linux-remote.md#3b-python-go-to-definition-pyright-optional--python-跳定義選用) with the new version | only when the README says so |
@@ -539,15 +554,24 @@ PC 的 core 更新完，用同一份原始碼 build Linux 版，複製到 server
 
 ### 8.4 Mods
 
-Remove the old folders first so deleted files don't linger:
+Remove the old folders first so deleted files don't linger (`jay-nvim`, `jay-nvim-pick`: the names before 2026-11-12):
 
 ```powershell
 $j = "$env:USERPROFILE\src\herdr-jay"; $h = if ($env:HERDR_APP_HOME) { $env:HERDR_APP_HOME } elseif ($env:XDG_CONFIG_HOME) { "$env:XDG_CONFIG_HOME\herdr-app" } else { "$env:USERPROFILE\.config\herdr-app" }
-Remove-Item -Recurse -Force "$h\mods\nvim-jay", "$h\mods\nvim-jay-agent-files" -ErrorAction SilentlyContinue
+Remove-Item -Recurse -Force "$h\mods\nvim-jay", "$h\mods\nvim-jay-agent-files", "$h\mods\jay-nvim", "$h\mods\jay-nvim-pick" -ErrorAction SilentlyContinue
 Copy-Item -Recurse -Force "$j\herdr-app\mods\nvim-jay", "$j\herdr-app\mods\nvim-jay-agent-files" "$h\mods\"
 Set-Content -Encoding ascii "$h\mods\nvim-jay\.herdr-jay" (git -C $j describe --tags --always --match "for-herdr-v*-r*")
 herdr-app check "$h\mods\nvim-jay" | Out-Host
 herdr-app check "$h\mods\nvim-jay-agent-files" | Out-Host
+```
+
+kit mod, only if you use kit ([kit.md](kit.md)); `kit-agents` and `kit-pane` are an older kit's, now part of `kit`:
+
+```powershell
+$j = "$env:USERPROFILE\src\herdr-jay"; $h = if ($env:HERDR_APP_HOME) { $env:HERDR_APP_HOME } elseif ($env:XDG_CONFIG_HOME) { "$env:XDG_CONFIG_HOME\herdr-app" } else { "$env:USERPROFILE\.config\herdr-app" }
+Remove-Item -Recurse -Force "$h\mods\kit", "$h\mods\kit-agents", "$h\mods\kit-pane" -ErrorAction SilentlyContinue
+Copy-Item -Recurse -Force "$j\herdr-app\mods\kit" "$h\mods\"
+herdr-app check "$h\mods\kit" | Out-Host
 ```
 
 Gerrit panel, only if you installed it ([gerrit.md](gerrit.md)): the same for `mods\gerrit`, then quit and reopen Herdr

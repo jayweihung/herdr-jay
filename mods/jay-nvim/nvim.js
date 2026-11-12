@@ -185,40 +185,127 @@ function P.tree(pid, max)
   end
   return out
 end
--- The Claude Code session of the agent in a pane: the table in ~/.claude/sessions/<pid>.json for the pane's
--- foreground pid, else the first process under the pane's process that has one (unix under sudo: no foreground;
--- Windows: Herdr starts agents through pwsh or npm's claude.cmd, so the foreground is the shell).
--- Windows, when that finds nothing: the live session whose folder is the pane's, active last. shortcut: two Claude
--- Codes in one folder may then swap.
+-- A small JSON file as a table (nil: missing, not a plain file, over max bytes, or not JSON). libuv, not io.open:
+-- on Windows io.open goes through the ANSI code page (a non-English user name).
+local function read_json(f, max)
+  local st = vim.uv.fs_lstat(f)
+  if not st or st.type ~= "file" or st.size > (max or 65536) then return nil end
+  local fd = vim.uv.fs_open(f, "r", 0)
+  local data = fd and vim.uv.fs_read(fd, st.size, 0)
+  if fd then vim.uv.fs_close(fd) end
+  local ok, d = pcall(vim.json.decode, data or "")
+  return ok and type(d) == "table" and d or nil
+end
+-- When a Claude Code (or a process it runs under) started, in epoch seconds, or nil when not cheaply known.
+-- Newer Claude Codes keep ~/.claude/sessions/<pid>.<x>.key from their start: only its date is looked at (never its
+-- content, a secret). Linux: also /proc (the start in clock ticks after boot; 100 a second).
+local BOOT
+function P.started(pids, first)
+  local dir, want = P.home .. "/.claude/sessions", {}
+  for _, p in ipairs(pids) do want[tostring(p)] = true end
+  for name in vim.fs.dir(dir) do
+    local p = name:match("^(%d+)%.[^/\\]*%.key$")
+    local st = p and want[p] and vim.uv.fs_lstat(dir .. "/" .. name)
+    if st and st.type == "file" then
+      return (st.birthtime and st.birthtime.sec > 0) and st.birthtime.sec or st.mtime.sec
+    end
+  end
+  if P.win or not first or not vim.uv.fs_stat("/proc/self/stat") then return nil end
+  if not BOOT then
+    local f = io.open("/proc/stat")
+    for l in f and f:lines() or function() end do
+      BOOT = tonumber(l:match("^btime%s+(%d+)"))
+      if BOOT then break end
+    end
+    if f then f:close() end
+  end
+  local f = io.open("/proc/" .. first .. "/stat")
+  local stat = f and f:read(4096) or ""
+  if f then f:close() end
+  local ticks = tonumber((vim.split(stat:match(".*%)%s+(.*)") or "", "%s+")[20]))
+  return BOOT and ticks and BOOT + math.floor(ticks / 100) or nil
+end
+-- Claude Code's transcript folder for a cwd: ~/.claude/projects/<cwd with every character but A-Z a-z 0-9 as "-">
+-- (one per JavaScript character: two for one outside the BMP); a name over 200 is cut there and gets a hash of
+-- its own after a "-", so then the one folder starting that way (none when two do).
+function P.project_dir(cwd)
+  local name = cwd:gsub("[%z\1-\127\192-\255][\128-\191]*", function(ch)
+    return ch:match("^[A-Za-z0-9]$") and ch or (#ch >= 4 and "--" or "-")
+  end)
+  local top = P.home .. "/.claude/projects/"
+  if #name <= 200 then
+    local st = vim.uv.fs_stat(top .. name)
+    return st and st.type == "directory" and top .. name or nil
+  end
+  local found = vim.fn.glob(top .. name:sub(1, 200) .. "-*", false, true) -- name is A-Z a-z 0-9 and "-" only
+  return #found == 1 and found[1] or nil
+end
+-- The Claude Code session of the agent in a pane, cheapest first:
+-- 1. ~/.claude/sessions/<pid>.json (Claude Code up to about 2.1.309) for the pane's foreground pid, else the first
+--    process under the pane's process that has one (unix under sudo: no foreground; Windows: Herdr starts agents
+--    through pwsh or npm's claude.cmd, so the foreground is the shell).
+-- 2. ~/.claude/daemon/roster.json (background and remote-control sessions): the worker whose pid or replPid is the
+--    foreground or under the pane. Only those fields and sessionId are looked at (it also holds tokens).
+-- 3. Windows: the live session in sessions/*.json whose folder is the pane's, active last.
+-- 4. The transcript folder of the agent's cwd (the foreground's, else the pane's): its newest <id>.jsonl, changed
+--    since that Claude Code started (when known, else in the last 24 h). /clear starts a new one: newest follows it.
+--    Not on unix without a foreground (sudo: the root view's case).
+-- shortcut (3, 4): two Claude Codes in one folder may swap.
+-- Returns { sessionId = id } (1-3: the log is projects/*/<id>.jsonl) or { sessionId = id, log = path } (4).
 function P.session(info, t)
-  local function read(f)
-    local h = io.open(f)
-    if not h then return nil end
-    local ok, d = pcall(vim.json.decode, h:read("*a"))
-    h:close()
-    return ok and type(d) == "table" and d or nil
-  end
   local dir = P.home .. "/.claude/sessions/"
-  local pid = type(info) == "table" and type(info.foreground) == "table" and tonumber(info.foreground.pid)
-  local s = pid and read(dir .. pid .. ".json")
+  info = type(info) == "table" and info or {}
+  local fg = type(info.foreground) == "table" and info.foreground or {}
+  local pid, top = tonumber(fg.pid), tonumber(info.pid)
+  local s = pid and read_json(dir .. pid .. ".json")
   if s then return s end
-  local top = type(info) == "table" and tonumber(info.pid)
-  for _, c in ipairs(top and P.tree(top, 64) or {}) do
-    if vim.uv.fs_stat(dir .. c .. ".json") then
-      s = read(dir .. c .. ".json")
-      if s then return s end
+  local tree = top and P.tree(top, 64) or {}
+  for _, c in ipairs(tree) do
+    s = read_json(dir .. c .. ".json")
+    if s then return s end
+  end
+  local mine, pids = {}, {}
+  for _, p in ipairs(vim.list_extend({ pid or false, top or false }, tree)) do
+    if p and not mine[p] then mine[p], pids[#pids + 1] = true, p end
+  end
+  local roster = read_json(P.home .. "/.claude/daemon/roster.json", 1048576)
+  for _, w in pairs(type(roster) == "table" and type(roster.workers) == "table" and roster.workers or {}) do
+    if type(w) == "table" and type(w.sessionId) == "string"
+      and (mine[tonumber(w.pid) or false] or mine[tonumber(w.replPid) or false]) then
+      return { sessionId = w.sessionId }
     end
   end
-  if not P.win or type(t.cwd) ~= "string" then return nil end
-  local want = P.key(t.cwd):gsub("/$", "")
-  for _, f in ipairs(vim.fn.glob(dir .. "*.json", false, true)) do
-    local d = read(f)
-    if d and type(d.cwd) == "string" and type(d.pid) == "number" and P.key(d.cwd):gsub("/$", "") == want
-      and vim.uv.kill(d.pid, 0) == 0 and (not s or (tonumber(d.updatedAt) or 0) > (tonumber(s.updatedAt) or 0)) then
-      s = d
+  if P.win and type(t.cwd) == "string" then
+    local want = P.key(t.cwd):gsub("/$", "")
+    for _, f in ipairs(vim.fn.glob(dir .. "*.json", false, true)) do
+      local d = read_json(f)
+      if d and type(d.cwd) == "string" and type(d.pid) == "number" and P.key(d.cwd):gsub("/$", "") == want
+        and vim.uv.kill(d.pid, 0) == 0 and (not s or (tonumber(d.updatedAt) or 0) > (tonumber(s.updatedAt) or 0)) then
+        s = d
+      end
     end
+    if s then return s end
   end
-  return s
+  -- unix without a foreground: an agent under sudo, whose log is root's (the pane's folder would give one of yours)
+  if P.sudo_check and not info.foreground then return nil end
+  local cwd = type(fg.cwd) == "string" and fg.cwd ~= "" and fg.cwd or type(t.cwd) == "string" and t.cwd ~= "" and t.cwd
+  if not cwd then return nil end
+  local proj = P.project_dir(cwd)
+  local real = not proj and vim.uv.fs_realpath(cwd)
+  proj = proj or (real and real ~= cwd and P.project_dir(real))
+  if not proj then return nil end
+  local start = P.started(pids, pid or top)
+  local since = start and start - 2 or os.time() - 86400
+  local best, bt, n = nil, nil, 0
+  for name in vim.fs.dir(proj) do
+    n = n + 1
+    if n > 5000 then break end
+    local id = name:match("^([%w%-_]+)%.jsonl$")
+    local st = id and vim.uv.fs_lstat(proj .. "/" .. name)
+    local at = st and st.type == "file" and st.mtime.sec + st.mtime.nsec / 1e9
+    if at and at >= since and (not bt or at > bt) then best, bt = { sessionId = id, log = proj .. "/" .. name }, at end
+  end
+  return best
 end
 -- The Herdr pane of another process (for "another nvim has this file"): Linux reads its environment; elsewhere unknown.
 function P.pane_of_pid(pid)
@@ -600,14 +687,27 @@ local function with_agent(cb)
     function(t) if t then cb(t) end end)
 end
 
--- Claude Code keeps ~/.claude/sessions/<pid>.json -> sessionId; the log is projects/*/<id>.jsonl.
+-- The agent's log: ~/.claude/projects/<folder>/<sessionId>.jsonl (P.session finds the id, or the file itself).
 local TOOLS = { Read = "讀", Edit = "改", MultiEdit = "改", NotebookEdit = "改", Write = "寫" }
+-- Only a plain file really inside ~/.claude/projects (no link, also no linked folder, leading out of it).
+local function in_projects(f)
+  local top, real, st = vim.uv.fs_realpath(home .. "/.claude/projects"), vim.uv.fs_realpath(f), vim.uv.fs_lstat(f)
+  if not (top and real and st and st.type == "file") then return nil end
+  top = P.key(top):gsub("/$", "")
+  return P.key(real):sub(1, #top + 1) == top .. "/" and f or nil
+end
 local function session_log(t)
   if not is_claude(t) or t.address:find("/") then return nil end
   local s = P.session(hc({ "get", t.address }), t)
   -- the id goes into a glob: only an id's own characters
   local id = s and type(s.sessionId) == "string" and s.sessionId:match("^[%w%-_]+$")
-  return id and vim.fn.glob(("%s/.claude/projects/*/%s.jsonl"):format(home, id), false, true)[1]
+  if not id then return nil end
+  if type(s.log) == "string" then
+    return vim.fs.basename(s.log) == id .. ".jsonl" and in_projects(s.log) or nil
+  end
+  for _, f in ipairs(vim.fn.glob(("%s/.claude/projects/*/%s.jsonl"):format(home, id), false, true)) do
+    if in_projects(f) then return f end
+  end
 end
 
 -- An agent started under sudo: hc can't see its foreground and its log is root's, so nothing can be followed.
@@ -1132,7 +1232,8 @@ end
 -- for tests (tests/jay-nvim): the follow pieces, run without Herdr
 JN.test = { abs_paths = P.abs_paths, paths_in = paths_in, scan = scan, scan_root = scan_root, new_state = new_state,
   bash_changed = bash_changed, edit_line = edit_line, show_root = show_root, follow = follow, follow_tick = follow_tick,
-  session = P.session, git = git, run_wait = run_wait, head_lines = head_lines, hc_quiet = HC_QUIET, git_stuck = GIT_STUCK }
+  session = P.session, session_log = session_log, started = P.started, git = git, run_wait = run_wait,
+  head_lines = head_lines, hc_quiet = HC_QUIET, git_stuck = GIT_STUCK }
 new_timer():start(1000, 1000, vim.schedule_wrap(function() pcall(follow_tick) end))
 -- Title bar above each file: its path, and whether the agent is reading or editing it right now.
 function JN.bar()

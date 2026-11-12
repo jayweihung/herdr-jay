@@ -18,6 +18,14 @@ Needs: **core** (build v0.1.20, no patches), **app** (build v0.1.15), in that or
 - macOS: terminals opened by a core older than 0.1.20 can still end when Herdr quits. Install core first; after
   that, close and reopen old terminals when convenient (or restart the Mac).
 - First tag checked on both OSes will now be `for-herdr-v0.1.15-r1`.
+- **jay-nvim finds newer Claude Code's session** ([docs/nvim.md](docs/nvim.md)). Needs **mods** (macOS symlinks:
+  nothing; reopen the nvim pane). Claude Code 2.1.322 no longer writes `~/.claude/sessions/<pid>.json`, so follow
+  found nothing. Now, after that file: Claude Code's `~/.claude/daemon/roster.json` (background / remote-control
+  sessions: the worker whose `pid` or `replPid` is the agent or under the pane), then, on every system, the agent's
+  transcript folder `~/.claude/projects/<cwd with non-A-Z a-z 0-9 as ->`: the newest log changed since that Claude
+  Code started (else in the last 24 h); `/clear`'s new log is followed. Two Claude Codes in one folder may swap.
+  Only a plain file inside `~/.claude/projects` is followed (no link out of it). Snap hook unchanged.
+  新版 Claude Code 不再寫 `sessions/<pid>.json`，跟檔改從 roster 或 agent 所在資料夾找對話紀錄。
 - **jay-nvim follow fixes** ([docs/nvim.md](docs/nvim.md)). Needs **mods** (macOS symlinks: nothing; reopen the nvim
   pane). Follow keeps going after a Bash command that fails, follows a background Bash when it ends, follows
   sub-agents (Task), opens a new file the agent writes once it is there, prefers the files a Bash command names over

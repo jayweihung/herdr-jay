@@ -343,6 +343,98 @@ test("git budget", function()
   check("next round: git again", not T.git_stuck.on and T.git(repo, { "rev-parse", "--show-toplevel" }):wait().code == 0)
 end)
 
+-- Finding a Claude Code's session, each source: sessions/<pid>.json (older Claude Code), the daemon's roster
+-- (background / remote-control sessions), the transcript folder of the agent's cwd (Claude Code 2.1.322+).
+test("session sources", function()
+  local S = T.session
+  local sess, proj = HOME .. "/.claude/sessions", HOME .. "/.claude/projects"
+  local me, child = vim.fn.getpid(), vim.system({ "sleep", "30" }) -- a process under this nvim, as under a pane
+  local nobody = { pid = 999999, foreground = { pid = 999998 } }
+  -- 1
+  write(sess .. "/5151.json", vim.json.encode({ sessionId = "old-1", pid = 5151 }))
+  local s = S({ pid = 1, foreground = { pid = 5151 } }, {})
+  check("sessions/<pid>.json of the foreground", s and s.sessionId == "old-1", s)
+  write(sess .. "/" .. child.pid .. ".json", vim.json.encode({ sessionId = "old-2", pid = child.pid }))
+  s = S({ pid = me }, {})
+  check("sessions/<pid>.json of a process under the pane", s and s.sessionId == "old-2", s)
+  os.remove(sess .. "/" .. child.pid .. ".json")
+  -- 2
+  local roster = HOME .. "/.claude/daemon/roster.json"
+  write(roster, "{not json")
+  check("roster malformed: no error, nothing", S(nobody, {}) == nil)
+  write(roster, vim.json.encode({ workers = {
+    a = { pid = 7001, replPid = 7002, sessionId = "ros-1", cwd = "/x", token = "SECRET" },
+    b = { pid = child.pid, sessionId = "ros-2", cwd = "/y", authToken = "SECRET" },
+    c = "junk" } }))
+  s = S({ pid = 1, foreground = { pid = 7002 } }, {})
+  check("roster: worker whose replPid is the foreground; only its sessionId kept", s and s.sessionId == "ros-1"
+    and vim.tbl_count(s) == 1, s)
+  s = S({ pid = me, foreground = { pid = 999998 } }, {})
+  check("roster: worker under the pane", s and s.sessionId == "ros-2", s)
+  check("roster: no worker of this pane: nothing", S(nobody, {}) == nil)
+  os.remove(roster)
+  -- 3: the transcript folder: every character but A-Z a-z 0-9 is "-" (ü: one)
+  local work = ROOT .. "/my proj.ü"
+  vim.fn.mkdir(work, "p")
+  local folder = proj .. "/" .. ROOT:gsub("[^A-Za-z0-9]", "-") .. "-my-proj--"
+  local now = os.time()
+  local function log(name, age)
+    write(folder .. "/" .. name, "")
+    vim.uv.fs_utime(folder .. "/" .. name, now - age, now - age)
+  end
+  local at_work = { pid = 999999, foreground = { pid = 999998, cwd = work } }
+  log("aaa-old.jsonl", 2 * 86400)
+  check("folder: only a log older than 24 h: nothing", S(at_work, {}) == nil)
+  log("bbb-1.jsonl", 100)
+  log("ccc-2.jsonl", 50)
+  s = S(at_work, {})
+  check("folder: the newest log", s and s.sessionId == "ccc-2" and s.log == folder .. "/ccc-2.jsonl", s)
+  log("ddd-3.jsonl", 0)
+  s = S(at_work, {})
+  check("folder: /clear's new log wins", s and s.sessionId == "ddd-3", s)
+  s = S({ pid = 999999, foreground = { pid = 999998 } }, { cwd = work })
+  check("folder: the pane's cwd when the foreground's is unknown", s and s.sessionId == "ddd-3", s)
+  check("folder: no foreground (unix: an agent under sudo, the root view's case): nothing",
+    S({ pid = 999999 }, { cwd = work }) == nil)
+  vim.uv.fs_symlink(work, ROOT .. "/worklink")
+  s = S({ foreground = { cwd = ROOT .. "/worklink" } }, {})
+  check("folder: a linked cwd is looked up by its real path too", s and s.sessionId == "ddd-3", s)
+  write(ROOT .. "/outside.jsonl", "")
+  vim.uv.fs_symlink(ROOT .. "/outside.jsonl", folder .. "/eee-4.jsonl")
+  log("bad name.jsonl", 0)
+  vim.uv.fs_utime(folder .. "/bad name.jsonl", now + 5, now + 5)
+  s = S(at_work, {})
+  check("folder: a link or a name that is no id is never picked", s and s.sessionId == "ddd-3", s)
+  -- only logs changed since that Claude Code started (its <pid>.<x>.key: a date, never read)
+  for _, f in ipairs({ "bbb-1.jsonl", "ccc-2.jsonl", "ddd-3.jsonl" }) do log(f, 100) end
+  write(sess .. "/" .. child.pid .. ".abc.key", "x")
+  local started = T.started({ child.pid }, child.pid)
+  check("start from <pid>.<x>.key", started and math.abs(started - os.time()) <= 2, started)
+  local mine = { pid = 999999, foreground = { pid = child.pid, cwd = work } }
+  check("folder: logs from before the agent started: nothing", S(mine, {}) == nil)
+  vim.uv.fs_utime(folder .. "/ccc-2.jsonl", now + 1, now + 1)
+  s = S(mine, {})
+  check("folder: a log changed since the start", s and s.sessionId == "ccc-2", s)
+  os.remove(sess .. "/" .. child.pid .. ".abc.key")
+  if vim.uv.fs_stat("/proc/self/stat") then
+    started = T.started({}, child.pid)
+    check("start from /proc (Linux)", started and math.abs(started - os.time()) <= 5, started)
+  end
+  -- session_log end to end (fake hc): the file itself; a linked folder out of projects and a glob id are refused
+  write(FAKE .. "/get-t9.json", vim.json.encode({ pid = 999999, foreground = { pid = 999998, cwd = work } }))
+  local t9 = { address = "t9", agent = "claude-code" }
+  check("session_log: the folder's log", T.session_log(t9) == folder .. "/ccc-2.jsonl", T.session_log(t9))
+  write(ROOT .. "/outproj/sess-x.jsonl", "")
+  vim.uv.fs_symlink(ROOT .. "/outproj", proj .. "/linked")
+  write(sess .. "/6161.json", vim.json.encode({ sessionId = "sess-x" }))
+  write(FAKE .. "/get-t9.json", vim.json.encode({ pid = 999999, foreground = { pid = 6161 } }))
+  check("session_log: a log reached through a linked folder: refused", T.session_log(t9) == nil, T.session_log(t9))
+  write(sess .. "/6262.json", vim.json.encode({ sessionId = "*" }))
+  write(FAKE .. "/get-t9.json", vim.json.encode({ pid = 999999, foreground = { pid = 6262 } }))
+  check("session_log: an id that is no id (*): nothing", T.session_log(t9) == nil, T.session_log(t9))
+  child:kill(9)
+end)
+
 print(("%d checks, %d failed"):format(n, fails))
 write(ROOT .. "/result", fails == 0 and "pass" or "fail")
 vim.cmd("qa!")

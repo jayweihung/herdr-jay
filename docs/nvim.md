@@ -116,15 +116,24 @@ One `nvim.js` for both; all OS differences sit in its PLATFORM section ([5](#5-h
 | Herdr home | `~/.config/herdr-app` | `%USERPROFILE%\.config\herdr-app` |
 | Keys | `cmd-e`, `cmd-o` | `ctrl-shift-i`, `ctrl-shift-j` |
 | Launcher | `unix.js`: `/bin/sh` finds nvim in `~/.local/bin`, `/opt/homebrew/bin`, `/usr/local/bin`, `/usr/bin`; the Lua goes on the command line | `windows.js`: writes `mods\jay-nvim\.init.lua` (a command line holds at most 32767 characters), nvim `:source`s it; nvim from PATH |
-| Finding the agent's session | the pane's process (`~/.claude/sessions/<pid>.json`), or a process under it | a process under the pane's (agents run inside pwsh); if none: the live Claude Code session in the pane's start folder |
+| Finding the agent's session | the pane's process (`~/.claude/sessions/<pid>.json`, Claude Code up to about 2.1.309), or a process under it; then Claude Code's `~/.claude/daemon/roster.json` (background / remote-control sessions); then the agent's folder (below) | a process under the pane's (agents run inside pwsh); then the roster; then the live session in `sessions/*.json` whose folder is the pane's; then the agent's folder (below) |
 | Paths | as they are | one spelling (`C:/x/y`), case ignored when comparing |
 | Paths in Bash commands | `/abs/path`, `~/x`, `$HOME/x` | `C:\x`, `C:/x`, `/c/x`, `~\x`, `$HOME\x`, `$env:USERPROFILE\x` |
 | Agent running as root | follows root's copies if a root view is set up, else a one-line note ([6](#6-agent-running-as-root--agent-用-root-跑)) | — |
 | Pick key nvim receives | `<M-o>` (alt+o) | `<M-o>` (alt+o) |
 
-On Windows jay-nvim looks for the agent's session among the processes under the pane (not yet tested on a real
-Windows machine). If that finds none, it falls back to the folder: then start the agent in the folder the tab was
-opened in (no `cd` first), and two Claude Codes in the same folder may get mixed up.
+Newer Claude Code (2.1.322 on macOS) no longer writes `~/.claude/sessions/<pid>.json`, so on every system jay-nvim
+falls back to the agent's folder: Claude Code keeps its logs in `~/.claude/projects/<folder>/`, the folder being the
+agent's cwd (the agent process's own, else the pane's) with every character but A-Z, a-z, 0-9 turned into `-`
+(`/Users/me/my.app` → `-Users-me-my-app`, `C:\Users\x` → `C--Users-x`). It follows the newest `<id>.jsonl` there that changed
+since that Claude Code started (known from the date of its `sessions/<pid>.<x>.key` file, never its content, or on
+Linux from `/proc`; else: changed in the last 24 h). `/clear` starts a new log, and the newest one follows it.
+Shortcut: two Claude Codes in the same folder may get mixed up. Only a plain file really inside `~/.claude/projects`
+is read (no link leading out of it). Not for an agent under `sudo` (its log is root's; see
+[6](#6-agent-running-as-root--agent-用-root-跑)). On Windows the processes under the pane are not yet tested on a real
+Windows machine; start the agent in the folder the tab was opened in (no `cd` first) so the pane's folder is the
+agent's.
+新版 Claude Code 不再寫 `sessions/<pid>.json`：改找 agent 所在資料夾的對話紀錄，取最新的那個（同一資料夾開兩個 Claude Code 可能會搞混）。
 
 ## 5. How it is built / 程式結構
 

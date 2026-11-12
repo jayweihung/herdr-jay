@@ -127,6 +127,11 @@ change, up to the lists. 返回會回到上一頁（跟瀏覽器一樣）。
 
 Drag the panel's edge to make it as wide as you like (no limit).
 
+**Copying**: the subject, commit message, comments, change log and Jenkins log are text you can select with the mouse
+and copy (Cmd+C / Ctrl+C); a **right-click** copies one value (a row or the title: the change's link; its number; a
+project, branch, name, file path, `path:line`, patch set sha, link, diff line, the whole commit message or an error) and says 已複製.
+可以用滑鼠選文字再 Cmd+C／Ctrl+C 複製；在單一個值上按右鍵就直接複製它（會跳「已複製」）。
+
 **Click a file** → its diff (latest patch set against its parent), right in the panel: line numbers, removed lines
 red, added green, unchanged runs folded to 「⋯ N 行沒改（點開）」, the comments under their lines (with Done / Ack /
 回覆), and ↑ 上一個檔 / ↓ 下一個檔. **Click any line** to comment on it: 💬 送出留言（要對方處理）(unresolved) or

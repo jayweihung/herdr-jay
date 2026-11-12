@@ -9,6 +9,23 @@ says which) · **kit** = update kit itself on every machine where agents run (`k
 **snap hook** = a line in Claude Code's `settings.json` on each machine where you added the hook (the entry says
 which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/keys.md).
 
+## 2026-11-13, agent-files by turn
+
+Needs: **mods** (agent-files changed: Windows copies it again; macOS symlink: nothing), **kit** (0.4.1 for the
+turns; with 0.4.0 the list stays as it was).
+要做：mods（agent-files 有改）、kit（0.4.1 才有按輪分段；0.4.0 照舊）。
+
+- **agent-files splits the list by turn** (each message you sent and what the agent did until the next), newest
+  first, like Claude Code's `/rewind`: 「第 12 輪 · 03:41 · <the start of your message>」, then that turn's files;
+  git's changes last ([docs/agent-files.md](docs/agent-files.md)). Needs `kit files` from **kit 0.4.1**
+  (`kit api` 1.2): `kit self-update`, `kit sync` where agents run.
+  agent-files 的清單按輪分段（像 Claude Code 的 /rewind）；要 kit 0.4.1。
+- **Picking a file did nothing**: the popup closed before the file was opened, and Herdr cancels a closed popup's
+  unfinished work. It now shows 「開啟中…」 and closes once the file is open.
+  選了檔沒反應的問題修好了：跳出視窗等檔案開好才關。
+
+Windows: copy `herdr-app\mods\agent-files` again (see [agent-files.md → Install](docs/agent-files.md#install--安裝)).
+
 ## 2026-11-13, agent logos
 
 Needs: **mods** (the kit mod changed: Windows copies it again; macOS symlink: nothing, Herdr picks it up on its next

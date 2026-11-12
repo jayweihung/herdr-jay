@@ -14,9 +14,18 @@ files the agent read or edited, newest first, then the files git shows changed i
 
 A file the agent made and is gone now shows 「（已不在）」.
 
+**By turn** (kit 0.4.1 or later): the list is split by turn, like Claude Code's `/rewind`: each message you sent
+and what the agent did until your next one, newest first. A turn's title is 「第 12 輪 · 03:41 · <the start of your
+message>」 (a message relayed with `hc send` shows as 「hc t1p：…」); a file touched in several turns is under each.
+↑ / ↓ skip the titles; typing filters the files and hides turns left empty. The files git shows changed come last,
+under 「git 的改動」. With kit 0.4.0 the list is one run of files, newest first. Older parts of a very long
+conversation (kit reads the last 8 MB of the log) are under 「更早」.
+按輪分段（kit 0.4.1 以上）：每段是你的一則訊息和 agent 到下一則之前做的事，標題是第幾輪、時間和你那則訊息的開頭；同一個檔在好幾輪都碰過，就每輪都列。git 的改動放最後。
+
 ## Needs / 需要什麼
 
-- **kit 0.4.0 or later** on the machine where the agent runs (`kit api` prints `1.1` or higher): the list is
+- **kit 0.4.0 or later** on the machine where the agent runs (`kit api` prints `1.1` or higher; by turn: 0.4.1,
+  `1.2`): the list is
   `kit files`, which reads the agent's own log (Claude Code, Codex, omp) the way `kit context` finds it. At the
   company: kit from the company's own Git server ([kit.md](kit.md#needs--需要什麼)).
   Without it (no kit, or an older one) the popup says so; if the tab has an nvim-jay pane, nvim-jay's own list

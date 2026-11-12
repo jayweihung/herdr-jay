@@ -257,6 +257,32 @@ test("no kit at all, no agent in the tab", async (V) => {
   assert.match(render(v), /這個分頁沒有 agent/);
 });
 
+test("kit 0.4.1 turns: each turn's title then its files, newest first; git last; ↑/↓ skip titles; filter hides empty turns", async (V) => {
+  const turns = [
+    { n: 12, at: "2020-01-02T03:04:05Z", text: "做", files: [{ path: "/w/app/a.js", tag: "edit", exists: true }, { path: "/w/app/b.md", tag: "read", exists: true }] },
+    { n: 11, at: "", text: "hc t1p：server 好了", files: [{ path: "/w/app/a.js", tag: "read", exists: true }] },
+    { n: 0, at: "", text: "", files: [{ path: "/w/app/old.txt", tag: "write", exists: false }] },
+  ];
+  world({ files: { ...FILES, turns } });
+  const v = await open(V);
+  assert.deepEqual(v.rows().map((r) => r.kind), ["head", "file", "file", "head", "file", "head", "file", "head", "file"]);
+  const text = render(v);
+  assert.match(text, /第 12 輪（最新） · 1\/2 \d\d:\d\d · 做/);
+  assert.match(text, /第 11 輪 · hc t1p：server 好了/);
+  assert.match(text, /更早（紀錄裡讀到的第一輪之前）/);
+  assert.match(text, /git 的改動（agent 沒碰過的）/);
+  assert.deepEqual(v.picks().map((r) => r.path), ["/w/app/a.js", "/w/app/b.md", "/w/app/a.js", "/w/app/old.txt", "/w/app/b.js"]);
+  press(v, "down"); press(v, "down");
+  assert.equal(v.at, 2); // the third file: turn 11's a.js, past turn 11's title
+  H.input.fire("submit");
+  await settle();
+  assert.equal(H.runs.at(-1)[1].argv.at(-1), "/w/app/a.js");
+  world({ files: { ...FILES, turns } });
+  const v2 = await open(V);
+  H.input.type("b.md");
+  assert.deepEqual(v2.rows().map((r) => r.kind), ["head", "file"]);
+});
+
 test("Esc closes; ↑/↓ wrap", async (V) => {
   world();
   const v = await open(V);

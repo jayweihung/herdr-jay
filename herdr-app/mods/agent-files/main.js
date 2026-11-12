@@ -154,6 +154,19 @@ async function openFile(target, path, close) {
   run("terminal.open", { argv: [...argv, path], folder: target.dir ?? undefined, place: "right", name: "editor" });
 }
 
+// a turn's title: 第 12 輪 · 03:41 · <the start of what the person said> (kit: n 0 = before the first turn kit read)
+const two = (x) => String(x).padStart(2, "0");
+function when(at) {
+  const d = new Date(at ?? "");
+  if (!at || isNaN(d.getTime())) return "";
+  const now = new Date(), hm = `${two(d.getHours())}:${two(d.getMinutes())}`;
+  return d.toDateString() === now.toDateString() ? hm : `${d.getMonth() + 1}/${d.getDate()} ${hm}`;
+}
+function turnTitle(tn, newest) {
+  if (!tn.n) return "更早（紀錄裡讀到的第一輪之前）";
+  return [`第 ${tn.n} 輪${newest ? "（最新）" : ""}`, when(tn.at), String(tn.text ?? "")].filter(Boolean).join(" · ");
+}
+
 export default class AgentFiles extends View {
   init(_props, cx) {
     this.filter = "";
@@ -161,7 +174,7 @@ export default class AgentFiles extends View {
     this.scroll = 0;
     this.input = InputState.new({ placeholder: "篩選檔名…" });
     this.input.on("change", (_e, cx) => { this.filter = this.input.value(); this.at = 0; cx.notify(); });
-    this.input.on("submit", (_e, cx) => this.pick(this.rows()[this.at], cx));
+    this.input.on("submit", (_e, cx) => this.pick(this.picks()[this.at], cx));
     this.input.focus();
     cx.timer.after(600, () => this.input.focus());
     this.handle = cx.focus_handle();
@@ -229,10 +242,28 @@ export default class AgentFiles extends View {
     return true;
   }
 
+  // What the list shows: with kit's turns (kit 0.4.1+), each turn's title then its files, newest turn first, then
+  // git's changes; with an older kit, the files alone. A file touched in two turns is under both.
   rows() {
     const f = this.filter.toLowerCase();
-    return (this.data?.files ?? []).filter((x) => !f || x.path.toLowerCase().includes(f));
+    const keep = (x) => !f || x.path.toLowerCase().includes(f);
+    const turns = this.data?.turns;
+    if (!Array.isArray(turns)) return (this.data?.files ?? []).filter(keep).map((x) => ({ kind: "file", ...x }));
+    const out = [];
+    turns.forEach((tn, i) => {
+      const files = (tn.files ?? []).filter(keep);
+      if (!files.length) return;
+      out.push({ kind: "head", text: turnTitle(tn, i === 0) });
+      for (const x of files) out.push({ kind: "file", ...x });
+    });
+    const git = (this.data?.files ?? []).filter((x) => x.tag === "git" && keep(x));
+    if (git.length) {
+      out.push({ kind: "head", text: "git 的改動（agent 沒碰過的）" });
+      for (const x of git) out.push({ kind: "file", ...x });
+    }
+    return out;
   }
+  picks() { return this.rows().filter((r) => r.kind === "file"); }
 
   shown(p) {
     const dir = slash(this.data?.dir ?? "").replace(/\/$/, "");
@@ -264,22 +295,34 @@ export default class AgentFiles extends View {
 
   render() {
     const t = theme();
-    const rows = this.rows();
-    this.at = Math.max(0, Math.min(this.at, rows.length - 1));
+    const rows = this.rows(), picks = rows.filter((r) => r.kind === "file");
+    this.at = Math.max(0, Math.min(this.at, picks.length - 1));
+    const sel = picks[this.at];
     const tg = this.target();
-    const ROW = 30, height = Math.min(420, this.listHeight ?? 420);
-    const total = rows.length * ROW, maxScroll = Math.max(0, total - height);
-    if (this.at * ROW < this.scroll) this.scroll = this.at * ROW;
-    if ((this.at + 1) * ROW > this.scroll + height) this.scroll = (this.at + 1) * ROW - height;
+    // one strip of rows at fixed y's; scrolling only as far as it takes to keep the selected file in view
+    const H = { head: 28, file: 30 }, height = Math.min(420, this.listHeight ?? 420);
+    const tops = [];
+    let y = 0;
+    for (const r of rows) { tops.push(y); y += H[r.kind]; }
+    const total = y, maxScroll = Math.max(0, total - height);
+    const si = rows.indexOf(sel);
+    if (si >= 0) {
+      if (si > 0 && rows[si - 1].kind === "head" && tops[si - 1] < this.scroll) this.scroll = tops[si - 1]; // its turn's title too
+      else if (tops[si] < this.scroll) this.scroll = tops[si];
+      if (tops[si] + H.file > this.scroll + height) this.scroll = tops[si] + H.file - height;
+    }
     this.scroll = Math.max(0, Math.min(this.scroll, maxScroll));
-    const first = Math.floor(this.scroll / ROW), last = Math.min(rows.length, Math.ceil((this.scroll + height) / ROW) + 1);
+    const visible = (i) => tops[i] + H[rows[i].kind] > this.scroll && tops[i] < this.scroll + height;
     const tagColor = { read: t.dim, edit: t.working, write: t.done, git: t.muted };
 
+    const head = (r, i) => div()
+      .absolute().left(0).right(0).top(tops[i] - this.scroll).h(H.head)
+      .px(14).pt(8).truncate().text_size(11).font_semibold().text_color(t.dim).child(r.text);
     const row = (it, i) => h_flex()
       .id(`af-${i}`)
-      .absolute().left(0).right(0).top(i * ROW - this.scroll).h(ROW)
+      .absolute().left(0).right(0).top(tops[i] - this.scroll).h(H.file)
       .mx(4).px(10).gap(10).items_center().rounded(7).cursor_pointer()
-      .when(i === this.at, (el) => el.bg(t.hover))
+      .when(it === sel, (el) => el.bg(t.hover))
       .hover((s) => s.bg(t.hover))
       .on_click((_e, cx) => this.pick(it, cx))
       .child(div().w(28).flex_none().text_size(11).font_semibold().text_color(tagColor[it.tag] ?? t.dim).child(TAGS[it.tag] ?? it.tag))
@@ -291,17 +334,20 @@ export default class AgentFiles extends View {
       : this.error
       ? div().p(10).text_color(t.blocked).child(this.error)
       : this.loading ? div().p(10).text_color(t.dim).child("讀取中…")
-      : !rows.length ? div().p(10).text_color(t.dim).child(this.filter ? "沒有符合的檔" : (this.data?.note || "agent 還沒讀過或改過檔案，git 也沒有改動"))
+      : !picks.length ? div().p(10).text_color(t.dim).child(this.filter ? "沒有符合的檔" : (this.data?.note || "agent 還沒讀過或改過檔案，git 也沒有改動"))
       : v_flex()
         .id("af-list")
         .on_size_change((size, cx) => { this.listHeight = size.height / settings().zoom; cx.notify(); })
         .h(Math.min(420, total)).min_h(0).overflow_hidden()
         .on_scroll_wheel((e, cx) => {
           this.scroll = Math.max(0, Math.min(this.scroll - e.delta.y, maxScroll));
-          this.at = Math.max(Math.ceil(this.scroll / ROW), Math.min(this.at, Math.floor((this.scroll + height) / ROW) - 1));
+          // the selection follows the wheel, so the next frame doesn't scroll back to it
+          const top = (k) => tops[rows.indexOf(picks[k])];
+          while (this.at < picks.length - 1 && top(this.at) < this.scroll) this.at++;
+          while (this.at > 0 && top(this.at) + H.file > this.scroll + height) this.at--;
           cx.notify();
         })
-        .children(rows.slice(first, last).map((it, k) => row(it, first + k)));
+        .children(rows.map((r, i) => (visible(i) ? (r.kind === "head" ? head(r, i) : row(r, i)) : null)).filter(Boolean));
 
     return v_flex()
       .id("agent-files")
@@ -310,8 +356,8 @@ export default class AgentFiles extends View {
       .on_key_down((e, cx) => {
         const k = e.key;
         if (k === "escape") return this.dismiss();
-        if (k === "down" && rows.length) this.at = (this.at + 1) % rows.length;
-        else if (k === "up" && rows.length) this.at = (this.at + rows.length - 1) % rows.length;
+        if (k === "down" && picks.length) this.at = (this.at + 1) % picks.length;
+        else if (k === "up" && picks.length) this.at = (this.at + picks.length - 1) % picks.length;
         else if (k === "tab" && this.list.length > 1) { this.which = (this.which + 1) % this.list.length; this.load(cx); }
         else return;
         cx.stop_propagation();

@@ -435,6 +435,27 @@ test("session sources", function()
   child:kill(9)
 end)
 
+-- agent-files opens a file here: nvim --server ~/.cache/nvim-jay/sock/<pid> --remote-expr "v:lua.JN.open_hex('<hex>')"
+test("open from outside", function()
+  local dir = HOME .. "/.cache/nvim-jay/sock"
+  local addr = dir .. "/" .. vim.fn.getpid()
+  check("server: listens on sock/<pid>", vim.tbl_contains(vim.fn.serverlist(), addr), vim.fn.serverlist())
+  check("server: its folder is only yours", bit.band(vim.uv.fs_stat(dir).mode, 511) == 448, vim.uv.fs_stat(dir).mode)
+  local p = ROOT .. "/odd name's \"q\" #1.txt"
+  write(p, "x\n")
+  local hex = (p:gsub(".", function(c) return ("%02x"):format(c:byte()) end))
+  local got
+  vim.system({ vim.v.progpath, "--server", addr, "--remote-expr", ("v:lua.JN.open_hex('%s')"):format(hex) }, { text = true },
+    function(r) got = r end)
+  vim.wait(10000, function() return got ~= nil and vim.api.nvim_buf_get_name(0) == p end, 20)
+  check("open_hex: a client gets ok", got and vim.trim(got.stdout) == "ok", got)
+  check("open_hex: the file is open", vim.api.nvim_buf_get_name(0) == p, vim.api.nvim_buf_get_name(0))
+  check("open_hex: not hex: refused", JN.open_hex("zz") == "bad path")
+  check("open_hex: odd length: refused", JN.open_hex("abc") == "bad path")
+  check("open_hex: a newline in the path: refused", JN.open_hex("2f610a62") == "bad path")
+  vim.cmd("silent! %bwipeout!")
+end)
+
 print(("%d checks, %d failed"):format(n, fails))
 write(ROOT .. "/result", fails == 0 and "pass" or "fail")
 vim.cmd("qa!")

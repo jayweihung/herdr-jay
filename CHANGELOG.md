@@ -9,6 +9,63 @@ says which) · **kit** = update kit itself on every machine where agents run (`k
 **snap hook** = a line in Claude Code's `settings.json` on each machine where you added the hook (the entry says
 which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/keys.md).
 
+## 2026-11-13, later (agent-files)
+
+Needs: **kit** (0.4.0 or later, for the new list; optional, see below), **mods** (a new folder, an old one removed;
+nvim-jay changed), **keys** (one line); then close the nvim panes opened before the update.
+要做：kit（0.4.0 以上，新清單要用；沒有也能用，見下面）、mods（新增 agent-files、拿掉 nvim-jay-agent-files、nvim-jay 有改）、keys（一行）；最後關掉更新前開的 nvim 格子。
+
+- **nvim-jay-agent-files is now agent-files** ([docs/agent-files.md](docs/agent-files.md)), no longer tied to nvim:
+  `cmd-o` / `ctrl-shift-j` shows the files the agent read or edited (then what git shows changed) in a Herdr popup;
+  the one you pick opens in the tab's nvim-jay pane, else in a new pane with your editor (`agent-files.json`:
+  `"editor"`, else `$VISUAL` / `$EDITOR`, else `vi`; `"gui": true` for VS Code and the like). Claude Code, Codex
+  and omp, on this computer or on another machine. The list comes from **`kit files`** (kit 0.4.0, `kit api` 1.1)
+  where the agent runs. Without it: the popup says so, and with an nvim-jay pane in the tab, nvim-jay's own list
+  opens instead (as before).
+  nvim-jay-agent-files 改成 agent-files：清單在 Herdr 的跳出視窗，選了用 nvim-jay 或你的編輯器開；要 kit 0.4.0。
+- **nvim-jay** listens for agent-files (`~/.cache/nvim-jay/sock/<pid>`, a folder only you can enter; Windows
+  `\\.\pipe\nvim-jay-<pid>`). A pane opened before the update doesn't: close it and open a new one. nvim-jay no
+  longer finds panes by the name before the rename (`g:jay_nvim`).
+  nvim-jay 多了讓 agent-files 叫它開檔的入口；更新前開的 nvim 格子要關掉重開。
+
+What to do / 要做的事:
+
+1. **kit** (optional), on every machine where agents run: `kit self-update`, `kit sync`; `kit api` prints `1.1` or
+   higher. At the company: once the company's Git server has kit 0.4.0. Until then agent-files uses nvim-jay's
+   own list; nothing breaks.
+   kit：每台 `kit self-update`、`kit sync`，`kit api` 要 1.1 以上。公司要等 Git 伺服器有 kit 0.4.0；之前 agent-files 會改用 nvim-jay 自己的清單。
+2. **mods**. macOS (links):
+
+   ```sh
+   cd ~/.config/herdr-app/mods
+   rm -f nvim-jay-agent-files                   # the old link
+   ln -sfn ~/src/herdr-jay/herdr-app/mods/agent-files .
+   herdr-app check ~/.config/herdr-app/mods/agent-files
+   ```
+
+   Windows (PowerShell):
+
+   ```powershell
+   $j = "$env:USERPROFILE\src\herdr-jay"; $h = if ($env:HERDR_APP_HOME) { $env:HERDR_APP_HOME } elseif ($env:XDG_CONFIG_HOME) { "$env:XDG_CONFIG_HOME\herdr-app" } else { "$env:USERPROFILE\.config\herdr-app" }
+   Remove-Item -Recurse -Force "$h\mods\nvim-jay", "$h\mods\nvim-jay-agent-files", "$h\mods\agent-files" -ErrorAction SilentlyContinue
+   Copy-Item -Recurse -Force "$j\herdr-app\mods\nvim-jay", "$j\herdr-app\mods\agent-files" "$h\mods\"
+   Set-Content -Encoding ascii "$h\mods\nvim-jay\.herdr-jay" (git -C $j describe --tags --always --match "for-herdr-v*-r*")
+   herdr-app check "$h\mods\nvim-jay" | Out-Host
+   herdr-app check "$h\mods\agent-files" | Out-Host
+   ```
+3. **keys**: in `keys.json`, the `cmd-o` line (Windows `ctrl-shift-j`) becomes
+
+   ```json
+   "cmd-o": "mod.open:agent-files",
+   ```
+
+   ```json
+   "ctrl-shift-j": "mod.open:agent-files",
+   ```
+4. Close every nvim pane opened before the update (PC and server) and open new ones (`cmd-e` / `ctrl-shift-i`).
+   Quit and reopen Herdr if `herdr-app status` shows an error about `nvim-jay-agent-files`.
+   關掉更新前開的 nvim 格子，再開新的。
+
 ## 2026-11-13 (kit mod, nvim-jay)
 
 Needs: **kit** (0.3.0 or later, step 1 first), **mods** (new folders, old ones removed), **gerrit** (Windows),

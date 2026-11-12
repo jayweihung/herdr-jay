@@ -2,21 +2,21 @@
 // (macOS, Linux; needs Node 18+, Neovim 0.11+ and git on PATH). The Lua runs in a headless nvim with HOME in a temp
 // folder and a fake hc (a /bin/sh script answering ls / get from files), so nothing of yours is read or changed.
 // Not on Windows yet: the fake hc is a shell script.
-import { mkdtempSync, mkdirSync, writeFileSync, chmodSync, realpathSync, rmSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, writeFileSync, chmodSync, realpathSync, rmSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawnSync } from "node:child_process";
 
 const here = dirname(fileURLToPath(import.meta.url));
-// nvim-jay's launchers and nvim-jay-agent-files must agree on MARK (mods can't import from each other)
+// nvim-jay's launchers and agent-files must agree on MARK (mods can't import from each other)
 {
   const mods = join(here, "..", "..", "herdr-app", "mods");
   const { MARK } = await import(pathToFileURL(join(mods, "nvim-jay", "mark.js")));
-  const files = readFileSync(join(mods, "nvim-jay-agent-files", "main.js"), "utf8");
+  const files = readFileSync(join(mods, "agent-files", "main.js"), "utf8");
   const theirs = files.match(/^const MARK = "([^"]*)";$/m)?.[1];
-  if (theirs !== MARK) { console.log(`MARK differs: mark.js ${JSON.stringify(MARK)}, nvim-jay-agent-files ${JSON.stringify(theirs)}`); process.exit(1); }
-  console.log("ok    MARK is the same in nvim-jay/mark.js and nvim-jay-agent-files");
+  if (theirs !== MARK) { console.log(`MARK differs: mark.js ${JSON.stringify(MARK)}, agent-files ${JSON.stringify(theirs)}`); process.exit(1); }
+  console.log("ok    MARK is the same in nvim-jay/mark.js and agent-files");
 }
 if (process.platform === "win32") { console.log("skipped: the fake hc is a shell script (macOS / Linux only)"); process.exit(0); }
 const { NVIM_INIT } = await import(pathToFileURL(join(here, "..", "..", "herdr-app", "mods", "nvim-jay", "nvim.js")));
@@ -24,7 +24,9 @@ const nvim = spawnSync("sh", ["-c", "command -v nvim"], { encoding: "utf8" }).st
 const git = spawnSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).stdout.trim();
 if (!nvim || !git) { console.log("needs nvim and git on PATH"); process.exit(1); }
 
-const root = realpathSync(mkdtempSync(join(tmpdir(), "nvim-jay-test-")));
+// /tmp, not the macOS temp folder: nvim-jay listens on $HOME/.cache/nvim-jay/sock/<pid>, and a socket path has at
+// most 104 bytes
+const root = realpathSync(mkdtempSync(join(existsSync("/tmp") ? "/tmp" : tmpdir(), "nvim-jay-test-")));
 try {
   const home = join(root, "home"), bin = join(root, "bin"), fake = join(root, "fake");
   for (const d of [home, bin, fake]) mkdirSync(d, { recursive: true });

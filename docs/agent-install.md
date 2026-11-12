@@ -29,7 +29,7 @@ jay 請 agent 幫忙裝：Windows 本機 + 用 ssh 連的 Linux server，全部�
 
 | # | Where | What | Guide |
 |---|---|---|---|
-| 1 | PC | Windows steps 0–5 (5a comes in row 2, at §6 step 3; §5 steps 5–6, kit and the layout, only in row 9): Git, tools, herdr-core, herdr-app, Neovim, herdr-jay mods (`nvim-jay`, `nvim-jay-agent-files`) + keys | [windows.md](windows.md) |
+| 1 | PC | Windows steps 0–5 (5a comes in row 2, at §6 step 3; §5 steps 5–6, kit and the layout, only in row 9): Git, tools, herdr-core, herdr-app, Neovim, herdr-jay mods (`nvim-jay`, `agent-files`) + keys | [windows.md](windows.md) |
 | 2 | PC | Windows step 6 checklist (jay presses the keys; you read the screens / `:messages`) | [windows.md §6](windows.md#6-test-checklist--實測清單) |
 | 3 | PC → server | ssh key; `ssh <user>@<server> echo ok` without a password | [linux-remote.md §1](linux-remote.md#1-ssh-key--ssh-金鑰) |
 | 4 | PC → server | herdr-core at the README tag + patches built on the PC for Linux (`x86_64-unknown-linux-musl`), copied to `~/.local/bin/herdr-core` (+ `hc` link), restarted | [linux-remote.md §2](linux-remote.md#2-herdr-core-for-the-server-built-on-the-pc--server-的-core在-pc-上-build) |

@@ -305,7 +305,7 @@ Optional, for go-to-definition and errors (skip if Node or Python are not allowe
    Test-Path "$j\herdr-app\mods\nvim-jay\mod.json"          # must be True; otherwise fix $j
    $h = if ($env:HERDR_APP_HOME) { $env:HERDR_APP_HOME } elseif ($env:XDG_CONFIG_HOME) { "$env:XDG_CONFIG_HOME\herdr-app" } else { "$env:USERPROFILE\.config\herdr-app" }
    New-Item -ItemType Directory -Force "$h\mods" | Out-Null
-   Copy-Item -Recurse -Force "$j\herdr-app\mods\nvim-jay", "$j\herdr-app\mods\nvim-jay-agent-files" "$h\mods\"
+   Copy-Item -Recurse -Force "$j\herdr-app\mods\nvim-jay", "$j\herdr-app\mods\agent-files" "$h\mods\"
    Set-Content -Encoding ascii "$h\mods\nvim-jay\.herdr-jay" (git -C $j describe --tags --always --match "for-herdr-v*-r*")   # which herdr-jay you copied
    ```
 
@@ -326,7 +326,7 @@ Optional, for go-to-definition and errors (skip if Node or Python are not allowe
 
    ```json
    "ctrl-shift-i": "mod.open:nvim-jay",
-   "ctrl-shift-j": "mod.open:nvim-jay-agent-files",
+   "ctrl-shift-j": "mod.open:agent-files",
    ```
 
    Herdr reloads `keys.json` by itself. Once you edit it, new Herdr versions no longer add their new default keys:
@@ -336,7 +336,7 @@ Optional, for go-to-definition and errors (skip if Node or Python are not allowe
    ```powershell
    $h = if ($env:HERDR_APP_HOME) { $env:HERDR_APP_HOME } elseif ($env:XDG_CONFIG_HOME) { "$env:XDG_CONFIG_HOME\herdr-app" } else { "$env:USERPROFILE\.config\herdr-app" }
    herdr-app check "$h\mods\nvim-jay" | Out-Host
-   herdr-app check "$h\mods\nvim-jay-agent-files" | Out-Host
+   herdr-app check "$h\mods\agent-files" | Out-Host
    ```
 5. Optional, only if you use **kit** (kit 0.3.0 or later, installed per kit's own guide) / 選用，有用 kit 才要：the
    `kit` mod (Kit buttons on every agent pane, the repository and Agents panels): the Windows block in
@@ -401,8 +401,9 @@ the screen and of `:messages` in nvim, note the step number, go on.
    (`C:\…`, `C:/…` or `/c/…`). With the snap hook (§5a): old lines red, new green, and
    `<home>\.cache\nvim-jay\snap\` (§5a) has a new folder. Without it the file just reloads.
 8. In nvim `space o` → files Claude touched (newest first) plus git changes; pick one → it opens.
-9. Focus Claude's pane, press `ctrl-shift-j` → focus jumps to nvim and the list opens. `Esc`, then `:set modified?`
-   → `nomodified` (nothing typed into the file). Again from insert mode (`i` first).
+9. Focus Claude's pane, press `ctrl-shift-j` → a popup lists Claude's files (needs kit 0.4.0: [agent-files.md](agent-files.md)); pick one →
+   it opens in nvim and nvim gets the focus. `:set modified?` → `nomodified` (nothing typed into the file).
+   Without kit 0.4.0: nvim's own list opens instead (alt+o); again from insert mode (`i` first).
 10. `space a c` on a line, type `test`, Enter; `space a l` lists it; `space a s` → Claude gets one message, sent once.
 11. Python file, pyright installed: no note, nothing to type (no `:JayTrust` any more). Rest the mouse on a function name → a type popup after ~0.6 s. Right-click → the Chinese menu
     (Shift + right-click → Herdr's).
@@ -451,7 +452,7 @@ What gets updated, and where / 要更新的東西：
 | herdr-jay | PC | `git pull` (8.1) | first, always |
 | herdr-core | PC (Windows) **and** the Linux server | build the README tag + patches for both, install / copy (8.2, 8.3) | the README table names a new core |
 | Herdr app | PC | build the README tag + patches (8.2) | the README table names a new app |
-| nvim-jay mods (`nvim-jay`, `nvim-jay-agent-files`) | PC (they open nvim on the server too) | copy the two folders (8.4) | the CHANGELOG says **mods** |
+| nvim-jay mods (`nvim-jay`, `agent-files`) | PC (they open nvim on the server too) | copy the two folders (8.4) | the CHANGELOG says **mods** |
 | kit mod (optional) | PC (it asks kit on the server too) | the Windows block in [kit.md → Install](kit.md#install--安裝) | the CHANGELOG says **mods** or **kit** |
 | kit itself (optional) | PC and every machine where agents run | `kit self-update`, then `kit sync` (kit's own guide) | the CHANGELOG says **kit**, or the kit panel says so |
 | Gerrit panel (optional) | PC | copy `mods\gerrit` (8.4) | the CHANGELOG says **gerrit** |
@@ -550,11 +551,11 @@ CHANGELOG's 2026-11-13 steps):
 
 ```powershell
 $j = "$env:USERPROFILE\src\herdr-jay"; $h = if ($env:HERDR_APP_HOME) { $env:HERDR_APP_HOME } elseif ($env:XDG_CONFIG_HOME) { "$env:XDG_CONFIG_HOME\herdr-app" } else { "$env:USERPROFILE\.config\herdr-app" }
-Remove-Item -Recurse -Force "$h\mods\nvim-jay", "$h\mods\nvim-jay-agent-files" -ErrorAction SilentlyContinue
-Copy-Item -Recurse -Force "$j\herdr-app\mods\nvim-jay", "$j\herdr-app\mods\nvim-jay-agent-files" "$h\mods\"
+Remove-Item -Recurse -Force "$h\mods\nvim-jay", "$h\mods\agent-files" -ErrorAction SilentlyContinue
+Copy-Item -Recurse -Force "$j\herdr-app\mods\nvim-jay", "$j\herdr-app\mods\agent-files" "$h\mods\"
 Set-Content -Encoding ascii "$h\mods\nvim-jay\.herdr-jay" (git -C $j describe --tags --always --match "for-herdr-v*-r*")
 herdr-app check "$h\mods\nvim-jay" | Out-Host
-herdr-app check "$h\mods\nvim-jay-agent-files" | Out-Host
+herdr-app check "$h\mods\agent-files" | Out-Host
 ```
 
 kit mod, only if you use kit: the Windows block in [kit.md → Install](kit.md#install--安裝).

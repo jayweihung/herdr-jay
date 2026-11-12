@@ -7,13 +7,13 @@ Features, keys, macOS vs Windows, security: **[docs/nvim-jay.md](../../../docs/n
 (online: <https://github.com/jayweihung/herdr-jay/blob/main/docs/nvim-jay.md>).
 Install: [macOS](../../../docs/macos.md) · [Windows](../../../docs/windows.md).
 
-Quick install: copy (or symlink) `nvim-jay` and `nvim-jay-agent-files` into your Herdr home's `mods/`
+Quick install: copy (or symlink) `nvim-jay` (and `agent-files`, [docs/agent-files.md](../../../docs/agent-files.md)) into your Herdr home's `mods/`
 (macOS: `~/.config/herdr-app/mods/`, Windows: `%USERPROFILE%\.config\herdr-app\mods\`), then add the keys:
-macOS `"cmd-e": "mod.open:nvim-jay"`, `"cmd-o": "mod.open:nvim-jay-agent-files"`;
-Windows `"ctrl-shift-i": "mod.open:nvim-jay"`, `"ctrl-shift-j": "mod.open:nvim-jay-agent-files"`.
+macOS `"cmd-e": "mod.open:nvim-jay"`, `"cmd-o": "mod.open:agent-files"`;
+Windows `"ctrl-shift-i": "mod.open:nvim-jay"`, `"ctrl-shift-j": "mod.open:agent-files"`.
 Needs Neovim 0.11+, git and Herdr's `hc` on the machine where the pane opens.
 
 Files: `main.js` (picks the launcher), `unix.js` (macOS / Linux / other machines), `windows.js` (Windows),
-`mark.js` (argv marker nvim-jay-agent-files looks for), `nvim.js` (the Lua; OS differences in its PLATFORM section).
+`mark.js` (argv marker agent-files looks for), `nvim.js` (the Lua; OS differences in its PLATFORM section).
 
 License: Apache 2.0 (see the repo's LICENSE). Comment spans and message shape follow herdr-nvim (MIT, ChmaraX/herdr-nvim).

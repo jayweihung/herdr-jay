@@ -146,7 +146,7 @@ TypeScript starts only in projects that have `node_modules/typescript`.
 
 ```sh
 cd ~/.config/herdr-app/mods
-ln -sfn ~/src/herdr-jay/herdr-app/mods/nvim-jay ~/src/herdr-jay/herdr-app/mods/nvim-jay-agent-files .
+ln -sfn ~/src/herdr-jay/herdr-app/mods/nvim-jay ~/src/herdr-jay/herdr-app/mods/agent-files .
 ```
 
 Symlinks follow `git pull` in herdr-jay (jay's setup). Copying (`cp -R`) works too, but then copy again after each update.
@@ -156,7 +156,7 @@ Keys: open `~/.config/herdr-app/keys.json` and paste **directly under** the line
 
 ```json
 "cmd-e": "mod.open:nvim-jay",
-"cmd-o": "mod.open:nvim-jay-agent-files",
+"cmd-o": "mod.open:agent-files",
 ```
 
 Herdr reloads `keys.json` by itself. Once edited, new Herdr versions no longer add their new default keys to it:
@@ -166,7 +166,7 @@ Herdr reloads `keys.json` by itself. Once edited, new Herdr versions no longer a
 
 ```sh
 herdr-app check ~/.config/herdr-app/mods/nvim-jay
-herdr-app check ~/.config/herdr-app/mods/nvim-jay-agent-files
+herdr-app check ~/.config/herdr-app/mods/agent-files
 ```
 
 **kit** (optional, only if you use kit: kit 0.3.0 or later, installed per kit's own guide): the `kit` mod puts kit's
@@ -181,7 +181,8 @@ kit 的 mod（選用，有裝 kit 0.3.0 以上才要）：照 kit.md 的安裝�
 1. In Herdr, start Claude Code in a terminal in your project folder.
 2. With its pane focused: `cmd-e` → Neovim on the right, file tree beside it.
 3. Ask Claude to read or edit a file → nvim opens it; edits show red `-` / green `+`.
-4. `cmd-o` → jumps to that nvim and lists the files Claude read or edited. In nvim: `space o`.
+4. `cmd-o` → a popup lists the files Claude read or edited; pick one → it opens in that nvim
+   ([agent-files.md](agent-files.md); needs kit 0.4.0, else nvim's own list opens). In nvim: `space o`.
 5. Comment a line: `space a c`. Send all comments to Claude: `space a s`.
 6. Python / TypeScript: open a file; pyright / TypeScript start by themselves
    ([what they run](nvim-jay.md#3-language-servers--語言伺服器)).
@@ -252,5 +253,5 @@ A version folder holding only `README.md` means jay checked that tag and it need
 `v` in front), and bring the message to jay.
 
 Then: new default keys from [docs/keys.md](keys.md); quit and reopen Herdr; `herdr-app check` each mod (`nvim-jay`,
-`nvim-jay-agent-files`, and `kit`, `gerrit` if you use them). With symlinks the mods are already current (copied:
+`agent-files`, and `kit`, `gerrit` if you use them). With symlinks the mods are already current (copied:
 copy again). A mod that was renamed or merged (the CHANGELOG says which): link the new folder, remove the old link.

@@ -7,7 +7,7 @@ import { MARK } from "./mark.js";
 // and nvim sources it. nvim.exe must be on PATH (winget / scoop / the zip); Herdr's core finds it there.
 // :source with fnameescape, not -S (which reads "#" and "%" in the path as specials) and not Lua's dofile (which opens
 // the file through the ANSI code page, so a non-English user name could break it).
-// nvim-jay-agent-files finds this pane by the argv item MARK.
+// agent-files finds this pane by the argv item MARK.
 export async function openWindows(folder) {
   const sep = appHome().includes("\\") ? "\\" : "/";
   const file = [appHome(), "mods", "nvim-jay", ".init.lua"].join(sep);

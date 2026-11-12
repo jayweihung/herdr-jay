@@ -1288,6 +1288,40 @@ function JN.pick()
   end)
 end
 
+-- Opening a file from outside: Herdr's agent-files mod lists what the agent read or edited and, when this pane is in
+-- its tab, runs  nvim --server <address> --remote-expr "v:lua.JN.open_hex('<the path as hex>')"  on this machine.
+-- The address follows from nvim's pid (the pane's foreground process, which hc reports): ~/.cache/nvim-jay/sock/<pid>
+-- in a folder only you can enter; Windows \\.\pipe\nvim-jay-<pid>. Hex, so no path needs quoting on any side.
+do
+  -- In a terminal nvim runs as two processes: the screen (the pane's foreground process, the pid hc reports) and,
+  -- started by it with --embed, the editor this Lua runs in. Named after the screen's pid, so it is the one the
+  -- pane reports; without --embed (headless) the editor is the only process.
+  local pid, addr = vim.tbl_contains(vim.v.argv, "--embed") and vim.uv.os_getppid() or vim.fn.getpid(), nil
+  if P.win then
+    addr = [[\\.\pipe\nvim-jay-]] .. pid
+  else
+    local dir = P.home .. "/.cache/nvim-jay/sock"
+    vim.fn.mkdir(dir, "p")
+    vim.uv.fs_chmod(dir, 448) -- 0700
+    addr = dir .. "/" .. pid
+  end
+  if not vim.tbl_contains(vim.fn.serverlist(), addr) then
+    if not P.win then os.remove(addr) end -- left by a crashed nvim that had this pid: no live nvim uses it
+    pcall(vim.fn.serverstart, addr)
+  end
+end
+function JN.open_hex(hex)
+  if type(hex) ~= "string" or hex == "" or #hex % 2 == 1 or hex:find("%X") then return "bad path" end
+  local path = hex:gsub("%x%x", function(h) return string.char(tonumber(h, 16)) end)
+  if path:find("%c") then return "bad path" end
+  vim.schedule(function()
+    vim.api.nvim_set_current_win(edit_win())
+    local ok, err = pcall(vim.cmd.edit, vim.fn.fnameescape(norm(path)))
+    if not ok then vim.notify(tostring(err), vim.log.levels.ERROR) end
+  end)
+  return "ok"
+end
+
 -- Comments: a line span kept by an extmark, so it follows later edits.
 local cns = vim.api.nvim_create_namespace("nvim-jay-comments")
 local notes = PREV and PREV.notes_list and PREV.notes_list() or {} -- a re-run keeps unsent comments
@@ -1389,7 +1423,7 @@ end
 
 local map = vim.keymap.set
 map("n", "<leader>o", JN.pick, { desc = "agent 讀過／改過的檔" })
--- nvim-jay-agent-files presses <M-o> (alt+o) in whatever mode nvim is in; <D-o> is cmd-o typed in nvim on a Mac.
+-- agent-files presses <M-o> (alt+o) in whatever mode nvim is in when the agent's machine has no kit files; <D-o> is cmd-o typed in nvim on a Mac.
 -- It sends no Esc first: in a legacy-keyboard terminal Esc + Alt-o can read as <M-Esc> then "o" (a new line).
 for _, k in ipairs({ "<D-o>", "<M-o>" }) do
   map("n", k, JN.pick, { desc = "agent 讀過／改過的檔" })

@@ -335,7 +335,7 @@ old file is no longer updated, and its copies go where nvim-jay no longer looks.
 
 1. Open a tab on the server machine in a project folder, start Claude Code there.
 2. With its pane focused: `ctrl-shift-i` (Windows) / `cmd-e` (Mac) → nvim opens **on the server**, beside it.
-3. Ask the agent to read / edit a file → nvim follows (then add the snap hook, §4); `ctrl-shift-j` / `cmd-o` → the list (alt+o reaches nvim).
+3. Ask the agent to read / edit a file → nvim follows (then add the snap hook, §4); `ctrl-shift-j` / `cmd-o` → the list (kit 0.4.0 on the server: [agent-files.md](agent-files.md)); pick a file → it opens in that nvim.
 4. `space a c` → comment, `space a s` → sent to the agent.
 5. Only if pyright is on the server ([3b](#3b-python-go-to-definition-pyright-optional--python-跳定義選用)): right-click a name → 跳到定義.
 

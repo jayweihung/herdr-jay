@@ -3,7 +3,8 @@
 What it does and how to use it, the same on every OS. Installing: [macOS](macos.md) · [Windows](windows.md).
 功能和用法（各系統一樣）。安裝請看 [macOS](macos.md)、[Windows](windows.md)。
 
-Two Herdr mods: `nvim-jay` opens the pane, `nvim-jay-agent-files` jumps to it and lists the agent's files.
+The Herdr mod `nvim-jay` opens the pane. The list of the agent's files from Herdr (`cmd-o`) is the `agent-files` mod
+([agent-files.md](agent-files.md)): with an nvim-jay pane in the tab, the file you pick opens there.
 Needs **Neovim 0.11 or newer**, `git`, and `hc` on the machine where the pane opens.
 
 ## Contents / 目錄
@@ -63,7 +64,7 @@ Herdr keys (in `keys.json`, `global`) — differ per OS because Windows has no c
 | | macOS | Windows |
 |---|---|---|
 | Open nvim-jay beside the focused pane | `cmd-e` | `ctrl-shift-i` |
-| Jump to it and list the agent's files | `cmd-o` | `ctrl-shift-j` |
+| The agent's files in a popup, picked one opens here ([agent-files](agent-files.md)) | `cmd-o` | `ctrl-shift-j` |
 
 Inside nvim (`space` is the leader), the same everywhere:
 
@@ -120,7 +121,7 @@ One `nvim.js` for both; all OS differences sit in its PLATFORM section ([5](#5-h
 | Paths | as they are | one spelling (`C:/x/y`), case ignored when comparing |
 | Paths in Bash commands | `/abs/path`, `~/x`, `$HOME/x` | `C:\x`, `C:/x`, `/c/x`, `~\x`, `$HOME\x`, `$env:USERPROFILE\x` |
 | Agent running as root | follows root's copies if a root view is set up, else a one-line note ([6](#6-agent-running-as-root--agent-用-root-跑)) | — |
-| Pick key nvim receives | `<M-o>` (alt+o) | `<M-o>` (alt+o) |
+| Opened from agent-files through | `~/.cache/nvim-jay/sock/<pid>` | `\\.\pipe\nvim-jay-<pid>` |
 
 Newer Claude Code (2.1.322 on macOS) no longer writes `~/.claude/sessions/<pid>.json`, so on every system nvim-jay
 falls back to the agent's folder: Claude Code keeps its logs in `~/.claude/projects/<folder>/`, the folder being the
@@ -142,12 +143,13 @@ herdr-app/mods/nvim-jay/
   main.js     picks the launcher: Windows + a pane on this computer → windows.js, otherwise unix.js
   unix.js     macOS / Linux / other machines: /bin/sh finds nvim
   windows.js  Windows: .init.lua + :source
-  mark.js     the argv item both launchers pass, so nvim-jay-agent-files finds the pane
+  mark.js     the argv item both launchers pass, so agent-files finds the pane
   nvim.js     the Lua (one string, NVIM_INIT), run by nvim on the machine where the pane opens
                 PLATFORM  every OS difference, in one table P (nothing below tests the OS)
                 then: reload + diff, swap-file heads-up, tree, agent + follow, comments, keys, LSP, mouse
-herdr-app/mods/nvim-jay-agent-files/
-  main.js     finds the pane by the argv item `let g:nvim_jay = 1`, focuses it, sends alt+o (nvim: <M-o>)
+herdr-app/mods/agent-files/      (its own mod: agent-files.md)
+  main.js     finds the pane by the argv item `let g:nvim_jay = 1`; opens a file through nvim's server
+              (JN.open_hex), or, without kit files, focuses it and sends alt+o (nvim: <M-o>, its own list)
 ```
 
 `nvim.js` stays a single file: the unix launcher puts the whole Lua on one command line, and a root-side copy can be

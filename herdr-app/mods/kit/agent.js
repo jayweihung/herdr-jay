@@ -62,7 +62,7 @@ export class AgentPopup {
     if (!d && !this.loading && Date.now() - (this.openedAt ?? 0) > 8000)
       return root.child(div().p(14).text_color(t.muted).child("讀不到這個 agent（它可能換了資料夾，或已經關掉）。關掉這個視窗，再按一次它上面的 Kit 按鈕。"));
     if (!d) return root.child(div().p(14).child(waiting(t, z, "讀取中…")));
-    if (d.error) return root.child(problemCard(t, z, this.where, d.error));
+    if (d.error) return root.child(problemCard(t, z, this.where, d.error, d.code));
     if (d.here?.user) return root.child(v_flex().p(14).gap(6)
       .child(div().font_semibold().child(`這個 agent 用 ${d.here.user} 帳號跑`))
       .child(div().text_size(z - 1).text_color(t.muted).child(d.here.user === "root"

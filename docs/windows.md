@@ -545,8 +545,8 @@ PC 的 core 更新完，用同一份原始碼 build Linux 版，複製到 server
 
 ### 8.4 Mods
 
-Remove the old folders first so deleted files don't linger (the names before 2026-11-12 are removed once by the
-CHANGELOG's 2026-11-12 steps):
+Remove the old folders first so deleted files don't linger (the names before 2026-11-13 are removed once by the
+CHANGELOG's 2026-11-13 steps):
 
 ```powershell
 $j = "$env:USERPROFILE\src\herdr-jay"; $h = if ($env:HERDR_APP_HOME) { $env:HERDR_APP_HOME } elseif ($env:XDG_CONFIG_HOME) { "$env:XDG_CONFIG_HOME\herdr-app" } else { "$env:USERPROFILE\.config\herdr-app" }

@@ -61,8 +61,8 @@ Herdr 一開，mod 先跑 `kit api`（第一次最多等 40 秒）。答案不�
 ## Install / 安裝
 
 The one place for these steps (the macOS, Windows and layout guides link here). Coming from an older kit that
-installed its own Herdr panel (`kit herdr-panel`): the CHANGELOG's 2026-11-12 entry first.
-這裡是裝 kit mod 唯一的地方（其他文件都連到這裡）。以前用 kit 自己裝過面板的，先照 CHANGELOG 2026-11-12 那條做。
+installed its own Herdr panel (`kit herdr-panel`): the CHANGELOG's 2026-11-13 entry first.
+這裡是裝 kit mod 唯一的地方（其他文件都連到這裡）。以前用 kit 自己裝過面板的，先照 CHANGELOG 2026-11-13 那條做。
 
 **macOS** (a link: `git pull` in herdr-jay updates it):
 
@@ -303,7 +303,7 @@ Kit 按鈕右邊的 `[context 35% 139k/400k]` 是這個 agent 的 context 用了
 └──────────────────────────────────────────────┘
 ```
 
-- **有改動還沒送出**（清單上面黃色那條）：有改過的檔案時才會出現，寫著每個倉改了哪些。按「送出」先列出每個來源會送哪些檔案（`kit push --dry-run`），確認後按那個來源的「確定送出」。
+- **有改動還沒送出**（清單上面黃色那條）：有改過的檔案時才會出現，寫著每個倉改了哪些。按「送出」先列出每個來源會送哪些檔案（`kit push --dry-run --json`），確認後按那個來源的「確定送出」。
   送出前如果檔案又變了（剛剛有存檔），會擋下來、什麼都不送，請再看一次清單。送不出去時，訊息最前面是原因；檔案很多時只列前幾個。
   送的方式看來源的 `kit.yaml`：
   - `push: pr`（不寫就是這個，標「團隊 · 送出要審」）：開一個分支、push、開 PR，等別人審。
@@ -363,11 +363,11 @@ Kit 按鈕右邊的 `[context 35% 139k/400k]` 是這個 agent 的 context 用了
 | 細項的「拿掉」 | `kit rm <種類> <名字>` ／ `kit rm --dir <資料夾> <種類> <名字>` |
 | 同步 | `kit sync` |
 | ⟳ | 只重新讀取畫面 |
-| 倉庫的清單 | `kit list --json` |
+| 倉庫的清單（含哪些改過、還沒送出） | `kit list --json`（`sources[].changed`、`items[].changed`） |
 | ＋ 新增 → 自己從頭寫 | `kit new <種類> <名字> --to <來源>` |
 | ＋ 新增 → 從網址收：下載看看 | `kit collect <網址> --to <來源> --look`（只看，輸出 JSON） |
 | ＋ 新增 → 從網址收：收進來 | `kit collect <網址> --to <來源> --path <資料夾> [--allow]` |
-| 送出 → 確定送出 | `kit push --to <來源> --dry-run` → `kit push --to <來源>` |
+| 送出 → 確定送出 | `kit push --to <來源> --dry-run --json` → 再一次 `--dry-run --json`（檔案清單要一樣）→ `kit push --to <來源> --json` |
 | Agents 清單 | `kit agents --json` |
 | agent 的加上／拿掉 | `kit agent <名字> add\|rm <種類> <東西>` |
 | 開啟 | `kit run <名字> --tool <工具>` |
@@ -378,8 +378,12 @@ Kit 按鈕右邊的 `[context 35% 139k/400k]` 是這個 agent 的 context 用了
 (agent), `agents.js` (agents, agents-toggle), `header.js` (header, context), `layout.js` (where kit sits in a
 layout: 放進上排 / 更新版面), `context.js` (what the context window and chip compute, from plain values), `common.js`
 (running kit, `kit api`, the shared state keys, the layout's node ids, one kit action at a time, the shared UI
-pieces). The mod reads `kit api` major 1, minor 0 or later (`KIT_API` in `common.js`): kit raises the minor when it
-adds something and the major when it changes what this mod reads; a new major needs a new mod.
-Tests: `node tests/kit/run.js` (Node 18+; a fake Herdr and a fake kit; at the end asks a real `kit api`: the kit in
-`KIT=<path>` if set, else the one on PATH, else says it skipped that one). `node tests/check-mods.js` runs
+pieces, and `kitJson`: kit's JSON and its error codes). The mod reads only kit's JSON (kit list / agents / push
+`--json`, kit collect `--look`, kit context), never kit's words for people (it shows them as they are) and never git
+itself; the list it reads is kit's README, 「給程式讀的介面」. It reads `kit api` major 1, minor 0 or later
+(`KIT_API` in `common.js`): kit raises the minor when it adds something and the major when it changes what this mod
+reads; a new major needs a new mod.
+Tests: `node tests/kit/run.js` (Node 18+; a fake Herdr and a fake kit answering in kit 0.3.0's JSON; at the end a
+real kit: the one in `KIT=<path>` if set, else the one on PATH, else it says it skipped that one. A real kit that
+answers `1.x` is also run in an empty temp home: its JSON commands, and a source of its own sent with 送出). `node tests/check-mods.js` runs
 `herdr-app check` on every mod and on the kit mod once per role (skipped without herdr-app on PATH).

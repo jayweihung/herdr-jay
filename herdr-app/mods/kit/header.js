@@ -24,7 +24,7 @@ import { div, svg } from "gpui-kit";
 import { h_flex, v_flex, InputState, Input } from "gpui-base";
 import { panes, spaces, agents, props, run, theme, hc, shared, setShared, openOverlay, closeOverlay, notify } from "herdr";
 import { AGENT_CACHE, AGENT_DATA, AGENT_WANT, CTX, EDITORS, fs, stop, slash, shortDir, clean, spin, waiting, icon, textBlock,
-  copyOnRight, btn, busyNow, takeBusy, giveBusy, markChanged, kit, apiState, apiKnown, checkApi, apiCard, num, kfmt } from "./common.js";
+  copyOnRight, btn, busyNow, takeBusy, giveBusy, markChanged, kit, kitJson, apiState, apiKnown, checkApi, apiCard, num, kfmt } from "./common.js";
 import { toolOf, ctxArgs, sendText, sendArgs, removal, ctxTips, summaryText, chipNumbers, level, howCounted, ago, catColorKey, barSegments,
   catShare, compactLine } from "./context.js";
 
@@ -53,10 +53,8 @@ async function loadAgent(machine, cwd, term) {
   if (cwd) args.push("--dir", cwd);
   const g = term ? await hc(["get", term, "--json"]).catch(() => null) : null;
   try { const pid = JSON.parse(g?.stdout ?? "{}").pid; if (pid) args.push("--pid", String(pid)); } catch {}
-  const r = await kit(args, 60000, machine), at = Date.now();
-  if (r.code !== 0) return { error: clean(r.err || r.out) || `kit list 失敗（${r.code}）`, machine, at };
-  try { return { ...JSON.parse(r.out), machine, at }; }
-  catch { return { error: "kit list --json 的輸出讀不懂（那台的 kit 太舊？在那台打 kit self-update）", machine, at }; }
+  const { data, error } = kitJson(await kit(args, 60000, machine), "kit list --json"), at = Date.now();
+  return error ? { error: error.message, code: error.code, machine, at } : { ...data, machine, at };
 }
 // the button's words: how many rules / skills / MCP this agent reads (kit's for the account, its folder's own,
 // and the set kit run started it with), each name counted once

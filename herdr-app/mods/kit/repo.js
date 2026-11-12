@@ -4,61 +4,46 @@
 //                   on every machine: what is sent reaches the others with kit sync.
 //   repo-toggle     the tab-bar button that shows or hides the panel (reads the panel's data, never loads)
 //   editor          one file of the repository in its own big window (放大)
-// Everything goes through the kit command (common.js: kit from PATH, after kit api said it is new enough). Where
+// Everything goes through the kit command (common.js: kit from PATH, after kit api said it is new enough), and only
+// its JSON is read (kit list --json, kit push --json, kit collect --look); its words for people are shown as they are. Where
 // the panel sits in the layout, and 放進上排 / 更新版面: layout.js. The shared state keys are in common.js.
 import { div } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input, Editor } from "gpui-base";
 import { theme, exec, run, layout, shared, setShared, window, readTextFile, writeTextFile, closeOverlay, openOverlay, props as blockProps } from "herdr";
 import { DATA, LOAD, EDITORS, NODES, MSG, fs, mono, stop, slash, shortDir, clean, spin, waiting, find, textBlock, copyOnRight, btn,
-  busyNow, dropStaleBusy, takeBusy, giveBusy, markChanged, kit, apiState, apiKnown, checkApi, apiCard, messageBox, problemCard, versionCard,
+  busyNow, dropStaleBusy, takeBusy, giveBusy, markChanged, kit, kitJson, apiState, apiKnown, checkApi, apiCard, messageBox, problemCard, versionCard,
   squeeze, newEditor, liveEditors, localGet, localSet, kitAction, loadNewest, loadingNow } from "./common.js";
 import { layoutNeeds, moveIntoBar } from "./layout.js";
 
 const LONG = 600000, SHORT = 120000; // how long kit sync / push, and the other actions, may take
 const STALE = 60000, LOAD_TTL = 90000;
-// the files kit push sends (everything else in a source is left alone)
-const ITEM_FILE = /^(rules\/[^/]+\.md|skills\/[^/]+\/.+|mcp\/[^/]+\.yaml|agents\/[^/]+\.md|third_party\.lock)$/;
 const PUSH_KIND = { pr: "團隊 · 送出要審", direct: "自己的 · 直接推" };
 
-// kit push --dry-run's list of files (the indented lines), to compare before the real push
-const sendList = (out) => String(out ?? "").split("\n").filter((l) => /^  \S/.test(l)).map((l) => l.trim()).sort().join("\n");
-// the item files git sees as changed in a source folder (relative to it); -z: names exactly as they are
-async function gitChanges(dir) {
-  // where the folder sits in its repo, as git itself spells it (symlinks, junctions, drive letters don't matter)
-  const top = await exec("git", ["-C", dir, "rev-parse", "--show-prefix"], { timeout: 15000 });
-  if (top.code !== 0) return [];
-  const pre = String(top.stdout).replace(/[\r\n]+$/, "");
-  const r = await exec("git", ["-C", dir, "status", "--porcelain", "-z", "--untracked-files=all"], { timeout: 15000 });
-  if (r.code !== 0) return [];
-  const parts = String(r.stdout).split("\0"), files = [];
-  for (let i = 0; i < parts.length; i++) {
-    const e = parts[i];
-    if (e.length < 4) continue;
-    if (e[0] === "R" || e[0] === "C") i++;   // a rename: the old name comes next
-    const path = e.slice(3);
-    if (!path.startsWith(pre)) continue;
-    const rel = path.slice(pre.length);
-    if (ITEM_FILE.test(rel)) files.push(rel);
-  }
-  return files;
-}
-// The repository: kit list --json on this computer, each item's place in its source and whether git sees it changed.
+// The repository: kit list --json on this computer. kit says what kit push would send: per source (changed: its
+// files, agents/… being agents) and per item (changed). An item's place in its source (rel) is only shown.
 async function loadRepo() {
-  const r = await kit(["list", "--json"], 60000), at = Date.now();
-  if (r.code !== 0) return { key: "repo", error: clean(r.err || r.out) || `kit list 失敗（${r.code}）`, at };
-  let d;
-  try { d = JSON.parse(r.out); } catch { return { key: "repo", error: "kit list --json 的輸出讀不懂（kit 太舊？請打 kit self-update）", at }; }
-  const sources = await Promise.all((d.sources ?? []).map(async (s) => ({ ...s, files: s.dir ? await gitChanges(s.dir).catch(() => []) : [] })));
-  const srcOf = (p) => sources.find((s) => s.dir && slash(p).startsWith(slash(s.dir) + "/"));
+  const { data: d, error } = kitJson(await kit(["list", "--json"], 60000), "kit list --json"), at = Date.now();
+  if (error) return { key: "repo", error: error.message, code: error.code, at };
+  const sources = (d.sources ?? []).map((s) => ({ ...s, changed: Array.isArray(s.changed) ? s.changed : [] }));
   const items = (d.items ?? []).filter((i) => i.kind !== "agent").map((i) => {
-    const s = srcOf(i.path), rel = s ? slash(i.path).slice(slash(s.dir).length + 1) : "", folder = rel.replace(/[^/]*$/, "");
-    const changed = Boolean(s && s.files.some((f) => f === rel || (i.kind === "skill" && folder && f.startsWith(folder))));
-    return { ...i, rel, changed, src: s?.name ?? i.source };
+    // Windows paths come with \; compared as /. Only for showing where the file is: nothing depends on it
+    const s = sources.find((x) => x.name === i.source), dir = s?.dir ? slash(s.dir) + "/" : "", p = slash(i.path);
+    return { ...i, rel: dir && p.startsWith(dir) ? p.slice(dir.length) : "", changed: i.changed === true, src: i.source };
   });
   const dirty = sources.map((s) => ({ name: s.name, push: s.push ?? null,
-    items: s.files.filter((f) => !f.startsWith("agents/")).length, agents: s.files.filter((f) => f.startsWith("agents/")).length }))
+    items: s.changed.filter((f) => !f.startsWith("agents/")).length, agents: s.changed.filter((f) => f.startsWith("agents/")).length }))
     .filter((x) => x.items + x.agents > 0);
   return { ...d, key: "repo", at, items, sources, dirty };
+}
+// kit push --to <source> [--dry-run] --json -> { ok, files (what it sends, as one string to compare), sent, push,
+// text (kit's own words, stderr), code (kit's error code, when it failed) }
+async function pushJson(name, dry, ttl) {
+  const r = await kit(["push", "--to", name, ...(dry ? ["--dry-run"] : []), "--json"], ttl);
+  const { data, error } = kitJson(r, "kit push --json"), said = clean(r.err ?? "");
+  if (error) return { ok: false, files: "", sent: false, code: error.code, text: said || error.message };
+  const files = Array.isArray(data.files) ? data.files : [];
+  return { ok: files.length > 0, files: JSON.stringify(files), sent: data.sent === true, push: data.push, prUrl: data.pr_url ?? null,
+    text: said || (files.length ? files.join("\n") : "沒有要送的") };
 }
 // open a file in this computer's own program for it (explorer: no cmd.exe parsing of & or ^ in the path)
 function openOutside(path) {
@@ -153,8 +138,8 @@ export class Repo {
       try {
         const plan = [];
         for (const x of dirty) {
-          const r = await kit(["push", "--to", x.name, "--dry-run"], SHORT);
-          plan.push({ name: x.name, push: x.push, ok: r.code === 0 && !/沒有要送的/.test(r.out), files: sendList(r.out), text: clean([r.out, r.err].filter(Boolean).join("\n")) });
+          const j = await pushJson(x.name, true, SHORT);
+          plan.push({ name: x.name, push: j.push ?? x.push, ok: j.ok, files: j.files, text: j.text });
         }
         this.plan = plan;
       } finally { this.endBusy(); cx.notify(); }
@@ -166,18 +151,18 @@ export class Repo {
     cx.notify();
     cx.spawn(async (cx) => {
       try {
-        const again = await kit(["push", "--to", p.name, "--dry-run"], SHORT);
-        const ok = again.code === 0 && !/沒有要送的/.test(again.out), files = sendList(again.out);
-        if (!ok || files !== p.files) {
-          const np = { ...p, ok, files, text: clean([again.out, again.err].filter(Boolean).join("\n")) };
+        // the files must still be the ones you were shown (two dry runs' lists, compared as kit gave them)
+        const again = await pushJson(p.name, true, SHORT);
+        if (!again.ok || again.files !== p.files) {
+          const np = { ...p, ok: again.ok, files: again.files, text: again.text };
           this.plan = (this.plan ?? []).map((x) => (x.name === p.name ? np : x));
           this.setMsg({ ok: false, label: `送出 ${p.name}`, text: "要送的檔案跟剛才列的不一樣了（剛剛有存檔或改過），什麼都沒送。請再看一次下面的清單。", at: Date.now() });
           return;
         }
-        const r = await kit(["push", "--to", p.name], LONG);
-        let text = clean((r.code === 0 ? [r.out, r.err] : [r.err, r.out]).filter(Boolean).join("\n")) || (r.code === 0 ? "送出了" : `失敗（${r.code}）`);
-        if (r.code === 0 && p.push !== "direct" && /PR|分支/.test(text)) text += "\n\n改的檔案現在在送出的分支上：PR 合併、kit sync 之後才會回到這裡。";
-        this.setMsg({ ok: r.code === 0, label: `送出 ${p.name}`, text, at: Date.now() });
+        const r = await pushJson(p.name, false, LONG);
+        let text = r.text || (r.sent ? "送出了" : "失敗");
+        if (r.sent && r.push === "pr") text += `\n\n${r.prUrl ? `PR：${r.prUrl}\n` : ""}改的檔案現在在送出的分支上：PR 合併、kit sync 之後才會回到這裡。`;
+        this.setMsg({ ok: !r.code, label: `送出 ${p.name}`, text, at: Date.now() });
         this.plan = (this.plan ?? []).filter((x) => x.name !== p.name);
         if (!this.plan.length) this.plan = null;
       } finally { this.endBusy(); this.changed(); cx.notify(); }
@@ -203,7 +188,7 @@ export class Repo {
     if (msg) root.child(this.message(t, z, msg));
     const d = this.data;
     if (!d) return root.child(div().p(14).child(waiting(t, z, "讀取中…")));
-    if (d.error) return root.child(problemCard(t, z, this.where, d.error));
+    if (d.error) return root.child(problemCard(t, z, this.where, d.error, d.code));
     if (d.kit_version_wanted) root.child(versionCard(t, z, this.where, d));
     if (this.plan) root.child(this.planCard(t, z));
     return root.child(this.edit ? this.editor(t, z) : this.repo(t, z, d));
@@ -389,9 +374,10 @@ export class Repo {
     cx.spawn(async (cx) => {
       try {
         const r = await kit(["collect", url, "--look", ...(m.source ? ["--to", m.source] : [])], SHORT);
-        if (r.code !== 0) { this.setMsg({ ok: false, label: "下載看看", text: clean(r.err || r.out), at: Date.now() }); return; }
-        try { m.look = JSON.parse(r.out); this.setMsg(null); }
-        catch { this.setMsg({ ok: false, label: "下載看看", text: "kit collect --look 的輸出讀不懂（kit 太舊？請打 kit self-update）", at: Date.now() }); }
+        const { data, error } = kitJson(r, "kit collect --look");
+        if (error) { this.setMsg({ ok: false, label: "下載看看", text: clean(r.err ?? "") || error.message, at: Date.now() }); return; }
+        m.look = data;
+        this.setMsg(null);
       } finally { this.endBusy(); cx.notify(); }
     });
   }

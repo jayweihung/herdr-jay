@@ -9,7 +9,7 @@ says which) · **kit** = update kit itself on every machine where agents run (`k
 **snap hook** = a line in Claude Code's `settings.json` on each machine where you added the hook (the entry says
 which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/keys.md).
 
-## 2026-11-12 (kit mod, nvim-jay)
+## 2026-11-13 (kit mod, nvim-jay)
 
 Needs: **kit** (0.3.0 or later, step 1 first), **mods** (new folders, old ones removed), **gerrit** (Windows),
 **layout**, **keys** (two lines), **gerrit plugin** (one line), **snap hook** (one line); then restart Herdr and
@@ -28,7 +28,8 @@ close the old nvim panes.
   runs `kit` from PATH (`kit.cmd` on Windows), else from kit's install folder; no `config.json`. It needs **kit 0.3.0
   or later** (`kit api` prints `1.0`): with an older kit the panels say 「kit 太舊」 (`kit self-update`); with a kit
   newer than the mod, 「Herdr 的 kit mod 太舊」 (update herdr-jay). kit's own `kit herdr-panel install` is gone; don't
-  run it any more. A layout with Kit's button but an older kit's pieces gets 「更新版面」 in the Kit panel.
+  run it any more. It reads only kit's JSON (what changed and what 送出 sends: `kit list --json`, `kit push --json`),
+  no git of its own. A layout with Kit's button but an older kit's pieces gets 「更新版面」 in the Kit panel.
   kit 的 Herdr 面板搬到 herdr-jay：三個 mod 合成一個 `kit`，要 kit 0.3.0 以上。
 - **The Gerrit panel's skills moved into the gerrit mod**: the `gerrit-panel` plugin is now
   `herdr-app/mods/gerrit/claude-plugin` (was `agents/gerrit-panel`), so it is installed and updated with the mod.

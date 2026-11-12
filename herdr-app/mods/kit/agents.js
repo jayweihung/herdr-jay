@@ -14,8 +14,8 @@
 import { div } from "gpui-kit";
 import { v_flex, h_flex, Editor } from "gpui-base";
 import { theme, run, shared, setShared, readTextFile, writeTextFile, closeOverlay, openOverlay, props, spaces, focused, layout } from "herdr";
-import { AGENTS_DATA, AGENTS_LOAD, AGENTS_MSG, NODES, fs, stop, isWindows, shortDir, clean, spin, waiting, find, textBlock, copyOnRight, btn,
-  busyNow, dropStaleBusy, giveBusy, markRepoStale, kit, localKit, apiState, apiKnown, checkApi, apiCard, messageBox, problemCard, newEditor,
+import { AGENTS_DATA, AGENTS_LOAD, AGENTS_MSG, NODES, fs, stop, isWindows, shortDir, spin, waiting, find, textBlock, copyOnRight, btn,
+  busyNow, dropStaleBusy, giveBusy, markRepoStale, kit, kitJson, localKit, apiState, apiKnown, checkApi, apiCard, messageBox, problemCard, newEditor,
   localGet, localSet, kitAction, loadNewest, loadingNow } from "./common.js";
 
 const PANEL = NODES.agents;
@@ -25,10 +25,8 @@ const TOOL_NAMES = { claude: "Claude", codex: "Codex", omp: "omp" };
 const GIT = { new: "新的，還沒送出", changed: "改過" };
 
 async function loadAgents() {
-  const r = await kit(["agents", "--json"], 60000);
-  if (r.code !== 0) return { error: clean(r.err || r.out) || `kit agents 失敗（${r.code}）`, at: Date.now() };
-  try { return { ...JSON.parse(r.out), at: Date.now() }; }
-  catch { return { error: "kit agents --json 的輸出讀不懂（kit 太舊？請打 kit self-update）", at: Date.now() }; }
+  const { data, error } = kitJson(await kit(["agents", "--json"], 60000), "kit agents --json");
+  return error ? { error: error.message, code: error.code, at: Date.now() } : { ...data, at: Date.now() };
 }
 
 export class Agents {
@@ -169,7 +167,7 @@ export class Agents {
     if (api?.kind && !api.ok) return root.child(apiCard(t, z, api, null, "agents"));
     if (msg) root.child(this.message(t, z, msg));
     if (!d) return root.child(div().p(14).child(waiting(t, z, "讀取中…")));
-    if (d.error) return root.child(problemCard(t, z, "agents", d.error));
+    if (d.error) return root.child(problemCard(t, z, "agents", d.error, d.code));
     if (this.edit) return root.child(this.editor(t, z));
     if (a) return root.child(this.detail(t, z, d, a));
     return root.child(this.list(t, z, d));

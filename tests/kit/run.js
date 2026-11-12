@@ -2,7 +2,7 @@
 // The mod's imports (gpui-kit, gpui-base, herdr) are replaced by stubs, and exec by a fake that answers kit's
 // commands from a table and records every call. At the end a real kit is asked kit api: the one in KIT if set
 // (KIT=~/src/agentkit/unix/kit node tests/kit/run.js), else the one on PATH (skipped, with the reason, when there is none).
-import { readFileSync, writeFileSync, readdirSync, mkdtempSync, rmSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, readdirSync, mkdtempSync, mkdirSync, rmSync, existsSync, realpathSync } from "node:fs";
 import { tmpdir, homedir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -95,15 +95,20 @@ function fresh() {
   H.props = {}; H.layout = { id: "root", children: [] }; H.window = { platform: "macos" }; H.panes = []; H.spaces = [];
   timers.length = 0; skew = 0;
 }
-// a fake kit: argv after the program -> answer; api: what kit api prints (null: an older kit, "kit: 沒有這個指令：api");
-// missing: no kit anywhere (exec can't start one: on PATH or in kit's install folder)
-function fakeKit({ api = "1.0", missing = false, list = { items: [], sources: [] }, agents = { agents: [] } } = {}) {
+// a fake kit, answering as kit 0.3.0 does (kit's README, "給程式讀的介面"): argv after the program -> answer.
+// api: what kit api prints (null: an older kit, "kit: 沒有這個指令：api"); missing: no kit anywhere (exec can't start
+// one: on PATH or in kit's install folder); list / agents: their JSON, or kitError(code, message); push(args): an answer
+const kitError = (code, message) => ({ code: 1, stdout: `${JSON.stringify({ error: { code, message } })}\n`, stderr: `kit：${message}\n` });
+const KIT_LIST = { kit: "0.3.0", sources: [], tools: ["claude"], items: [], kit_version_wanted: "" };
+function fakeKit({ api = "1.0", missing = false, list = KIT_LIST, agents = { kit: "0.3.0", tools: ["claude"], available: {}, agents: [] }, push = null } = {}) {
+  const answer = (x) => (x && typeof x.code === "number" && "stdout" in x ? x : { code: 0, stdout: `${JSON.stringify(x)}\n`, stderr: "" });
   H.answer = (argv) => {
     if (missing && /(^|[\/\\])kit(\.cmd)?$/.test(argv[0])) return new Error(`cannot run ${argv[0]}: No such file or directory`);
     const a = argv[0] === "sh" ? argv.slice(4) : argv.slice(1);
     if (a[0] === "api") return api == null ? { code: 1, stdout: "", stderr: "kit: 沒有這個指令：api（打 kit help）\n" } : { code: 0, stdout: `${api}\n`, stderr: "" };
-    if (a[0] === "list") return { code: 0, stdout: JSON.stringify(list), stderr: "" };
-    if (a[0] === "agents") return { code: 0, stdout: JSON.stringify(agents), stderr: "" };
+    if (a[0] === "list") return answer(list);
+    if (a[0] === "agents") return answer(agents);
+    if (a[0] === "push" && push) return push(a);
     if (a[0] === "context") return { code: 0, stdout: JSON.stringify({ tool: "claude", used: 1000, window: 200000, pct: 1 }), stderr: "" };
     return { code: 0, stdout: "", stderr: "" };
   };
@@ -471,6 +476,110 @@ test("context popup: kit context --detail only once kit api says ok there; too o
   assert.equal(c.length, 1); assert.ok(c[0].argv.includes("--detail"));
 });
 
+// kit's JSON (kit 0.3.0: list --json changed, push --json, error codes)
+test("kit's JSON: data on exit 0; {error:{code,message}} on failure, an unknown code is error; no JSON, a missing kit, a timeout said apart", ({ common: C }) => {
+  assert.deepEqual(C.kitJson({ code: 0, out: '{"kit":"0.3.0","items":[]}\n' }, "x"), { data: { kit: "0.3.0", items: [] } });
+  assert.deepEqual(C.kitJson({ code: 1, out: '{"error": {"code": "not_init", "message": "還沒設定：先打  kit init <網址或資料夾>"}}\n', err: "kit：還沒設定" }, "x"),
+    { error: { code: "not_init", message: "還沒設定：先打  kit init <網址或資料夾>" } });
+  assert.equal(C.kitJson({ code: 1, out: '{"error": {"code": "brand_new", "message": "m"}}' }, "x").error.code, "error");
+  assert.deepEqual(C.kitJson({ code: 0, out: "abc" }, "kit list --json").error, { code: "error", message: "kit list --json 的輸出讀不懂（kit 太舊？請打 kit self-update）" });
+  assert.deepEqual(C.kitJson({ code: 2, out: "", err: "kit: 壞了" }, "x").error, { code: "error", message: "壞了" });
+  assert.deepEqual(C.kitJson({ code: 0, out: '{"error": {"code": "busy", "message": "b"}}' }, "x").error, { code: "busy", message: "b" });
+  assert.equal(C.kitJson({ code: -1, out: "", err: "找不到 kit", missing: true }, "x").error.code, "missing");
+  assert.equal(C.kitJson({ code: -1, out: "", err: "kit 沒在 60 秒內回應", timedOut: true }, "x").error.code, "timeout");
+  for (const code of ["usage", "not_init", "busy", "no_source", "not_git", "check_failed", "no_git_identity", "author_not_allowed", "bad_push_mode",
+    "no_origin", "no_remote", "not_on_branch", "out_of_sync", "host_not_allowed", "push_failed", "not_maintainer", "not_allowed", "download_failed", "no_skill", "error"])
+    assert.ok(C.KIT_ERRORS.includes(code), code);
+});
+const TEAM = { name: "team", source: "https://git.example.org/acme/team", dir: "C:\\Users\\amy\\.agentkit\\team", push: "pr",
+  changed: ["rules/security.md", "skills/quote/SKILL.md", "skills/quote/notes.md", "agents/reviewer.md"] };
+const TEAM_LIST = { kit: "0.3.0", tools: ["claude"], kit_version_wanted: "", sources: [TEAM, { name: "mine", source: "/x", dir: "/x", push: "direct", changed: [] }],
+  items: [{ kind: "rule", name: "security", status: "required", new: false, changed: true, source: "team", description: "", path: "C:\\Users\\amy\\.agentkit\\team\\rules\\security.md" },
+    { kind: "skill", name: "quote", status: "used", new: false, changed: true, source: "team", description: "quotes", path: "C:\\Users\\amy\\.agentkit\\team\\skills\\quote\\SKILL.md" },
+    { kind: "skill", name: "calm", status: "unused", new: true, changed: false, source: "mine", description: "", path: "/x/skills/calm/SKILL.md" },
+    { kind: "agent", name: "reviewer", status: "agent", new: false, changed: true, source: "team", description: "", path: "C:\\Users\\amy\\.agentkit\\team\\agents\\reviewer.md" }] };
+test("repository: what is unsent comes from kit list --json (sources[].changed, items[].changed); git is never run", async (M) => {
+  fresh(); fakeKit({ list: TEAM_LIST }); H.window = { platform: "windows" };
+  const v = view(M, { role: "repo" }); await settle(); await tick();
+  const d = H.store["kit.data.v2"];
+  assert.deepEqual(d.dirty, [{ name: "team", push: "pr", items: 3, agents: 1 }]);
+  assert.deepEqual(d.items.map((i) => [i.name, i.changed, i.rel]), [["security", true, "rules/security.md"], ["quote", true, "skills/quote/SKILL.md"], ["calm", false, "skills/calm/SKILL.md"]]);
+  const shown = render(v);
+  assert.match(shown, /有改動還沒送出/); assert.match(shown, /team：security、quote、agent 1 個（4 個檔案）/);
+  assert.equal(H.calls.filter((c) => c.argv[0] === "git").length, 0, "no git status of our own");
+  for (const f of readdirSync(MOD).filter((f) => f.endsWith(".js"))) {
+    const src = readFileSync(join(MOD, f), "utf8");
+    assert.doesNotMatch(src, /exec\("git"|ITEM_FILE|sendList|沒有要送的\/|\/PR\||\/kit init\//, f);
+  }
+});
+test("repository: kit's errors by code: not_init says kit init; another code shows kit's words", async (M) => {
+  fresh(); fakeKit({ list: kitError("not_init", "還沒設定：先打  kit init <網址或資料夾>") });
+  let v = view(M, { role: "repo" }); await settle(); await tick();
+  let shown = render(v);
+  assert.match(shown, /kit 出錯了/); assert.match(shown, /還沒設定/); assert.match(shown, /第一次用要先在終端機打  kit init/);
+  fresh(); fakeKit({ list: kitError("busy", "另一個 kit 正在跑，等一下再試（會提到 kit init 也不算）") });
+  v = view(M, { role: "repo" }); await settle(); await tick();
+  shown = render(v);
+  assert.match(shown, /另一個 kit 正在跑/); assert.doesNotMatch(shown, /第一次用要先/);
+});
+test("送出: kit push --dry-run --json lists the files; 確定送出 checks the list again (as JSON), then kit push --json; a PR says where the files went", async (M) => {
+  const dry = { source: "team", dir: "/s/team", push: "pr", dry_run: true, files: ["rules/security.md", "skills/quote/SKILL.md"], skipped: ["notes.txt"],
+    commit: "kit: update rule:security, skill:quote", branch: "kit/security-quote-20261113", into: "main", remotes: ["origin"], sent: false, pr_url: null, compare_url: null };
+  let files = dry.files, pushed = 0;
+  const say = "kit：要送的檔案（team）：\n  rules/security.md\n  skills/quote/SKILL.md\nkit：分支：kit/security-quote-20261113（PR 到 main）\n";
+  fresh(); fakeKit({ list: { ...TEAM_LIST, sources: [TEAM] }, push: (a) => {
+    if (a.includes("--dry-run")) return { code: 0, stdout: `${JSON.stringify({ ...dry, files })}\n`, stderr: say };
+    pushed++;
+    return { code: 0, stdout: `${JSON.stringify({ ...dry, files, dry_run: false, sent: true, pr_url: "https://git.example.org/acme/team/pulls/7" })}\n`, stderr: "kit：已送出分支 kit/security-quote-20261113\n" };
+  } });
+  const v = view(M, { role: "repo" }); await settle(); await tick();
+  render(v); H.clicks.push({}, cx); await settle();
+  const runs = kitCalls("push");
+  assert.deepEqual(runs[0].argv.slice(1), ["push", "--to", "team", "--dry-run", "--json"]);
+  let shown = render(v);
+  assert.match(shown, /送出前看一下/); assert.match(shown, /rules\/security\.md/); assert.match(shown, /確定送出/);
+  // someone saved meanwhile: the second dry run lists other files: nothing sent
+  files = [...dry.files, "mcp/x.yaml"];
+  H.clicks["push-team"]({}, cx); await settle();
+  assert.equal(pushed, 0); assert.match(render(v), /跟剛才列的不一樣了/);
+  // the same list twice: sent
+  render(v); H.clicks["push-team"]({}, cx); await settle();
+  assert.equal(pushed, 1);
+  assert.deepEqual(kitCalls("push").at(-1).argv.slice(1), ["push", "--to", "team", "--json"]);
+  shown = render(v);
+  assert.match(shown, /已送出分支/); assert.match(shown, /pulls\/7/); assert.match(shown, /改的檔案現在在送出的分支上/);
+});
+test("送出: nothing to send (files []) has no 確定送出; a failure shows kit's words (stderr), not the JSON", async (M) => {
+  fresh(); fakeKit({ list: { ...TEAM_LIST, sources: [TEAM] }, push: () => ({ code: 0, stdout: `${JSON.stringify({ source: "team", dir: "/s", push: "pr", dry_run: true,
+    files: [], skipped: ["notes.txt"], commit: null, branch: null, into: null, remotes: [], sent: false, pr_url: null, compare_url: null })}\n`, stderr: "kit：沒有要送的（team 裡沒有改過的 rule、skill、mcp、agent）\n" }) });
+  let v = view(M, { role: "repo" }); await settle(); await tick();
+  render(v); H.clicks.push({}, cx); await settle();
+  let shown = render(v);
+  assert.match(shown, /沒有要送的/); assert.ok(!("push-team" in H.clicks), "no 確定送出");
+  fresh(); fakeKit({ list: { ...TEAM_LIST, sources: [TEAM] }, push: () => kitError("check_failed", "kit check 有問題，什麼都沒送（改好再 kit push）") });
+  v = view(M, { role: "repo" }); await settle(); await tick();
+  render(v); H.clicks.push({}, cx); await settle();
+  shown = render(v);
+  assert.match(shown, /kit check 有問題/); assert.doesNotMatch(shown, /"error"/); assert.ok(!("push-team" in H.clicks));
+});
+test("下載看看: kit collect --look's JSON is shown; its error JSON shows kit's words", async (M) => {
+  const look = { url: "https://git.example.org/a/r@abc", source: "mine", id: "git.example.org/a", allowed: true, can_allow: false,
+    skills: [{ name: "pdf", path: "skills/pdf", description: "PDFs", license: "MIT", scripts: "", skipped: 0, valid: true, exists: "", dest: "/x/skills/pdf/SKILL.md" }] };
+  let answer = { code: 0, stdout: `${JSON.stringify(look)}\n`, stderr: "kit：下載中…\n" };
+  fresh(); fakeKit({ list: TEAM_LIST });
+  const base = H.answer;
+  H.answer = (argv) => (argv[1] === "collect" ? answer : base(argv));
+  const v = view(M, { role: "repo" }); await settle(); await tick();
+  render(v); H.clicks.new({}, cx); render(v); H.clicks["mode-collect"]({}, cx);
+  v.part.newUrl.set_value("https://git.example.org/a/r");
+  render(v); H.clicks.look({}, cx); await settle();
+  assert.match(render(v), /授權：MIT/);
+  answer = kitError("not_allowed", "git.example.org/a 不在 collect_sources");
+  render(v); H.clicks.look({}, cx); await settle();
+  const shown = render(v);
+  assert.match(shown, /不在 collect_sources/); assert.doesNotMatch(shown, /"error"/);
+});
+
 // placing the panel in a layout of your own (放進上排)
 const userLayout = (paneHeader = { content: { mod: "pane" } }) => ({ id: "root", type: "column", children: [
   { id: "bar", type: "row", children: [{ id: "tabs", type: "block", content: { mod: "tabs" }, size: { weight: 1 } }], size: { px: 42 } },
@@ -587,7 +696,71 @@ async function realKit(M) {
   const m = direct.status === 0 ? direct.stdout.trim().match(/^(\d+)(?:\.(\d+))?$/) : null;
   const want = !m ? "old" : Number(m[1]) > 1 ? "newer" : Number(m[1]) === 1 ? "ok" : "old";
   assert.equal(a.kind, want);
-  return `ok    real kit (${process.env.KIT ? `KIT=${process.env.KIT}` : exe}): kit api -> ${JSON.stringify(direct.stdout.trim() || direct.stderr.trim())}, the mod says: ${a.ok ? "ok" : a.title}`;
+  let json = "";
+  if (a.ok) {
+    // a kit the mod can read: its JSON commands, read the mod's way, in an empty home (nothing of yours is read or
+    // written): each one either answers JSON or fails with {"error": {"code": "not_init", ...}}
+    // its real path: on a Mac the temp folder is behind a link (/var → /private/var), and kit 0.3.0 then sees the
+    // source twice (kit check: 名字重複)
+    const home = realpathSync(mkdtempSync(join(tmpdir(), "kit-home-")));
+    try {
+      writeFileSync(join(home, ".gitconfig"), "[user]\n\tname = t\n\temail = t@example.org\n[init]\n\tdefaultBranch = main\n");
+      var env = { ...process.env, HOME: home, USERPROFILE: home, XDG_CONFIG_HOME: join(home, ".config"), XDG_DATA_HOME: join(home, ".local", "share"),
+        GIT_CONFIG_GLOBAL: join(home, ".gitconfig"), GIT_CONFIG_NOSYSTEM: "1" };
+      H.answer = (argv) => {
+        const cmd = /^kit(\.cmd)?$/.test(argv[0]) ? exe : argv[0];
+        const r = spawnSync(cmd, argv.slice(1), { encoding: "utf8", timeout: 40000, shell: win, cwd: home, env });
+        return r.error ? r.error : { code: r.status, stdout: r.stdout, stderr: r.stderr };
+      };
+      const said = [];
+      for (const args of [["list", "--json"], ["agents", "--json"], ["push", "--dry-run", "--json"]]) {
+        const r = await M.common.kit(args);
+        const j = M.common.kitJson(r, `kit ${args[0]}`);
+        if (j.data) assert.ok(typeof j.data === "object", args.join(" "));
+        else {
+          assert.ok(M.common.KIT_ERRORS.includes(j.error.code), `${args.join(" ")}: ${j.error.code}`);
+          assert.doesNotThrow(() => JSON.parse(r.out), `${args.join(" ")}: stdout is JSON`);
+          assert.notEqual(j.error.message, "", args.join(" "));
+        }
+        said.push(`kit ${args.join(" ")} -> ${j.data ? "JSON" : j.error.code}`);
+      }
+      json = `; in an empty home: ${said.join(", ")}`;
+      if (!win) json += await realRepo(M, exe, home, env);
+    } finally { rmSync(home, { recursive: true, force: true }); }
+  }
+  return `ok    real kit (${process.env.KIT ? `KIT=${process.env.KIT}` : exe}): kit api -> ${JSON.stringify(direct.stdout.trim() || direct.stderr.trim())}, the mod says: ${a.ok ? "ok" : a.title}${json}`;
+}
+
+// The repository panel with that real kit, all in the empty home: a source of your own (push: direct, a bare repo
+// beside it as its remote), one rule changed; the panel lists it as unsent, 送出 → 確定送出 sends it, then nothing is.
+async function realRepo(M, exe, home, env) {
+  const git = (cwd, ...a) => { const r = spawnSync("git", a, { cwd, env, encoding: "utf8" }); assert.equal(r.status, 0, `git ${a.join(" ")}: ${r.stderr}`); return r.stdout; };
+  const src = join(home, "mine"), remote = join(home, "remote.git");
+  mkdirSync(join(src, "rules"), { recursive: true });
+  writeFileSync(join(src, "rules", "hello.md"), "---\nname: hello\ndescription: hi\n---\nbe nice\n");
+  writeFileSync(join(src, "kit.yaml"), "push: direct\n");
+  git(home, "init", "-q", "--bare", remote);
+  git(src, "init", "-q"); git(src, "add", "."); git(src, "commit", "-qm", "init");
+  git(src, "remote", "add", "one", remote); git(src, "push", "-q", "one", "HEAD:refs/heads/main");
+  const init = spawnSync(exe, ["init", src], { cwd: home, env, encoding: "utf8" });
+  assert.equal(init.status, 0, `kit init: ${init.stderr}`);
+  writeFileSync(join(src, "rules", "hello.md"), "---\nname: hello\ndescription: hi\n---\nbe nicer\n");
+  const answer = H.answer;
+  fresh(); H.answer = answer;
+  const v = view(M, { role: "repo" }); await settle(); await tick();
+  const d = H.store["kit.data.v2"];
+  assert.ok(!d.error, d.error);
+  assert.deepEqual(d.dirty, [{ name: "mine", push: "direct", items: 1, agents: 0 }]);
+  assert.deepEqual(d.items.filter((i) => i.changed).map((i) => [i.name, i.rel]), [["hello", "rules/hello.md"]]);
+  render(v); H.clicks.push({}, cx); await settle();
+  assert.match(render(v), /rules\/hello\.md/);
+  H.clicks["push-mine"]({}, cx); await settle();
+  const msg = H.store["kit.msg.repo"];
+  assert.equal(msg.ok, true, msg.text);
+  assert.match(git(remote, "log", "--format=%s", "-1", "main"), /^kit: update rule:hello/);
+  await tick();
+  assert.deepEqual(H.store["kit.data.v2"].dirty, [], "nothing unsent after 送出");
+  return "; a source of its own: listed as unsent, sent by 送出 → 確定送出";
 }
 
 // ---------- run ----------

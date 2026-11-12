@@ -323,11 +323,11 @@ server 上的 Claude Code 也要加一次 hook（nvim-jay 在 server 開過一�
 
 Restart the agent. **Check**: after it changes a file outside the repo with a shell command naming its full path,
 `~/.cache/nvim-jay/snap/` has a new folder.
-Added before 2026-11-12? Then the line says `~/.config/jay-nvim/snap_hook.lua` (nvim-jay was called jay-nvim): that
+Added before 2026-11-13? Then the line says `~/.config/jay-nvim/snap_hook.lua` (nvim-jay was called jay-nvim): that
 old file is no longer updated, and its copies go where nvim-jay no longer looks. Change `/.config/jay-nvim/` to
 `/.config/nvim-jay/` in the line (after a new nvim-jay pane has opened there once), restart the agent; the old
-`~/.config/jay-nvim` and `~/.cache/jay-nvim` can be deleted ([CHANGELOG](../CHANGELOG.md) 2026-11-12).
-2026-11-12 以前加的 hook 寫的是 `~/.config/jay-nvim/…`：改成 `nvim-jay`，再重開 agent。
+`~/.config/jay-nvim` and `~/.cache/jay-nvim` can be deleted ([CHANGELOG](../CHANGELOG.md) 2026-11-13).
+2026-11-13 以前加的 hook 寫的是 `~/.config/jay-nvim/…`：改成 `nvim-jay`，再重開 agent。
 
 ---
 

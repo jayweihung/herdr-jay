@@ -231,6 +231,28 @@ export async function kit(args, timeout = 60000, machine = null) {
     err: machine ? `連不到 ${machine}，或那台沒裝 kit${last ? `（${clean(last)}）` : ""}` : `找不到 kit：這台電腦的 PATH 上沒有 ${localKit()}，kit 的安裝資料夾裡也沒有${last ? `（${clean(last)}）` : ""}` };
 }
 
+// ---------- kit's JSON (kit list / agents / push --json, kit collect --look) ----------
+// Every one of these prints only JSON on stdout, its words for people on stderr (shown as they are). It fails with a
+// non-zero exit and one line {"error": {"code", "message"}}; a code this mod doesn't know (a newer kit's) is "error".
+// The list is kit's README, "給程式讀的介面".
+export const KIT_ERRORS = ["usage", "not_init", "busy", "no_source", "not_git", "check_failed", "no_git_identity", "author_not_allowed",
+  "bad_push_mode", "no_origin", "no_remote", "not_on_branch", "out_of_sync", "host_not_allowed", "push_failed", "not_maintainer",
+  "not_allowed", "download_failed", "no_skill", "error"];
+// kit's answer (from kit()) -> { data } or { error: { code, message } }; what: the command, for a message of our own
+export function kitJson(r, what) {
+  let j = null;
+  try { j = JSON.parse(String(r?.out ?? "").trim() || "null"); } catch { j = null; }
+  if (r?.code === 0 && j && typeof j === "object" && !Array.isArray(j) && !j.error) return { data: j };
+  const e = j && typeof j === "object" ? j.error : null;
+  if (e && typeof e === "object") {
+    const code = KIT_ERRORS.includes(e.code) ? e.code : "error";
+    return { error: { code, message: String(e.message || clean(r.err ?? "") || `${what} 失敗（${code}）`) } };
+  }
+  if (r?.missing || r?.timedOut) return { error: { code: r.timedOut ? "timeout" : "missing", message: String(r.err ?? "") } };
+  return { error: { code: "error", message: r?.code === 0 ? `${what} 的輸出讀不懂（kit 太舊？請打 kit self-update）`
+    : clean(r?.err || r?.out || "") || `${what} 失敗（${r?.code}）` } };
+}
+
 // ---------- is kit new enough: kit api ----------
 // kit api prints the version of what this mod reads from kit (kit list --json, kit agents --json, kit context ...)
 // as major.minor: a new major breaks this mod, a new minor only adds. This mod reads major KIT_API.major, and needs at
@@ -301,9 +323,9 @@ export function messageBox(t, z, id, msg, onClose, shape = (s) => s) {
     .child(div().id(`msg-close-${id}`).flex_none().px(4).cursor_pointer().text_color(t.muted).hover((s) => s.text_color(t.foreground))
       .on_mouse_down("left", stop).on_click((_e, cx) => { onClose(); cx.notify(); }).child("✕"));
 }
-// kit said something went wrong (a load's error): its words, and what to do
-export function problemCard(t, z, id, text) {
-  const notInit = /kit init/.test(text);
+// kit said something went wrong (a load's error: its words, and kit's error code): what to do
+export function problemCard(t, z, id, text, code = null) {
+  const notInit = code === "not_init";
   return v_flex().p(14).gap(8)
     .child(div().font_semibold().text_color(t.ansi1).child("kit 出錯了"))
     .child(div().font_family(mono()).text_size(z - 1).child(textBlock(`problem-${id}`, text)))

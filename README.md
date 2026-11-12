@@ -51,11 +51,16 @@ pyright (optional, Python go-to-definition on the server): **1.1.414**, npm's pa
 ([linux-remote.md §3b](docs/linux-remote.md#3b-python-go-to-definition-pyright-optional--python-跳定義選用); also on the release `pyright-1.1.414`).
 pyright（選用，server 上的 Python 跳定義）：1.1.414。
 
-**Tags** `for-herdr-v<app version>-r<N>` mark a herdr-jay state checked on **both** macOS and Windows. They never
-move; a fix on the same Herdr gets the next `-r`. Take the highest `-r` for your app version. The old tag
-`for-herdr-v0.1.13` (no `-r`) is older and macOS-only. The first tag checked on both is `for-herdr-v0.1.15-r1`:
-use `main` until it exists.
-tag 一旦打上就不移動；同一版 Herdr 有修正就加 `-r`。舊的 `for-herdr-v0.1.13` 沒有 Windows 支援；第一個兩邊都驗過的會是 `for-herdr-v0.1.15-r1`。
+**Tags** `for-herdr-v<app version>-r<N>` mark a herdr-jay state for one Herdr version. They never move; a fix on
+the same Herdr gets the next `-r`. Take the highest `-r` for your app version. Which systems a tag was checked on is
+listed here (and in the tag's message):
+
+| Tag | Herdr app / core | Checked on macOS | Checked on Windows |
+|---|---|---|---|
+| `for-herdr-v0.1.15-r1` | v0.1.15 / v0.1.20 | 2026-11-12 | not yet |
+| `for-herdr-v0.1.13` (old, no `-r`) | v0.1.13 | yes | no Windows support |
+
+tag 一旦打上就不移動；同一版 Herdr 有修正就加 `-r`。每個 tag 在哪些系統驗過看上表：`for-herdr-v0.1.15-r1` 目前只驗過 Mac，Windows 實測通過後會在這裡寫上（要修的話會是 `-r2`）。
 
 Never run plain `hc update`, and don't press Install / Update on Herdr's core screen or run "Update herdr-core":
 they install the official core over yours.

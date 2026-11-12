@@ -16,6 +16,8 @@ Needs: **mods** (they moved: copy again from the new folder; macOS symlinks: lin
   macOS: `cd ~/.config/herdr-app/mods && ln -sfn ~/src/herdr-jay/herdr-app/mods/jay-nvim ~/src/herdr-jay/herdr-app/mods/jay-nvim-pick .`
   (and `gerrit` the same way if you use it).
   Windows: the copy block in [windows.md §8](docs/windows.md) (already uses the new folder).
+- New `herdr-app/layouts/jay.json`: jay's layout (Agents, Kit, Gerrit buttons and panels; the Kit bar on every
+  terminal). Optional: [docs/layout.md](docs/layout.md).
 
 ## 2026-11-12
 

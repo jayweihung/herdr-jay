@@ -30,6 +30,7 @@ jayweihung 的 Herdr 通用 mod 與設定。
 | `herdr-app/mods/jay-nvim` | Neovim beside your agent: follow the agent's files, live diff, file tree, comments to the agent, LSP, mouse |
 | `herdr-app/mods/jay-nvim-pick` | `cmd-o` / `ctrl-shift-j`: jump to the jay-nvim pane and list the files the agent read or edited |
 | `herdr-app/mods/gerrit` | Gerrit beside your agents: 輪到你 / 我送出的 / 等我 review…, a change's votes, comment threads and files, notifications ([docs/gerrit.md](docs/gerrit.md)) |
+| `herdr-app/layouts/jay.json` | jay's layout: Agents / Kit / Gerrit buttons and panels, the Kit bar on every terminal ([docs/layout.md](docs/layout.md)) |
 | `herdr-core/patches/<tag>/`, `herdr-app/patches/<tag>/` | changes to Herdr's own source (only what a mod can't do), one folder per official tag |
 | `docs/` | the guides above |
 

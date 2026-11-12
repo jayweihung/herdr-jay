@@ -4,11 +4,11 @@
 // "header" } } }; Herdr adds { pane, terminal } to those props). Like Herdr's own header ("mod": "pane") it shows the
 // program's icon, the name, the folder and the agent's status, with split / zoom / close on hover (always laid out,
 // shown only on hover, so nothing in the header moves). On an agent's pane it adds kit's button (what this agent uses:
-// rules, skills, MCP; one click opens the "pane" popup) and how full its context is.
+// rules, skills, MCP; one click opens the "agent" popup, agent.js) and how full its context is.
 // This header is the one place that asks kit about an agent:
 //   kit list --json --dir <its folder> --pid <its process>      on the pane's machine
-// and keeps the answer in shared state (PANE_CACHE, PANE_DATA in common.js) for the popup to show; the popup's ⟳
-// and anything that changed what the agent uses ask for a fresh one (PANE_WANT).
+// and keeps the answer in shared state (AGENT_CACHE, AGENT_DATA in common.js) for the popup to show; the popup's ⟳
+// and anything that changed what the agent uses ask for a fresh one (AGENT_WANT).
 // How full the context is comes from
 //   kit context --pid <the agent's process> --tool <claude|codex|omp> --dir <its folder>
 // kept in CTX, asked again every 15 s while it works. A failed ask keeps the numbers it had.
@@ -18,19 +18,21 @@
 // buttons type the tool's own command into that agent (hc send, only while it waits: idle or done): 壓縮 (/compact,
 // with what to keep where the tool takes it) and 清空重來 (Claude /clear, Codex and omp /new), each confirmed first;
 // 拿掉 takes off what kit manages (the popup's kit rm), 開檔 opens a memory / instruction file in kit's editor window
-// (this computer only), 複製 copies the summary.
+// (this computer only), 複製 copies the summary. Nothing is asked while kit there can't be used (kit api).
+// What it computes (the bar, the numbers, the tips) is in context.js.
 import { div, svg } from "gpui-kit";
 import { h_flex, v_flex, InputState, Input } from "gpui-base";
 import { panes, spaces, agents, props, run, theme, hc, shared, setShared, openOverlay, closeOverlay, notify } from "herdr";
-import { PANE_CACHE, PANE_DATA, PANE_WANT, CTX, EDITORS, fs, stop, slash, shortDir, clean, spin, waiting, icon, textBlock,
-  copyOnRight, btn, busyNow, takeBusy, giveBusy, markChanged, kit, apiState, apiKnown, checkApi, apiCard } from "./common.js";
-import { toolOf, ctxArgs, sendText, sendArgs, removal, ctxTips, summaryText, num, kfmt } from "./context.js";
+import { AGENT_CACHE, AGENT_DATA, AGENT_WANT, CTX, EDITORS, fs, stop, slash, shortDir, clean, spin, waiting, icon, textBlock,
+  copyOnRight, btn, busyNow, takeBusy, giveBusy, markChanged, kit, apiState, apiKnown, checkApi, apiCard, num, kfmt } from "./common.js";
+import { toolOf, ctxArgs, sendText, sendArgs, removal, ctxTips, summaryText, chipNumbers, level, howCounted, ago, catColorKey, barSegments,
+  catShare, compactLine } from "./context.js";
 
 const CTX_STALE = 15000, CTX_IDLE = 60000;   // how often to ask how full the context is: working / not
 const STALE = 60000, LOAD_TTL = 90000;   // look again after a minute; a load longer than this is taken as lost
 const SHORT = 120000;
 const CTX_W = 480, CTX_H = 640, CHIP_W = 154;   // the context popup; the context chip (one width: the header never moves)
-export const POPUP_W = 440, POPUP_H = 560;    // the "pane" popup (panel.js draws it this tall)
+export const POPUP_W = 440, POPUP_H = 560;    // the "agent" popup (agent.js draws it this tall)
 
 // where a pane lives: its machine (its space's), and the key its answers are kept under
 function placeOf(p) {
@@ -85,14 +87,9 @@ async function loadContext(machine, cwd, term, tool) {
   if (r.code !== 0) return null;
   try { const d = JSON.parse(r.out); return d && typeof d === "object" ? d : null; } catch { return null; }
 }
-const kNum = (n) => (n >= 1000000 ? `${+(n / 1000000).toFixed(n % 1000000 ? 1 : 0)}M` : `${Math.round(n / 1000)}k`);
 // a category's color in the bar and its dot
-function catColor(t, id) {
-  return ({ system_prompt: t.ansi4, system_tools: t.ansi6, mcp_tools: t.ansi2, mcp_instructions: t.ansi2, memory_files: t.ansi3,
-    instructions: t.ansi3, skills: t.ansi5, custom_agents: t.ansi1, slash_commands: t.ansi1, messages: t.accent, compaction: t.done,
-    other: t.dim })[id] ?? t.dim;
-}
-const ago = (at) => { const s = Math.max(0, Math.round(Date.now() / 1000 - Number(at || 0))); return s < 60 ? `${s} 秒前` : `${Math.round(s / 60)} 分鐘前`; };
+const catColor = (t, id) => t[catColorKey(id)] ?? t.dim;
+const levelColor = (t, pct) => ({ full: t.blocked, high: t.working })[level(pct)] ?? t.foreground;
 
 export class Header {
   constructor(role) { this.role = role; }
@@ -125,17 +122,17 @@ export class Header {
     if (!api) { checkApi(w.machine, cx); return; }
     if (!api.ok) return;
     this.tickContext(p, cx);
-    const c = (shared(PANE_CACHE) ?? {})[w.key], want = (shared(PANE_WANT) ?? {})[w.key] ?? 0;
+    const c = (shared(AGENT_CACHE) ?? {})[w.key], want = (shared(AGENT_WANT) ?? {})[w.key] ?? 0;
     if (c?.busy && Date.now() - (c.started ?? 0) < LOAD_TTL) return;
     if (c && !c.busy && Date.now() - c.at < STALE && (c.started ?? 0) >= want) return;
     const started = Date.now();
-    setShared(PANE_CACHE, { ...pruned(shared(PANE_CACHE)), [w.key]: { ...summary(null), ...(c ?? {}), busy: true, started } });
+    setShared(AGENT_CACHE, { ...pruned(shared(AGENT_CACHE)), [w.key]: { ...summary(null), ...(c ?? {}), busy: true, started } });
     cx.spawn(async (cx) => {
       let d;
       try { d = await loadAgent(w.machine, p.cwd, p.terminal); }
       catch (e) { d = { error: String(e?.message ?? e), machine: w.machine, at: Date.now() }; }
-      setShared(PANE_DATA, { ...pruned(shared(PANE_DATA)), [w.key]: d });
-      setShared(PANE_CACHE, { ...pruned(shared(PANE_CACHE)), [w.key]: { ...summary(d), started, at: Date.now(), busy: false } });
+      setShared(AGENT_DATA, { ...pruned(shared(AGENT_DATA)), [w.key]: d });
+      setShared(AGENT_CACHE, { ...pruned(shared(AGENT_CACHE)), [w.key]: { ...summary(d), started, at: Date.now(), busy: false } });
       cx.notify();
     });
   }
@@ -162,11 +159,8 @@ export class Header {
   // [context 35% 139k/400k]: like the Kit chip, one width whatever it says (the header never moves); yellow from
   // 70 %, red from 90 %; a click opens where the tokens go, a right-click copies the numbers
   contextChip(t, p) {
-    const c = (shared(CTX) ?? {})[placeOf(p).key];
-    const has = c && (c.pct != null || c.used != null);
-    const pct = has && c.pct != null ? Math.min(100, c.pct) : null;
-    const color = pct == null ? t.dim : pct >= 90 ? t.blocked : pct >= 70 ? t.working : t.foreground;
-    const nums = has ? (c.window ? `${kNum(c.used ?? 0)}/${kNum(c.window)}` : kNum(c.used ?? 0)) : !c || c.busy ? "…" : "—";
+    const { has, pct, nums, copy } = chipNumbers((shared(CTX) ?? {})[placeOf(p).key]);
+    const color = pct == null ? t.dim : levelColor(t, pct);
     const chip = h_flex().id(`kit-ctx-${p.pane}`).flex_none().w(CHIP_W).h(22).pl(2).pr(6).gap(5).items_center().rounded(6)
       .bg(t.surface).border_1().border_color(pct != null && pct >= 90 ? t.blocked : t.border).text_size(11).cursor_pointer()
       .hover((st) => st.bg(t.hover).border_color(t.accent))
@@ -175,7 +169,7 @@ export class Header {
       .child(div().h(16).px(5).flex().flex_none().items_center().rounded(4).bg(t.raised).font_semibold().text_color(t.foreground).child("context"))
       .when(pct != null, (el) => el.child(div().flex_none().font_semibold().text_color(color).child(`${pct}%`)))
       .child(div().min_w(0).truncate().text_color(t.dim).child(nums));
-    return has ? copyOnRight(chip, `${pct != null ? `${pct}% ` : ""}${c.used ?? ""}${c.window ? ` / ${c.window}` : ""}`) : chip;
+    return has ? copyOnRight(chip, copy) : chip;
   }
 
   openContext(p) {
@@ -194,9 +188,9 @@ export class Header {
   }
 
   kitButton(t, p) {
-    const w = placeOf(p), c = (shared(PANE_CACHE) ?? {})[w.key], a = apiState(w.machine);
+    const w = placeOf(p), c = (shared(AGENT_CACHE) ?? {})[w.key], a = apiState(w.machine);
     // kit there can't be used (none, too old, newer than this mod): say which, in red; the popup says what to do
-    const s = a?.kind && !a.ok ? { text: { missing: "沒有 kit", old: "kit 太舊", newer: "mod 太舊" }[a.kind] ?? "kit 不能用", level: "bad" }
+    const s = a?.kind && !a.ok ? { text: { missing: "沒有 kit", timeout: "kit 沒回應", old: "kit 太舊", newer: "mod 太舊" }[a.kind] ?? "kit 不能用", level: "bad" }
       : c?.text ? c : summary(null);
     const color = s.level === "bad" ? t.blocked : t.dim;
     // [kit | 規則 1  skill 3  MCP 1]: the word kit says what it is, the numbers stand out from their labels
@@ -213,7 +207,7 @@ export class Header {
         cx.stop_propagation();
         const target = { key: w.key, term: p.terminal, machine: w.machine, space: w.space, cwd: p.cwd ?? null,
           title: ((p.program?.agent || p.program?.shell) && p.program.name) || p.title || "", program: p.program ?? null };
-        openOverlay({ mod: "kit", props: { role: "pane", target }, kind: "popup", width: POPUP_W, height: POPUP_H });
+        openOverlay({ mod: "kit", props: { role: "agent", target }, kind: "popup", width: POPUP_W, height: POPUP_H });
       })
       .child(div().h(16).px(5).flex().items_center().rounded(4).bg(t.raised).font_semibold().text_color(t.foreground).child("Kit"))
       .when(Boolean(s.agent), (el) => el.child(div().text_color(t.accent).child(s.agent)))
@@ -232,7 +226,7 @@ export class Header {
       .when(st === "blocked", (el) => el.child(div().flex_none().size(14).flex().items_center().justify_center().rounded(7).bg(t.blocked)
         .text_size(10).font_bold().text_color(t.background).tooltip("Needs you：在等你回答").child("!")))
       .when(st === "done", (el) => el.child(div().size(7).flex_none().rounded(4).bg(t.done)));
-    return h_flex().id(`kit-pane-head-${pane}`).size_full().px(10).gap(8).items_center()
+    return h_flex().id(`kit-head-${pane}`).size_full().px(10).gap(8).items_center()
       .bg(t.background).border_b(1).border_color(t.border).text_size(12)
       .on_hover((hovered, cx) => { this.hovered = hovered; cx.notify(); })
       .on_click(() => run("pane.focus", { pane }))
@@ -242,10 +236,10 @@ export class Header {
       .when(agent, (el) => el.child(this.kitButton(t, p)).when(apiState(placeOf(p).machine)?.ok !== false, (el) => el.child(this.contextChip(t, p))))
       .child(status)
       .child(h_flex().flex_none().gap(2).items_center()
-        .child(this.button(t, `kph-r-${pane}`, "split-right", "pane.split", { direction: "right", pane }, live))
-        .child(this.button(t, `kph-d-${pane}`, "split-down", "pane.split", { direction: "down", pane }, live))
-        .child(this.button(t, `kph-z-${pane}`, p.zoomed ? "unzoom" : "zoom", "pane.zoom", { pane }, live))
-        .child(this.button(t, `kph-x-${pane}`, "close", "pane.close", { pane }, live)));
+        .child(this.button(t, `kit-head-r-${pane}`, "split-right", "pane.split", { direction: "right", pane }, live))
+        .child(this.button(t, `kit-head-d-${pane}`, "split-down", "pane.split", { direction: "down", pane }, live))
+        .child(this.button(t, `kit-head-z-${pane}`, p.zoomed ? "unzoom" : "zoom", "pane.zoom", { pane }, live))
+        .child(this.button(t, `kit-head-x-${pane}`, "close", "pane.close", { pane }, live)));
   }
 
   // ---------- the context popup (role "context") ----------
@@ -263,18 +257,28 @@ export class Header {
     this.mine = null;       // the id of the kit.busy this window holds
     this.keep = InputState.new({ placeholder: "壓縮時要保留什麼（可空白）" });
     this.keep.on("submit", (_e, cx) => this.send("compact", cx));
-    this.loadDetail(false, cx);
-    cx.timer.every(2000, (cx) => cx.notify());   // the agent's status (which buttons work) and "n 秒前"
+    // kit context --detail only once kit api says kit there can be used (the header asks it; asked here too in case)
+    const m = this.target.machine ?? null;
+    const tick = (cx) => {
+      const api = apiKnown(m);
+      if (!api) checkApi(m, cx);
+      else if (api.ok && !this.d && !this.err && !this.loading) this.loadDetail(false, cx);
+      cx.notify();   // the agent's status (which buttons work) and "n 秒前"
+    };
+    tick(cx);
+    cx.timer.every(2000, tick);
   }
 
   paneNow() { return panes().find((p) => p.pane === this.target.pane) ?? null; }
   agentNow() { try { return (agents() ?? []).find((a) => a.pane === this.target.pane) ?? null; } catch { return null; } }
   statusNow() { return this.agentNow()?.status ?? this.paneNow()?.status ?? null; }
   addrNow() { return this.agentNow()?.address ?? this.paneNow()?.terminal ?? this.target.term ?? null; }
-  kitList() { return (shared(PANE_DATA) ?? {})[this.target.key] ?? null; }
+  kitList() { return (shared(AGENT_DATA) ?? {})[this.target.key] ?? null; }
   get busy() { return busyNow(); }
 
   loadDetail(fresh, cx) {
+    const m = this.target.machine ?? null;
+    if (apiState(m)?.ok !== true) return checkApi(m, cx, true);   // ⟳ while kit can't be used: ask kit api again
     if (this.loading) return;
     this.loading = true;
     this.err = null;
@@ -425,8 +429,8 @@ export class Header {
   // 已使用 61% · 243k / 400k, and whose count it is
   ctxTop(t, z, d) {
     const pct = d.pct == null ? null : Math.min(100, d.pct);
-    const color = pct == null ? t.foreground : pct >= 90 ? t.blocked : pct >= 70 ? t.working : t.foreground;
-    const how = d.exact ? (d.tool === "claude" ? "Claude Code 自己算的" : "精確") : d.tool === "codex" ? "總數是 Codex 記的，細項估算" : d.tool === "omp" ? "總數是 omp 記的，細項估算" : "估算";
+    const color = levelColor(t, pct);
+    const how = howCounted(d);
     return v_flex().gap(2)
       .child(h_flex().gap(6).items_end()
         .child(div().text_color(t.dim).child("已使用"))
@@ -437,21 +441,11 @@ export class Header {
 
   // the stacked bar: what is used (by category), then what is free, Claude's auto-compact reserve at the end
   ctxBar(t, d) {
-    const w = Number(d.window) || Number(d.used) || 1;
-    const bar = h_flex().h(10).w_full().rounded(5).overflow_hidden().bg(t.raised);
-    let left = 100;
-    const seg = (c, color) => {
-      const pc = Math.min(left, ((Number(c.tokens) || 0) / w) * 100);
-      if (pc <= 0.05) return;
-      left -= pc;
-      bar.child(div().h(10).flex_none().w(`${+pc.toFixed(3)}%`).bg(color));
-    };
-    const cats = d.categories ?? [];
-    for (const c of cats) if (c.kind === "used") seg(c, catColor(t, c.id));
-    const buf = cats.find((c) => c.kind === "buffer");
-    bar.child(div().flex_1());
-    if (buf) seg(buf, t.border);
-    return bar;
+    const { used, buffer } = barSegments(d), seg = (pct, color) => div().h(10).flex_none().w(`${pct}%`).bg(color);
+    return h_flex().h(10).w_full().rounded(5).overflow_hidden().bg(t.raised)
+      .children(used.map((s) => seg(s.pct, catColor(t, s.id))))
+      .child(div().flex_1())
+      .when(buffer != null, (el) => el.child(seg(buffer, t.border)));
   }
 
   ctxCats(t, z, d) {
@@ -466,7 +460,7 @@ export class Header {
         .child(dot)
         .child(div().flex_1().min_w(0).truncate().text_color(deferred || free ? t.dim : t.foreground).child(deferred ? `${c.name} · 用到才載入（${kfmt(c.tokens)}）` : c.name))
         .child(copyOnRight(div().flex_none().w(70).text_right().text_color(deferred ? t.dim : t.foreground).child(deferred ? "—" : `${c.est ? "≈" : ""}${kfmt(c.tokens)}`), String(c.tokens)))
-        .child(div().flex_none().w(48).text_right().text_color(t.dim).child(deferred || !w ? "—" : `${((c.tokens / w) * 100).toFixed(1)}%`)));
+        .child(div().flex_none().w(48).text_right().text_color(t.dim).child(catShare(c, w))));
     }
     return list;
   }
@@ -515,9 +509,7 @@ export class Header {
   // how far to the auto-compaction, and 壓縮 / 清空重來 (each asks first; only while the agent waits for you)
   ctxFooter(t, z, d) {
     const st = this.statusNow(), ready = (st === "idle" || st === "done") && !this.sending, c = d.commands ?? {};
-    const used = Number(d.used) || 0, at = Number(d.compact_at) || 0;
-    const left = at ? Math.max(0, at - used) : d.window ? Math.max(0, d.window - used) : null;
-    const line = at ? `距自動壓縮還有 ${kfmt(left)}（到 ${kfmt(at)} 會自動壓縮）` : left != null ? `還有 ${kfmt(left)} 可用` : "";
+    const { left, line } = compactLine(d);
     const foot = v_flex().flex_none().px(12).py(8).gap(6).border_t(1).border_color(t.border);
     if (line) foot.child(copyOnRight(div().text_size(z - 1).text_color(t.dim).child(line), String(left)));
     const why = this.sending ? "送出中…" : st === "working" ? "它在工作中：停下來才能按" : st === "blocked" ? "它在等你回答：先處理它" : !st ? "看不到它的狀態" : "";

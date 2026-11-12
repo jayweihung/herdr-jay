@@ -98,7 +98,7 @@
               "content": {
                 "mod": "kit",
                 "props": {
-                  "role": "toggle"
+                  "role": "repo-toggle"
                 }
               },
               "size": {

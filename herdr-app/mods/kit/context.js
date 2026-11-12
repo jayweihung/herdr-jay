@@ -1,5 +1,8 @@
-// What the context window (role "context") runs, sends and says, and what kit can take off for a line of it.
-// Nothing from Herdr in here: tests/kit runs it with node as it is.
+// What the context window (role "context", header.js) and the context chip compute: what is run, sent and said, what
+// kit can take off for a line, the bar's pieces, the numbers. Nothing is drawn here and nothing asks Herdr (only
+// common.js's number formats), so tests/kit checks it all with plain values.
+import { num, kfmt, kShort } from "./common.js";
+
 const TOOLS = { "claude-code": "claude", claude: "claude", codex: "codex", omp: "omp", pi: "omp" };
 // which tool an agent pane runs: what the agent reported (claude-code, codex, pi), else the program table's key
 export function toolOf(app, key) { return TOOLS[String(app ?? "").toLowerCase()] ?? TOOLS[String(key ?? "").toLowerCase()] ?? null; }
@@ -45,12 +48,46 @@ export function removal(list, group, name, path) {
   if (it.status === "used") return { args: ["rm", kind, it.name], kind, name: it.name, where: "account" };
   return null;
 }
-export const num = (n) => String(Math.round(Number(n) || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-export const kfmt = (n) => {
-  const v = Number(n) || 0;
-  if (v >= 1000000) return `${(v / 1000000).toFixed(2).replace(/\.?0+$/, "")}M`;
-  return v >= 1000 ? `${(v / 1000).toFixed(v >= 100000 ? 0 : 1)}k` : String(Math.round(v));
-};
+// the chip on a pane header: { has, pct (capped at 100, or null), nums "139k/400k" ("…" while asking, "—" none), copy }
+export function chipNumbers(c) {
+  const has = Boolean(c && (c.pct != null || c.used != null));
+  const pct = has && c.pct != null ? Math.min(100, c.pct) : null;
+  const nums = has ? (c.window ? `${kShort(c.used ?? 0)}/${kShort(c.window)}` : kShort(c.used ?? 0)) : !c || c.busy ? "…" : "—";
+  const copy = has ? `${pct != null ? `${pct}% ` : ""}${c.used ?? ""}${c.window ? ` / ${c.window}` : ""}` : "";
+  return { has, pct, nums, copy };
+}
+// how full: "" below 70 %, "high" from 70 %, "full" from 90 %
+export const level = (pct) => (pct == null ? "" : pct >= 90 ? "full" : pct >= 70 ? "high" : "");
+// whose count the total is
+export function howCounted(d) {
+  if (d?.exact) return d.tool === "claude" ? "Claude Code 自己算的" : "精確";
+  return d?.tool === "codex" ? "總數是 Codex 記的，細項估算" : d?.tool === "omp" ? "總數是 omp 記的，細項估算" : "估算";
+}
+// "12 秒前", "3 分鐘前" (at: seconds since 1970, as kit gives it)
+export const ago = (at, now = Date.now()) => { const s = Math.max(0, Math.round(now / 1000 - Number(at || 0))); return s < 60 ? `${s} 秒前` : `${Math.round(s / 60)} 分鐘前`; };
+// a category's color: the theme's key for it
+const CAT_COLOR = { system_prompt: "ansi4", system_tools: "ansi6", mcp_tools: "ansi2", mcp_instructions: "ansi2", memory_files: "ansi3",
+  instructions: "ansi3", skills: "ansi5", custom_agents: "ansi1", slash_commands: "ansi1", messages: "accent", compaction: "done", other: "dim" };
+export const catColorKey = (id) => CAT_COLOR[id] ?? "dim";
+// the stacked bar: what is used (by category, % of the window, never past 100 in all), then what is free, Claude's
+// auto-compact reserve at the end -> { used: [{ id, pct }], buffer: pct | null }
+export function barSegments(d) {
+  const w = Number(d?.window) || Number(d?.used) || 1, cats = d?.categories ?? [];
+  let left = 100;
+  const take = (c) => { const pc = Math.min(left, ((Number(c.tokens) || 0) / w) * 100); if (pc <= 0.05) return null; left -= pc; return +pc.toFixed(3); };
+  const used = [];
+  for (const c of cats) if (c.kind === "used") { const pct = take(c); if (pct != null) used.push({ id: c.id, pct }); }
+  const buf = cats.find((c) => c.kind === "buffer");
+  return { used, buffer: buf ? take(buf) : null };
+}
+// a category's share of the window: "12.3%", or "—" (deferred, or no window)
+export const catShare = (c, window) => (c.kind === "deferred" || !Number(window) ? "—" : `${((c.tokens / Number(window)) * 100).toFixed(1)}%`);
+// the footer's line: how far to the auto-compaction, or what is left -> { left, line }
+export function compactLine(d) {
+  const used = Number(d?.used) || 0, at = Number(d?.compact_at) || 0;
+  const left = at ? Math.max(0, at - used) : d?.window ? Math.max(0, d.window - used) : null;
+  return { left, line: at ? `距自動壓縮還有 ${kfmt(left)}（到 ${kfmt(at)} 會自動壓縮）` : left != null ? `還有 ${kfmt(left)} 可用` : "" };
+}
 // 怎麼省: only what the numbers show. canRemove(group, name): kit can take it off here
 export function ctxTips(d, canRemove = (_group, _name) => false) {
   const tips = [], used = Number(d?.used) || 0, win = Number(d?.window) || 0, c = d?.commands ?? {};

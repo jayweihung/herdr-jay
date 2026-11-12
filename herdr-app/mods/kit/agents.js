@@ -3,21 +3,22 @@
 // uses, open one in a new tab.
 //   agents          the panel ("kit-agents-panel" beside the work area, hidden until its button is pressed; or a window)
 //   agents-toggle   the tab-bar button next to Kit's that shows or hides it
-// Beside the repository panel (role "panel"), not inside it. This computer only: the sources are the same on every
+// Beside the repository panel (role "repo"), not inside it. This computer only: the sources are the same on every
 // machine, kit push sends the change and kit sync brings it everywhere.
-// Shared state (keys in common.js): AGENTS_DATA is kit agents --json; AGENTS_MSG is kit's words after an action; the
-// one-action-at-a-time lock (BUSY) is the repository panel's. A change here marks the repository's data out of date,
+// Shared state (keys in common.js): AGENTS_DATA is kit agents --json (AGENTS_LOAD its load); AGENTS_MSG is kit's words
+// after an action; the one-action-at-a-time lock (BUSY) is the whole mod's. A change here marks the repository's data out of date,
 // so the panel reads it again. Everything goes through kit:
 //   kit agents --json                              every agent and what it uses, what there is to add
 //   kit agent <name> add|rm rule|skill|mcp <item>  change an agent (its file in the source)
 //   kit run <name> --tool claude|codex|omp         open it (in a new tab)
 import { div } from "gpui-kit";
-import { v_flex, h_flex, Editor, EditorState } from "gpui-base";
-import { theme, settings, run, shared, setShared, readTextFile, writeTextFile, closeOverlay, openOverlay, props, spaces, focused, layout } from "herdr";
-import { AGENTS_DATA, AGENTS_MSG, fs, mono, stop, isWindows, shortDir, clean, spin, waiting, find, textBlock, copyOnRight, btn,
-  busyNow, dropStaleBusy, takeBusy, giveBusy, markRepoStale, kit, localKit, apiState, apiKnown, checkApi, apiCard, messageBox } from "./common.js";
+import { v_flex, h_flex, Editor } from "gpui-base";
+import { theme, run, shared, setShared, readTextFile, writeTextFile, closeOverlay, openOverlay, props, spaces, focused, layout } from "herdr";
+import { AGENTS_DATA, AGENTS_LOAD, AGENTS_MSG, NODES, fs, stop, isWindows, shortDir, clean, spin, waiting, find, textBlock, copyOnRight, btn,
+  busyNow, dropStaleBusy, giveBusy, markRepoStale, kit, localKit, apiState, apiKnown, checkApi, apiCard, messageBox, problemCard, newEditor,
+  localGet, localSet, kitAction, loadNewest, loadingNow } from "./common.js";
 
-const PANEL = "kit-agents-panel";
+const PANEL = NODES.agents;
 const SHORT = 120000, STALE = 50000;
 const KINDS = [["rule", "rules", "規則"], ["skill", "skills", "Skills"], ["mcp", "mcp", "MCP"]];
 const TOOL_NAMES = { claude: "Claude", codex: "Codex", omp: "omp" };
@@ -38,9 +39,8 @@ export class Agents {
     this.open = null;      // the agent shown in detail (its name)
     this.adding = {};      // kind -> the "加上…" list is unfolded
     this.edit = null;      // { path, orig, dirty, err } while its file is open; this.code is the editor
-    this.tool = this.load("tool") || "claude";
+    this.tool = localGet("kit.agents.tool") || "claude";
     this.mine = null;      // the id of the action this window started in kit.busy (shared with Kit: one kit action at a time)
-    this.seq = 0;          // the newest load wins
     dropStaleBusy();
     // first whether kit is new enough (kit api), then kit agents --json; again when it is older than STALE
     const stale = () => !this.data || Date.now() - (this.data.at ?? 0) > STALE;
@@ -60,21 +60,14 @@ export class Agents {
     this.code = null;
   }
 
-  load(k) { try { return localStorage.getItem(`kitag.${k}`); } catch { return null; } }
-  save(k, v) { try { localStorage.setItem(`kitag.${k}`, v); } catch {} }
   get data() { return shared(AGENTS_DATA) ?? null; }
   get busy() { return busyNow(); }
+  get loading() { return loadingNow(AGENTS_LOAD); }
 
   refresh(cx) {
     if (apiState(null)?.ok === false) return checkApi(null, cx, true);   // ⟳ while kit can't be used: ask kit api again
-    const seq = ++this.seq;
-    this.loading = true;
     this.first = false;
-    cx.spawn(async (cx) => {
-      const d = await loadAgents();
-      if (seq === this.seq) { setShared(AGENTS_DATA, d); this.loading = false; }
-      cx.notify();
-    });
+    cx.spawn(async (cx) => { await loadNewest(AGENTS_LOAD, AGENTS_DATA, loadAgents); cx.notify(); });
   }
   // an agent file changed: this list and the repository's (改過 / 送出) are out of date
   changed(cx) {
@@ -83,24 +76,7 @@ export class Agents {
   }
 
   // kit agent <name> add|rm ...: one at a time, kit's own words shown above
-  act(label, args, cx) {
-    this.mine = takeBusy(label, SHORT);
-    if (!this.mine) return;
-    setShared(AGENTS_MSG, null);
-    cx.notify();
-    cx.spawn(async (cx) => {
-      try {
-        const r = await kit(args, SHORT);
-        const text = clean([r.out, r.err].filter(Boolean).join("\n"));
-        setShared(AGENTS_MSG, { ok: r.code === 0, label, text: text || (r.code === 0 ? "完成" : `失敗（${r.code}）`), at: Date.now() });
-      } finally {
-        giveBusy(this.mine);
-        this.mine = null;
-        this.changed(cx);
-        cx.notify();
-      }
-    });
-  }
+  act(label, args, cx) { kitAction(this, cx, { label, args, msg: AGENTS_MSG, ttl: SHORT, after: (cx) => this.changed(cx) }); }
 
   // where kit run starts: kit here is this computer's, so a space on this computer (the shown one if it is,
   // else the first), in the folder of the pane you were in when that is on this computer too
@@ -145,9 +121,7 @@ export class Agents {
     const text = await readTextFile(a.path).catch(() => null);
     if (text === null) { setShared(AGENTS_MSG, { ok: false, label: "打開", text: `讀不到 ${shortDir(a.path)}`, at: Date.now() }); return; }
     this.code?.release();
-    const th = theme();
-    this.code = EditorState.new({ language: "md", value: text, soft_wrap: true, font_family: settings().font_family, font_size: 12,
-      syntax: { keyword: th.ansi5, string: th.ansi2, comment: th.dim, function: th.ansi4, type: th.ansi3, number: th.ansi1, constant: th.ansi6 } });
+    this.code = newEditor(text, "md");
     this.edit = { path: a.path, name: a.name, orig: text, dirty: false, err: null };
     this.code.on("change", (_e, cx) => {
       const dirty = this.code.value() !== this.edit?.orig;
@@ -174,29 +148,28 @@ export class Agents {
   renderToggle() {
     const t = theme(), node = find(layout(), PANEL), on = Boolean(node && !node.hidden);
     const d = this.data, changed = (d?.agents ?? []).filter((a) => a.git === "new" || a.git === "changed").length;
+    const bad = Boolean(d?.error) || apiState(null)?.ok === false;   // kit can't be used, or its list failed: open it to see why
     return h_flex().size_full().pr(6).items_center().bg(t.chrome).border_b(1).border_color(t.border)
       .child(h_flex().id("toggle-kit-agents").h(26).px(8).gap(5).flex_none().items_center().rounded(6)
         .text_size(12).bg(on ? t.selected : t.chrome).text_color(on ? t.foreground : t.muted)
         .hover((st) => st.bg(t.hover)).on_mouse_down("left", stop)
         .on_click(() => { if (node) run("layout.toggle", { id: PANEL }); else openOverlay({ mod: "kit", props: { role: "agents" }, kind: "window", key: "kit-agents", width: 520, height: 640 }); })
         .child("Agents")
-        .when(changed > 0, (el) => el.child(div().size(6).rounded(3).bg(t.working))));
+        .when(bad, (el) => el.child(div().text_color(t.ansi1).child("!")))
+        .when(!bad && changed > 0, (el) => el.child(div().size(6).rounded(3).bg(t.working))));
   }
 
   render(_cx) {
     if (this.role === "agents-toggle") return this.renderToggle();
     const t = theme(), z = fs(), d = this.data, msg = shared(AGENTS_MSG);
-    const root = v_flex().id("kitag-root").size_full().bg(t.surface).text_size(z).text_color(t.foreground);
+    const root = v_flex().id("kit-agents-root").size_full().bg(t.surface).text_size(z).text_color(t.foreground);
     const a = this.open && (d?.agents ?? []).find((x) => x.name === this.open);
     root.child(this.header(t, z, d, a));
     const api = apiState(null);
     if (api?.kind && !api.ok) return root.child(apiCard(t, z, api, null, "agents"));
     if (msg) root.child(this.message(t, z, msg));
     if (!d) return root.child(div().p(14).child(waiting(t, z, "讀取中…")));
-    if (d.error) return root.child(v_flex().p(14).gap(8)
-      .child(div().font_semibold().text_color(t.ansi1).child("kit 出錯了"))
-      .child(div().font_family(mono()).text_size(z - 1).child(textBlock("kitag-error", d.error)))
-      .child(div().text_size(z - 1).text_color(t.muted).child("修好後按上面的 ⟳ 重新讀取。")));
+    if (d.error) return root.child(problemCard(t, z, "agents", d.error));
     if (this.edit) return root.child(this.editor(t, z));
     if (a) return root.child(this.detail(t, z, d, a));
     return root.child(this.list(t, z, d));
@@ -218,7 +191,7 @@ export class Agents {
       .when(!overlay && Boolean(find(layout(), PANEL)), (el) => el.child(btn(t, z, "hide", "✕", { small: true, on: () => run("layout.hide", { id: PANEL }) })));
   }
 
-  message(t, z, msg) { return messageBox(t, z, "kitag", msg, () => setShared(AGENTS_MSG, null)); }
+  message(t, z, msg) { return messageBox(t, z, "agents", msg, () => setShared(AGENTS_MSG, null)); }
 
   badge(t, z, text, color) {
     return div().flex_none().px(5).rounded(4).text_size(z - 2.5).text_color(t.background).bg(color).child(text);
@@ -251,7 +224,7 @@ export class Agents {
     const busy = Boolean(this.busy), avail = d.available ?? {};
     const body = v_flex().flex_1().min_h(0).overflow_y_scrollbar().px(10).py(8).gap(8);
     body.child(v_flex().gap(2)
-      .child(a.description ? textBlock(`kitag-desc-${a.name}`, a.description) : div().child("（還沒寫說明）"))
+      .child(a.description ? textBlock(`kit-agents-desc-${a.name}`, a.description) : div().child("（還沒寫說明）"))
       .when(Boolean(GIT[a.git]), (el) => el.child(div().text_size(z - 1.5).text_color(a.git === "new" ? t.done : t.working)
         .child(`${GIT[a.git]}：改好按倉庫的「送出」，或在終端機打  kit push`))));
     // open: pick the tool, then kit run in a new tab
@@ -260,7 +233,7 @@ export class Agents {
       .children(tools.length > 1 ? tools.map((tool) => div().id(`tool-${tool}`).px(8).py(2).rounded(5).text_size(z - 1.5).cursor_pointer()
         .bg(tool === cur ? t.selected : t.raised).text_color(tool === cur ? t.foreground : t.muted)
         .border_1().border_color(tool === cur ? t.accent : t.raised)
-        .on_mouse_down("left", stop).on_click((_e, cx) => { this.tool = tool; this.save("tool", tool); cx.notify(); })
+        .on_mouse_down("left", stop).on_click((_e, cx) => { this.tool = tool; localSet("kit.agents.tool", tool); cx.notify(); })
         .child(TOOL_NAMES[tool] ?? tool)) : [])
       .child(div().flex_1())
       .child(btn(t, z, "edit", "編輯檔案", { small: true, on: (cx) => cx.spawn(async (cx) => { await this.editFile(a, cx); cx.notify(); }) }))
@@ -269,8 +242,8 @@ export class Agents {
     const only = a.tools_only ?? [], deny = a.tools_deny ?? [];
     body.child(v_flex().gap(2).p(8).rounded(6).bg(t.raised).text_size(z - 1.5)
       .child(div().font_semibold().text_size(z - 1).child("可以用的工具"))
-      .child(div().text_color(t.muted).child(only.length ? textBlock(`kitag-only-${a.name}`, `只能用：${only.join("、")}`) : "不限（照工具本身的設定）"))
-      .when(deny.length > 0, (el) => el.child(div().text_color(t.muted).child(textBlock(`kitag-deny-${a.name}`, `不准用：${deny.join("、")}`)))));
+      .child(div().text_color(t.muted).child(only.length ? textBlock(`kit-agents-only-${a.name}`, `只能用：${only.join("、")}`) : "不限（照工具本身的設定）"))
+      .when(deny.length > 0, (el) => el.child(div().text_color(t.muted).child(textBlock(`kit-agents-deny-${a.name}`, `不准用：${deny.join("、")}`)))));
     // what it uses, per kind
     for (const [kind, key, title] of KINDS) {
       const used = a[key] ?? [], more = (avail[kind] ?? []).filter((x) => !used.includes(x)).sort();
@@ -291,7 +264,7 @@ export class Agents {
     }
     if (a.prompt) body.child(v_flex().mt(4).gap(4)
       .child(div().font_semibold().child("Prompt"))
-      .child(div().p(8).rounded(6).bg(t.raised).text_size(z - 1.5).text_color(t.muted).child(textBlock(`kitag-prompt-${a.name}`, a.prompt))));
+      .child(div().p(8).rounded(6).bg(t.raised).text_size(z - 1.5).text_color(t.muted).child(textBlock(`kit-agents-prompt-${a.name}`, a.prompt))));
     return body;
   }
 
@@ -302,7 +275,7 @@ export class Agents {
         .child(btn(t, z, "file-back", e.dirty ? "← 不存，回去" : "← 回去", { small: true, on: (cx) => this.closeFile(cx) }))
         .child(copyOnRight(div().flex_1().min_w(0).truncate().font_semibold().child(`${e.name}.md`), e.path))
         .child(btn(t, z, "file-save", e.dirty ? "存檔" : "已存", { small: true, kind: "primary", off: !e.dirty, on: (cx) => this.saveFile(cx) })))
-      .when(Boolean(e.err), (el) => el.child(div().flex_none().mx(10).mt(8).p(8).rounded(6).bg(t.raised).text_size(z - 1).text_color(t.blocked).child(textBlock("kitag-edit-err", e.err))))
+      .when(Boolean(e.err), (el) => el.child(div().flex_none().mx(10).mt(8).p(8).rounded(6).bg(t.raised).text_size(z - 1).text_color(t.blocked).child(textBlock("kit-agents-edit-err", e.err))))
       .child(Editor.new(this.code).flex_1().min_h(0))
       .child(h_flex().flex_none().px(10).py(6).gap(6).items_center().border_t(1).border_color(t.border)
         .child(div().flex_1().text_size(z - 2).text_color(t.dim).child(e.dirty ? "還沒存檔" : "上面 --- 之間是設定（rules、skills、mcp、tools），下面是 prompt"))

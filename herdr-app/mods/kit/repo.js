@@ -1,105 +1,27 @@
-// Roles "panel", "toggle", "pane" and "editor" of the kit mod (see main.js).
-//   panel (default)  the repository (倉庫): the sources' rules / skills / MCP on this computer, to read, edit, add
-//                    (kit new) and send (kit push, after a --dry-run you confirm). The sources are the same on every
-//                    machine: what is sent reaches the others with kit sync.
-//   toggle           the tab-bar button that shows or hides the panel (reads the panel's data, never loads)
-//   pane             a popup for one agent, opened by the Kit button in its pane header (role "header", header.js).
-//                    The header is the one that asks kit (kit list --json --dir --pid on the agent's machine); this
-//                    popup shows that answer (PANE_DATA) and asks the header for a fresh one (PANE_WANT).
-//   editor           one file of the repository in its own big window (放大)
-// Everything goes through the kit command (common.js: kit from PATH, after kit api said it is new enough).
-// The shared state keys are in common.js.
+// Roles "repo", "repo-toggle" and "editor" of the kit mod (see main.js).
+//   repo (default)  the repository (倉庫): the sources' rules / skills / MCP on this computer, to read, edit, add
+//                   (kit new, kit collect) and send (kit push, after a --dry-run you confirm). The sources are the same
+//                   on every machine: what is sent reaches the others with kit sync.
+//   repo-toggle     the tab-bar button that shows or hides the panel (reads the panel's data, never loads)
+//   editor          one file of the repository in its own big window (放大)
+// Everything goes through the kit command (common.js: kit from PATH, after kit api said it is new enough). Where
+// the panel sits in the layout, and 放進上排 / 更新版面: layout.js. The shared state keys are in common.js.
 import { div } from "gpui-kit";
-import { v_flex, h_flex, InputState, Input, Editor, EditorState } from "gpui-base";
-import { theme, settings, exec, run, layout, shared, setShared, window, readTextFile, writeTextFile, closeOverlay, openOverlay, props as blockProps } from "herdr";
-import { DATA, LOAD, EDITORS, PANE_CACHE, PANE_DATA, PANE_WANT, MSG, fs, mono, stop, slash, shortDir, clean, spin, waiting, find, icon,
-  textBlock, copyOnRight, btn, busyNow, dropStaleBusy, takeBusy, giveBusy, markChanged, kit, apiState, apiKnown, checkApi, apiCard,
-  messageBox } from "./common.js";
-import { POPUP_H } from "./header.js";
+import { v_flex, h_flex, InputState, Input, Editor } from "gpui-base";
+import { theme, exec, run, layout, shared, setShared, window, readTextFile, writeTextFile, closeOverlay, openOverlay, props as blockProps } from "herdr";
+import { DATA, LOAD, EDITORS, NODES, MSG, fs, mono, stop, slash, shortDir, clean, spin, waiting, find, textBlock, copyOnRight, btn,
+  busyNow, dropStaleBusy, takeBusy, giveBusy, markChanged, kit, apiState, apiKnown, checkApi, apiCard, messageBox, problemCard, versionCard,
+  squeeze, newEditor, liveEditors, localGet, localSet, kitAction, loadNewest, loadingNow } from "./common.js";
+import { layoutNeeds, moveIntoBar } from "./layout.js";
 
-const TOGGLE = "kit-toggle", PANEL = "kit-panel";
-const SHIPPED = ["main", "terminals", "win98"]; // Herdr's own layouts: read-only, so "放進上排" clones one first
-const TOGGLE_NODE = { id: TOGGLE, type: "block", content: { mod: "kit", props: { role: "toggle" } }, size: { px: 56 } };
-const PANEL_NODE = { id: PANEL, type: "column", children: [{ id: "kit", type: "block", content: { mod: "kit" } }],
-  size: { px: 420 }, min: 320, max: 800 };
-// Agents stand beside Kit (role "agents"): their button before Kit's, their panel after Kit's, hidden until clicked
-const AGENTS_TOGGLE = { id: "kit-agents-toggle", type: "block", content: { mod: "kit", props: { role: "agents-toggle" } }, size: { px: 66 } };
-const AGENTS_NODE = { id: "kit-agents-panel", type: "column", children: [{ id: "kit-agents", type: "block", content: { mod: "kit", props: { role: "agents" } } }],
-  size: { px: 420 }, min: 320, max: 800, hidden: true };
-const HEADER = { mod: "kit", props: { role: "header" } };
-const TABS_ROW = "kit-tabs-row";
 const LONG = 600000, SHORT = 120000; // how long kit sync / push, and the other actions, may take
 const STALE = 60000, LOAD_TTL = 90000;
 // the files kit push sends (everything else in a source is left alone)
 const ITEM_FILE = /^(rules\/[^/]+\.md|skills\/[^/]+\/.+|mcp\/[^/]+\.yaml|agents\/[^/]+\.md|third_party\.lock)$/;
 const PUSH_KIND = { pr: "團隊 · 送出要審", direct: "自己的 · 直接推" };
 
-// a long run of file lines (indented, as kit lists them) shows its first few and how many more: the reason stays in view
-const squeeze = (text) => {
-  const out = [], lines = String(text).split("\n");
-  for (let i = 0; i < lines.length;) {
-    let j = i; while (j < lines.length && /^  \S/.test(lines[j])) j++;
-    if (j - i > 8) { out.push(...lines.slice(i, i + 5), `  …還有 ${j - i - 5} 個檔案`); i = j; }
-    else if (j > i) { out.push(...lines.slice(i, j)); i = j; }
-    else out.push(lines[i++]);
-  }
-  return out.join("\n");
-};
-function parentOf(node, test) {
-  for (const c of node?.children ?? []) {
-    if (test(c)) return node;
-    const p = parentOf(c, test);
-    if (p) return p;
-  }
-  return null;
-}
-// every pane header drawn by kit's (role "header"): Herdr's own ("mod": "pane"), or an older kit's ("mod": "kit-pane")
-function withKitHeaders(node) {
-  if (Array.isArray(node)) return node.map(withKitHeaders);
-  if (!node || typeof node !== "object") return node;
-  const out = Object.fromEntries(Object.entries(node).map(([k, v]) => [k, withKitHeaders(v)]));
-  if (out.content && ["pane", "kit-pane"].includes(out.content.mod)) out.content = { ...out.content, ...HEADER };
-  return out;
-}
-// The layout with a tab-bar button + the panel beside the work area, kit's pane headers, the stray dock removed.
-// Kit's buttons go in one row with the tab bar. A tab bar in a column (Herdr's own layouts) gets a row around it
-// (kit-tabs-row, its size; the bar fills the rest). Where the bar draws the window buttons itself (Windows, Linux)
-// kit's go before it so the close button stays in the corner; on a Mac after it.
-export function placed(root, buttons = Boolean(window()?.buttons)) {
-  // kit's blocks (and an older kit's kit-agents) out; a column or row that held only those goes too (null)
-  const strip = (n) => {
-    if (!n.children) return { ...n };
-    const kids = n.children.filter((c) => !["kit", "kit-agents"].includes(c.content?.mod) && c.id !== PANEL && c.id !== AGENTS_NODE.id)
-      .map(strip).filter(Boolean);
-    if (n.children.length && !kids.length) return null;
-    return { ...n, children: kids.map((c) => (c.id === TABS_ROW && c.children?.length === 1 ? unrow(c) : c)) };
-  };
-  const unrow = (r) => { const x = { ...r.children[0] }; if (r.size) x.size = r.size; else delete x.size; return x; };
-  const tree = withKitHeaders(strip(JSON.parse(JSON.stringify(root))) ?? { children: [] });
-  let bar = parentOf(tree, (c) => c.content?.mod === "tabs");
-  const body = parentOf(tree, (c) => c.content?.tab != null);
-  if (!bar || !body) return null;
-  if (bar.type !== "row") {
-    const i = bar.children.findIndex((c) => c.content?.mod === "tabs"), tabs = bar.children[i];
-    const row = { id: TABS_ROW, type: "row", ...(tabs.size ? { size: tabs.size } : {}), children: [{ ...tabs, size: { weight: 1 } }] };
-    bar.children[i] = row;
-    bar = row;
-  }
-  const at = bar.children.findIndex((c) => c.content?.mod === "tabs");
-  if (buttons) bar.children.splice(at, 0, AGENTS_TOGGLE, TOGGLE_NODE);
-  else bar.children.splice(at + 1, 0, AGENTS_TOGGLE, TOGGLE_NODE);
-  body.children.push(PANEL_NODE, AGENTS_NODE);
-  return tree;
-}
-
 // kit push --dry-run's list of files (the indented lines), to compare before the real push
 const sendList = (out) => String(out ?? "").split("\n").filter((l) => /^  \S/.test(l)).map((l) => l.trim()).sort().join("\n");
-// big windows that said within 2 minutes that they are open
-function liveEditors() {
-  const all = shared(EDITORS) ?? {}, now = Date.now(), out = {};
-  for (const [k, v] of Object.entries(all)) if (v && now - (v.at ?? 0) < 120000) out[k] = v;
-  return out;
-}
 // the item files git sees as changed in a source folder (relative to it); -z: names exactly as they are
 async function gitChanges(dir) {
   // where the folder sits in its repo, as git itself spells it (symlinks, junctions, drive letters don't matter)
@@ -146,19 +68,18 @@ function openOutside(path) {
   return exec("xdg-open", [path]);
 }
 
-export class Panel {
+export class Repo {
   constructor(role) { this.role = role; }
 
   init(_p, cx) {
     this.filter = "";
-    this.kind = this.load("kind") || "skill";
-    this.folded = {};
-    try { this.folded = JSON.parse(this.load("folded") || "{}"); } catch { this.folded = {}; }
+    this.kind = localGet("kit.kind") || "skill";
     this.edit = null;    // { item, orig, dirty, err } while a file is open; this.code is its editor
     this.code = null;
     this.making = null;  // { source } while adding a new one
     this.plan = null;    // 送出: [{ name, push, ok, text }] what kit push --dry-run said, waiting for 確定送出
     this.mine = null;    // the id of the action this copy started in kit.busy
+    this.moveErr = null; // why 放進上排 / 更新版面 didn't work (layout.js)
     dropStaleBusy();
 
     if (this.role === "editor") {
@@ -168,18 +89,8 @@ export class Panel {
       cx.timer.every(30000, () => this.mark());
       return;
     }
-    if (this.role === "pane") {
-      this.target = blockProps()?.target ?? { key: "" };
-      this.where = `pane:${this.target.key}`;
-      const c = (shared(PANE_CACHE) ?? {})[this.target.key];
-      if (!c || Date.now() - (c.started ?? 0) > 10000) this.want();
-      this.openedAt = Date.now();
-      checkApi(this.target.machine ?? null, cx);
-      cx.timer.every(2000, (cx) => { if (!this.data) cx.notify(); });   // so a load nobody answers shows up (below)
-      return;
-    }
-    this.where = this.role;
-    if (this.role === "toggle") return;   // it only shows what the panel loaded (and kit api's answer)
+    this.where = "repo";
+    if (this.role === "repo-toggle") return;   // it only shows what the panel loaded (and kit api's answer)
     this.input = InputState.new({ placeholder: "找：名字、說明、來源" });
     this.input.on("change", (_e, cx) => { this.filter = this.input.value().trim().toLowerCase(); cx.notify(); });
     this.newName = InputState.new({ placeholder: "名字：小寫英文、數字和 -" });
@@ -211,62 +122,26 @@ export class Panel {
     this.code = null;
   }
 
-  load(k) { try { return localStorage.getItem(`kit.${k}`); } catch { return null; } }
-  save(k, v) { try { localStorage.setItem(`kit.${k}`, v); } catch {} }
-
-  get data() { return this.role === "pane" ? (shared(PANE_DATA) ?? {})[this.target?.key] ?? null : shared(DATA) ?? null; }
+  get data() { return shared(DATA) ?? null; }
   get busy() { return busyNow(); }
-  get loading() {
-    if (this.role === "pane") { const c = (shared(PANE_CACHE) ?? {})[this.target?.key]; return Boolean(c?.busy && Date.now() - (c.started ?? 0) < LOAD_TTL); }
-    const l = shared(LOAD); return Boolean(l && !l.done && Date.now() - (l.at ?? 0) < LOAD_TTL);
-  }
+  get loading() { return loadingNow(LOAD, LOAD_TTL); }
   get msg() { return shared(MSG(this.where)) ?? null; }
   setMsg(m) { setShared(MSG(this.where), m); }
 
   // the repository's data, newest load wins (a slower older load can't put back what an action changed)
   refresh(cx) {
     if (apiState(null)?.ok === false) return checkApi(null, cx, true);   // ⟳ while kit can't be used: ask kit api again
-    const seq = (shared(LOAD)?.seq ?? 0) + 1;
-    setShared(LOAD, { seq, at: Date.now(), done: false });
-    cx.spawn(async (cx) => {
-      let d;
-      try { d = await loadRepo(); } catch (e) { d = { key: "repo", error: `讀不到：${e?.message ?? e}`, at: Date.now() }; }
-      if ((shared(LOAD)?.seq ?? 0) === seq) { setShared(DATA, d); setShared(LOAD, { seq, at: Date.now(), done: true }); }
-      cx.notify();
-    });
+    cx.spawn(async (cx) => { await loadNewest(LOAD, DATA, loadRepo); cx.notify(); });
   }
-  // the popup's agent: ask its pane header to look again
-  want() {
-    if (!this.target?.key) return;
-    setShared(PANE_WANT, { ...(shared(PANE_WANT) ?? {}), [this.target.key]: Date.now() });
-  }
-  // after a change on a machine: the repository and every agent header there are out of date
-  changed(machine) { markChanged(machine); }
+  // after a change on this computer: the repository and every agent header here are out of date
+  changed() { markChanged(null); }
 
-  // one action at a time across every copy of the panel; only the copy that took the lock gives it back
+  // one action at a time across every copy of every part; only the copy that took the lock gives it back
   startBusy(label, ttl) { this.mine = takeBusy(label, ttl); return Boolean(this.mine); }
   endBusy() { giveBusy(this.mine); this.mine = null; }
 
-  // add / rm / sync: one at a time, the result (kit's own words) shown above the list
-  // okText: one plain sentence instead of kit's own lines when it worked (kit's warnings, stderr, still shown under it)
-  act(label, args, cx, ttl = SHORT, okText = null) {
-    if (!this.startBusy(label, ttl)) return;
-    this.setMsg(null);
-    cx.notify();
-    const machine = this.role === "pane" ? this.target?.machine ?? null : null;
-    cx.spawn(async (cx) => {
-      try {
-        const r = await kit(args, ttl, machine);
-        const text = clean([r.out, r.err].filter(Boolean).join("\n"));
-        if (r.code === 0 && okText) this.setMsg({ ok: true, plain: true, label, text: [okText, clean(r.err ?? "")].filter(Boolean).join("\n"), at: Date.now() });
-        else this.setMsg({ ok: r.code === 0, label, text: text || (r.code === 0 ? "完成" : `失敗（${r.code}）`), at: Date.now() });
-      } finally {
-        this.endBusy();
-        this.changed(machine);
-        cx.notify();
-      }
-    });
-  }
+  // kit sync: one at a time, the result (kit's own words) shown above the list
+  act(label, args, cx, ttl = SHORT) { kitAction(this, cx, { label, args, ttl, msg: MSG(this.where) }); }
 
   // 送出, step 1: what kit push would send from each changed source (--dry-run), shown for 確定送出
   planPush(cx) {
@@ -305,238 +180,38 @@ export class Panel {
         this.setMsg({ ok: r.code === 0, label: `送出 ${p.name}`, text, at: Date.now() });
         this.plan = (this.plan ?? []).filter((x) => x.name !== p.name);
         if (!this.plan.length) this.plan = null;
-      } finally { this.endBusy(); this.changed(null); cx.notify(); }
+      } finally { this.endBusy(); this.changed(); cx.notify(); }
     });
   }
 
-  async moveIntoBar(cx) {
-    this.moveErr = null;
-    if (Object.values(liveEditors()).some((e) => e.dirty)) {
-      this.moveErr = "有大視窗還沒存檔：換版面會把它關掉。先存檔或關掉大視窗，再按一次。";
-      cx.notify();
-      return;
-    }
-    try {
-      let name = shared("layout");
-      if (SHIPPED.includes(name)) {
-        // Herdr's own layout can't change shape: work on a copy of it (once; later moves reuse the copy).
-        const as = `${name}-kit`;
-        try { await run("layout.clone", { name, as }); } catch { await run("layout.switch", { name: as }); }
-        for (let i = 0; i < 50 && shared("layout") !== as; i++) await cx.sleep(100);
-        if (shared("layout") !== as) throw new Error(`沒有切到 ${as}`);
-        name = as;
-      }
-      const tree = placed(layout());
-      if (!tree) { this.moveErr = "這個版面沒有上排分頁列，沒辦法自動放。"; return; }
-      await run("layout.set", { layout: tree });
-    } catch (e) {
-      this.moveErr = `沒放成功：${e?.message ?? e}`;
-    } finally { cx.notify(); }
-  }
-
-  render(cx) {
-    if (this.role === "toggle") return this.renderToggle();
+  render(_cx) {
+    if (this.role === "repo-toggle") return this.renderToggle();
     const t = theme(), z = fs(), msg = this.msg;
-    const root = v_flex().id("kit-root").size_full().bg(t.surface).text_size(z).text_color(t.foreground)
-      // a popup is as tall as its content, and the list (flex_1) has none of its own: give the popup a height
-      .when(this.role === "pane", (el) => el.h(POPUP_H).rounded(8));
+    const root = v_flex().id("kit-root").size_full().bg(t.surface).text_size(z).text_color(t.foreground);
     if (this.role === "editor") {
       if (msg) root.child(this.message(t, z, msg));
       return root.child(this.edit ? this.editor(t, z) : this.openErr ? div().p(14).text_color(t.muted).child("打不開這個檔案（看上面的原因）。關掉這個視窗，再試一次。")
         : div().p(14).child(waiting(t, z, "讀取中…")));
     }
-    root.child(this.role === "pane" ? this.paneHeader(t, z) : this.repoHeader(t, z));
-    if (this.role === "panel" && !find(layout(), TOGGLE)) root.child(this.moveBanner(t, z));
-    // kit there can't be used (none, too old, newer than this mod): what to do, in place of everything else
-    const machine = this.role === "pane" ? this.target?.machine ?? null : null, api = apiState(machine);
-    if (api?.kind && !api.ok) return root.child(apiCard(t, z, api, machine, this.where));
+    root.child(this.repoHeader(t, z));
+    // the layout: no Kit button yet (放進上排), or an older kit's pieces still in it (更新版面)
+    const needs = this.role === "repo" ? layoutNeeds(layout()) : null;
+    if (needs) root.child(this.moveBanner(t, z, needs));
+    // kit can't be used (none, too old, newer than this mod, no answer): what to do, in place of everything else
+    const api = apiState(null);
+    if (api?.kind && !api.ok) return root.child(apiCard(t, z, api, null, this.where));
     if (msg) root.child(this.message(t, z, msg));
     const d = this.data;
-    if (!d && this.role === "pane" && !this.loading && Date.now() - (this.openedAt ?? 0) > 8000)
-      return root.child(div().p(14).text_color(t.muted).child("讀不到這個 agent（它可能換了資料夾，或已經關掉）。關掉這個視窗，再按一次它上面的 Kit 按鈕。"));
     if (!d) return root.child(div().p(14).child(waiting(t, z, "讀取中…")));
-    if (d.error) return root.child(this.problem(t, z, d.error));
-    if (this.role === "pane" && d.here?.user) return root.child(v_flex().p(14).gap(6)
-      .child(div().font_semibold().child(`這個 agent 用 ${d.here.user} 帳號跑`))
-      .child(div().text_size(z - 1).text_color(t.muted).child(d.here.user === "root"
-        ? "root 只用簽過的版本（kit approve），這裡看不到也不能改。要換版本：簽一個新的 kit approve，再請它 kit sync。"
-        : "這裡只看得到你自己帳號的 kit，看不到也不能改它的。")));
-    if (d.kit_version_wanted) root.child(div().flex_none().mx(10).mt(8).p(8).rounded(6).bg(t.raised).text_size(z - 1).text_color(t.blocked)
-      .child(textBlock(`want-${this.where}`, `團隊要 kit ${d.kit_version_wanted} 以上，你的是 ${d.kit}。請在終端機打  kit self-update`)));
-    if (this.role === "pane") return root.child(this.agentList(t, z, d));
+    if (d.error) return root.child(problemCard(t, z, this.where, d.error));
+    if (d.kit_version_wanted) root.child(versionCard(t, z, this.where, d));
     if (this.plan) root.child(this.planCard(t, z));
     return root.child(this.edit ? this.editor(t, z) : this.repo(t, z, d));
   }
 
-  // ---------- the popup: one agent ----------
-  paneHeader(t, z) {
-    const d = this.data, busy = this.busy, tg = this.target ?? {};
-    const where = [tg.machine ?? "這台電腦", shortDir(d?.here?.dir ?? tg.cwd)].filter(Boolean).join(" · ");
-    const pic = icon(tg.program, 18, t.foreground), canSync = d && !d.error && !d.here?.user;
-    return h_flex().flex_none().px(10).py(8).gap(6).items_center().border_b(1).border_color(t.border)
-      .child(div().size(32).flex_none().rounded(16).bg(t.raised).flex().items_center().justify_center().child(pic ?? div().text_color(t.muted).child("•")))
-      .child(v_flex().flex_1().min_w(0)
-        .child(copyOnRight(div().truncate().font_semibold().child(tg.title || "agent"), tg.title || "agent"))
-        .child(h_flex().gap(5).items_center().min_w(0).when(this.loading, (el) => el.child(spin(z - 3, t.muted)))
-          .child(copyOnRight(div().truncate().text_size(z - 1.5).text_color(t.muted).child(this.loading ? `${where} · 讀取中…` : where),
-            d?.here?.dir ?? tg.cwd ?? where))))
-      .when(Boolean(canSync), (el) => el.child(btn(t, z, "sync", busy === "同步" ? "同步中…" : "同步", { small: true, off: Boolean(busy), on: (cx) => this.act("同步", ["sync"], cx, LONG) })))
-      .child(btn(t, z, "reload", this.loading ? spin(z - 2, t.dim) : "⟳", { small: true, off: this.loading, on: () => this.want() }))
-      .child(btn(t, z, "close", "✕", { small: true, on: () => closeOverlay(blockProps()?.overlay) }));
-  }
-
-  agentList(t, z, d) {
-    const items = d.items ?? [], here = d.here?.items ?? [], ag = d.here?.agent;
-    const machine = this.target?.machine ?? "這台電腦";
-    // the folder's own (kit add --dir): the folder the agent runs in, or the one above it that already has some
-    const f = d.here?.folder, inDir = new Set(f?.items ?? []);
-    this.folder = f ? { dir: f.dir, why: f.why, has: inDir } : null;
-    const mine = (i) => inDir.has(`${i.kind}:${i.name}`);
-    const body = v_flex().flex_1().min_h(0).overflow_y_scrollbar().px(10).py(8).gap(8);
-    const kindName = { rule: "規則", skill: "Skills", mcp: "MCP" };
-    // 1. what kit run started it with: only this agent has it, for this run
-    if (ag) {
-      body.child(div().font_semibold().child(`這次啟動帶的（agent ${ag.name}）`));
-      body.child(div().text_size(z - 1.5).text_color(t.muted).child(`用 kit run 開的：只有這個 agent 有，關掉就沒了。要改它，到 Agents 改 ${ag.name}。`));
-      for (const [kind, key] of [["rule", "rules"], ["skill", "skills"], ["mcp", "mcp"]]) {
-        const names = ag[key] ?? [];
-        if (names.length) body.child(h_flex().gap(6).flex_wrap().pl(8).text_size(z - 1)
-          .child(div().text_color(t.dim).child(`${kindName[kind]}：`))
-          .children(names.map((n) => copyOnRight(div().px(6).rounded(4).bg(t.raised).child(n), n))));
-      }
-      body.child(div().mt(4).border_t(1).border_color(t.border));
-    }
-    // 2. what it reads besides: kit's for the whole account (can be taken off) and its folder's / account's own (look only)
-    body.child(div().font_semibold().child(ag ? "另外也讀到的" : "這個 agent 在用的"));
-    for (const kind of ["rule", "skill", "mcp"]) {
-      const kitRows = items.filter((i) => i.kind === kind && (i.status === "used" || i.status === "required" || mine(i)));
-      const ownRows = here.filter((i) => i.kind === kind);
-      const n = kitRows.length + ownRows.length;
-      const folded = this.folded[`use-${kind}`] ?? n > 8;
-      body.child(this.secHead(t, z, `use-${kind}`, `${kindName[kind]}（${n}）`, folded, ""));
-      if (folded) continue;
-      if (!n) { body.child(div().pl(18).text_size(z - 1.5).text_color(t.dim).child("沒有")); continue; }
-      body.child(v_flex().gap(2).children([...kitRows.map((i) => this.row(t, z, i)), ...ownRows.map((i) => this.hereRow(t, z, i))]));
-    }
-    if (d.here?.error) body.child(div().text_size(z - 1.5).text_color(t.muted).child(textBlock(`here-error-${this.where}`, `${shortDir(d.here.dir)}：${d.here.error}`)));
-    // 3. what kit has that the account does not use yet
-    const more = items.filter((i) => i.kind !== "agent" && i.status === "unused" && !mine(i));
-    const news = more.filter((i) => i.new).length;
-    if (more.length) {
-      const folded = this.folded.paneMore ?? false;
-      body.child(div().mt(6).border_t(1).border_color(t.border));
-      body.child(this.secHead(t, z, "paneMore", `還沒用的（${more.length}）`, folded, news ? `${news} 個新的` : ""));
-      if (!folded) body.child(v_flex().gap(2).children(more.map((i) => this.row(t, z, i))));
-    }
-    const where = f ? shortDir(f.dir) : "這個資料夾";
-    body.child(v_flex().mt(6).p(8).gap(4).rounded(6).bg(t.raised).text_size(z - 1.5).text_color(t.muted)
-      .children(f && !f.why
-        ? [`這裡只改 ${where}：加的東西只有在 ${where}（含子資料夾）開的 agent 讀得到，整個帳號和別的資料夾都不受影響。會寫進 ${where} 的 .agentkit、CLAUDE.md、AGENTS.md、.claude/、.agents/ 等檔案。omp 不支援資料夾自己的 MCP。`,
-           "標「整個帳號」「團隊必備」的是整個帳號的，這裡不能改：要改，請在家目錄（~）開的 agent 改。"]
-        : [`這裡改的是整個帳號：${machine} 上你這個帳號的 Claude Code、Codex、omp（有裝的）和每個 agent、每個資料夾都會有或都沒有。`,
-           "只想給某個資料夾：請在那個資料夾開的 agent 改。"])
-      .child("正在跑的要開新的對話才會讀到。"));
-    if (!items.length && !here.length && !ag) body.child(div().text_color(t.muted).child("來源裡還沒有東西。"));
-    return body;
-  }
-
-  secHead(t, z, id, title, folded, note) {
-    return h_flex().id(`sec-${id}`).gap(6).items_center().cursor_pointer().on_mouse_down("left", stop)
-      .on_click((_e, cx) => { this.folded[id] = !folded; this.save("folded", JSON.stringify(this.folded)); cx.notify(); })
-      .child(div().w(12).text_color(t.muted).child(folded ? "▸" : "▾"))
-      .child(div().text_size(z - 0.5).child(title))
-      .when(Boolean(note), (el) => el.child(div().px(5).rounded(4).text_size(z - 3).bg(t.done).text_color(t.background).child(note)));
-  }
-
-  // something the agent reads that kit doesn't manage: its folder's (CLAUDE.md, .claude/…, .mcp.json) or the account's own
-  hereRow(t, z, i) {
-    const badge = (text) => div().flex_none().px(5).rounded(4).text_size(z - 2.5).text_color(t.background).bg(t.muted).child(text);
-    const head = h_flex().gap(5).items_center().min_w(0)
-      .child(copyOnRight(div().min_w(0).truncate().font_semibold().child(shortDir(i.name)), i.name))
-      .child(badge(i.scope === "user" ? "這個帳號（不是 kit 的）" : "這個資料夾"));
-    if (i.tools && i.tools !== "claude") head.child(badge(i.tools === "codex omp" ? "Codex／omp" : i.tools));
-    const sub = i.description || shortDir(i.path);
-    return v_flex().id(`here-${i.scope}-${i.kind}-${i.path}-${i.name}`).px(8).py(4).gap(1).rounded(6).hover((s) => s.bg(t.hover))
-      .child(head)
-      .when(Boolean(sub), (el) => el.child(copyOnRight(div().min_w(0).truncate().text_size(z - 1.5).text_color(t.muted).child(sub), i.description || i.path)));
-  }
-
-  // one of kit's things: for this folder (加到這個資料夾 / 從資料夾拿掉) and for the account (加到整個帳號 / 從帳號拿掉;
-  // required ones cannot be taken off)
-  row(t, z, i) {
-    const busy = Boolean(this.busy), f = this.folder, inDir = Boolean(f?.has.has(`${i.kind}:${i.name}`));
-    const canDir = Boolean(f && !f.why);
-    const badge = (text, color) => div().flex_none().px(5).rounded(4).text_size(z - 2.5).text_color(t.background).bg(color).child(text);
-    const head = h_flex().gap(5).items_center().min_w(0)
-      .child(copyOnRight(div().min_w(0).truncate().font_semibold().text_color(i.status === "unused" && !inDir ? t.muted : t.foreground).child(i.name), i.name));
-    if (i.status === "required") head.child(badge("Kit · 團隊必備", t.accent));
-    if (i.status === "used") head.child(badge("Kit · 整個帳號", t.working));
-    if (inDir) head.child(badge("Kit · 這個資料夾", t.done));
-    if (i.new) head.child(badge("新", t.done));
-    const dirArgs = (verb) => [verb, "--dir", f.dir, i.kind, i.name];
-    const fd = f ? shortDir(f.dir) : "";
-    const action = h_flex().flex_none().gap(4).items_center();
-    // An agent started in a folder only changes that folder; the account is changed only from one started in the home
-    // folder (there the folder buttons make no sense: the home folder is the account). No button that reaches further
-    // than the folder the agent runs in.
-    if (canDir) {
-      if (inDir) action.child(btn(t, z, `rmdir-${i.kind}-${i.name}`, "從資料夾拿掉", { small: true, off: busy, on: (cx) => this.act(`從資料夾拿掉 ${i.name}`, dirArgs("rm"), cx, SHORT, `已從 ${fd} 拿掉 ${i.name}。在 ${fd} 開新的對話就不會有了。`) }));
-      else if (i.status === "unused") action.child(btn(t, z, `adddir-${i.kind}-${i.name}`, "加到這個資料夾", { small: true, kind: "primary", off: busy, on: (cx) => this.act(`加到這個資料夾 ${i.name}`, dirArgs("add"), cx, SHORT, `已加到 ${fd}：${i.name}。在 ${fd}（含子資料夾）開新的對話才會讀到，別的地方不受影響。`) }));
-    } else if (i.status === "required") action.child(div().text_size(z - 1.5).text_color(t.dim).child("拿不掉"));
-    else if (i.status === "used") action.child(btn(t, z, `rm-${i.kind}-${i.name}`, "從帳號拿掉", { small: true, off: busy, on: (cx) => this.act(`從帳號拿掉 ${i.name}`, ["rm", i.kind, i.name], cx, SHORT, `已從整個帳號拿掉 ${i.name}。開新的對話就不會有了。`) }));
-    else if (!inDir) action.child(btn(t, z, `add-${i.kind}-${i.name}`, "加到整個帳號", { small: true, kind: "primary", off: busy, on: (cx) => this.act(`加到整個帳號 ${i.name}`, ["add", i.kind, i.name], cx, SHORT, `已加到整個帳號：${i.name}。每個資料夾開新的對話都會讀到。`) }));
-    const sub = [i.description, i.source].filter(Boolean).join(" · ");
-    const row = h_flex().gap(8).items_center()
-      .child(v_flex().flex_1().min_w(0).gap(1)
-        .child(head)
-        .when(Boolean(sub), (el) => el.child(copyOnRight(div().min_w(0).truncate().text_size(z - 1.5).text_color(t.muted).child(sub), i.description || i.source || sub))))
-      .child(action);
-    // what is missing for it to run: programs (node, python ...), then its own npm packages
-    const missing = (i.needs ?? []).filter((x) => !x.ok).map((x) => ({
-      key: `${i.name}-${x.tool}`, install: x.install, label: x.have ? "升級" : "安裝", title: x.title,
-      what: `需要 ${x.title}${x.min ? ` ${x.min} 以上` : ""}（${x.have ? `這台是 ${x.have}，太舊` : "這台沒有"}）`,
-      none: "請自己裝：這台沒有 kit 可以用的安裝方式",
-      args: ["install-tool", x.tool, ...(x.min ? ["--min", x.min] : [])],
-    }));
-    for (const pk of (i.packages ?? []).filter((x) => !x.ok)) {
-      const py = pk.kind === "pip", lang = py ? "Python" : "npm";
-      missing.push({
-        key: `${i.name}-${pk.kind}`, install: pk.bad ? "" : pk.install, label: pk.had ? "更新" : "安裝", title: `${i.name} 的 ${lang} 套件`,
-        what: pk.had ? `它的 ${lang} 套件要更新（skill 改過了）` : `需要先裝它自己的 ${lang} 套件`,
-        note: py ? "裝在 kit 自己的 venv，只裝現成的 wheel，不跑套件自己的安裝程式" : "裝在 kit 自己的資料夾，只裝 npm registry 上的版本，不跑套件自己的安裝程式",
-        none: !pk.bad ? (py ? "要先有 Python 才能裝" : "要先有 Node.js（npm）才能裝")
-          : py ? `kit 不裝：requirements.txt 第 ${pk.bad}（只能寫套件名和版本）`
-          : `kit 不裝：${pk.bad}（只能裝 npm registry 上的版本，不能是 git、網址、檔案或連結）`,
-        args: ["install-deps", i.name, pk.kind],
-      });
-    }
-    return v_flex().id(`row-${i.kind}-${i.name}`).gap(4).px(8).py(5).rounded(6).hover((s) => s.bg(t.hover))
-      .child(row)
-      .children(missing.map((x) => this.needLine(t, z, x)));
-  }
-
-  // something a skill needs that this machine lacks (a program, or too old; its own packages): 安裝 shows kit's
-  // command first, 確定安裝 runs it
-  needLine(t, z, x) {
-    const busy = Boolean(this.busy), asking = this.asking === x.key;
-    const line = h_flex().gap(6).items_center().flex_wrap().pl(2).text_size(z - 1.5)
-      .child(div().text_color(t.working).child(`⚠ ${x.what}`));
-    if (!x.install) return line.child(div().text_color(t.muted).child(x.none));
-    if (!asking) return line.child(btn(t, z, `need-${x.key}`, x.label, { small: true, off: busy, on: (cx) => { this.asking = x.key; cx.notify(); } }));
-    return v_flex().gap(4).pl(2).text_size(z - 1.5)
-      .child(div().text_color(t.working).child(`⚠ ${x.what}`))
-      .child(h_flex().gap(6).items_center().flex_wrap()
-        .child(div().text_color(t.muted).child("會執行："))
-        .child(copyOnRight(div().px(5).rounded(4).bg(t.raised).font_family(mono()).child(x.install), x.install)))
-      .when(Boolean(x.note), (el) => el.child(div().text_color(t.muted).child(x.note)))
-      .child(h_flex().gap(6)
-        .child(btn(t, z, `need-go-${x.key}`, "確定安裝", { small: true, kind: "primary", off: busy, on: (cx) => { this.asking = null; this.act(`安裝 ${x.title}`, x.args, cx, LONG); } }))
-        .child(btn(t, z, `need-no-${x.key}`, "取消", { small: true, off: busy, on: (cx) => { this.asking = null; cx.notify(); } })));
-  }
-
   // ---------- the repository ----------
   repoHeader(t, z) {
-    const d = this.data, busy = this.busy, inBar = Boolean(find(layout(), TOGGLE));
+    const d = this.data, busy = this.busy, inBar = Boolean(find(layout(), NODES.repoToggle));
     const dirty = d?.dirty ?? [], nItems = dirty.reduce((a, x) => a + x.items, 0), nAgents = dirty.reduce((a, x) => a + x.agents, 0);
     const what = [nItems ? `規則／skill／MCP ${nItems} 個檔案` : "", nAgents ? `agent ${nAgents} 個` : ""].filter(Boolean).join("、");
     const sub = what ? `改過${what}，還沒送出` : d && !d.error ? `${(d.items ?? []).length} 樣` : "規則、skill、MCP 都在這裡";
@@ -548,7 +223,7 @@ export class Panel {
           .child(div().truncate().text_size(z - 1.5).text_color(what ? t.working : t.muted).child(this.loading ? `${sub} · 讀取中…` : sub))))
       .child(btn(t, z, "sync", busy === "同步" ? "同步中…" : "同步", { small: true, off: Boolean(busy), on: (cx) => this.act("同步", ["sync"], cx, LONG) }))
       .child(btn(t, z, "reload", this.loading ? spin(z - 2, t.dim) : "⟳", { small: true, off: this.loading, on: (cx) => this.refresh(cx) }))
-      .when(inBar, (el) => el.child(btn(t, z, "hide", "✕", { small: true, on: () => run("layout.hide", { id: PANEL }) })));
+      .when(inBar, (el) => el.child(btn(t, z, "hide", "✕", { small: true, on: () => run("layout.hide", { id: NODES.repo }) })));
     const v = v_flex().flex_none().border_b(1).border_color(t.border).child(head);
     // each source and what 送出 does with it
     const srcs = d?.sources ?? [];
@@ -585,7 +260,7 @@ export class Panel {
       return h_flex().id(`tab-${k}`).h(28).px(10).gap(5).items_center().rounded(6).cursor_pointer()
         .bg(on ? t.selected : t.surface).text_color(on ? t.foreground : t.muted).font_semibold()
         .hover((st) => st.bg(t.hover)).on_mouse_down("left", stop)
-        .on_click((_e, cx) => { this.kind = k; this.save("kind", k); this.making = null; cx.notify(); })
+        .on_click((_e, cx) => { this.kind = k; localSet("kit.kind", k); this.making = null; cx.notify(); })
         .child(label).child(div().text_size(z - 2).text_color(t.dim).child(String(n)))
         .when(ch > 0, (el) => el.child(div().size(6).rounded(3).bg(t.working)));
     })).child(div().flex_1())
@@ -734,10 +409,7 @@ export class Panel {
         this.making = null;
         this.newUrl.set_value("");
         this.setMsg({ ok: true, label: "收進來", text: clean([r.out, r.err].filter(Boolean).join("\n")), at: Date.now() });
-        const seq = (shared(LOAD)?.seq ?? 0) + 1;
-        setShared(LOAD, { seq, at: Date.now(), done: false });
-        const d = await loadRepo();
-        if ((shared(LOAD)?.seq ?? 0) === seq) { setShared(DATA, d); setShared(LOAD, { seq, at: Date.now(), done: true }); }
+        const d = await loadNewest(LOAD, DATA, loadRepo);
         const it = (d.items ?? []).find((i) => i.kind === "skill" && i.name === x.name);
         if (it) await this.openItem(it, cx);
       } finally { this.endBusy(); cx.notify(); }
@@ -757,10 +429,7 @@ export class Panel {
         this.making = null;
         this.newName.set_value("");
         this.setMsg(null);
-        const seq = (shared(LOAD)?.seq ?? 0) + 1;
-        setShared(LOAD, { seq, at: Date.now(), done: false });
-        const d = await loadRepo();
-        if ((shared(LOAD)?.seq ?? 0) === seq) { setShared(DATA, d); setShared(LOAD, { seq, at: Date.now(), done: true }); }
+        const d = await loadNewest(LOAD, DATA, loadRepo);
         const it = (d.items ?? []).find((i) => i.kind === kind && i.name === name);
         if (it) await this.openItem(it, cx);
       } finally { this.endBusy(); cx.notify(); }
@@ -790,10 +459,7 @@ export class Panel {
     if (text === null) { this.openErr = true; this.setMsg({ ok: false, label: "打開", text: `讀不到 ${shortDir(i.path)}`, at: Date.now() }); return; }
     this.openErr = false;
     this.code?.release();
-    const th = theme();
-    this.code = EditorState.new({ language: i.kind === "mcp" ? "yaml" : "md", value: value ?? text, soft_wrap: true,
-      font_family: settings().font_family, font_size: 12,
-      syntax: { keyword: th.ansi5, string: th.ansi2, comment: th.dim, function: th.ansi4, type: th.ansi3, number: th.ansi1, constant: th.ansi6 } });
+    this.code = newEditor(value ?? text, i.kind === "mcp" ? "yaml" : "md");
     this.edit = { item: i, orig: text, dirty: value != null && value !== text, err: null, saved: false };
     this.mark();
     this.code.on("change", (_e, cx) => {
@@ -837,7 +503,7 @@ export class Panel {
         await writeTextFile(e.item.path, text, e.orig);
         e.orig = text; e.dirty = false; e.err = null; e.saved = true;
         this.mark();
-        if (!e.item.plain) this.changed(null);   // a file of a source: the repository's list (改過 / 送出) is out of date
+        if (!e.item.plain) this.changed();   // a file of a source: the repository's list (改過 / 送出) is out of date
       } catch {
         e.err = "這個檔案在別的地方被改過了。先複製你改的，按「重新讀取」，再貼回去。";
       }
@@ -872,23 +538,17 @@ export class Panel {
   }
 
   // ---------- shared pieces ----------
-  moveBanner(t, z) {
+  // needs: "missing" (放進上排) or "old" (更新版面), from layoutNeeds
+  moveBanner(t, z, needs) {
+    const say = needs === "old"
+      ? "這個版面還有舊版 kit 的東西（kit-agents、kit-pane，或不是 kit 的 pane 標題列）。按下面的按鈕換成現在的：Agents、Kit 兩顆按鈕留在上排，每個 agent 視窗上是 Kit 按鈕。"
+      : "這個面板還在版面最外面。按下面的按鈕，會放進上排（Agents、Kit 兩顆按鈕，按了開關面板），每個 agent 視窗上也會有 Kit 按鈕。";
     return v_flex().flex_none().px(12).py(10).gap(6).bg(t.raised).border_b(1).border_color(t.border)
-      .child(div().text_size(z - 1).text_color(this.moveErr ? t.blocked : t.muted).child(this.moveErr ?? "這個面板還在版面最外面。按下面的按鈕，會放進上排（Agents、Kit 兩顆按鈕，按了開關面板），每個 agent 視窗上也會有 Kit 按鈕。"))
-      .child(h_flex().child(btn(t, z, "move", "放進上排", { kind: "primary", on: (cx) => cx.spawn(async (cx) => this.moveIntoBar(cx)) })));
+      .child(div().text_size(z - 1).text_color(this.moveErr ? t.blocked : t.muted).child(this.moveErr ?? say))
+      .child(h_flex().child(btn(t, z, "move", needs === "old" ? "更新版面" : "放進上排", { kind: "primary", on: (cx) => cx.spawn(async (cx) => moveIntoBar(this, cx)) })));
   }
 
   message(t, z, msg) { return messageBox(t, z, this.where, msg, () => this.setMsg(null), squeeze); }
-
-  problem(t, z, text) {
-    const notInit = /kit init/.test(text);
-    return v_flex().p(14).gap(8)
-      .child(div().font_semibold().text_color(t.ansi1).child("kit 出錯了"))
-      .child(div().font_family(mono()).text_size(z - 1).child(textBlock(`problem-${this.where}`, text)))
-      .child(div().text_size(z - 1).text_color(t.muted).child(notInit
-        ? "第一次用要先在終端機打  kit init <團隊來源的網址>，好了再按上面的 ⟳。"
-        : "修好後按上面的 ⟳ 重新讀取。"));
-  }
 
   // working on it: a bar with a piece sliding through it (Herdr animates it; no timer) and what is going on
   working(t, z, text) {
@@ -900,7 +560,7 @@ export class Panel {
 
   // The tab-bar button: "kit" plus how many new things there are; click shows / hides the panel.
   renderToggle() {
-    const t = theme(), node = find(layout(), PANEL), on = node && !node.hidden;
+    const t = theme(), node = find(layout(), NODES.repo), on = node && !node.hidden;
     const d = this.data;
     const news = (d?.items ?? []).filter((i) => i.new).length;
     const badge = d?.error || apiState(null)?.ok === false ? div().text_color(t.ansi1).child("!")
@@ -909,7 +569,7 @@ export class Panel {
       .child(h_flex().id("toggle-kit").h(26).px(8).gap(5).flex_none().items_center().rounded(6)
         .text_size(12).bg(on ? t.selected : t.chrome).text_color(on ? t.foreground : t.muted)
         .hover((st) => st.bg(t.hover)).on_mouse_down("left", stop)
-        .on_click(() => run("layout.toggle", { id: PANEL }))
+        .on_click(() => run("layout.toggle", { id: NODES.repo }))
         .child("Kit")
         .when(Boolean(badge), (el) => el.child(badge)));
   }

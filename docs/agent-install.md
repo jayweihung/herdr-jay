@@ -36,6 +36,7 @@ jay 請 agent 幫忙裝：Windows 本機 + 用 ssh 連的 Linux server，全部�
 | 6 | PC (jay clicks) | Settings → Add machine; never run `hc machine add` / `hc machine update` it may suggest, answer **n** to "Copy this hc" | [linux-remote.md §2b](linux-remote.md#2b-add-the-machine--加機器) |
 | 7 | both | linux-remote §5 test, with an agent running on the server | [linux-remote.md §5](linux-remote.md#5-try-jay-nvim-there--試-jay-nvim) |
 | 8 | server | Snap hook (PC already done in row 2): if a Claude Code agent runs on the server, after jay-nvim has opened there once, merge the PreToolUse hook into that machine's `~/.claude/settings.json` (keep its other settings; back it up first) | [windows.md §5a](windows.md#5a-snap-hook-for-claude-code--snap-hook), [linux-remote.md §4](linux-remote.md#4-agents-on-the-server--server-上的-agent), [nvim.md §7](nvim.md#7-snapshots-for-bash-edits-optional--bash-改檔的快照選用) |
+| 9 | PC (only if jay asks) | jay's layout: kit from the **company** Git server (agentkit `docs/company.md`), then the layout | [layout.md](layout.md) |
 
 Server steps run through ssh from the PC, e.g. `ssh <user>@<server> 'bash -lc "…"'`, or in a Herdr tab on that
 machine once step 6 is done. A long build: run it in a Herdr terminal on the server (it survives a dropped ssh).
@@ -43,12 +44,12 @@ machine once step 6 is done. A long build: run it in a Herdr terminal on the ser
 ## What to report to jay / 回報
 
 ```
-(PowerShell or Git Bash: `~` is your user folder; Windows `<home>` = windows.md §6 step 3)
-PC:      hc --version ; herdr-app --version ; git -C ~/src/herdr-jay describe --tags --always
+(PC lines are PowerShell; Windows `<home>` = windows.md §6 step 3)
+PC:      hc --version ; herdr-app --version ; git -C "$env:USERPROFILE\src\herdr-jay" describe --tags --always
 server:  ~/.local/bin/herdr-core --version ; ~/.local/bin/nvim --version | head -1
-PC:      git -C ~/src/herdr-core describe --tags   (the source both cores were built from)
+PC:      git -C "$env:USERPROFILE\src\herdr-core" describe --tags   (the source both cores were built from)
 PC:      hc machine ls          (the server: connected, same version)
-PC:      the PreToolUse command in ~\.claude\settings.json, and whether <home>\.cache\jay-nvim\snap\ got a folder
+PC:      the PreToolUse command in $env:USERPROFILE\.claude\settings.json, and whether <home>\.cache\jay-nvim\snap\ got a folder
 server:  the same in ~/.claude/settings.json and ~/.cache/jay-nvim/snap/ (if an agent runs there)
 ```
 

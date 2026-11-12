@@ -52,7 +52,8 @@ Updating later: the same copy (Windows) or nothing (macOS link); then quit and r
 ## 2. Settings file / 設定檔
 
 Until it exists, the panel shows what to write. Create `<home>/.config/herdr-app/gerrit.json`
-(Windows: `%USERPROFILE%\.config\herdr-app\gerrit.json`) with a text editor:
+(Windows: `<Herdr home>\gerrit.json`, normally `%USERPROFILE%\.config\herdr-app\gerrit.json`; with
+`HERDR_APP_HOME` set, it is `%HERDR_APP_HOME%\gerrit.json`) with a text editor:
 
 ```json
 {

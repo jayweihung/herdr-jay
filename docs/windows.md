@@ -75,6 +75,8 @@ If something is blocked, give IT this list. Behind a proxy: `setx HTTPS_PROXY ht
 - `win.rustup.rs`, `static.rust-lang.org` (rustup, Rust), `index.crates.io`, `static.crates.io` (Rust libraries)
 - `deps.files.ghostty.org`, `ziglang.org` (Zig packages)
 - optional LSP tools (step 4): `registry.npmjs.org`, `pypi.org`, `files.pythonhosted.org`
+- optional Gerrit agent ([gerrit.md §8](gerrit.md#8-a-gerrit-agent-step-by-step--gerrit-agent-安裝步驟)):
+  `gerrit.googlesource.com`, `pypi.org`, `files.pythonhosted.org`, `github.com` (uv, Python)
 
 **Time and disk / 時間和空間**: the first build of each repo takes a long time (tens of minutes on a laptop)
 and several GB. Windows Defender scanning makes it much slower: ask IT to exclude `%USERPROFILE%\src`
@@ -88,7 +90,7 @@ git config --global http.sslBackend schannel        # company TLS inspection: us
 New-Item -ItemType Directory -Force "$env:USERPROFILE\src" | Out-Null
 ```
 
-Get herdr-jay now (step 2 needs its `patches`) / 先抓 herdr-jay（第 2 步要用）:
+Get herdr-jay now (step 2 needs its `herdr-core\patches`) / 先抓 herdr-jay（第 2 步要用）:
 
 ```powershell
 Set-Location "$env:USERPROFILE\src"
@@ -96,11 +98,11 @@ git clone https://github.com/jayweihung/herdr-jay.git
 ```
 
 Or on GitHub **Code → Download ZIP**, extract into `%USERPROFILE%\src` and rename the folder that directly contains
-`mods` and `docs` to `herdr-jay` (Explorer's "Extract All" nests it: `herdr-jay-main\herdr-jay-main`; take the inner one).
+`herdr-app` and `docs` to `herdr-jay` (Explorer's "Extract All" nests it: `herdr-jay-main\herdr-jay-main`; take the inner one).
 Check / 檢查:
 
 ```powershell
-Test-Path "$env:USERPROFILE\src\herdr-jay\mods"          # must be True
+Test-Path "$env:USERPROFILE\src\herdr-jay\herdr-app\mods\jay-nvim\mod.json"   # must be True
 ```
 
 Every block below sets the folders it uses, so it works in any new window (except where it says "same window").
@@ -336,6 +338,8 @@ Optional, for go-to-definition and errors (skip if Node or Python are not allowe
    herdr-app check "$h\mods\jay-nvim" | Out-Host
    herdr-app check "$h\mods\jay-nvim-pick" | Out-Host
    ```
+5. Optional / 選用: jay's layout (Agents / Kit / Gerrit buttons; needs kit) → [layout.md](layout.md); the Gerrit panel →
+   [gerrit.md](gerrit.md). 想要 jay 的畫面排法看 layout.md。
 
 ### 5a. Snap hook for Claude Code / snap hook
 
@@ -381,7 +385,7 @@ the screen and of `:messages` in nvim, note the step number, go on.
 1. New PowerShell: `nvim --version`, `hc --version`, `git --version` → NVIM ≥ 0.11, `hc 0.1.20`, a git version.
 2. In Herdr make a space for a git project (`ctrl-shift-n`, pick the folder); in a tab there run `claude`
    (no `cd` first). With that pane focused: `ctrl-shift-i` → nvim on the right in that pane's folder, file tree beside it, and
-   `%USERPROFILE%\.config\herdr-app\mods\jay-nvim\.init.lua` exists.
+   `Test-Path "$h\mods\jay-nvim\.init.lua"` is True (`$h` as in §5 step 2).
 3. In nvim: `:lua print(vim.uv.os_homedir(), vim.env.USERPROFILE)` → the same `C:\Users\<you>` twice.
    If the first is another drive (e.g. `H:\`), write it down. That first folder is `<home>`: now do
    [§5a](#5a-snap-hook-for-claude-code--snap-hook), then restart `claude` in the step-2 tab (or run `/hooks` there).
@@ -478,8 +482,10 @@ Set-Location "$env:USERPROFILE\src\herdr-jay"
 git checkout main; git pull
 ```
 
-If the README table names a tag for your Herdr (`for-herdr-v<app>-r<N>`), `git checkout <that tag>` (and
-`git checkout main` before the next `git pull`). ZIP: delete the old folder, download again, rename to `herdr-jay`.
+If the README tag table names a tag for your Herdr (`for-herdr-v<app>-r<N>`) **whose Windows column has a date**,
+`git checkout <that tag>` (and `git checkout main` before the next `git pull`). Otherwise stay on `main`: a tag not
+yet checked on Windows may also have an older folder layout than these docs (`for-herdr-v0.1.15-r1` does).
+Windows 欄沒有日期的 tag 不要切過去，留在 `main`。 ZIP: delete the old folder, download again, rename to `herdr-jay`.
 
 ### 8.2 Core and app on the PC
 
@@ -545,7 +551,8 @@ herdr-app check "$h\mods\jay-nvim-pick" | Out-Host
 ```
 
 Gerrit panel, only if you installed it ([gerrit.md](gerrit.md)): the same for `mods\gerrit`, then quit and reopen Herdr
-(your `gerrit.json` is outside the folder and stays).
+(your `gerrit.json` is outside the folder and stays). jay's layout, if you use it: when the CHANGELOG says
+**layout**, run the Windows block in [layout.md](layout.md) again.
 
 Nothing to copy to the server: jay-nvim hands nvim its Lua each time it opens a pane there. Already open nvim panes
 keep the old version until you close and reopen them. If `check` fails, go back to your previous herdr-jay

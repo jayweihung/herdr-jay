@@ -113,7 +113,7 @@
                 }
               },
               "size": {
-                "px": 42
+                "px": 56
               }
             },
             {
@@ -290,6 +290,5 @@
   "traffic_lights": [
     12,
     16
-  ],
-  "preview": "layouts/herdr-skillshare.png"
+  ]
 }

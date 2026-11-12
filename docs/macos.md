@@ -218,7 +218,8 @@ What you have now: `hc --version`, `herdr-app --version`, `git -C ~/src/herdr-ja
 cd ~/src/herdr-jay && git checkout main && git pull
 ```
 
-If the README names a tag for your Herdr (`for-herdr-v<app>-r<N>`), check that out instead of staying on `main`.
+If the README tag table names a tag for your Herdr (`for-herdr-v<app>-r<N>`), you may check it out instead of staying on
+`main`; follow the docs inside that tag then (`for-herdr-v0.1.15-r1` still has the older `mods/` and `patches/` folders).
 
 Core, then the same for the app (`repo=herdr-app`), only if the table lists a newer version. Set `tag` to the
 version from the table. The block runs `just install` only when the tag checked out, the app's

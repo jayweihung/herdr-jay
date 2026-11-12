@@ -2,8 +2,8 @@
 
 Newest first. Each entry says what you need to do on your machine.
 最新的在上面；每條寫了要做什麼。
-Needs: **mods** = copy the two mod folders again (macOS symlinks: nothing) · **core** / **app** = rebuild ·
-**keys** = see [docs/keys.md](docs/keys.md).
+Needs: **mods** = copy the two mod folders again (macOS symlinks: nothing) · **gerrit** = copy the Gerrit panel again
+(only if you installed it) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/keys.md).
 
 ## 2026-11-12 (folders)
 
@@ -15,9 +15,15 @@ Needs: **mods** (they moved: copy again from the new folder; macOS symlinks: lin
   資料夾改用 Herdr 自己的名字：`herdr-app/mods/…` 就是裝到 `~/.config/herdr-app/mods/…`；補丁在 `herdr-core/patches/`。
   macOS: `cd ~/.config/herdr-app/mods && ln -sfn ~/src/herdr-jay/herdr-app/mods/jay-nvim ~/src/herdr-jay/herdr-app/mods/jay-nvim-pick .`
   (and `gerrit` the same way if you use it).
-  Windows: the copy block in [windows.md §8](docs/windows.md) (already uses the new folder).
-- New `herdr-app/layouts/jay.json`: jay's layout (Agents, Kit, Gerrit buttons and panels; the Kit bar on every
-  terminal). Optional: [docs/layout.md](docs/layout.md).
+  Windows: the copy block in [windows.md §8.4](docs/windows.md#84-mods) (already uses the new folder); the mods'
+  content didn't change, so this is only needed before copying a newer version.
+- New `herdr-app/layouts/jay.json` (macOS) and `jay-win.json` (Windows: the buttons sit left of the tabs, away from
+  the window's ─ □ ✕): jay's layout (Agents, Kit, Gerrit buttons and panels; the Kit bar on every terminal).
+  Optional, needs kit (at the company from its own Git server): [docs/layout.md](docs/layout.md).
+  jay 的 layout，Mac 用 jay.json、Windows 用 jay-win.json；要先有 kit。
+- Docs: Windows paths follow `HERDR_APP_HOME` everywhere; the Gerrit agent's download sites are in
+  [windows.md §0](docs/windows.md#0-before-you-start--開始前); [docs/patches.md](docs/patches.md) has one apply
+  command for any tag.
 
 ## 2026-11-12
 
@@ -25,13 +31,13 @@ Needs: **core** (build v0.1.20, no patches), **app** (build v0.1.15), in that or
 
 - Herdr core v0.1.20 (`de97ea5`) and app v0.1.15 (`9950887`), checked on macOS. Core v0.1.20 needs **no patches**:
   the one v0.1.19 had (skip Ghostty's xcframework) is in the official source now (#182);
-  `patches/herdr-core/v0.1.20/` holds only a README.md. Applying the old v0.1.19 patch on v0.1.20 breaks the build.
+  `herdr-core/patches/v0.1.20/` (then `patches/herdr-core/v0.1.20/`) holds only a README.md. Applying the old v0.1.19 patch on v0.1.20 breaks the build.
   core v0.1.20 不用 patch（官方已收進去）；app v0.1.15。
 - No default key changes, no hc API change; the mod API change (`knownAgents()` rejects when its check fails, parent
   addresses) doesn't affect these mods (`herdr-app check` ok on all).
 - macOS: terminals opened by a core older than 0.1.20 can still end when Herdr quits. Install core first; after
   that, close and reopen old terminals when convenient (or restart the Mac).
-- First tag checked on both OSes will now be `for-herdr-v0.1.15-r1`.
+- Tag `for-herdr-v0.1.15-r1`: checked on macOS only so far (see the README tag table).
 - **jay-nvim finds newer Claude Code's session** ([docs/nvim.md](docs/nvim.md)). Needs **mods** (macOS symlinks:
   nothing; reopen the nvim pane). Claude Code 2.1.322 no longer writes `~/.claude/sessions/<pid>.json`, so follow
   found nothing. Now, after that file: Claude Code's `~/.claude/daemon/roster.json` (background / remote-control

@@ -24,19 +24,25 @@ A tag that needs no patches still gets a folder holding only README.md, so the u
 
 Step by step with checks: [macos.md](macos.md), [windows.md](windows.md).
 
-macOS (zsh), from the repo, on the tag the patch folder is named after:
+**Today (core v0.1.20, app v0.1.15) there is nothing to apply.** The commands below are for a tag whose folder has
+`.patch` files: set the tag from the README versions table; never apply one tag's patches on another tag.
+現在沒有要套的補丁；下面是某個 tag 有補丁時的做法，只套那個 tag 自己資料夾裡的。
+
+macOS (zsh), in the Herdr repo (`herdr-core` or `herdr-app`), on that tag:
 
 ```sh
-git checkout v0.1.19
+repo=herdr-core tag=vX.Y.Z
+git checkout "$tag"
 git submodule update --init --recursive
-git -c user.name=me -c user.email=me@local am -3 ~/src/herdr-jay/herdr-core/patches/v0.1.19/*.patch
+ls ~/src/herdr-jay/$repo/patches/$tag/*.patch && git -c user.name=me -c user.email=me@local am -3 ~/src/herdr-jay/$repo/patches/$tag/*.patch
 ```
 
 Windows (PowerShell does not expand `*.patch` for git):
 
 ```powershell
-$j = "$env:USERPROFILE\src\herdr-jay"
-git -c user.name=me -c user.email=me@local am -3 (Get-ChildItem "$j\herdr-core\patches\v0.1.19\*.patch" | Sort-Object Name).FullName
+$j = "$env:USERPROFILE\src\herdr-jay"; $repo = "herdr-core"; $tag = "vX.Y.Z"
+$p = @(Get-ChildItem "$j\$repo\patches\$tag\*.patch" -ErrorAction SilentlyContinue | Sort-Object Name)
+if ($p.Count) { git -c user.name=me -c user.email=me@local am -3 $p.FullName } else { "no patches for $repo $tag" }
 ```
 
 The `-c user.name=… user.email=…` only lets `git am` record the commit on a machine where git has no name set.

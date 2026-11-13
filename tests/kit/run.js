@@ -21,6 +21,7 @@ const H = (globalThis.__H = {
   store: {}, props: {}, layout: { id: "root", children: [] }, window: { platform: "macos" }, home: "/Users/amy",
   calls: [], answer: () => ({ code: 0, stdout: "", stderr: "" }), overlays: [], runs: [], notes: [], timeouts: [],
   texts: [], strings: [], panes: [], spaces: [], tasks: [], clicks: {}, lastId: null, files: null, writes: [],
+  machines: [], hcAnswer: null, reads: [], clipboard: [],
 });
 const COLOR_METHODS = /(^bg$|color|^border_color$|^text_color$)/;
 const el = new Proxy(function () {}, {
@@ -54,15 +55,21 @@ globalThis.__stubs = {
     if (r instanceof Error) throw r;
     return r;
   },
-  hc: async (args) => { H.calls.push({ argv: ["hc", ...args], on: null }); return { code: 0, stdout: JSON.stringify({ pid: 4242 }), stderr: "" }; },
+  hc: async (args) => {
+    H.calls.push({ argv: ["hc", ...args], on: null });
+    const r = H.hcAnswer?.(args);
+    if (r instanceof Error) throw r;
+    return r ?? { code: 0, stdout: JSON.stringify({ pid: 4242 }), stderr: "" };
+  },
   run: (name, args) => { H.runs.push([name, args]); }, layout: () => H.layout,
   shared: (k) => H.store[k], setShared: (k, v) => { H.store[k] = v; return null; }, props: () => H.props,
   // files: path -> text a test gives (others read as ""); writes: every [path, text, expected] written
-  readTextFile: async (p) => (H.files && p in H.files ? H.files[p] : ""),
+  // (another machine's files are "<machine>:<path>" in H.files; with H.files, a file not in it is absent: null)
+  readTextFile: async (p, o) => { H.reads.push([p, o?.on ?? null]); const k = o?.on ? `${o.on}:${p}` : p; return H.files ? (k in H.files ? H.files[k] : null) : ""; },
   writeTextFile: async (p, text, expected) => { H.writes.push([p, text, expected]); if (H.files) H.files[p] = text; },
-  appHome: () => "/Users/amy/.config/herdr-app",
+  appHome: () => H.appHome ?? "/Users/amy/.config/herdr-app",
   openOverlay: (o) => { H.overlays.push(o); return "o1"; }, closeOverlay: () => {}, notify: (n) => H.notes.push(n),
-  panes: () => H.panes, spaces: () => H.spaces, agents: () => [], focused: () => null,
+  panes: () => H.panes, spaces: () => H.spaces, machines: () => H.machines, agents: () => [], focused: () => null,
 };
 
 // Load the mod (every .js in its folder, side by side in a temp folder) with its imports swapped for the stubs.
@@ -76,7 +83,8 @@ async function loadMod() {
     writeFileSync(join(dir, f), src);
   }
   const at = (f) => import(pathToFileURL(join(dir, f)).href);
-  const m = { main: await at("main.js"), common: await at("common.js"), layout: await at("layout.js"), context: await at("context.js"), bots: await at("bots.js") };
+  const m = { main: await at("main.js"), common: await at("common.js"), layout: await at("layout.js"), context: await at("context.js"), bots: await at("bots.js"),
+    machines: await at("machines.js") };
   rmSync(dir, { recursive: true, force: true });
   return m;
 }
@@ -88,7 +96,7 @@ const realNow = Date.now;
 let skew = 0;
 Date.now = () => realNow() + skew;
 const cx = {
-  notify() {}, stop_propagation() {}, write_to_clipboard() {},
+  notify() {}, stop_propagation() {}, write_to_clipboard(text) { H.clipboard.push(text); },
   spawn: (f) => { const p = Promise.resolve().then(() => f(cx)); H.tasks.push(p); return p; },
   timer: { every: (_ms, f) => timers.push(f) },
   new: (_Class, props) => ({ props, set_props(p) { this.props = p; }, release() { return true; } }),
@@ -97,6 +105,7 @@ async function settle() { for (let i = 0; i < 20 && H.tasks.length; i++) { const
 function fresh() {
   H.store = {}; H.calls = []; H.runs = []; H.overlays = []; H.notes = []; H.texts = []; H.strings = []; H.tasks = []; H.timeouts = []; H.files = null; H.writes = [];
   H.props = {}; H.layout = { id: "root", children: [] }; H.window = { platform: "macos" }; H.panes = []; H.spaces = [];
+  H.machines = []; H.hcAnswer = null; H.reads = []; H.clipboard = []; H.appHome = null;
   timers.length = 0; skew = 0;
 }
 // a fake kit, answering as kit 0.3.0 does (kit's README, "給程式讀的介面"): argv after the program -> answer.
@@ -700,6 +709,188 @@ test("layouts: jay.json and jay-win.json are JSON, use mod kit with its roles; b
     assert.deepEqual(byId.main.content.pane.header.content, { mod: "kit", props: { role: "header" } }, f);
     assert.deepEqual(byId["tabs-row"].children.map((c) => c.id), order, f);
   }
+});
+// ---------- 各機器 (machines.js) ----------
+const SHA = (c) => c.repeat(40).slice(0, 40);
+const STATUS = (o = {}) => ({ kit: "0.4.1", api: "1.2", user: "amy", at: Math.floor(Date.now() / 1000) - 720,
+  self: { name: "agentkit", commit: SHA("a"), approved: null }, approvals: null,
+  sources: [{ name: "team", source: "https://git.example.org/team", dir: "/x/team", commit: SHA("b"), approved: null }], ...o });
+// kit on each machine ("" = this computer): { status } (kit status --json), else an older kit { kit, api }, or an Error
+function fleet(by) {
+  H.answer = (argv, on) => {
+    const a = argv[0] === "sh" ? argv.slice(4) : argv.slice(1), m = by[on ?? ""];
+    if (m instanceof Error) return m;
+    if (!m) return new Error(`machine ${on} is not connected`);
+    if (a[0] === "list") return { code: 0, stdout: JSON.stringify(KIT_LIST), stderr: "" };
+    if (a[0] === "status") return m.status ? { code: 0, stdout: `${JSON.stringify(m.status)}\n`, stderr: "" }
+      : { code: 1, stdout: "", stderr: "kit: 沒有這個指令：status（打 kit help）\n" };
+    if (a[0] === "api") return { code: 0, stdout: `${m.status?.api ?? m.api}\n`, stderr: "" };
+    if (a[0] === "--version") return { code: 0, stdout: `kit ${m.status?.kit ?? m.kit}\n`, stderr: "" };
+    return { code: 0, stdout: "", stderr: "" };
+  };
+}
+const SETTINGS = "/Users/amy/.config/herdr-app/kit-machines.json";
+const machineRows = () => H.store["kit.machines.v1"]?.rows ?? [];
+const rowOf = (key) => machineRows().find((r) => r.key === key);
+// a repository panel with the 各機器 tab not yet opened; then open it
+async function machinesPanel(M) {
+  localStorage.setItem("kit.kind", "skill");
+  const v = view(M, { role: "repo" }); await settle(); await tick();
+  return { v, open: async () => { render(v); H.clicks["tab-machines"]({}, cx); await settle(); return render(v); } };
+}
+const machinesTest = (name, fn) => test(name, async (M) => { try { await fn(M); } finally { localStorage.setItem("kit.kind", "skill"); } });
+
+machinesTest("各機器: plain values — api and kit versions compared, kit status JSON read field by field, report and settings files checked", ({ machines: X }) => {
+  assert.deepEqual([X.apiOf("1.2"), X.apiOf("1"), X.apiOf(" 2.10\n"), X.apiOf("x"), X.apiOf(null)], [[1, 2], [1, 0], [2, 10], null, null]);
+  assert.ok(X.verCmp("0.4.1", "0.4.0") > 0 && X.verCmp("0.10.0", "0.9.9") > 0 && X.verCmp("0.4", "0.4.0") === 0 && X.verCmp("dev", "0.1.0") < 0);
+  const now = 1e12;
+  assert.deepEqual([5e3, 12 * 6e4, 5 * 36e5, 3 * 864e5].map((d) => X.agoText(now - d, now)), ["剛剛", "12 分鐘前", "5 小時前", "3 天前"]);
+  const s = X.readStatus({ ...STATUS({ at: 100, approvals: { serial: 7, used: 6, valid: true, extra: 1 } }), run: "rm -rf /", hosts: ["x"],
+    sources: [{ name: "team", commit: "not a sha", approved: SHA("c"), dir: "/x", evil: true }, { commit: SHA("d") }, "x"] });
+  assert.deepEqual(s, { kit: "0.4.1", api: "1.2", user: "amy", at: 100000, self: { name: "agentkit", commit: SHA("a"), approved: null },
+    approvals: { serial: 7, used: 6, valid: true }, sources: [{ name: "team", commit: null, approved: SHA("c") }] });
+  for (const bad of [null, [], "x", { kit: "0.4.1" }, { kit: "0.4.1", api: "one" }, { api: "1.2" }]) assert.equal(X.readStatus(bad), null, JSON.stringify(bad));
+  assert.match(X.readReport(null, "/r.json").why, /還沒有回報檔/);
+  assert.match(X.readReport(" ".repeat(X.REPORT_MAX + 1), "/r.json").why, /太大/);
+  assert.match(X.readReport("{nope", "/r.json").why, /不是 JSON/);
+  assert.match(X.readReport('{"error": {"code": "x"}}', "/r.json").why, /不是 kit status --json/);
+  assert.equal(X.readReport(JSON.stringify(STATUS()), "/r.json").status.kit, "0.4.1");
+  assert.deepEqual(X.readSettings(null), { reported: [], error: null });
+  assert.match(X.readSettings("[1]").error, /"reported"/);
+  assert.match(X.readSettings("{").error, /不是 JSON/);
+  const st = X.readSettings(JSON.stringify({ reported: [{ label: "box root", machine: "box", file: "/r.json", run: "x" }, { label: "here", file: "C:\\r.json" }, { label: "no file" }, { file: "/f" }] }));
+  assert.deepEqual(st.reported, [{ label: "box root", machine: "box", file: "/r.json" }, { label: "here", machine: null, file: "C:\\r.json" }]);
+  assert.match(st.error, /2 筆/);
+  assert.deepEqual([X.upgradeFor("sh"), X.upgradeFor("cmd"), X.upgradeFor(undefined)], ["kit self-update && kit sync", "kit self-update; if ($?) { kit sync }", "kit self-update && kit sync"]);
+});
+
+machinesTest("各機器: what a row lacks is named (no counts), from the api table; the newest kit and approval serial; ✓ only when every commit is the approved one", ({ machines: X }) => {
+  const rows = [{ state: "ok", kit: "0.4.1", api: "1.2", approvals: { serial: 7, valid: true } }, { state: "ok", kit: "0.4.0", api: "1.1", approvals: { serial: 9, valid: false } },
+    { state: "down", kit: "0.9.0", api: "9.0" }];
+  const top = X.newest(rows);
+  assert.deepEqual(top, { kit: "0.4.1", api: [1, 2], serial: 7 });
+  assert.deepEqual(X.missing(rows[0], top), { lacks: [], kit: null });
+  assert.deepEqual(X.missing(rows[1], top), { lacks: [{ name: "按輪分段", kit: "0.4.1" }], kit: "0.4.1" });
+  assert.deepEqual(X.missing({ api: "1.0" }, top).lacks.map((f) => f.name), ["agent-files 清單", "按輪分段"]);
+  assert.deepEqual(X.missing({ api: null }, top).lacks.map((f) => f.name), ["Kit 面板", "agent-files 清單", "按輪分段"]);
+  // a kit newer than the table knows: said as that kit's new things
+  const t2 = X.newest([...rows, { state: "ok", kit: "0.5.0", api: "1.3" }]);
+  assert.deepEqual(X.missing(rows[0], t2), { lacks: [{ name: "kit 0.5.0 的新功能", kit: "0.5.0" }], kit: "0.5.0" });
+  assert.equal(X.atApproved({ self: { commit: SHA("a"), approved: SHA("a") }, sources: [{ commit: SHA("b"), approved: SHA("b") }, { commit: SHA("c"), approved: null }] }), true);
+  assert.equal(X.atApproved({ self: { commit: SHA("a"), approved: SHA("e") }, sources: [] }), false);
+  assert.equal(X.atApproved({ self: { commit: SHA("a"), approved: null }, sources: [] }), null);
+  const ref = X.approvedRef([{ state: "ok", approvals: { serial: 3, valid: true }, self: { name: "agentkit", approved: SHA("3") } },
+    { state: "ok", approvals: { serial: 7, valid: true }, self: { name: "agentkit", approved: SHA("7") }, sources: [{ name: "team", approved: SHA("t") }] },
+    { state: "ok", approvals: { serial: 9, valid: false }, self: { name: "agentkit", approved: SHA("9") } }]);
+  assert.deepEqual([ref.row.approvals.serial, ref.of("agentkit"), ref.of("team"), ref.of("other")], [7, SHA("7"), SHA("t"), null]);
+  assert.equal(X.approvedRef([{ state: "ok", approvals: null }]), null);
+});
+
+machinesTest("各機器: nothing is asked until the tab is opened; then this computer and every machine Herdr knows, at once; one that is away is not asked", async (M) => {
+  fresh();
+  fleet({ "": { status: STATUS() }, box: { status: STATUS({ user: "amy" }) }, winbox: { kit: "0.4.0", api: "1.1" } });
+  H.spaces = [{ id: "s1", machine: null, tabs: [] }, { id: "box/s2", machine: "box", tabs: [] }];
+  H.machines = [{ name: null, layout: "ready" }, { name: "box", layout: "ready" }];
+  H.hcAnswer = (a) => (a[0] === "machine" ? { code: 0, stderr: "", stdout: JSON.stringify({ machines: [{ name: "box", state: "connected" }, { name: "winbox", state: "connected" }, { name: "away", state: "disconnected" }] }) } : null);
+  const { v, open } = await machinesPanel(M);
+  await tick(); await tick();
+  assert.equal(kitCalls("status").length, 0, "no kit status before the tab is opened");
+  assert.equal(H.calls.filter((c) => c.argv[0] === "hc" && c.argv[1] === "machine").length, 0);
+  const text = await open();
+  assert.deepEqual(kitCalls("status").map((c) => c.on).sort(), [null, "box", "winbox"].sort());
+  assert.ok(!H.calls.some((c) => c.on === "away"), "a machine that isn't connected is not asked");
+  assert.deepEqual(machineRows().map((r) => [r.key, r.state]), [["here", "ok"], ["m:away", "down"], ["m:box", "ok"], ["m:winbox", "ok"]]);
+  assert.match(text, /最新：kit 0\.4\.1/);
+  assert.doesNotMatch(text, /核准簽到/, "no approval serial known");
+  assert.match(text, /齊全/);
+  assert.match(text, /沒有：按輪分段/); assert.match(text, /升到 kit 0\.4\.1 就有/);
+  assert.doesNotMatch(text, /少 \d|api/i, "no counts, no api column");
+  assert.match(text, /沒連上（disconnected）/);
+  // an older kit (no kit status): kit api and kit --version, and nothing about approvals
+  assert.equal(rowOf("m:winbox").kit, "0.4.0"); assert.equal(rowOf("m:winbox").hasStatus, false);
+  assert.equal(kitCalls("api").filter((c) => c.on === "winbox").length, 1);
+  // kept: opening the tab again doesn't ask again; ⟳ does
+  const n = kitCalls("status").length;
+  render(v); H.clicks["tab-skill"]({}, cx); render(v); H.clicks["tab-machines"]({}, cx); await settle(); await tick();
+  assert.equal(kitCalls("status").length, n);
+  render(v); H.clicks["machines-reload"]({}, cx); await settle();
+  assert.equal(kitCalls("status").length, n + 3);
+});
+
+machinesTest("各機器: 複製升級指令 copies (Mac / Linux, or PowerShell where kit runs as kit.cmd) and runs nothing", async (M) => {
+  fresh();
+  // winbox: sh can't find kit (127), kit.cmd answers: a Windows machine
+  const old = { status: STATUS({ kit: "0.4.0", api: "1.1" }) };
+  fleet({ "": { status: STATUS() }, box: old, winbox: old });
+  const answer = H.answer;
+  H.answer = (argv, on) => (on === "winbox" && argv[0] === "sh" ? { code: 127, stdout: "", stderr: "sh: kit: not found" } : answer(argv, on));
+  H.spaces = [{ machine: "box", tabs: [] }, { machine: "winbox", tabs: [] }];
+  const { v, open } = await machinesPanel(M);
+  await open();
+  assert.equal(rowOf("m:winbox").via, "cmd"); assert.equal(rowOf("m:box").via, "sh");
+  const before = H.calls.length;
+  render(v); H.clicks["upgrade-m:box"]({}, cx); H.clicks["upgrade-m:winbox"]({}, cx);
+  assert.deepEqual(H.clipboard, ["kit self-update && kit sync", "kit self-update; if ($?) { kit sync }"]);
+  assert.equal(H.calls.length, before, "nothing run");
+  assert.match(H.notes.at(-1).body, /只複製，沒有執行/);
+  assert.equal(H.clicks["upgrade-here"], undefined, "a complete row has no button");
+});
+
+machinesTest("各機器: self-reported accounts (kit-machines.json): read, never run, only on machines this Herdr knows; only kit status's fields used", async (M) => {
+  fresh();
+  fleet({ "": { status: STATUS() }, box: { status: STATUS() } });
+  H.spaces = [{ machine: "box", tabs: [] }];
+  const root = STATUS({ user: "root", at: Math.floor(Date.now() / 1000) - 720, approvals: { serial: 7, used: 7, valid: true },
+    self: { name: "agentkit", commit: SHA("a"), approved: SHA("a") }, sources: [{ name: "team", commit: SHA("c"), approved: SHA("c") }], command: "touch /tmp/pwned" });
+  H.files = { [SETTINGS]: JSON.stringify({ reported: [
+    { label: "box root", machine: "box", file: "/var/report.json" }, { label: "elsewhere", machine: "stranger", file: "/r.json" },
+    { label: "gone", machine: "box", file: "/none.json" }, { label: "big", machine: "box", file: "/big.json" }] }),
+    "box:/var/report.json": JSON.stringify(root), "box:/big.json": " ".repeat(70000) };
+  const { open } = await machinesPanel(M);
+  const text = await open();
+  assert.deepEqual(H.reads.filter(([p]) => p !== SETTINGS).map(([p, on]) => `${on}:${p}`).sort(), ["box:/big.json", "box:/none.json", "box:/var/report.json"]);
+  assert.ok(!H.calls.some((c) => c.on === "stranger"), "a machine this Herdr doesn't know: nothing asked");
+  assert.ok(!H.calls.some((c) => c.argv.join(" ").includes("pwned") || c.argv.includes("sudo")), "nothing from a report is run");
+  const r = rowOf("r:0");
+  assert.equal(r.state, "ok"); assert.equal(r.user, "root"); assert.deepEqual(r.approvals, { serial: 7, used: 7, valid: true }); assert.equal(r.command, undefined);
+  assert.match(rowOf("r:1").why, /不認得 stranger/); assert.match(rowOf("r:2").why, /還沒有回報檔/); assert.match(rowOf("r:3").why, /太大/);
+  assert.match(text, /最新：kit 0\.4\.1 · 核准簽到第 7 號/);
+  assert.match(text, /#7 ✓/); assert.match(text, /12 分鐘前（自己回報）/);
+  // this computer's sources against root's approved commits
+  assert.match(text, /核准紀錄：第 7 號（box root root 回報的）/);
+  assert.match(text, /agentkit[\s\S]*✓ 跟核准的一樣/);
+  assert.match(text, /⚠ 跟核准的不一樣（核准的是 ccccccc）/);
+});
+
+machinesTest("各機器: this computer's kit without kit status: 核准 and 來源 say —; a machine whose kit doesn't answer is grey with why", async (M) => {
+  fresh();
+  fleet({ "": { kit: "0.4.1", api: "1.2" }, slow: new Error("kit took longer than 20 s on slow and was stopped") });
+  H.spaces = [{ machine: "slow", tabs: [] }];
+  const { open } = await machinesPanel(M);
+  const text = await open();
+  assert.equal(rowOf("here").hasStatus, false);
+  assert.match(text, /還沒有 kit status/);
+  assert.equal(rowOf("m:slow").state, "down"); assert.match(rowOf("m:slow").why, /沒在 20 秒內回應/);
+  assert.equal(kitCalls("status").filter((c) => c.on === "slow").length, 1, "no second try after a timeout");
+});
+
+machinesTest("各機器: a broken kit-machines.json says so and the other rows still load (Windows: the settings file by appHome's own separator)", async (M) => {
+  fresh();
+  fleet({ "": { status: STATUS() } });
+  H.files = { [SETTINGS]: "{ not json" };
+  const { open } = await machinesPanel(M);
+  const text = await open();
+  assert.match(text, /kit-machines\.json 不是 JSON/); assert.equal(rowOf("here").state, "ok");
+  fresh(); fleet({ "": { status: STATUS() } });
+  H.window = { platform: "windows" }; H.home = "C:\\Users\\amy"; H.appHome = "C:\\Users\\amy\\.config\\herdr-app"; H.files = {};
+  try {
+    const w = await machinesPanel(M);
+    await w.open();
+    assert.ok(H.reads.some(([p]) => p === "C:\\Users\\amy\\.config\\herdr-app\\kit-machines.json"), JSON.stringify(H.reads));
+    assert.deepEqual(kitCalls("status").map((c) => c.argv[0]), ["kit.cmd"]);
+    render(w.v);
+    assert.equal(H.clicks["upgrade-here"], undefined);
+  } finally { H.home = "/Users/amy"; }
 });
 test("every mod has a mod.json (JSON) and a main.js; no .ts or jsconfig.json is tracked", () => {
   for (const m of readdirSync(MODS)) {

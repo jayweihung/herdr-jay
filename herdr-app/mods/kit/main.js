@@ -3,6 +3,7 @@
 // update: herdr-jay's docs/kit.md.
 //
 //   repo (default)   the repository (倉庫): rules / skills / MCP of kit's sources, to read, edit, add and send  repo.js
+//                    and its 各機器 tab: every machine's kit, what it lacks, the approved commits           machines.js
 //   repo-toggle      the tab-bar button that shows or hides the repository panel                            repo.js
 //   editor           one file of the repository in its own big window                                       repo.js
 //   agent            the popup for one agent (what it uses), opened from its pane header                    agent.js

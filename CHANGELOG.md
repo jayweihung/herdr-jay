@@ -9,6 +9,26 @@ says which) · **kit** = update kit itself on every machine where agents run (`k
 **snap hook** = a line in Claude Code's `settings.json` on each machine where you added the hook (the entry says
 which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/keys.md).
 
+## 2026-11-13, kit: 各機器
+
+Needs: **mods** (the kit mod changed: Windows copies it again; macOS symlink: nothing, Herdr picks it up on its next
+start). Optional: `kit-machines.json` for accounts that report themselves; a kit with `kit status` (coming in kit's
+next version) for the 核准 and 來源 parts.
+要做：mods（kit mod 有改）。自己回報的帳號要用的話，寫 `kit-machines.json`；「核准」「來源」要等有 `kit status` 的新版 kit。
+
+- **The repository panel has a fourth tab, 各機器** ([docs/kit.md](docs/kit.md#各機器倉庫的第四個分頁)): every machine
+  and account this Herdr knows, its kit version, and what it lacks next to the newest one, by name
+  (「沒有：按輪分段」, else 「齊全」), with 「升到 kit 0.4.1 就有」 and a button that **copies** the upgrade command
+  (`kit self-update && kit sync`; Windows: `kit self-update; if ($?) { kit sync }`), never runs it. 核准: which signed
+  approval an account uses and whether its commits are the approved ones; 來源: this computer's kit and sources, each
+  commit against the approved one. Loaded only when the tab is opened, every machine at once; kept until ⟳ or 10
+  minutes. Machines that can't be reached are grey with the reason.
+  倉庫多一個「各機器」分頁：每台、每個帳號的 kit 版本，少了什麼直接寫出來，「複製升級指令」只複製不執行；核准和來源的 commit。
+- **Accounts the mod can't ask (a server's root)** write `kit status --json` to a file themselves; list those files in
+  `<Herdr's settings folder>/kit-machines.json` and the tab reads them (read only, at most 64 KB, only kit status's
+  fields, never run; only on machines this Herdr knows). The mod never uses sudo or another account.
+  mod 不能問的帳號（例如 root）自己寫回報檔，在 kit-machines.json 列出來，分頁就會讀（只讀、不執行）。
+
 ## 2026-11-13, agent-files by turn
 
 Needs: **mods** (agent-files changed: Windows copies it again; macOS symlink: nothing), **kit** (0.4.1 for the

@@ -4,6 +4,7 @@
 //                   on every machine: what is sent reaches the others with kit sync.
 //   repo-toggle     the tab-bar button that shows or hides the panel (reads the panel's data, never loads)
 //   editor          one file of the repository in its own big window (放大)
+//   The fourth tab, 各機器 (every machine's kit, what it lacks, the approved commits), is machines.js.
 // Everything goes through the kit command (common.js: kit from PATH, after kit api said it is new enough), and only
 // its JSON is read (kit list --json, kit push --json, kit collect --look); its words for people are shown as they are. Where
 // the panel sits in the layout, and 放進上排 / 更新版面: layout.js. The shared state keys are in common.js.
@@ -14,6 +15,7 @@ import { DATA, LOAD, EDITORS, NODES, MSG, fs, mono, stop, slash, shortDir, clean
   busyNow, dropStaleBusy, takeBusy, giveBusy, markChanged, kit, kitJson, apiState, apiKnown, checkApi, apiCard, messageBox, problemCard, versionCard,
   squeeze, newEditor, liveEditors, localGet, localSet, kitAction, loadNewest, loadingNow } from "./common.js";
 import { layoutNeeds, moveIntoBar } from "./layout.js";
+import { machinesTab, loadMachines, machinesDue, machinesLoading } from "./machines.js";
 
 const LONG = 600000, SHORT = 120000; // how long kit sync / push, and the other actions, may take
 const STALE = 60000, LOAD_TTL = 90000;
@@ -88,6 +90,8 @@ export class Repo {
     // marked it out of date (at: 0)
     const due = () => !this.loading && (!this.data || this.data.at === 0 || Date.now() - (this.data.at ?? 0) > STALE);
     const tick = (cx) => {
+      // 各機器: only while its tab is the one shown (and the panel isn't hidden), then kept 10 minutes
+      if (this.kind === "machines" && !find(layout(), NODES.repo)?.hidden && machinesDue()) loadMachines(cx);
       const a = apiKnown(null);
       if (!a) return checkApi(null, cx);
       if (a.ok && due() && !this.busy) this.refresh(cx);
@@ -237,7 +241,7 @@ export class Repo {
   // tabs per kind, + 新增, a search, the list; a row opens the file in the editor
   repo(t, z, d) {
     const items = d.items ?? [], f = this.filter;
-    const tabs = [["rule", "規則"], ["skill", "Skills"], ["mcp", "MCP"]];
+    const tabs = [["rule", "規則"], ["skill", "Skills"], ["mcp", "MCP"], ["machines", "各機器"]];
     const kind = tabs.some(([k]) => k === this.kind) ? this.kind : "skill";
     const box = v_flex().flex_1().min_h(0);
     box.child(h_flex().flex_none().px(10).pt(8).gap(4).items_center().children(tabs.map(([k, label]) => {
@@ -245,15 +249,22 @@ export class Repo {
       return h_flex().id(`tab-${k}`).h(28).px(10).gap(5).items_center().rounded(6).cursor_pointer()
         .bg(on ? t.selected : t.surface).text_color(on ? t.foreground : t.muted).font_semibold()
         .hover((st) => st.bg(t.hover)).on_mouse_down("left", stop)
-        .on_click((_e, cx) => { this.kind = k; localSet("kit.kind", k); this.making = null; cx.notify(); })
-        .child(label).child(div().text_size(z - 2).text_color(t.dim).child(String(n)))
+        .on_click((_e, cx) => {
+          this.kind = k; localSet("kit.kind", k); this.making = null;
+          if (k === "machines" && machinesDue()) loadMachines(cx);
+          cx.notify();
+        })
+        .child(label).when(k !== "machines", (el) => el.child(div().text_size(z - 2).text_color(t.dim).child(String(n))))
         .when(ch > 0, (el) => el.child(div().size(6).rounded(3).bg(t.working)));
     })).child(div().flex_1())
-      .child(btn(t, z, "new", "＋ 新增", { small: true, on: (cx) => {
+      .when(kind === "machines", (el) => el.child(btn(t, z, "machines-reload", machinesLoading() ? spin(z - 2, t.dim) : "⟳", { small: true,
+        off: machinesLoading(), on: (cx) => loadMachines(cx) })))
+      .when(kind !== "machines", (el) => el.child(btn(t, z, "new", "＋ 新增", { small: true, on: (cx) => {
         this.making = this.making ? null : { source: (d.sources ?? [])[0]?.name ?? null, mode: "write", look: null, pick: 0 };
         if (this.making) this.newName.focus();
         cx.notify();
-      } })));
+      } }))));
+    if (kind === "machines") return box.child(machinesTab(t, z));
     box.child(div().flex_none().px(10).pt(8).child(Input.new(this.input).h(30).px(8).rounded(6).border_1().border_color(t.border)
       .bg(t.background).text_size(z - 1).text_color(t.foreground)));
     const hit = (...xs) => !f || xs.some((x) => String(x ?? "").toLowerCase().includes(f));

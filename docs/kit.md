@@ -321,6 +321,85 @@ Kit 按鈕右邊的 `[context 35% 139k/400k]` 是這個 agent 的 context 用了
 └──────────────────────────────────────────┘
 ```
 
+### 各機器（倉庫的第四個分頁）
+
+倉庫的分頁「規則、Skills、MCP」後面是「各機器」：這個 Herdr 認得的每台主機、每個帳號裝的是哪一版 kit、比最新的少了什麼，以及來源是不是核准過的版本。
+
+```
+┌ Kit ─────────────────────────────────────────────────────────┐
+│  規則   Skills   MCP   [各機器]                            ⟳  │
+├──────────────────────────────────────────────────────────────┤
+│  最新：kit 0.4.1 · 核准簽到第 7 號                             │
+│  機器 / 帳號        kit     功能            核准    上次回報    │
+│  ● 這台電腦  amy    0.4.1   齊全            —       剛剛        │
+│  ● box  amy         0.4.1   齊全            —       剛剛        │
+│  ● box root         0.4.1   齊全            #7 ✓    12 分鐘前（自己回報）│
+│  ● server  amy      0.4.0   沒有：按輪分段  —       剛剛        │
+│      升到 kit 0.4.1 就有   [複製升級指令]                       │
+│  ● old-box          —       —               —       —           │
+│      連不到 old-box，或那台沒裝 kit                             │
+│  來源（這台電腦）                                             │
+│  核准紀錄：第 7 號（box root 回報的）                          │
+│  agentkit          e8c976e  ✓ 跟核准的一樣                      │
+│  my-library        fccb4d0  ⚠ 跟核准的不一樣（核准的是 1a2b3c4）│
+└──────────────────────────────────────────────────────────────┘
+```
+
+- **哪些列**：這台電腦；每台有 space 的主機，和 Herdr 連著的主機（`hc machine ls`）；`kit-machines.json` 裡寫的自己回報的帳號（下面）。只有這個 Herdr 認得的主機：公司的 Herdr 只會看到公司的主機。什麼都沒寫死。
+- **怎麼問**：跟 Kit 按鈕一樣，到那台去跑 kit（Mac／Linux 用 sh 找 `kit`，Windows 用 `kit.cmd`），每台同時問，每台最多等 20 秒。先問 `kit status --json`；那台的 kit 還沒有這個指令（舊版）時，改問 `kit api` 和 `kit --version`，這時「核准」和「來源」是「—」。連不到、沒裝 kit、沒回應的那一列是灰的，下面寫原因；Herdr 已經知道沒連上的主機不會去問。
+- **只在打開這個分頁時才讀**，不會讓 Kit 面板變慢。讀到的會留著，10 分鐘後（還開著這個分頁時）或按右上的 ⟳ 才再讀。
+- **功能**：跟最新的那一列比。一樣新就是「齊全」；比較舊的，用黃字直接寫少了什麼（「沒有：按輪分段」，好幾個用「、」接），下面一行寫「升到 kit 0.4.1 就有」和「複製升級指令」。哪一版有什麼，是 mod 裡的一張小表（`machines.js` 的 `FEATURES`，照 `kit api` 的版本比，畫面上不顯示這個號碼）：
+
+  | 功能 | 要 kit |
+  |---|---|
+  | Kit 面板 | 0.3.0 |
+  | agent-files 清單 | 0.4.0 |
+  | 按輪分段（agent-files） | 0.4.1 |
+
+  最新的 kit 比這張表還新時，寫「kit 0.5.0 的新功能」。
+- **複製升級指令**：只放到剪貼簿，**不會執行**。Mac／Linux 是 `kit self-update && kit sync`，Windows（那台用 `kit.cmd` 跑 kit 時）是 PowerShell 的 `kit self-update; if ($?) { kit sync }`。伺服器上的升級，先問過那台的主人。
+- **核准**：那個帳號用簽過的版本（`kit approve`，例如 root）時，寫它的核准紀錄是第幾號；它回報的每個 commit（kit 本身和每個來源）都等於核准的就加 ✓，有不一樣的是 ⚠，簽章不對是紅字「簽章不對」。不用核准的帳號是「—」。
+- **上次回報**：問到的時間；自己回報的帳號是回報檔裡寫的時間（超過兩天變黃）。
+- **來源（這台電腦）**：這台的 kit 本身和每個來源現在的 commit，跟核准紀錄比（這台自己有用核准就用這台的，不然用回報裡核准號碼最新的那個帳號的）：「✓ 跟核准的一樣」、「⚠ 跟核准的不一樣」，沒有核准紀錄時是「—」。mod 不跑 git，所以只說一不一樣，不說誰比較新。
+- 名字、commit 按右鍵就複製。
+
+#### 自己回報的帳號：`kit-machines.json`
+
+有的帳號 mod 沒辦法去問（例如伺服器上的 root：mod 只用你的帳號跑 kit，**從不用 sudo 或別的帳號**）。那個帳號可以自己把 `kit status --json` 的輸出寫到一個你的帳號讀得到的檔案，mod 再去讀那個檔案。要讀哪些，寫在 Herdr 設定資料夾裡的 `kit-machines.json`（`~/.config/herdr-app/kit-machines.json`，Windows `%USERPROFILE%\.config\herdr-app\kit-machines.json`；有設 `HERDR_APP_HOME` 就在那裡）。沒有這個檔案就沒有這些列。
+
+```json
+{
+  "reported": [
+    { "label": "box root", "machine": "box", "file": "/path/to/kit-status.json" },
+    { "label": "這台的另一個帳號", "machine": null, "file": "/path/to/other-account-status.json" }
+  ]
+}
+```
+
+- `label`：畫面上的名字（60 字以內）。`machine`：檔案在哪台（Herdr 的主機名字，跟 space 的一樣），`null` 是這台電腦。`file`：那台上的檔案路徑。
+- 只讀這個 Herdr 認得的主機；不認得的那一列是灰的，寫「這個 Herdr 不認得 …，不讀」。最多 20 筆，缺 `label` 或 `file` 的不用（畫面上會說有幾筆沒用）。
+- 讀的方式：Herdr 的 `readTextFile`（到那台去讀，跟開檔一樣），**只讀、不執行**，不跑 shell。超過 64 KB、不是 JSON、不是下面的格式，都不用，那一列寫原因。
+- 那個帳號什麼時候、寫到哪裡，由那台的主人自己決定（例如排程定時跑一次）；mod 不管、也不幫它寫。
+
+#### 回報檔的格式
+
+就是那個帳號自己跑 `kit status --json` 的輸出（kit 的 README「給程式讀的介面」）：
+
+```json
+{
+  "kit": "0.4.1",
+  "api": "1.2",
+  "user": "root",
+  "at": 1763000000,
+  "self": {"name": "agentkit", "commit": "<40 個字的 commit>", "approved": "<commit 或 null>"},
+  "approvals": {"serial": 7, "used": 7, "valid": true},
+  "sources": [
+    {"name": "team", "source": "<網址或資料夾>", "dir": "<資料夾>", "commit": "<commit 或 null>", "approved": "<commit 或 null>"}]
+}
+```
+
+mod 只用這些欄位，每個都先檢查：`kit`（版本）、`api`（`major.minor`）、`user`、`at`（Unix 秒數，「上次回報」）、`self` 和 `sources[]` 的 `name`／`commit`／`approved`（commit 要是十六進位的字）、`approvals` 的 `serial`／`used`／`valid`（不用核准是 `null`）。其他欄位都不看。
+
 ## 3. Agents：做好的 agent
 
 上排的 `Agents` 按鈕開關右邊的 Agents 面板（和倉庫一樣是獨立的面板，不在倉庫裡面；layout 裡沒有 Agents 面板時，按鈕會開一個 Agents 視窗）。
@@ -372,6 +451,8 @@ Kit 按鈕右邊的 `[context 35% 139k/400k]` 是這個 agent 的 context 用了
 | 同步 | `kit sync` |
 | ⟳ | 只重新讀取畫面 |
 | 倉庫的清單（含哪些改過、還沒送出） | `kit list --json`（`sources[].changed`、`items[].changed`） |
+| 各機器（每台、每個帳號；打開那個分頁、或按它的 ⟳ 時） | `kit status --json`（舊版 kit：`kit api`、`kit --version`）；自己回報的帳號：讀它的回報檔 |
+| 各機器的「複製升級指令」 | 不執行，只複製 `kit self-update && kit sync`（Windows：`kit self-update; if ($?) { kit sync }`） |
 | ＋ 新增 → 自己從頭寫 | `kit new <種類> <名字> --to <來源>` |
 | ＋ 新增 → 從網址收：下載看看 | `kit collect <網址> --to <來源> --look`（只看，輸出 JSON） |
 | ＋ 新增 → 從網址收：收進來 | `kit collect <網址> --to <來源> --path <資料夾> [--allow]` |
@@ -384,14 +465,15 @@ Kit 按鈕右邊的 `[context 35% 139k/400k]` 是這個 agent 的 context 用了
 
 `herdr-app/mods/kit/`: `main.js` picks the part by `props.role`; `repo.js` (repo, repo-toggle, editor), `agent.js`
 (agent), `agents.js` (agents, agents-toggle), `header.js` (header, context), `layout.js` (where kit sits in a
-layout: 放進上排 / 更新版面), `context.js` (what the context window and chip compute, from plain values), `common.js`
+layout: 放進上排 / 更新版面), `machines.js` (the repository's 各機器 tab: every machine's kit, what it lacks by
+`FEATURES`, the self-reported accounts of `kit-machines.json`, the sources against the approved commits), `context.js` (what the context window and chip compute, from plain values), `common.js`
 (running kit, `kit api`, the shared state keys, the layout's node ids, one kit action at a time, the shared UI
 pieces, and `kitJson`: kit's JSON and its error codes), `bots.js` (the agents' logos: an agent file's `bot:`, the
 still SVGs, the live `LiveBot` view), `bot-models.js` (the animals in Zdog, their colors), `bot-paint.js` (Zdog draws
 through a canvas; a mod has none, so this records what it drew and turns it into Herdr's own filled paths:
 `window.paint_path`), `zdog.js` (Zdog 1.1.3, MIT, bundled as one ES module). A change to how the logos look: raise
 `BOT_VERSION` in `bots.js`, so every computer writes the SVGs again. A render may take 50 ms and every polygon is an
-element, so a live logo is its own view (`cx.new`) and redraws alone. The mod reads only kit's JSON (kit list / agents / push
+element, so a live logo is its own view (`cx.new`) and redraws alone. The mod reads only kit's JSON (kit list / agents / push / status
 `--json`, kit collect `--look`, kit context), never kit's words for people (it shows them as they are) and never git
 itself; the list it reads is kit's README, 「給程式讀的介面」. It reads `kit api` major 1, minor 0 or later
 (`KIT_API` in `common.js`): kit raises the minor when it adds something and the major when it changes what this mod

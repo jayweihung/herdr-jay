@@ -210,8 +210,8 @@ const REMOTE_SH = ["sh", "-c", 'command -v kit >/dev/null 2>&1 && exec kit "$@";
 const SH_NOT_FOUND = 127, CMD_NOT_FOUND = 9009;   // sh found no kit; cmd found no kit.cmd (Windows)
 // exec's own words when it stopped a program that ran too long (here, or on another machine)
 const TIMED_OUT = /took longer than/;
-// -> { code, out, err, missing, timedOut } (missing: no kit to run there, or the machine can't be reached;
-// timedOut: kit started but didn't answer within timeout)
+// -> { code, out, err, via, missing, timedOut } (via: "cmd" when it was kit.cmd (Windows), else "sh"; missing: no kit
+// to run there, or the machine can't be reached; timedOut: kit started but didn't answer within timeout)
 export async function kit(args, timeout = 60000, machine = null) {
   const ways = machine ? [REMOTE_SH, ["kit.cmd"]] : localWays();
   let last = "";
@@ -225,7 +225,7 @@ export async function kit(args, timeout = 60000, machine = null) {
       continue;   // couldn't start it that way: the next way
     }
     if (machine && ((argv === REMOTE_SH && r.code === SH_NOT_FOUND) || (argv[0] === "kit.cmd" && r.code === CMD_NOT_FOUND))) { last = String(r.stderr ?? ""); continue; }
-    return { code: r.code, out: String(r.stdout ?? ""), err: String(r.stderr ?? "") };
+    return { code: r.code, out: String(r.stdout ?? ""), err: String(r.stderr ?? ""), via: /kit\.cmd$/i.test(argv[0]) ? "cmd" : "sh" };
   }
   return { code: -1, out: "", missing: true,
     err: machine ? `連不到 ${machine}，或那台沒裝 kit${last ? `（${clean(last)}）` : ""}` : `找不到 kit：這台電腦的 PATH 上沒有 ${localKit()}，kit 的安裝資料夾裡也沒有${last ? `（${clean(last)}）` : ""}` };

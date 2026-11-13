@@ -2042,17 +2042,43 @@ do
       vim.ui.select(opts, { prompt = "換成哪一版？", format_item = function(o) return o.label end }, function(o) if o then R.switch(o) end end)
     end
     -- the diff's hunks that touch lines l1..l2 of the new file (git diff -U3 text)
+    -- the diff of only lines l1..l2 (and 2 lines around them): the parts of hunks there, each with its own @@ header
     function R.hunks(text, l1, l2)
-      local out, cur, keep = {}, nil, false
-      local function flush() if cur and keep then vim.list_extend(out, cur) end end
+      local lo, hi = l1 - 2, l2 + 2
+      local out, cur = {}, nil
+      local function flush()
+        if not cur then return end
+        local keep, o0, n0, oc, nc, changed = {}, nil, nil, 0, 0, false
+        for _, it in ipairs(cur.body) do
+          if it.at >= lo and it.at <= hi then
+            o0, n0 = o0 or it.o, n0 or it.n
+            local k = it.l:sub(1, 1)
+            if k ~= "+" then oc = oc + 1 end
+            if k ~= "-" then nc = nc + 1 end
+            if k == "+" or k == "-" then changed = true end
+            keep[#keep + 1] = it.l
+          end
+        end
+        if #keep > 0 and changed then
+          out[#out + 1] = ("@@ -%d,%d +%d,%d @@"):format(oc > 0 and o0 or o0 - 1, oc, nc > 0 and n0 or n0 - 1, nc)
+          vim.list_extend(out, keep)
+        end
+        cur = nil
+      end
       for _, l in ipairs(vim.split(text, "\n", { plain = true })) do
-        local c, n = l:match("^@@ %-%d+,?%d* %+(%d+),?(%d*) @@")
-        if c then
+        local o, n = l:match("^@@ %-(%d+),?%d* %+(%d+),?%d* @@")
+        if o then
           flush()
-          c, n = tonumber(c), tonumber(n ~= "" and n or "1")
-          keep = not (c + math.max(n, 1) - 1 < l1 or c > l2)
-          cur = { l }
-        elseif cur and not l:match("^diff ") then cur[#cur + 1] = l end
+          cur = { o = tonumber(o), n = tonumber(n), body = {} }
+        elseif cur and l:match("^[ +-]") then
+          local k = l:sub(1, 1)
+          -- where it sits in the new file: a removed line sits before the new line that follows it
+          cur.body[#cur.body + 1] = { l = l, o = cur.o, n = cur.n, at = cur.n }
+          if k ~= "+" then cur.o = cur.o + 1 end
+          if k ~= "-" then cur.n = cur.n + 1 end
+        elseif cur and l:match("^\\") and #cur.body > 0 then
+          cur.body[#cur.body + 1] = { l = l, o = cur.o, n = cur.n, at = cur.body[#cur.body].at }
+        end
       end
       flush()
       if #out > 200 then out = vim.list_slice(out, 1, 200) out[#out + 1] = "…（後面省略）" end

@@ -116,7 +116,7 @@ export function askText(e, url, a) {
   const lines = Number(a.end) > Number(a.line) ? `第 ${a.line}–${a.end} 行` : `第 ${a.line} 行`;
   const diff = String(a.diff ?? "").replace(/```/g, "ˋˋˋ").slice(0, 12000);
   return [
-    `我在 nvim 看 Gerrit change ${e.n}（${e.project}，第 ${e.ps} 版${e.base_ps != null ? `，跟第 ${e.base_ps} 版比` : ""}）時卡在這裡：`,
+    `我在 nvim 看 Gerrit change ${e.n}（${e.project}，第 ${e.ps} 版${e.base_ps != null ? `，跟第 ${e.base_ps} 版比` : ""}），想問這幾行：`,
     url,
     `檔案：${a.path} ${lines}（這台電腦上的檔案：${e.wt}/${a.path}，整個 change 在 ${e.wt}）`,
     ...(diff ? ["```diff", diff, "```"] : []),

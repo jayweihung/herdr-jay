@@ -382,6 +382,10 @@ git already installed, and the PC must reach the internet (or the company's mirr
 server's Python packages on first start. Ask before installing on a company PC.
 給「問 agent」用的 Gerrit agent：Claude Code + gerrit-mcp-server。Windows 指令是 PowerShell。公司電腦先問過再裝。
 
+Two ways to use it: as a **kit gerrit agent** (§7: steps 1–3 here, then the agent and mcp files in a kit source; the
+Kit panel places it), or with `gerrit.json`'s `agent.start` (all the steps here). With kit, skip steps 4–5.
+兩種用法：kit 的 gerrit agent（做完這裡的 1–3 步，再照 §7 加 agent 和 mcp 檔，4、5 步不用），或 gerrit.json 的 `agent.start`（這裡全部步驟）。
+
 **1. uv** (runs the server; installs Python for it):
 
 ```powershell
@@ -432,7 +436,7 @@ New-Item -ItemType Directory -Force "$env:USERPROFILE\gerrit-agent" | Out-Null  
 mkdir -p ~/gerrit-agent                                                           # macOS
 ```
 
-**5. The start button**: add to `gerrit.json` (Windows paths with `/`). The first `--plugin-dir` gives the Gerrit
+**5. How the panel opens it** (`agent.start`): add to `gerrit.json` (Windows paths with `/`). The first `--plugin-dir` gives the Gerrit
 tools, the second the skills the buttons call: the `claude-plugin` folder inside the gerrit mod, in `<Herdr home>/mods`
 (`~/.config/herdr-app/mods/gerrit/claude-plugin`; Windows normally `%USERPROFILE%\.config\herdr-app\mods\gerrit\claude-plugin`).
 It comes with the mod: linking (macOS) or copying (Windows) the gerrit mod again updates it.

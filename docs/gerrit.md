@@ -187,7 +187,7 @@ back to Base → latest. Useful to see what changed since you last reviewed (從
   **🗑 刪除草稿** instead of Done / Ack (they would answer twice); **💬 送出回覆** says how many drafts it sends and
   sends them even with an empty box. Only the account in `gerrit.json` sees its own drafts.
 回覆、給分、合併都在細節頁最上面；留言串下面有 Done／Ack／回覆。合併要按兩次。
-草稿（例如 agent「幫我回覆」存的）會出現在它回覆的那串留言裡，標「📝 你的草稿（還沒送出）」；按「💬 送出回覆」一起送出，不要了就按「🗑 刪除草稿」。
+草稿（例如 agent「幫我回覆」存的，或在 nvim 寫的留言）會出現在它回覆的那串留言裡（新留言自成一串），標「📝 你的草稿（還沒送出）」；按「💬 送出回覆」一起送出，不要了就按「🗑 刪除草稿」。
 
 **A change in a tab of its own** (add `"diff":"path/to/file"` to start on that file's diff):
 

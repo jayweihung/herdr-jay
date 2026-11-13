@@ -296,6 +296,7 @@ export function trashArgs(dirs, windows) {
 export const REVIEW_JOBS = "gerrit.review.jobs";   // { [change]: job } downloads in progress (and a failed one's words)
 export const REVIEW_LIST = "gerrit.review.list";   // [{ n, project, subject, ps, base_ps, head, base, wt, data, store, seq, jump }]
 export const REVIEW_OK = "gerrit.review.ok";       // { project: true } you agreed to download it (no clone of it here)
+export const REVIEW_DRAFTED = "gerrit.review.drafted"; // { n, at }: nvim's comments were just saved as drafts on change n
 const LIST_MAX = 50;
 const DRAFT_LINES_MAX = 200;
 export const quotePs = psq;
@@ -500,8 +501,18 @@ export function reviewMethods(h) {
           }
         }
         try { await writeTextFile(f, keep.length ? `${keep.join("\n")}\n` : "", text); } catch { /* nvim added one meanwhile: next round */ }
-        if (saved) { await this.reviewWrite(e.n); setShared(h.REFRESH, Date.now()); }
+        if (saved) { await this.reviewWrite(e.n); setShared(h.REFRESH, Date.now()); setShared(REVIEW_DRAFTED, { n: e.n, at: Date.now() }); }
       }
+    },
+    // Every copy, every second: one showing that change reloads it, so the drafts nvim just saved show
+    // (the 📝 notice, inside their threads) without leaving the page.
+    reviewDraftedTick(cx) {
+      const d = shared(REVIEW_DRAFTED), at = d?.at ?? 0;
+      if (this.reviewDraftedAt === undefined) { this.reviewDraftedAt = at; return; } // from before this copy started
+      if (at === this.reviewDraftedAt) return;
+      this.reviewDraftedAt = at;
+      const c = this.detail?.change;
+      if (this.role !== "toggle" && c?._number === d?.n && !this.detail.loading) this.openChange(c, cx, true);
     },
     // The review's folders to the Trash (its worktree and the data folder); git forgets the worktree and its refs.
     async reviewTrash(n, cx) {

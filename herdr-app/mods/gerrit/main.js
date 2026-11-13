@@ -253,6 +253,7 @@ export default class Gerrit extends View {
     cx.timer.every(1000, (cx) => {
       if (this.kitChanged) { this.kitChanged = false; cx.notify(); } // a gerrit agent's folder found
       if (this.pulseUntil && Date.now() > this.pulseUntil) { this.pulseUntil = 0; cx.notify(); } // the number stops pulsing
+      this.reviewDraftedTick(cx); // nvim's comments saved as drafts: the open change shows them
       if (!this.polls()) {
         // Redraw when the polling copy shares something new.
         const k = `${shared(DATA)?.at}|${shared(DATA)?.err}|${this.busy}|${JSON.stringify(shared(SAFE_CFG))}`;
@@ -1846,7 +1847,7 @@ export default class Gerrit extends View {
       body.child(title(`程式碼留言（${open} 個未解決，共 ${list.length} 串）`));
       const nd = this.draftCount();
       if (nd) body.child(div().text_size(z - 1).p(8).rounded(6).bg(t.raised).border_l(3).border_color(t.accent).whitespace_normal()
-        .child(`📝 你有 ${nd} 則草稿還沒送出，在它回覆的那串留言裡面。別人看不到；按下面「回覆、給分」的 💬 送出回覆 就會一起送出。`));
+        .child(`📝 你有 ${nd} 則草稿還沒送出，在下面的留言串裡。別人看不到；按下面「回覆、給分」的 💬 送出回覆 就會一起送出。`));
       const where = (m) => m.path === "/PATCHSET_LEVEL" ? "整體留言" : `${m.path === "/COMMIT_MSG" ? "提交說明" : m.path}${m.line ? `:${m.line}` : ""}`;
       shown.forEach((x, i) => body.child(v_flex().id(`th-${i}`).gap(4).p(8).rounded(6).bg(t.raised).text_size(z - 1)
         .child(h_flex().gap(6).items_center()

@@ -22,6 +22,7 @@ Needs: **gerrit** and **mods** (nvim-jay too; Windows: copy both again), restart
   that the panel saves as your Gerrit draft. A file clicked in the panel opens in nvim too.
 - The home page lists these folders; 清掉資料夾 moves one to the Trash. Settings: `review` in `gerrit.json`.
 - Also fixed: since 880e059, opening a change in the panel that polls could replace its notification memory.
+- A change's page that is open while you write comments in nvim reloads, so their 📝 drafts show right away.
 - Details: [docs/gerrit.md](docs/gerrit.md) §9, [docs/nvim-jay.md](docs/nvim-jay.md) §9.
 在 nvim 看：把這一版拉到這台電腦（有自己的 clone 就用它），背景下載有進度條，開好在 nvim 裡左邊是改過的檔、右邊整個檔案和留言；在 nvim 留言會存成 Gerrit 草稿。
 

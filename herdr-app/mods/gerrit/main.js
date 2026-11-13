@@ -734,12 +734,15 @@ export default class Gerrit extends View {
   jenkinsCard(t, z, c) {
     const j = this.jenkinsCfg();
     if (!j || (!j.jobs.length && !j.start_job)) return null;
-    if (!j.jobs.length && c.status !== "NEW") return null;
+    // ▶ only on your own open changes: the owner runs the preflight (unknown who you are or who owns it: shown)
+    const mine = !this.self?._account_id || !c.owner?._account_id || c.owner._account_id === this.self._account_id;
+    const canStart = Boolean(j.start_job) && c.status === "NEW" && mine;
+    if (!j.jobs.length && !canStart) return null;
     const jk = this.jk?.change === c._number ? this.jk : null;
     const card = v_flex().id("jenkins").gap(6).p(10).rounded(8).bg(t.chrome).border_1().border_color(t.border);
     const head = h_flex().gap(8).items_center()
       .child(div().flex_1().min_w(0).truncate().text_size(z - 1).font_semibold().text_color(t.muted).child(j.jobs.length ? `Jenkins：${j.jobs.map(jobName).join("、")}` : "Jenkins"));
-    if (j.start_job && c.status === "NEW") head.child(this.big(t, z, "jk-start",
+    if (canStart) head.child(this.big(t, z, "jk-start",
       jk?.starting ? "送出中…" : jk?.startedAt && Date.now() - jk.startedAt < 20000 ? "✓ 已送出" : j.start_label ? `▶ ${j.start_label}` : `▶ 跑 ${jobName(j.start_job)}`,
       { kind: "primary", off: Boolean(jk?.starting || (jk?.startedAt && Date.now() - jk.startedAt < 20000)), on: (cx) => cx.spawn(async (cx) => this.startJenkins(c, cx)) }));
     card.child(head);

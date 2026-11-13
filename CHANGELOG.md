@@ -21,6 +21,7 @@ Needs: **mods**, **gerrit**; for a kit gerrit agent, **kit** (`kit sync` after a
   kit skills (`/gerrit-review …`); the skills are in agentkit-library. Setup: [docs/gerrit.md](docs/gerrit.md) §7.
 - Without a kit gerrit agent, `gerrit.json`'s `agent.start` still works: it now opens in a new tab of this space.
 - Kit: a place asked for an agent already open in that space sends the question to that one.
+- Jenkins ▶ (e.g. ▶ Preflight) shows only on your own changes: the owner runs it. ▶ 只在自己的 change 顯示。
 Gerrit 面板：先選問題，沒有 Gerrit agent 就在這個 space 開一個、開好就回答；kit 的 gerrit agent 也算，kit 來源有就用它。
 
 ## 2026-11-13, Herdr app: drop at a place in a space; reorder agents by dragging

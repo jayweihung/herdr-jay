@@ -240,7 +240,8 @@ Jenkins itself: which builds of your job have this change number in a parameter.
   it (`TRIGGER_BY`) and 「一起跑 N 個」 when several changes ran in the same build;
 - builds still waiting: ⏳ 排隊中 with how long and Jenkins's reason;
 - **📜 log**: the last 40 lines of that build's log, following it while it runs (only what was added is fetched);
-- **▶ 跑 …**: starts your start job with this change number (as the Jenkins form would), then shows it queue and run;
+- **▶ 跑 …**: starts your start job with this change number (as the Jenkins form would), then shows it queue and run.
+  Only on your own open changes: the owner runs the preflight (其他人的 change 不顯示 ▶);
 - a notification when a build you are watching finishes (成功 / 失敗).
 
 It checks every 10 seconds while something runs or waits, else every minute, only while a change's page is open.

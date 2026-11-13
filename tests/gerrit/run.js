@@ -618,6 +618,9 @@ test("Jenkins with only start_job: a ▶ button, no build polling, the POST carr
     assert.ok(g.jk.startedAt && !g.jk.error);
     render(g);
     assert.equal(g.jenkinsCard(globalThis.__stubs.theme(), 13, change(8, { revisions: {}, status: "MERGED" })), null, "no button on a merged change");
+    H.store["gerrit.data.v1"] = { ...(H.store["gerrit.data.v1"] ?? {}), self: { _account_id: 1 } };
+    assert.equal(g.jenkinsCard(globalThis.__stubs.theme(), 13, change(9, { revisions: {}, status: "NEW", owner: { _account_id: 2 } })), null, "no button on someone else's change");
+    assert.ok(g.jenkinsCard(globalThis.__stubs.theme(), 13, change(9, { revisions: {}, status: "NEW", owner: { _account_id: 1 } })), "your own: the button");
   } finally { globalThis.fetch = gfetch; }
 });
 

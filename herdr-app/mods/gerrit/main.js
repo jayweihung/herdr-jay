@@ -7,13 +7,23 @@
 // A panel with no toggle in the layout polls itself and offers to move into the tab bar.
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, TextareaState, Textarea, InputState, Input, TextView } from "gpui-base";
-import { theme, settings, notify, home, readTextFile, run, layout, shared, setShared, window, agents, hc as herdrHc, props as blockProps } from "herdr";
+import { theme, settings, notify, home, readTextFile, run, layout, shared, setShared, window, agents, terminals, focused, spaces, hc as herdrHc, props as blockProps } from "herdr";
 import process from "process";
 
 const TOGGLE = "gerrit-toggle", PANEL = "gerrit-panel";
 const SHIPPED = ["main", "terminals", "win98"]; // Herdr's own layouts: read-only, so moving clones one first
 const PROMPTS_KEY = "gerrit.prompts.v1"; // presets edited in the panel (✎), over gerrit.json and the built-in ones
-const AGENTS_KEY = "gerrit.agents.v1"; // addresses of agents the start button opened
+const AGENTS_KEY = "gerrit.agents.v1"; // addresses of agents this panel opened from gerrit.json's agent.start
+// The Kit panel's (mods/kit): the agents its sources have (kit agents --json), and the places it is asked to make. A
+// kit agent named gerrit, placed in a space, is a folder whose .agentkit says agent:gerrit (kit place).
+const KIT_AGENTS = "kit.agents.data.v1";
+const KIT_PLACE_ASK = "kit.place.ask";
+const KIT_TAKEN_WAIT = 8000;   // a place ask the Kit panel hasn't taken by then: nobody will (no Kit button in the layout)
+// The presets call the gerrit-panel plugin's skills (/gerrit-panel:review); a kit gerrit agent has them as kit skills
+// (/gerrit-review).
+const forKit = (text) => String(text).replace(/\/gerrit-panel:([a-z-]+)/g, "/gerrit-$1");
+// Whether a folder's .agentkit (kit place) makes it the gerrit agent's
+const isGerritKit = (text) => /^agent:gerrit[ \t]*$/m.test(String(text ?? ""));
 const DATA = "gerrit.data.v1", SAFE_CFG = "gerrit.cfg.v1", BUSY = "gerrit.busy", REFRESH = "gerrit.refresh";
 function find(node, id) {
   if (node?.id === id) return node;
@@ -240,7 +250,7 @@ export default class Gerrit extends View {
     this.nextAt = 0;
     this.refreshSeen = shared(REFRESH) ?? 0;
     cx.timer.every(1000, (cx) => {
-      if (this.pendingStart) cx.notify(); // watch for the started agent to show up
+      if (this.kitChanged) { this.kitChanged = false; cx.notify(); } // a gerrit agent's folder found
       if (this.pulseUntil && Date.now() > this.pulseUntil) { this.pulseUntil = 0; cx.notify(); } // the number stops pulsing
       if (!this.polls()) {
         // Redraw when the polling copy shares something new.
@@ -435,22 +445,61 @@ export default class Gerrit extends View {
     const prompts = edited.length ? edited : own.length ? own : AGENT_PROMPTS;
     return { ...a, prompts, start: Array.isArray(a.start) && a.start.length ? a.start.map(String) : null, name: a.name ?? "gerrit" };
   }
-  // Only agents this panel started with the start button (they have the Gerrit tools): any other agent may not,
-  // and asking it would look like it worked. Remembered by address in shared state (every copy, survives restarts).
+  // Only agents that have the Gerrit tools: a kit gerrit agent (its folder's .agentkit says agent:gerrit), or one this
+  // panel opened from gerrit.json (remembered by address in shared state: every copy, survives restarts). Any other
+  // agent may not have them, and asking it would look like it worked. This space's first. kit: true on the kit ones.
   agentList() {
     let all = [];
     try { all = (agents() ?? []).filter((x) => x?.address); } catch {}
-    let known = Array.isArray(shared(AGENTS_KEY)) ? shared(AGENTS_KEY) : [];
-    const p = this.pendingStart;
-    if (p) {
-      const fresh = all.find((x) => !p.before.includes(x.address));
-      if (fresh) { known = [...known, fresh.address]; this.pendingStart = null; this.agentAddr = fresh.address; }
-      else if (Date.now() - p.at > 90000) { this.pendingStart = null; this.ask = { error: "等了 90 秒，沒看到新的 agent 出現（看一下右邊那格有沒有錯誤）" }; }
-    }
-    const live = known.filter((a) => all.some((x) => x.address === a));
-    if (live.length !== known.length || live.length !== (shared(AGENTS_KEY) ?? []).length) setShared(AGENTS_KEY, live);
-    return all.filter((x) => live.includes(x.address));
+    // forgotten when its terminal is gone (a terminal just opened is there before its agent reports a status)
+    let terms = [];
+    try { terms = (terminals() ?? []).map((t) => t?.address); } catch {}
+    const known = Array.isArray(shared(AGENTS_KEY)) ? shared(AGENTS_KEY) : [];
+    const live = known.filter((a) => terms.includes(a) || all.some((x) => x.address === a));
+    if (live.length !== known.length) setShared(AGENTS_KEY, live);
+    const kit = this.kitAgents(all);
+    const here = this.currentSpace()?.id;
+    return all.filter((x) => live.includes(x.address) || kit.has(x.address))
+      .map((x) => ({ ...x, kit: kit.has(x.address) }))
+      .sort((a, b) => Number(b.space === here) - Number(a.space === here));
   }
+  // The agents whose folder (or one above it, up to 3) has an .agentkit saying agent:gerrit. Files are read in the
+  // background, each folder once a minute; the panel draws again when one turns out to be a gerrit agent's.
+  kitAgents(all) {
+    this.kitDirs ??= new Map();   // folder -> { gerrit, at }
+    let cwds = new Map();
+    try { cwds = new Map((terminals() ?? []).map((t) => [t?.address, t?.cwd])); } catch {}
+    const found = new Set();
+    for (const x of all) {
+      const cwd = cwds.get(x.address);
+      if (!cwd || x.address.includes("/")) continue;   // another machine's folder can't be read from here
+      const dirs = [];
+      for (let d = String(cwd).replace(/[\\/]+$/, ""), i = 0; d && i < 4; i++) {
+        dirs.push(d);
+        const up = d.replace(/[\\/][^\\/]*$/, "");
+        if (up === d) break;
+        d = up;
+      }
+      if (dirs.some((d) => this.kitDirs.get(d)?.gerrit)) found.add(x.address);
+      for (const d of dirs) {
+        const k = this.kitDirs.get(d);
+        if (k && (k.reading || Date.now() - k.at < 60000)) continue;
+        this.kitDirs.set(d, { gerrit: k?.gerrit ?? false, at: Date.now(), reading: true });
+        readTextFile(`${d}/.agentkit`).then((text) => isGerritKit(text), () => false).then((gerrit) => {
+          this.kitDirs.set(d, { gerrit, at: Date.now() });
+          if (gerrit !== Boolean(k?.gerrit)) this.kitChanged = true;
+        });
+      }
+    }
+    return found;
+  }
+  currentSpace() {
+    let f = null, all = [];
+    try { f = focused(); all = spaces() ?? []; } catch {}
+    return all.find((s) => s.id === f?.space) ?? null;
+  }
+  // The kit sources have an agent named gerrit (the Kit panel lists it)
+  kitHasGerrit() { return (shared(KIT_AGENTS)?.agents ?? []).some((a) => a?.name === "gerrit"); }
   pickedAgent(list) {
     const want = this.agentAddr ?? this.load("agent");
     return list.find((x) => x.address === want) ?? list[0] ?? null;
@@ -470,8 +519,9 @@ export default class Gerrit extends View {
   }
   async askAgent(c, p, cx) {
     const target = this.pickedAgent(this.agentList());
-    if (!target) { this.ask = { error: "先選一個 agent" }; cx.notify(); return; }
-    const text = fillPrompt(p.text, this.promptVars(c));
+    if (!target) return this.openAndAsk(c, p, cx);
+    const filled = fillPrompt(p.text, this.promptVars(c));
+    const text = target.kit ? forKit(filled) : filled;
     this.ask = { sending: p.label };
     cx.notify();
     // Herdr's own hc(): it reaches the running core (a bare `hc` from the app has no terminal's environment
@@ -485,17 +535,35 @@ export default class Gerrit extends View {
     if (!err) try { run("agent.focus", { terminal: target.address }); } catch {}
     cx.notify();
   }
-  startAgent(cx) {
-    const a = this.agentCfg();
-    if (!a.start) return;
-    let before = [];
-    try { before = (agents() ?? []).map((x) => x.address); } catch {}
-    try {
-      run("terminal.open", { argv: a.start, name: a.name, place: "right", folder: a.cwd ?? undefined });
-      this.pendingStart = { at: Date.now(), before };
-      this.ask = { started: Date.now() };
+  // No Gerrit agent yet: open one in this space with the question as its first message (tab.new's task), so it answers
+  // once it's up. A kit gerrit agent when the kit sources have one (the Kit panel places it: kit place, its own folder
+  // here); else gerrit.json's agent.start.
+  openAndAsk(c, p, cx) {
+    const a = this.agentCfg(), space = this.currentSpace(), filled = fillPrompt(p.text, this.promptVars(c));
+    if (!space) { this.ask = { error: "沒有開著的 space" }; cx.notify(); return; }
+    const where = space.name || "這個 space";
+    if (this.kitHasGerrit()) {
+      const id = `gerrit-${Date.now()}-${Math.random()}`;
+      const plain = { id: space.id, name: space.name ?? "", machine: space.machine ?? null, folder: space.folder ?? "" };
+      const asks = Array.isArray(shared(KIT_PLACE_ASK)) ? shared(KIT_PLACE_ASK) : [];
+      setShared(KIT_PLACE_ASK, [...asks, { id, agent: "gerrit", space: plain, tool: "claude", label: "Gerrit 面板", at: Date.now(), task: forKit(filled) }]);
+      this.ask = { opening: p.label, to: `gerrit（在 ${where} 開一個）` };
+      cx.timer.after(KIT_TAKEN_WAIT, (cx) => {
+        const left = Array.isArray(shared(KIT_PLACE_ASK)) ? shared(KIT_PLACE_ASK) : [];
+        if (!left.some((x) => x?.id === id)) return;
+        setShared(KIT_PLACE_ASK, left.filter((x) => x?.id !== id));
+        this.ask = { error: "Kit 面板沒有接手：版面裡要有 Kit 的按鈕（或從 Kit 面板把 gerrit 拖到 space）" };
+        cx.notify();
+      });
+      cx.notify();
+      return;
     }
-    catch (e) { this.ask = { error: `開不起來：${e?.message ?? e}` }; }
+    if (!a.start) { this.ask = { error: "還沒有 Gerrit agent：在 kit 來源加 gerrit agent，或照 docs/gerrit.md §8 在 gerrit.json 加 agent.start" }; cx.notify(); return; }
+    try {
+      const r = run("tab.new", { name: a.name, space: space.id, argv: a.start, task: filled, ...(a.cwd ? { folder: a.cwd } : {}) });
+      if (r?.terminal) { setShared(AGENTS_KEY, [...(shared(AGENTS_KEY) ?? []), r.terminal]); this.agentAddr = r.terminal; }
+      this.ask = { opening: p.label, to: `${a.name}（在 ${where} 開一個）` };
+    } catch (e) { this.ask = { error: `開不起來：${e?.message ?? e}` }; }
     cx.notify();
   }
 
@@ -565,19 +633,17 @@ export default class Gerrit extends View {
         .child(`${x.title || x.tab_name || x.address}${x.space_name ? ` · ${x.space_name}` : ""}`);
     })));
     else card.child(div().text_size(z - 1).text_color(t.dim).whitespace_normal().child(
-      this.pendingStart ? "開啟中…（第一次要等一下）"
-      : a.start ? "還沒有 Gerrit agent：按下面開一個（裝好 Gerrit MCP 的 Claude Code）。"
-      : "還沒設定 Gerrit agent：照 docs/gerrit.md §8 裝好 Gerrit MCP，在 gerrit.json 加 agent.start。"));
-    if (a.start && !list.length && !this.pendingStart)
-      card.child(h_flex().child(this.big(t, z, "ask-start", `＋ 開 ${a.name} agent`, { on: (cx) => this.startAgent(cx) })));
+      this.kitHasGerrit() || a.start ? "還沒有 Gerrit agent：選一個問題，會先在這個 space 開一個 gerrit，開好就回答。"
+      : "還沒有 Gerrit agent：在 kit 來源加 gerrit agent（docs/kit.md），或照 docs/gerrit.md §8 在 gerrit.json 加 agent.start。"));
     if (this.promptEdit) return card.child(this.promptEditor(t, z, c));
     card.child(h_flex().gap(6).flex_wrap().children(a.prompts.map((p, i) =>
       this.big(t, z, `ask-p-${i}`, this.ask?.sending === p.label ? "送出中…" : p.label,
-        { kind: i === 0 ? "primary" : undefined, off: !picked || Boolean(this.ask?.sending), on: (cx) => cx.spawn(async (cx) => this.askAgent(c, p, cx)) })))
+        { kind: i === 0 ? "primary" : undefined, off: Boolean(this.ask?.sending), on: (cx) => cx.spawn(async (cx) => this.askAgent(c, p, cx)) })))
       .child(this.big(t, z, "ask-edit", "✎ 編輯問題", { on: (cx) => this.editPrompts(cx) })));
     const s = this.ask;
     if (s?.error) card.child(div().id("ask-err").text_size(z - 1).text_color(t.ansi1).whitespace_normal().on_mouse_down("right", copyOn(s.error)).child(s.error));
     else if (s?.sent) card.child(div().text_size(z - 1).text_color(t.ansi2).child(`✓「${s.sent}」已送給 ${s.to}`));
+    else if (s?.opening) card.child(div().text_size(z - 1).text_color(t.ansi2).whitespace_normal().child(`✓ ${s.to}，開好就回答「${s.opening}」`));
     return card;
   }
 

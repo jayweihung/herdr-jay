@@ -754,6 +754,13 @@ test("place: one of each agent per space: dropped again where it already runs, i
   assert.equal(kitCalls("place").length, 0); assert.deepEqual(H.notes, []);
   assert.match(H.store["kit.agents.msg"].text, /reviewer 已經在 web 開著了（t9）/);
   assert.equal(H.store["kit.busy"] ?? null, null, "no lock taken");
+  // with a first message (the Gerrit panel's question): it goes to the one already there
+  H.runs = [];
+  H.hcAnswer = (a) => (a[0] === "send" ? { code: 0, stdout: "", stderr: "" } : null);
+  assert.equal(P.placeAgent("reviewer", s1, "claude", cx, "Gerrit 面板", {}, "/gerrit-review 7"), true);
+  await settle();
+  assert.deepEqual(H.calls.filter((c) => c.argv[1] === "send").map((c) => c.argv), [["hc", "send", "t9", "/gerrit-review 7"]]);
+  assert.deepEqual(H.notes, [], "sent: nothing to say");
 });
 test("place: while dragging, the spaces where that agent already runs are refused (ids one per line, and the chip's text there)", async (M) => {
   const P = M.place;
@@ -895,6 +902,18 @@ test("agents window: a place is handed to the tab-bar button, so closing the win
   await runTimers();
   assert.equal(kitCalls("place").length, 0); assert.deepEqual(H.store["kit.place.ask"], []);
   void late;
+});
+test("another mod's place ask (the Gerrit panel's) with a first message: the tab-bar button runs it, tab.new carries it as task", async (M) => {
+  fresh();
+  const space = { id: "s1", name: "web", machine: null, folder: "/Users/amy/web" };
+  H.spaces = [space]; placeKit((a) => PLACED(a[2]));
+  view(M, { role: "agents-toggle" }); await settle(); await tick();
+  H.store["kit.place.ask"] = [{ id: "g1", agent: "gerrit", space, tool: "claude", label: "Gerrit 面板", at: Date.now(), task: "/gerrit-review 7 2 https://g/c/p/+/7" }];
+  await runTimers(); await settle();
+  assert.equal(kitCalls("place")[0].argv.at(-5), "gerrit");
+  assert.deepEqual(H.runs.find((r) => r[0] === "tab.new")[1],
+    { name: "gerrit", space: "s1", folder: "/Users/amy/web/gerrit", argv: ["claude"], task: "/gerrit-review 7 2 https://g/c/p/+/7", icon: logoPath(M, "gerrit") });
+  assert.deepEqual(H.store["kit.place.ask"], []);
 });
 test("FEATURES: kit 0.5.0 (api 1.3) adds 貼上 MCP 設定, 各機器的核准和來源, 把 agent 放到 space", ({ machines: X }) => {
   assert.deepEqual(X.FEATURES.filter((f) => f.api === "1.3").map((f) => [f.name, f.kit]),

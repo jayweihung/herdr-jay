@@ -9,6 +9,20 @@ says which) · **kit** = update kit itself on every machine where agents run (`k
 **snap hook** = a line in Claude Code's `settings.json` on each machine where you added the hook (the entry says
 which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/keys.md).
 
+## 2026-11-13, Gerrit panel: pick the question first; a kit gerrit agent
+
+Needs: **mods**, **gerrit**; for a kit gerrit agent, **kit** (`kit sync` after adding it to your kit source).
+
+- 問 agent: the presets (Review, 整理留言, 為什麼沒過, 幫我回覆) work with no Gerrit agent open. The panel opens one in
+  the space you are in and gives it the question as its first message, so it answers once it's up. The
+  **＋ 開 gerrit agent** button is gone.
+- A kit agent named gerrit counts as a Gerrit agent (its folder's `.agentkit` says `agent:gerrit`) and is what the panel
+  opens when your kit sources have one (through the Kit button, like a drag from the Kit panel). It is asked with its
+  kit skills (`/gerrit-review …`); the skills are in agentkit-library. Setup: [docs/gerrit.md](docs/gerrit.md) §7.
+- Without a kit gerrit agent, `gerrit.json`'s `agent.start` still works: it now opens in a new tab of this space.
+- Kit: a place asked for an agent already open in that space sends the question to that one.
+Gerrit 面板：先選問題，沒有 Gerrit agent 就在這個 space 開一個、開好就回答；kit 的 gerrit agent 也算，kit 來源有就用它。
+
 ## 2026-11-13, Herdr app: drop at a place in a space; reorder agents by dragging
 
 Needs: **app** (same v0.1.15, now five patches: rebuild it; core unchanged), **mods**.

@@ -500,6 +500,9 @@ mod 只用這些欄位，每個都先檢查：`kit`（版本）、`api`（`major
 - **放在哪個位置**（herdr-app 的 `0005` patch）：Agents 面板（依 space 分組）裡，space 的標題和底下每一列 agent 都能放，
   拖過去時那一列下面有一條線：放在標題 = 排第一個，放在某一列 = 排在它後面，新分頁會移到那裡。Spaces 面板的 space 列：
   排最後。群組裡的 agent 也能直接拖來排順序（只能在同一個 space 裡）。
+- **別的 mod 也能叫它放**：Gerrit 面板按問題但還沒有 Gerrit agent 時，請 Kit 按鈕把 gerrit 放進目前的 space，問題當第一句話
+  帶進新分頁（`tab.new` 的 `task`）；那個 space 已經開著 gerrit 的話，切到那一格、用 `hc send` 把問題送給它
+  （[docs/gerrit.md](gerrit.md) §7）。共用的 `kit.place.ask` 每筆可以多帶 `task`。
 - 那裡已經是別的 agent 的資料夾、或已經有不是 kit 放的東西時，kit 不會動它，通知會說原因。那台的 kit 太舊（沒有
   `kit place`）也會直接說。
 - 之後在那裡開的 agent 的 Kit 清單按「加到這個資料夾」／「從資料夾拿掉」，只改這個資料夾。拖好幾個 agent 就是好幾個資料夾。

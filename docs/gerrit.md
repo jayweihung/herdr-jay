@@ -296,21 +296,46 @@ dispatches (it ends in seconds), its log names the job it triggers: that one goe
 
 ## 7. Ask an agent / 問 agent
 
-A change's page has a **問 agent** card. It offers only the agent its **＋ 開 gerrit agent** button opened (a Claude
-Code with the Gerrit tools, §8): any other agent may lack them, and a request it can't do would look like it went
-through. Press a preset and the panel sends that agent a ready-made request about this change with `hc send`, then
-brings it to the front. Presets: **Review**, **整理留言**, **為什麼沒過**, **幫我回覆**. Each one calls a skill
+A change's page has a **問 agent** card. It offers only agents with the Gerrit tools: a **kit gerrit agent** (one put
+in a space from the Kit panel: its folder's `.agentkit` says `agent:gerrit`, see below) or one the panel opened from
+`gerrit.json`'s `agent.start` (§8). Any other agent may lack the tools, and a request it can't do would look like it
+went through. This space's agents come first. Press a preset and the panel sends the picked agent a ready-made request
+about this change with `hc send`, then brings it to the front.
+
+**Pick the question first.** The presets work even with no Gerrit agent open: the panel then opens one **in the space
+you are in** and gives it the question as its first message (`tab.new`'s `task`), so it answers as soon as it's up;
+nothing to press twice. With a gerrit agent in your kit sources (the Kit panel lists it), it is put in this space like
+a drag from the Kit panel (`kit place`, its own `…/gerrit` folder, one per space; the Kit button must be in the layout:
+it does the work); otherwise `agent.start` opens it. Neither: the card says how to set one up. Presets: **Review**, **整理留言**, **為什麼沒過**, **幫我回覆**. Each one calls a skill
 (`/gerrit-panel:review 7 3 <url>` and so on) from the `gerrit-panel` plugin that comes with the mod
 ([herdr-app/mods/gerrit/claude-plugin](../herdr-app/mods/gerrit/claude-plugin/skills)): how to do the job is written in the skill, the button only says
-which skill and which change. The skills don't post or vote on Gerrit until you agree, and answer in Traditional
+which skill and which change. A kit gerrit agent gets the same request with its kit skills' names
+(`/gerrit-review 7 3 <url>`: skills `gerrit-review`, `gerrit-comments`, `gerrit-why-blocked`, `gerrit-draft-replies`). The skills don't post or vote on Gerrit until you agree, and answer in Traditional
 Chinese; the agent loads them with a second `--plugin-dir` (§8 step 5). **✎ 編輯問題** edits them in the panel: one block
 per button with the words on it, what the agent is asked, and what would be sent for this change (updates as you
 type); add, delete, 儲存, 取消, 還原成原本的 (back to `gerrit.json`'s or the built-in ones). A tab can open straight on
-it: `--props '{"open":"7","edit_prompts":true}'`. The panel remembers the agents it opened until their pane is closed; without `start` in
-`gerrit.json` the card says how to set one up.
-「問 agent」只列出用「＋ 開 gerrit agent」開出來的 agent（有 Gerrit MCP 的），別的 agent 不列，免得以為送出去就會做。
-選好按預設按鈕，就用 hc send 叫它用對應的 skill 處理這個 change（例如 `/gerrit-panel:review 7 3 網址`）；做法寫在
-skill 裡（gerrit mod 裡的 claude-plugin），都用繁體中文回答、沒問過你不會在 Gerrit 留言或給分。按「✎ 編輯問題」可以改按鈕。
+it: `--props '{"open":"7","edit_prompts":true}'`. The panel remembers the agents it opened from `agent.start` until their
+tab is closed.
+「問 agent」只列出有 Gerrit 工具的 agent：kit 的 gerrit agent（從 Kit 面板放進 space 的，資料夾的 `.agentkit` 寫著
+`agent:gerrit`），或面板用 gerrit.json 的 `agent.start` 開的；這個 space 的排前面。別的 agent 不列，免得以為送出去就會做。
+**先選問題**：還沒有 Gerrit agent 也能按，面板會在你現在這個 space 開一個，把問題當第一句話帶進去，開好就回答。kit 來源有
+gerrit agent 就用它（跟從 Kit 面板拖進來一樣，版面裡要有 Kit 按鈕），沒有就用 `agent.start`。
+按了就用 hc send 叫它用對應的 skill 處理這個 change（例如 `/gerrit-panel:review 7 3 網址`，kit 的 gerrit agent 是
+`/gerrit-review 7 3 網址`）；做法寫在 skill 裡，都用繁體中文回答、沒問過你不會在 Gerrit 留言或給分。按「✎ 編輯問題」可以改按鈕。
+
+A kit gerrit agent, in a kit source (see [docs/kit.md](kit.md)): `agents/gerrit.md` with `skills: [gerrit-review,
+gerrit-comments, gerrit-why-blocked, gerrit-draft-replies]` (in the public agentkit-library) and `mcp: [gerrit]`, and
+`mcp/gerrit.yaml`:
+
+```yaml
+name: gerrit
+command: uv
+args: [run, --directory, "${HOME}/src/gerrit-mcp-server", gerrit-mcp-server]
+```
+
+(the server cloned and set up as in §8 steps 1–3; Claude Code fills in `${HOME}`. Windows, where `HOME` may be unset:
+`${USERPROFILE}` instead.)
+`kit sync`, and the Kit panel lists gerrit. kit 來源加 gerrit agent 和 mcp 檔、`kit sync`，Kit 面板就有 gerrit。
 
 Optional, in `gerrit.json`:
 
@@ -331,8 +356,9 @@ Optional, in `gerrit.json`:
   `"cwd": "C:/Users/you/gerrit-agent"`; `"start": ["claude"]` works as in Herdr's own agent menu (Claude Code on
   PATH). Sending goes through Herdr itself, so nothing else is needed on Windows.
   Windows 一樣能用：路徑用 `/` 或 `\\`；送出是走 Herdr 本身，不用另外裝東西。
-- `start` (a command, as a list) adds **＋ 開 gerrit agent**, which opens it in a pane on the right; `name` is that
-  pane's name. `cwd` is where it starts.
+- `start` (a command, as a list): how to open a Gerrit agent when a preset is pressed with none open and the kit
+  sources have no gerrit agent. It opens in a new tab of the space you are in, with the question as its first message;
+  `name` is that tab's name, `cwd` is where it starts.
 
 The request is only text typed into that agent: what it may do on Gerrit is up to the agent and its MCP settings.
 送出去的只是文字；agent 能在 Gerrit 做什麼，看它自己的設定。
@@ -341,7 +367,7 @@ The request is only text typed into that agent: what it may do on Gerrit is up t
 
 For 問 agent's presets the agent needs Gerrit tools. This sets up Claude Code with the open-source
 [gerrit-mcp-server](https://gerrit.googlesource.com/gerrit-mcp-server) (Apache-2.0), started from the panel's
-**＋ 開 gerrit agent**. Same steps on Windows and macOS; Windows commands are PowerShell. It needs Claude Code and
+presets (no agent open: it opens one). Same steps on Windows and macOS; Windows commands are PowerShell. It needs Claude Code and
 git already installed, and the PC must reach the internet (or the company's mirror) once: `uv` downloads the
 server's Python packages on first start. Ask before installing on a company PC.
 給「問 agent」用的 Gerrit agent：Claude Code + gerrit-mcp-server。Windows 指令是 PowerShell。公司電腦先問過再裝。
@@ -411,16 +437,16 @@ It comes with the mod: linking (macOS) or copying (Windows) the gerrit mod again
 ```
 
 (macOS: `"/Users/you/src/gerrit-mcp-server"`, `"/Users/you/.config/herdr-app/mods/gerrit/claude-plugin"` and
-`"/Users/you/gerrit-agent"`.) Quit and reopen Herdr. An agent already open keeps its old plugins: close its pane and
-press ＋ again.
+`"/Users/you/gerrit-agent"`.) Quit and reopen Herdr. An agent already open keeps its old plugins: close its tab and
+press a preset again.
 第二個 `--plugin-dir` 是按鈕要叫的 skill：Herdr 家目錄裡 `mods/gerrit/claude-plugin`，跟著 gerrit mod 一起裝、一起更新。
 已經開著的 agent 要關掉重開才會有。
 
-**6. Try it**: open a change in the panel → **＋ 開 gerrit agent**. The first start takes a minute (uv installs the
-packages). In that agent type `/mcp`: **gerrit** should say connected. If it says the config is missing or wrong,
-type `/gerrit:setup` there, or check step 3. Type `/gerrit-panel` and the four skills should be offered. Then pick
-it in the 問 agent card and press **Review**.
-第一次開要等一分鐘；在 agent 裡打 `/mcp` 看到 gerrit connected 就好了，然後選它、按 Review。
+**6. Try it**: open a change in the panel → **Review**. With no Gerrit agent open, one opens in a new tab of this
+space and starts on the review. The first start takes a minute (uv installs the packages). In that agent type `/mcp`:
+**gerrit** should say connected. If it says the config is missing or wrong, type `/gerrit:setup` there, or check
+step 3. Type `/gerrit-panel` and the four skills should be offered.
+打開一個 change 按 Review：沒有 Gerrit agent 會在這個 space 開一個，開好就開始 review。第一次要等一分鐘；在 agent 裡打 `/mcp` 看到 gerrit connected 就好了。
 
 | What you see | Fix |
 |---|---|

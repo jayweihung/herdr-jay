@@ -131,7 +131,8 @@ function sayer(agent, where, label) {
 // and the outcome as toasts, and in the Agents panel's message. One kit action at a time (the mod's lock, its id in
 // owner.mine and the place in owner.placeRun while it runs, so owner's close can give it back: placeClosed).
 // -> false when another action holds the lock (said so)
-export function placeAgent(agent, space, tool, cx, label = "放到 space", owner = {}) {
+// task: the agent's first message (tab.new's task), e.g. a question the Gerrit panel asks a gerrit agent it had to open
+export function placeAgent(agent, space, tool, cx, label = "放到 space", owner = {}, task = null) {
   const where = space?.name || "這個 space", machine = space?.machine ?? null;
   const say = sayer(agent, where, label);
   const there = openHere(space, placeDir(space, agent));
@@ -139,6 +140,10 @@ export function placeAgent(agent, space, tool, cx, label = "放到 space", owner
     try { run("tab.select", { id: there.tab }); } catch { /* the tab went away meanwhile: still said */ }
     const text = `${agent} 已經在 ${where} 開著了（${there.address}）：一個 space 只開一個 ${agent}，切到那一格。`;
     setShared(AGENTS_MSG, { ok: true, label, text, at: Date.now() });   // (no toast: the tab it shows says enough)
+    // the first message goes to the one already there (Herdr's own hc reaches the running core)
+    if (task && typeof host.hc === "function") Promise.resolve(host.hc(["send", there.address, String(task)])).then((out) => {
+      if (out?.code !== 0) say(false, `切到那一格了，但問題沒送出：${String(out?.stderr || out?.stdout || `exit ${out?.code}`).trim().slice(0, 200)}`);
+    }, (e) => say(false, `切到那一格了，但問題沒送出：${e?.message ?? e}`));
     return true;
   }
   const id = takeBusy(`放 ${agent}`, PLACE_TTL);
@@ -156,7 +161,7 @@ export function placeAgent(agent, space, tool, cx, label = "放到 space", owner
       const folder = typeof data.dir === "string" && data.dir ? data.dir : dir;
       const icon = await agentIcon(agent);
       let opened;
-      try { opened = openTab({ name: agent, space: space.id, folder, argv: cmd }, icon); }
+      try { opened = openTab({ name: agent, space: space.id, folder, argv: cmd, ...(task ? { task: String(task) } : {}) }, icon); }
       catch (e) { say(false, `資料夾做好了（${folder}），但開不了分頁：${e?.message ?? e}`); return; }
       // dropped at a place among the space's tabs (space.at, 1 = first): the new tab, opened last, goes there
       if (Number.isInteger(space.at) && space.at >= 1 && opened?.tab) {
@@ -189,16 +194,16 @@ function takeAsk(id) {
 // Put an agent in a space from a copy of the Agents panel (owner). The Agents window (owner.handOff) hands it to the
 // tab-bar button, and runs it itself only when no button took it within ASK_WAIT (a layout without the button);
 // the panel in the layout and the button run it themselves. -> false when another action holds the lock (said so)
-export function requestPlace(agent, space, tool, cx, label = "放到 space", owner = {}) {
-  if (!owner.handOff) return placeAgent(agent, space, tool, cx, label, owner);
+export function requestPlace(agent, space, tool, cx, label = "放到 space", owner = {}, task = null) {
+  if (!owner.handOff) return placeAgent(agent, space, tool, cx, label, owner, task);
   if (busyNow()) { sayer(agent, space?.name || "這個 space", label)(false, "另一個 kit 動作還在跑，等它跑完再試一次。"); return false; }
-  const ask = { id: `${Date.now()}-${Math.random()}`, agent, space: plainSpace(space), tool, label, at: Date.now() };
+  const ask = { id: `${Date.now()}-${Math.random()}`, agent, space: plainSpace(space), tool, label, at: Date.now(), ...(task ? { task } : {}) };
   setShared(PLACE_ASK, [...asksNow(), ask]);
   (owner.asks ??= new Set()).add(ask.id);
   cx.timer.after(ASK_WAIT, (cx) => {
     owner.asks?.delete(ask.id);
     const mine = takeAsk(ask.id);
-    if (mine) placeAgent(mine.agent, mine.space, mine.tool, cx, mine.label, owner);
+    if (mine) placeAgent(mine.agent, mine.space, mine.tool, cx, mine.label, owner, mine.task ?? null);
   });
   return true;
 }
@@ -208,7 +213,7 @@ export function takeAsks(owner, cx) {
   if (all.length !== (Array.isArray(shared(PLACE_ASK)) ? shared(PLACE_ASK).length : 0)) setShared(PLACE_ASK, all);   // drop old ones
   if (!all.length || busyNow()) return;
   const a = takeAsk(all[0].id);
-  if (a) placeAgent(a.agent, a.space, a.tool, cx, a.label, owner);
+  if (a) placeAgent(a.agent, a.space, a.tool, cx, a.label, owner, a.task ?? null);
 }
 // owner closes: its unfinished work is cancelled and never ends, so the lock is given back here, and the asks no button
 // took are taken back; either way the tab wasn't opened, and people are told

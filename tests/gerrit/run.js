@@ -33,6 +33,7 @@ const el = new Proxy(function () {}, {
       if (String(k) === "on_mouse_down" && args[0] === "right") H.right.push(args[1]); // right-click copies: kept to press them
       if (String(k) === "on_mouse_down" && typeof args[1] !== "function") throw new Error("on_mouse_down(button, handler) expects a handler");
       if (String(k) === "child" && args[0] === undefined) throw new Error("child(value) expects an element or a string");
+      if (String(k) === "child" && typeof args[0] === "string") H.strs?.push(args[0]);   // the text drawn (renderText)
       return el;
     };
   },
@@ -55,9 +56,9 @@ globalThis.__stubs = {
   settings: () => ({}), window: () => H.window ?? { platform: "macos" },
   notify: (n) => H.notes.push(n), home: () => H.home,
   readTextFile: async (p) => readFileSync(p, "utf8"),
-  run: (name, args) => H.runs.push([name, args]), layout: () => H.layout,
+  run: (name, args) => { H.runs.push([name, args]); return H.runAnswer?.(name, args); }, layout: () => H.layout,
   process: { run: async (cmd, args) => { H.opened.push([cmd, ...args]); return { code: 0, stdout: "", stderr: "" }; } },
-  agents: () => H.agents ?? [],
+  agents: () => H.agents ?? [], terminals: () => H.terminals ?? [], spaces: () => H.spaces ?? [], focused: () => H.focused ?? null,
   hc: async (args) => { H.opened.push(["hc", ...args]); return { code: 0, stdout: "", stderr: "" }; },
   shared: (k) => H.store[k], setShared: (k, v) => { H.store[k] = v; }, props: () => H.props,
 };
@@ -92,7 +93,8 @@ globalThis.fetch = async (url, init = {}) => {
 };
 
 // ---------- helpers ----------
-const cx = { notify() {}, spawn: (f) => f(cx), sleep: async () => {}, viewport_size: () => ({ width: 1600 }) };
+const cx = { notify() {}, spawn: (f) => f(cx), sleep: async () => {}, viewport_size: () => ({ width: 1600 }),
+  timer: { after: (_ms, f) => (H.afters ??= []).push(f), every() {} } };
 function setConfig(obj) {
   H.home = mkdtempSync(join(tmpdir(), "gerrit-home-"));
   mkdirSync(join(H.home, ".config", "herdr-app"), { recursive: true });
@@ -112,6 +114,11 @@ function freshView(G) {
 function render(g) {
   H.rendering = true;
   try { return g.render(cx); } finally { H.rendering = false; }
+}
+// the text a render draws, one string per line
+function renderText(g) {
+  H.strs = [];
+  try { render(g); return H.strs.join("\n"); } finally { H.strs = null; }
 }
 
 // ---------- tests ----------
@@ -471,42 +478,80 @@ test("check systems: bot messages on the current patch set under the requirement
   assert.deepEqual(g.systemsOf(c).map((s) => s.name).sort(), ["ci_build", "ci_test"], "gerrit.json bots picks the accounts");
 });
 
-test("ask an agent: only agents the start button opened are listed; a preset prompt goes by hc send, then focus", async (G) => {
+test("ask an agent: only Gerrit agents are listed (a kit gerrit agent by its folder, one opened from gerrit.json); a preset prompt goes by hc send, then focus", async (G) => {
   setConfig(LOGIN); const g = freshView(G); g.cfg = await g.readConfig();
-  H.store["gerrit.cfg.v1"] = { url: "https://gerrit.test", auth: true }; delete H.store["gerrit.agents.v1"];
-  H.opened = []; H.runs = [];
+  H.store["gerrit.cfg.v1"] = { url: "https://gerrit.test", auth: true }; delete H.store["gerrit.agents.v1"]; delete H.store["kit.agents.data.v1"];
+  H.opened = []; H.runs = []; H.afters = [];
   const c = change(7, { project: "tools/build", branch: "master", current_revision: "b", revisions: { b: { _number: 3 } } });
   g.openId = c.id; g.detail = { change: c, comments: {} };
   g.cfg = { ...g.cfg, agent: { start: ["claude", "--plugin-dir", "/x/gerrit-mcp-server"], name: "gerrit" } };
-  // other agents exist, but none was started here: none is offered, nothing is sent
-  H.agents = [{ address: "t9", title: "coding", tab_name: "x" }];
-  assert.deepEqual(g.agentList(), [], "an agent the panel didn't start is not offered");
-  assert.equal(g.pickedAgent(g.agentList()), null);
+  H.spaces = [{ id: "s1", name: "web", folder: "/w" }, { id: "s2", name: "api", folder: "/a" }]; H.focused = { space: "s1" };
+  // other agents exist, but none is a Gerrit one: none is offered
+  H.agents = [{ address: "t9", title: "coding", tab_name: "x", space: "s1" }];
+  H.terminals = [{ address: "t9", cwd: "/w/coding" }];
+  assert.deepEqual(g.agentList(), [], "an agent without the Gerrit tools is not offered");
   render(g);
-  await g.askAgent(c, g.agentCfg().prompts[0], cx);
-  assert.match(g.ask.error, /先選/); assert.equal(H.opened.length, 0, "nothing sent without a Gerrit agent");
-  // start one: the new address that shows up is remembered (shared, so every copy knows it)
-  g.startAgent(cx);
-  assert.deepEqual(H.runs.at(-1), ["terminal.open", { argv: ["claude", "--plugin-dir", "/x/gerrit-mcp-server"], name: "gerrit", place: "right", folder: undefined }]);
-  assert.equal(g.agentList().length, 0, "still starting");
-  H.agents = [...H.agents, { address: "t3w", title: "✳ Claude Code", tab_name: "x" }];
+  // no Gerrit agent and no kit one: asking opens one from gerrit.json in this space, the question as its first message
+  H.runAnswer = (n) => { if (n !== "tab.new") return null; H.terminals = [...H.terminals, { address: "t3w", cwd: "/w" }]; return { tab: "tb4", terminal: "t3w" }; };
+  await g.askAgent(c, { label: "R", text: "review {change} ps {patchset} at {url} {nope}" }, cx);
+  assert.deepEqual(H.runs.at(-1), ["tab.new", { name: "gerrit", space: "s1", argv: ["claude", "--plugin-dir", "/x/gerrit-mcp-server"],
+    task: "review 7 ps 3 at https://gerrit.test/c/tools/build/+/7 {nope}" }]);
+  assert.equal(H.opened.length, 0, "nothing sent: it is the first message");
+  assert.match(g.ask.to, /在 web 開一個/); assert.equal(g.ask.opening, "R");
+  assert.match(renderText(g), /開好就回答「R」/);
+  H.agents = [...H.agents, { address: "t3w", title: "✳ Claude Code", tab_name: "x", space: "s1" }];
   assert.deepEqual(g.agentList().map((x) => x.address), ["t3w"]);
   assert.deepEqual(H.store["gerrit.agents.v1"], ["t3w"]);
   assert.equal(g.pickedAgent(g.agentList()).address, "t3w", "picked by itself");
-  await g.askAgent(c, { label: "R", text: "review {change} ps {patchset} at {url} {nope}" }, cx);
-  assert.deepEqual(H.opened.at(-1), ["hc", "send", "t3w", "review 7 ps 3 at https://gerrit.test/c/tools/build/+/7 {nope}"]);
+  await g.askAgent(c, { label: "R", text: "/gerrit-panel:review {change}" }, cx);
+  assert.deepEqual(H.opened.at(-1), ["hc", "send", "t3w", "/gerrit-panel:review 7"], "a gerrit.json agent has the plugin's skills");
   assert.deepEqual(H.runs.at(-1), ["agent.focus", { terminal: "t3w" }]);
   assert.equal(g.ask.sent, "R");
-  render(g);
-  // a fresh copy (another tab) sees it too; when its pane is closed it is forgotten
+  // a kit gerrit agent: found by its folder's .agentkit (read in the background), this space's first, given kit skill names
+  const dir = mkdtempSync(join(tmpdir(), "gerrit-kit-"));
+  writeFileSync(join(dir, ".agentkit"), "# kit\nagent:gerrit\ntool:claude\n");
+  H.agents = [{ address: "t3w", title: "x", space: "s2" }, { address: "t5", title: "gerrit", space: "s1" }];
+  H.terminals = [{ address: "t5", cwd: join(dir, "src") }, { address: "t3w", cwd: "/w" }];
+  g.agentList(); await new Promise((r) => setTimeout(r, 20));
+  assert.deepEqual(g.agentList().map((x) => [x.address, x.kit]), [["t5", true], ["t3w", false]], "this space's first");
+  g.agentAddr = null; g.save("agent", "");
+  await g.askAgent(c, { label: "R", text: "/gerrit-panel:review {change}" }, cx);
+  assert.deepEqual(H.opened.at(-1), ["hc", "send", "t5", "/gerrit-review 7"]);
+  rmSync(dir, { recursive: true, force: true });
+  // a fresh copy (another tab) sees the remembered one too; when its pane is closed it is forgotten
   const kept = H.store; const g2 = freshView(G); H.store = kept; g2.cfg = g.cfg;
+  H.agents = [{ address: "t3w", title: "x", space: "s2" }];
   assert.deepEqual(g2.agentList().map((x) => x.address), ["t3w"]);
-  H.agents = [{ address: "t9", title: "coding", tab_name: "x" }];
+  H.agents = [{ address: "t9", title: "coding", tab_name: "x" }]; H.terminals = [];
   assert.deepEqual(g2.agentList(), []); assert.deepEqual(H.store["gerrit.agents.v1"], []);
   g.cfg = { ...g.cfg, agent: { prompts: [{ label: "Mine", text: "x {change}" }] } };
   assert.deepEqual(g.agentCfg().prompts.map((p) => p.label), ["Mine"], "gerrit.json prompts replace the presets");
   render(g);
-  H.agents = [];
+  H.agents = []; H.terminals = []; H.runAnswer = null;
+});
+
+test("ask an agent with none open, the kit sources having a gerrit agent: the Kit panel is asked to place it here, the question (kit skill names) as its first message; not taken in time: said", async (G) => {
+  setConfig(LOGIN); const g = freshView(G); g.cfg = await g.readConfig();
+  H.store["gerrit.cfg.v1"] = { url: "https://gerrit.test", auth: true }; delete H.store["gerrit.agents.v1"];
+  H.store["kit.agents.data.v1"] = { agents: [{ name: "hello" }, { name: "gerrit" }] }; H.store["kit.place.ask"] = [];
+  H.opened = []; H.runs = []; H.afters = []; H.agents = []; H.terminals = [];
+  H.spaces = [{ id: "s1", name: "web", folder: "/w", machine: null, tabs: [] }]; H.focused = { space: "s1" };
+  const c = change(7, { project: "p", current_revision: "b", revisions: { b: { _number: 2 } } });
+  g.openId = c.id; g.detail = { change: c, comments: {} };
+  assert.match(renderText(g), /選一個問題，會先在這個 space 開一個 gerrit/);
+  await g.askAgent(c, { label: "Review", text: "/gerrit-panel:review {change} {patchset}" }, cx);
+  const [ask] = H.store["kit.place.ask"];
+  assert.deepEqual({ ...ask, id: "", at: 0 }, { id: "", at: 0, agent: "gerrit", space: { id: "s1", name: "web", machine: null, folder: "/w" },
+    tool: "claude", label: "Gerrit 面板", task: "/gerrit-review 7 2" });
+  assert.equal(H.runs.length, 0, "the Kit panel opens it, not this one"); assert.equal(H.opened.length, 0);
+  // the Kit panel took it: nothing more
+  H.store["kit.place.ask"] = []; H.afters.splice(0).forEach((f) => f(cx));
+  assert.equal(g.ask.opening, "Review");
+  // nobody took it (no Kit button in the layout): taken back, said
+  await g.askAgent(c, { label: "Review", text: "/gerrit-panel:review {change} {patchset}" }, cx);
+  H.afters.splice(0).forEach((f) => f(cx));
+  assert.deepEqual(H.store["kit.place.ask"], []); assert.match(g.ask.error, /Kit 面板沒有接手/);
+  delete H.store["kit.agents.data.v1"];
 });
 
 test("ask an agent: presets call the gerrit-panel skills; ✎ edits them (saved for every copy), 還原預設 brings the built-in ones back", async (G) => {

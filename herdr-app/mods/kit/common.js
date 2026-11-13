@@ -237,7 +237,10 @@ export async function kit(args, timeout = 60000, machine = null) {
 // The list is kit's README, "給程式讀的介面".
 export const KIT_ERRORS = ["usage", "not_init", "busy", "no_source", "not_git", "check_failed", "no_git_identity", "author_not_allowed",
   "bad_push_mode", "no_origin", "no_remote", "not_on_branch", "out_of_sync", "host_not_allowed", "push_failed", "not_maintainer",
-  "not_allowed", "download_failed", "no_skill", "error"];
+  "not_allowed", "download_failed", "no_skill",
+  // kit 0.5.0 (api 1.3): kit new mcp --config (a pasted MCP setup), kit place (an agent's own folder)
+  "bad_config", "several_servers", "not_found", "no_name", "bad_name", "exists", "no_agent", "no_parent", "other_agent", "not_empty", "bad_dir",
+  "error"];
 // kit's answer (from kit()) -> { data } or { error: { code, message } }; what: the command, for a message of our own
 export function kitJson(r, what) {
   let j = null;
@@ -246,7 +249,9 @@ export function kitJson(r, what) {
   const e = j && typeof j === "object" ? j.error : null;
   if (e && typeof e === "object") {
     const code = KIT_ERRORS.includes(e.code) ? e.code : "error";
-    return { error: { code, message: String(e.message || clean(r.err ?? "") || `${what} 失敗（${code}）`) } };
+    // several_servers / not_found (kit new mcp --config): the servers in the paste, to pick one
+    const servers = Array.isArray(e.servers) ? e.servers.filter((x) => typeof x === "string") : null;
+    return { error: { code, message: String(e.message || clean(r.err ?? "") || `${what} 失敗（${code}）`), ...(servers ? { servers } : {}) } };
   }
   if (r?.missing || r?.timedOut) return { error: { code: r.timedOut ? "timeout" : "missing", message: String(r.err ?? "") } };
   return { error: { code: "error", message: r?.code === 0 ? `${what} 的輸出讀不懂（kit 太舊？請打 kit self-update）`
@@ -282,6 +287,12 @@ export function readApi(r, machine = null) {
     text: `${there}太舊：${api ? `kit api 是 ${api}，這個 mod 要 ${WANT} 以上` : "沒有 kit api"}（要 kit 0.3.0 以上）。\n${machine ? `在 ${machine} 的終端機` : "在終端機"}打  kit self-update，好了再按 ⟳。` };
 }
 export function apiState(machine = null) { return (shared(API) ?? {})[machine ?? ""] ?? null; }
+// kit api there is known to be at least 1.<minor> (kit 0.5.0 is 1.3: kit place, kit new mcp --config); false when it is
+// older, or not known yet
+export function apiAtLeast(machine, minor) {
+  const m = String(apiState(machine)?.api ?? "").match(/^(\d+)\.(\d+)$/);
+  return Boolean(m && Number(m[1]) === KIT_API.major && Number(m[2]) >= minor);
+}
 // kit api's answer, when there is a recent one (from this start of Herdr): ok or not; null = not known yet
 export function apiKnown(machine = null) {
   const a = apiState(machine);

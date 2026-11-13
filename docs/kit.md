@@ -44,6 +44,10 @@ Windows（和 Linux）的分頁列自己畫最小化、最大化、關閉，所�
 - **A layout with kit in it**: jay's layout ([layout.md](layout.md)) already has the Agents / Kit buttons, both panels
   and kit's header on every pane.
   畫面要有 kit 的位置：jay 的 layout 已經放好了。
+- **kit 0.5.0** (`kit api` 1.3) for 倉庫 → MCP → 貼上設定 and for putting an agent in a space (`kit place`, on the
+  space's machine). **Dragging** an agent onto a space also needs a Herdr with the drag API (`on_drag`,
+  `nextDrop()`); without it the 放到 space… button does the same.
+  「貼上設定」和「把 agent 放到 space」要 kit 0.5.0（那個 space 的機器上）；用拖的還要有拖放功能的 Herdr，沒有的話用「放到 space…」按鈕。
 
 When Herdr starts, the mod first runs `kit api` (once, shared by every part, again every few minutes; the first time
 it waits up to 40 seconds, since a company's virus scanner may hold kit's first start). `kit api` prints
@@ -283,6 +287,39 @@ Kit 按鈕右邊的 `[context 35% 139k/400k]` 是這個 agent 的 context 用了
   網址的主機也要在 `kit.yaml` 的 `allowed_hosts` 裡：不在的話「下載看看」也不會去連。
   收進來後跟其他改動一樣：用 `git diff` 看檔案 → 黃色那條的「送出」→ agent 視窗上的 Kit 清單按「加到這個資料夾」（在家目錄開的 agent 是「加到整個帳號」）。
 
+- **＋ 新增 → 貼上設定**（只有 MCP 分頁有，要 kit 0.5.0 以上）：把別人給的 MCP 設定整段貼進框裡：README 上的 JSON
+  （`mcpServers`）、`claude mcp add …`、`codex mcp add …`，或 Codex `config.toml` 的 `[mcp_servers.名字]`。名字可以不寫（用設定裡的）。
+  按「看看會變成什麼」（`kit new mcp [名字] --config <檔案> --to <來源> --look`）：只列出會寫成什麼，還不寫：
+  - 名字、種類（在這台跑的程式／網址）、會寫的檔案、整個 yaml。
+  - token、密碼：kit 換成 `${變數名}`，畫面上只有變數的名字，值不會寫進倉、也不會顯示。每台電腦自己設環境變數。
+  - 套件固定在哪個版本（沒寫版本的，kit 查今天的最新版固定下來）；kit 不幫它裝的會說原因。它要的程式（`node`、`uv`……）、kit 的提醒。
+  - 設定裡有好幾個 server（或寫的名字不在裡面）：列出名字，點一個就只建那一個。看不懂的設定、名字不對、已經有同名的，都會直接說。
+  沒問題就按「建立」（同一個指令拿掉 `--look`），建好就在面板打開那個檔案。貼的內容或名字在「看」之後改過的話，會請你再看一次。
+  接下來：「送出」→ 要用的地方「加進來」（整個帳號，或資料夾的「加到這個資料夾」）→ 有固定版本的套件，每台在 agent 視窗的
+  Kit 清單按「裝套件」（`kit install-deps mcp <名字>`；沒裝的照樣能用，只是每次啟動時下載）→ 每台設好環境變數。
+  **貼上的內容怎麼交給 kit**：不放在指令的參數裡（Windows 的 `kit.cmd` 會弄壞引號，參數也會被別的程式看到），而是寫進
+  Herdr 自己資料夾裡的一個檔案（`<Herdr 的設定資料夾>/kit-tmp/mcp-paste.txt`），kit 一讀完（不管成功失敗）就清成空的。
+
+```
+┌ 新增 mcp ────────────────────────────────────┐
+│ [自己從頭寫] [貼上設定]                      │
+│ ┌──────────────────────────────────────────┐ │
+│ │ {"mcpServers": {"github": {"command": …  │ │
+│ └──────────────────────────────────────────┘ │
+│ 名字（可以不寫：用設定裡的名字）             │
+│ [看看會變成什麼] 取消                        │
+│ ┌──────────────────────────────────────────┐ │
+│ │ github  在這台跑的程式  → ~/src/…  [建立] │ │
+│ │ command: npx …                           │ │
+│ │ 每台電腦要先設定環境變數：GITHUB_TOKEN   │ │
+│ │ 套件 @…/server-github 固定在 2025.4.8 版 │ │
+│ └──────────────────────────────────────────┘ │
+└──────────────────────────────────────────────┘
+```
+
+  agent 視窗的 Kit 清單裡，MCP 那一列會寫這台沒設的環境變數（只有名字）、「每次啟動時下載 <套件>@<版本>」和「裝套件」按鈕
+  （先列出 kit 會執行什麼，按「確定安裝」才裝）。
+
 ```
 ┌ 新增 skill ──────────────────────────────────┐
 │ [自己從頭寫] [從網址收別人的]                │
@@ -434,6 +471,23 @@ mod 只用這些欄位，每個都先檢查：`kit`（版本）、`api`（`major
   「照名字」會拿掉這一行，換回照名字挑的。
 - logo 是 mod 用 Zdog 自己畫的，不用裝任何東西。清單上的小圖是 SVG，每種組合只寫一次，存在 `~/.config/herdr-app/data/kit/bots/`。
 
+### 把 agent 放到 space（kit 0.5.0 以上）
+
+讓一個 space 裡有一個「就是這個 agent」的資料夾：在那裡開的 `claude`、`codex`、`omp` 就是它（它的規則、skill、MCP、提示、
+工具限制），不用每次 `kit run`。
+
+- **拖過去**：把 Agents 面板上的 agent 拖到 Agents 或 Spaces 面板的某個 space 上放開。要有拖放功能的 Herdr
+  （herdr-app 的 drag 修改：元素的 `on_drag`、`nextDrop()`）；舊的 Herdr 沒有，就只有下面的按鈕，其他都一樣。
+- **放到 space…**（每個 Herdr 都有）：agent 那一列或它的詳細頁按「放到 space…」，從列出的 space 裡點一個。
+- 接著在那個 space 的機器上跑 `kit place <agent> <space 的資料夾>/<agent> --tool <工具> --json`：在 space 的資料夾裡建
+  `<agent>` 這個資料夾（只建最後一層），放進它的東西。space 沒有資料夾的話是那台的家目錄。Windows 的機器用 `\`。
+  工具是 agent 詳細頁選的（Claude、Codex、omp；沒選是 Claude）。
+- kit 做好後，在那個 space 開一個新分頁，在那個資料夾跑 kit 給的指令（就是 `claude`、`codex` 或 `omp`；Herdr 的
+  `tab.new`，帶 `space`、`folder`、`argv`）。進度和結果用通知說；kit 的提醒（例如 Codex 不能只開某些工具）也會列出來。
+- 同一個 agent 再放到同一個 space：kit 只同步那個資料夾，再開一個分頁。那裡已經是別的 agent 的資料夾、或已經有不是 kit 放的
+  東西時，kit 不會動它，通知會說原因。那台的 kit 太舊（沒有 `kit place`）也會直接說。
+- 之後在那裡開的 agent 的 Kit 清單按「加到這個資料夾」／「從資料夾拿掉」，只改這個資料夾。拖好幾個 agent 就是好幾個資料夾。
+
 ## 指令對照
 
 | 畫面上 | 等於打 |
@@ -460,11 +514,16 @@ mod 只用這些欄位，每個都先檢查：`kit`（版本）、`api`（`major
 | Agents 清單 | `kit agents --json` |
 | agent 的加上／拿掉 | `kit agent <名字> add\|rm <種類> <東西>` |
 | 開啟 | `kit run <名字> --tool <工具>` |
+| 把 agent 拖到 space ／ 放到 space… | 在那個 space 的機器上 `kit place <名字> <space 的資料夾>/<名字> --tool <工具> --json`，再在那個 space 開新分頁跑 kit 給的指令 |
+| ＋ 新增 → 貼上設定：看看會變成什麼 | `kit new mcp [名字] --config <暫存檔> --to <來源> --look`（貼的內容在檔案裡，不在參數裡） |
+| ＋ 新增 → 貼上設定：建立 | `kit new mcp [名字] --config <暫存檔> --to <來源>` |
+| 裝套件（MCP 固定版本的套件） | `kit install-deps mcp <名字>` |
 
 ## For developers / 改 mod 的人
 
 `herdr-app/mods/kit/`: `main.js` picks the part by `props.role`; `repo.js` (repo, repo-toggle, editor), `agent.js`
-(agent), `agents.js` (agents, agents-toggle), `header.js` (header, context), `layout.js` (where kit sits in a
+(agent), `agents.js` (agents, agents-toggle), `place.js` (an agent put in a space: the drag payload, the drop loop,
+`kit place` then `tab.new`), `header.js` (header, context), `layout.js` (where kit sits in a
 layout: 放進上排 / 更新版面), `machines.js` (the repository's 各機器 tab: every machine's kit, what it lacks by
 `FEATURES`, the self-reported accounts of `kit-machines.json`, the sources against the approved commits), `context.js` (what the context window and chip compute, from plain values), `common.js`
 (running kit, `kit api`, the shared state keys, the layout's node ids, one kit action at a time, the shared UI

@@ -1,7 +1,7 @@
 // Role "agent" of the kit mod (see main.js): a popup for one agent, opened by the Kit button in its pane header (role
 // "header", header.js): what it uses (the set kit run started it with, kit's for the account, its folder's own), what
 // kit has that it doesn't use yet, and the buttons that change that (kit add / rm, --dir for its folder; kit
-// install-tool / install-deps for what a skill needs). All on the agent's machine.
+// install-tool / install-deps for what a skill or an MCP needs; an MCP's unset ${VAR}s). All on the agent's machine.
 // The header is the one that asks kit (kit list --json --dir --pid); this popup shows that answer (AGENT_DATA) and asks
 // the header for a fresh one (AGENT_WANT).
 import { div } from "gpui-kit";
@@ -203,6 +203,18 @@ export class AgentPopup {
     }));
     for (const pk of (i.packages ?? []).filter((x) => !x.ok)) {
       const py = pk.kind === "pip", lang = py ? "Python" : "npm";
+      // an MCP's one pinned package (kit list --json, api 1.3): not installed = downloaded each time it starts
+      if (i.kind === "mcp") {
+        const what = `${pk.package}${pk.version ? `@${pk.version}` : ""}`;
+        missing.push({
+          key: `${i.name}-mcp`, install: pk.bad ? "" : pk.install, label: "裝套件", title: `MCP ${i.name} 的套件`,
+          what: pk.had ? `套件 ${what} 要重裝（版本改過了）：現在每次啟動時下載` : `每次啟動時下載 ${what}`,
+          note: "裝在 kit 自己的資料夾，固定這個版本，不跑套件自己的安裝程式；裝好後 kit sync 改成直接跑裝好的",
+          none: pk.bad ? `kit 不幫它裝：${pk.bad}` : (py ? "要先有 Python 才能裝" : "要先有 Node.js（npm）才能裝"),
+          args: ["install-deps", "mcp", i.name],
+        });
+        continue;
+      }
       missing.push({
         key: `${i.name}-${pk.kind}`, install: pk.bad ? "" : pk.install, label: pk.had ? "更新" : "安裝", title: `${i.name} 的 ${lang} 套件`,
         what: pk.had ? `它的 ${lang} 套件要更新（skill 改過了）` : `需要先裝它自己的 ${lang} 套件`,
@@ -213,8 +225,12 @@ export class AgentPopup {
         args: ["install-deps", i.name, pk.kind],
       });
     }
+    // an MCP's ${VAR}s that this machine has not set (names only; the values are never read here)
+    const unset = (i.vars ?? []).filter((v) => v && v.set === false && typeof v.name === "string").map((v) => v.name);
     return v_flex().id(`row-${i.kind}-${i.name}`).gap(4).px(8).py(5).rounded(6).hover((s) => s.bg(t.hover))
       .child(row)
+      .when(unset.length > 0, (el) => el.child(div().pl(2).text_size(z - 1.5).text_color(t.working)
+        .child(`⚠ 這台沒設環境變數：${unset.join("、")}（設好再開新的對話；值不會進倉）`)))
       .children(missing.map((x) => this.needLine(t, z, x)));
   }
 

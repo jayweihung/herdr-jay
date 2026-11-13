@@ -9,11 +9,11 @@
 // its JSON is read (kit list --json, kit push --json, kit collect --look); its words for people are shown as they are. Where
 // the panel sits in the layout, and 放進上排 / 更新版面: layout.js. The shared state keys are in common.js.
 import { div } from "gpui-kit";
-import { v_flex, h_flex, InputState, Input, Editor } from "gpui-base";
-import { theme, exec, run, layout, shared, setShared, window, readTextFile, writeTextFile, closeOverlay, openOverlay, props as blockProps } from "herdr";
+import { v_flex, h_flex, InputState, Input, Editor, TextareaState, Textarea } from "gpui-base";
+import { theme, exec, run, layout, shared, setShared, window, readTextFile, writeTextFile, closeOverlay, openOverlay, appHome, props as blockProps } from "herdr";
 import { DATA, LOAD, EDITORS, NODES, MSG, fs, mono, stop, slash, shortDir, clean, spin, waiting, find, textBlock, copyOnRight, btn,
-  busyNow, dropStaleBusy, takeBusy, giveBusy, markChanged, kit, kitJson, apiState, apiKnown, checkApi, apiCard, messageBox, problemCard, versionCard,
-  squeeze, newEditor, liveEditors, localGet, localSet, kitAction, loadNewest, loadingNow } from "./common.js";
+  busyNow, dropStaleBusy, takeBusy, giveBusy, markChanged, kit, kitJson, apiState, apiKnown, apiAtLeast, checkApi, apiCard, messageBox, problemCard, versionCard,
+  squeeze, newEditor, liveEditors, localGet, localSet, kitAction, loadNewest, loadingNow, isWindows } from "./common.js";
 import { layoutNeeds, moveIntoBar } from "./layout.js";
 import { machinesTab, loadMachines, machinesDue, machinesLoading } from "./machines.js";
 
@@ -46,6 +46,30 @@ async function pushJson(name, dry, ttl) {
   const files = Array.isArray(data.files) ? data.files : [];
   return { ok: files.length > 0, files: JSON.stringify(files), sent: data.sent === true, push: data.push, prUrl: data.pr_url ?? null,
     text: said || (files.length ? files.join("\n") : "沒有要送的") };
+}
+// 貼上設定 (kit new mcp --config): the kinds of server, kit's error codes in plain words, and what comes after
+const TYPE_NAME = { stdio: "在這台跑的程式（stdio）", http: "網址（http）", sse: "網址（sse）" };
+function pasteError(e) {
+  const plain = {
+    several_servers: "貼上的設定裡有好幾個 server：點一個（只會建那一個）。",
+    not_found: "上面寫的名字不在貼上的設定裡：點設定裡有的一個，或把名字清掉。",
+    bad_config: "kit 看不懂貼上的設定（或裡面有 kit 不收的東西）：",
+    no_name: "設定裡沒有 server 的名字：在上面寫一個名字（小寫英文、數字和 -）。",
+    bad_name: "名字只能用小寫英文、數字和 -。",
+    exists: "已經有同名的 mcp 了：換一個名字。",
+    not_init: "這台還沒設定 kit。",
+    no_source: "沒有可以放的來源。",
+  }[e.code];
+  if (!plain) return e.message;
+  return e.code === "bad_config" ? `${plain}${e.message}` : `${plain}\n（kit：${e.message}）`;
+}
+// after 建立: the file is only in this computer's source until it is sent; then each place that wants it adds it
+function pasteNext(x) {
+  return ["接下來：",
+    `1. 檢查上面的檔案，在「待送出」按「送出」：送進來源（${x.source}），其他電腦 kit sync 後才有。`,
+    "2. 要用它的地方按「加進來」（整個帳號，或在某個資料夾的 Kit 清單按「加到這個資料夾」）。",
+    ...((x.packages ?? []).some((p) => p.version && !p.bad) ? [`3. 每台電腦在 MCP 清單按「裝套件」（kit install-deps mcp ${x.name}）：裝好之後不用每次啟動時下載。`] : []),
+    ...((x.vars ?? []).length ? [`${(x.packages ?? []).some((p) => p.version && !p.bad) ? 4 : 3}. 每台電腦設好環境變數 ${x.vars.join("、")}（值不會進來源）。`] : [])];
 }
 // open a file in this computer's own program for it (explorer: no cmd.exe parsing of & or ^ in the path)
 function openOutside(path) {
@@ -81,7 +105,7 @@ export class Repo {
     this.input = InputState.new({ placeholder: "找：名字、說明、來源" });
     this.input.on("change", (_e, cx) => { this.filter = this.input.value().trim().toLowerCase(); cx.notify(); });
     this.newName = InputState.new({ placeholder: "名字：小寫英文、數字和 -" });
-    this.newName.on("submit", (_e, cx) => this.make(cx));
+    this.newName.on("submit", (_e, cx) => (this.kind === "mcp" && this.making?.mode === "paste" ? this.lookPaste(cx) : this.make(cx)));
     this.newName.on("change", (_e, cx) => cx.notify());   // the path it will make follows the name
     this.newUrl = InputState.new({ placeholder: "網址，例如 https://git.example.org/作者/repo" });
     this.newUrl.on("submit", (_e, cx) => this.look(cx));
@@ -109,6 +133,8 @@ export class Repo {
     }
     this.code?.release();
     this.code = null;
+    this.paste?.release();
+    this.paste = null;
   }
 
   get data() { return shared(DATA) ?? null; }
@@ -295,12 +321,13 @@ export class Repo {
   }
 
   // + 新增: write a new one from scratch (a name, which source; kit new makes the file and the editor opens it),
-  // or, for skills, collect someone else's from a URL (kit collect --look shows what it would take, then kit collect).
+  // or, for skills, collect someone else's from a URL (kit collect --look shows what it would take, then kit collect),
+  // or, for MCP, paste someone's setup (kit new mcp --config --look shows the yaml it would write, then kit new mcp).
   // Every step says where the file goes and what comes next.
   maker(t, z, d, kind) {
     const srcs = d.sources ?? [], m = this.making, cur = m.source, src = srcs.find((x) => x.name === cur);
     const what = { rule: "規則", skill: "skill", mcp: "MCP" }[kind];
-    const mode = kind === "skill" ? m.mode : "write";
+    const mode = kind === "skill" ? (m.mode === "collect" ? "collect" : "write") : kind === "mcp" ? (m.mode === "paste" ? "paste" : "write") : "write";
     const note = (text, color) => div().text_size(z - 1.5).text_color(color ?? t.muted).child(text);
     const chip = (id, label, on, click) => div().id(id).px(8).py(3).rounded(5).text_size(z - 1.5).cursor_pointer()
       .bg(on ? t.selected : t.surface).text_color(on ? t.foreground : t.muted).border_1().border_color(on ? t.accent : t.border)
@@ -310,10 +337,22 @@ export class Repo {
     if (kind === "skill") box.child(h_flex().gap(4)
       .child(chip("mode-write", "自己從頭寫", mode === "write", (cx) => { m.mode = "write"; this.newName.focus(); cx.notify(); }))
       .child(chip("mode-collect", "從網址收別人的", mode === "collect", (cx) => { m.mode = "collect"; this.newUrl.focus(); cx.notify(); })));
+    if (kind === "mcp") box.child(h_flex().gap(4)
+      .child(chip("mode-write", "自己從頭寫", mode === "write", (cx) => { m.mode = "write"; this.newName.focus(); cx.notify(); }))
+      .child(chip("mode-paste", "貼上設定", mode === "paste", (cx) => { m.mode = "paste"; this.pasteCode(); cx.notify(); })));
     if (mode === "collect") box.child(v_flex().gap(3).child(note("網址（公司內請用自己 Git 伺服器的網址）", t.dim))
       .child(Input.new(this.newUrl).h(30).px(8).rounded(6).border_1().border_color(t.accent).bg(t.background).text_size(z - 1).text_color(t.foreground))
       .child(note("kit 會下載這個 repo，找出裡面的 skill（有 SKILL.md 的資料夾），連同原作者的 LICENSE 收進你的倉。", t.dim)));
-    else {
+    else if (mode === "paste") {
+      if (!apiAtLeast(null, 3)) box.child(note("貼上設定要 kit 0.5.0 以上：在終端機打  kit self-update，好了再按上面的 ⟳。", t.ansi1));
+      box.child(v_flex().gap(3)
+        .child(note("把別人給的 MCP 設定整段貼在這裡：README 上的 JSON（mcpServers）、claude mcp add …、codex mcp add …，或 Codex config.toml 的 [mcp_servers.名字]。", t.dim))
+        .child(Textarea.new(this.pasteCode()).w_full().px(8).py(6).rounded(6).border_1().border_color(t.accent).bg(t.background)
+          .font_family(mono()).text_size(z - 2).text_color(t.foreground))
+        .child(note("token、密碼不會寫進倉裡：kit 換成 ${變數名}，每台電腦自己設環境變數。貼上的內容只交給這台的 kit 讀，讀完就清掉。", t.dim))
+        .child(note("名字（可以不寫：用設定裡的名字）", t.dim))
+        .child(Input.new(this.newName).h(30).px(8).rounded(6).border_1().border_color(t.border).bg(t.background).text_size(z - 1).text_color(t.foreground)));
+    } else {
       const hint = { skill: "之後在 Claude 打 /名字、Codex 打 $名字 叫它", rule: "只是用來認它的名字；規則的內容每次都會給 agent", mcp: "MCP server 的名字" }[kind];
       box.child(v_flex().gap(3).child(note("名字（小寫英文、數字和 -）", t.dim))
         .child(Input.new(this.newName).h(30).px(8).rounded(6).border_1().border_color(t.accent).bg(t.background).text_size(z - 1).text_color(t.foreground))
@@ -322,7 +361,8 @@ export class Repo {
     if (srcs.length) box.child(v_flex().gap(4)
       .child(note("放在哪個倉", t.dim))
       .child(h_flex().gap(4).flex_wrap().children(srcs.map((x) => chip(`to-${x.name}`, PUSH_KIND[x.push] ? `${x.name}（${PUSH_KIND[x.push]}）` : x.name,
-        x.name === cur, (cx) => { m.source = x.name; m.look = null; cx.notify(); })))));
+        x.name === cur, (cx) => { m.source = x.name; m.look = null; m.pasted = null; cx.notify(); })))));
+    if (mode === "paste") return this.pasteSteps(t, z, box, m, note, chip);
     if (mode === "write") {
       const name = this.newName.value().trim() || "名字";
       const rel = { rule: `rules/${name}.md`, skill: `skills/${name}/SKILL.md`, mcp: `mcp/${name}.yaml` }[kind];
@@ -371,6 +411,105 @@ export class Repo {
         .child(act))
       .children(lines);
     if (this.busy === "收") card.child(this.working(t, z, "收進來中：下載、複製檔案…"));
+    return box.child(card);
+  }
+
+  // ---------- 貼上設定 (MCP): kit new mcp [name] --config <file> [--to source] [--look] ----------
+  // the box the setup is pasted in (made the first time it is shown)
+  pasteCode() {
+    if (!this.paste) this.paste = TextareaState.new({ placeholder: "例如 {\"mcpServers\": {\"github\": {\"command\": \"npx\", …}}}，或 claude mcp add …", rows: 7 });
+    return this.paste;
+  }
+  // The paste goes to kit in a file, never as an argument (kit.cmd on Windows mangles quotes in arguments): one file in
+  // this app's own folder (<appHome>/kit-tmp/mcp-paste.txt), written just before kit runs and blanked as soon as kit has
+  // read it, whatever happened (it may hold a token until kit has replaced it with ${VAR}).
+  async withPasteFile(text, fn) {
+    const sep = isWindows() ? "\\" : "/";
+    const file = `${String(appHome()).replace(/[\\/]+$/, "")}${sep}kit-tmp${sep}mcp-paste.txt`;
+    const before = await readTextFile(file).catch(() => null);
+    await writeTextFile(file, text, before);
+    try { return await fn(file); } finally { await writeTextFile(file, "", text).catch(() => {}); }
+  }
+  pasteArgs(name, file, look) {
+    const to = this.making?.source;
+    return ["new", "mcp", ...(name ? [name] : []), "--config", file, ...(to ? ["--to", to] : []), ...(look ? ["--look"] : [])];
+  }
+  // 看看會變成什麼: --look (kit writes nothing; it says the yaml, the variables, the packages). server: a name picked
+  // from the paste's servers (several_servers / not_found), which becomes the name
+  lookPaste(cx, server = null) {
+    const m = this.making;
+    if (!m) return;
+    if (server) this.newName.set_value(server);
+    const text = this.pasteCode().value();
+    if (!text.trim()) { m.pasted = { err: "先把設定貼在上面的框裡。" }; cx.notify(); return; }
+    if (!this.startBusy("看設定", SHORT)) return;
+    m.pasted = null;
+    cx.notify();
+    cx.spawn(async (cx) => {
+      try {
+        const name = this.newName.value().trim();
+        const r = await this.withPasteFile(text, (f) => kit(this.pasteArgs(name, f, true), SHORT));
+        const { data, error } = kitJson(r, "kit new mcp --look");
+        m.pasted = error ? { err: pasteError(error), servers: error.servers ?? [] } : { data, text, name };
+      } catch (e) {
+        m.pasted = { err: `沒辦法把設定交給 kit：${e?.message ?? e}` };
+      } finally { this.endBusy(); cx.notify(); }
+    });
+  }
+  // 建立: the same without --look (only what was just looked at: the paste and the name unchanged), then open the file
+  createPaste(cx) {
+    const m = this.making, p = m?.pasted, x = p?.data;
+    if (!x) return;
+    const name = this.newName.value().trim(), text = this.pasteCode().value();
+    if (text !== p.text || name !== p.name) { m.pasted = { err: "貼上的內容或名字改過了：再按一次「看看會變成什麼」。" }; cx.notify(); return; }
+    if (!this.startBusy("建立", SHORT + LOAD_TTL)) return;
+    cx.notify();
+    cx.spawn(async (cx) => {
+      try {
+        const r = await this.withPasteFile(text, (f) => kit(this.pasteArgs(name, f, false), SHORT));
+        if (r.code !== 0) { m.pasted = { ...p, err: clean(r.err || r.out) || `建立失敗（${r.code}）` }; return; }
+        this.making = null;
+        this.newName.set_value("");
+        this.paste?.set_value("");
+        this.setMsg({ ok: true, plain: true, label: "建立", text: [`已建立 mcp:${x.name}（在 ${x.source}）。`, ...pasteNext(x)].join("\n"), at: Date.now() });
+        const d = await loadNewest(LOAD, DATA, loadRepo);
+        const it = (d.items ?? []).find((i) => i.kind === "mcp" && i.name === x.name);
+        if (it) await this.openItem(it, cx);
+      } catch (e) {
+        m.pasted = { ...p, err: `沒辦法把設定交給 kit：${e?.message ?? e}` };
+      } finally { this.endBusy(); cx.notify(); }
+    });
+  }
+  // what kit said it would write, and the button that writes it
+  pasteSteps(t, z, box, m, note, chip) {
+    const p = m.pasted, busy = this.busy;
+    box.child(h_flex().gap(6)
+      .child(btn(t, z, "paste-look", busy === "看設定" ? "讀取中…" : p?.data ? "再看一次" : "看看會變成什麼", { small: true, kind: p?.data ? undefined : "primary",
+        off: Boolean(busy), on: (cx) => this.lookPaste(cx) }))
+      .child(btn(t, z, "make-cancel", "取消", { small: true, on: (cx) => { this.making = null; cx.notify(); } })));
+    if (p?.err) box.child(v_flex().gap(4).p(8).rounded(6).bg(t.background)
+      .child(div().text_size(z - 1.5).text_color(t.ansi1).child(textBlock("paste-err", p.err)))
+      .when((p.servers ?? []).length > 0, (el) => el.child(h_flex().gap(4).flex_wrap()
+        .children(p.servers.map((s) => chip(`paste-server-${s}`, s, false, (cx) => this.lookPaste(cx, s)))))));
+    const x = p?.data;
+    if (!x) return box.child(note("先按「看看會變成什麼」：kit 只列出會寫成什麼，還不會放進你的倉。", t.dim));
+    const card = v_flex().gap(5).p(8).rounded(6).bg(t.background);
+    card.child(h_flex().gap(6).items_center()
+      .child(copyOnRight(div().font_semibold().child(x.name), x.name))
+      .child(div().text_size(z - 2).text_color(t.muted).child(TYPE_NAME[x.type] ?? x.type))
+      .child(copyOnRight(div().flex_1().min_w(0).truncate().text_size(z - 2).text_color(t.dim).child(`→ ${shortDir(x.path)}`), x.path))
+      .child(x.exists ? div().flex_none().text_size(z - 2).text_color(t.ansi1).child("已經有同名的")
+        : btn(t, z, "paste-make", busy === "建立" ? "建立中…" : "建立", { small: true, kind: "primary", off: Boolean(busy), on: (cx) => this.createPaste(cx) })));
+    if (x.exists) card.child(note(`${x.source} 已經有 mcp:${x.name}（就是上面這個檔案），不會蓋掉它：在上面寫另一個名字，再看一次。`, t.ansi1));
+    card.child(div().p(6).rounded(6).bg(t.raised).font_family(mono()).text_size(z - 2).child(textBlock(`paste-yaml-${x.name}`, String(x.yaml ?? "").trimEnd())));
+    for (const s of x.secrets ?? []) card.child(note(`${s.where} 像是密碼或 token：檔案裡寫成 \${${s.var}}，值沒有寫進去。`, t.foreground));
+    if ((x.vars ?? []).length) card.child(note(`每台電腦要先設定環境變數（只有名字，值各自設）：${x.vars.join("、")}`, t.working));
+    for (const pk of x.packages ?? []) card.child(note(pk.version
+      ? `套件 ${pk.package} 固定在 ${pk.version} 版${pk.bad ? `；kit 不幫它裝（${pk.bad}），每次啟動時下載` : ""}`
+      : `套件 ${pk.package} 查不到最新版本，沒有固定版本${pk.bad ? `；kit 不幫它裝（${pk.bad}）` : ""}`, pk.bad || !pk.version ? t.working : t.foreground));
+    if ((x.requires ?? []).length) card.child(note(`它要的程式：${x.requires.join("、")}（這台沒有的話，MCP 清單上會說，按「安裝」）`, t.muted));
+    for (const w of x.warnings ?? []) card.child(note(`⚠ ${w}`, t.working));
+    card.child(note(pasteNext(x).join("\n"), t.muted));
     return box.child(card);
   }
 

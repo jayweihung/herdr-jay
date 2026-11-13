@@ -9,6 +9,28 @@ says which) · **kit** = update kit itself on every machine where agents run (`k
 **snap hook** = a line in Claude Code's `settings.json` on each machine where you added the hook (the entry says
 which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/keys.md).
 
+## 2026-11-13, kit: an agent in a space, pasted MCP setups
+
+Needs: **mods** (the kit mod changed: Windows copies it again; macOS symlink: nothing, Herdr picks it up on its next
+start), **kit** 0.5.0 on the machines where you use these (`kit self-update`, `kit sync`). Dragging also needs a
+Herdr with the drag API (`on_drag`, `nextDrop()`); without it, use the 放到 space… button.
+要做：mods（kit mod 有改）、kit 0.5.0（用到的機器）。用拖的要有拖放功能的 Herdr；沒有的話按「放到 space…」。
+
+- **Put an agent in a space** ([docs/kit.md](docs/kit.md#把-agent-放到-spacekit-050-以上)): drag its card from the
+  Agents panel onto a space, or 放到 space… and pick one. On the space's machine `kit place <agent> <space
+  folder>/<agent> --tool <tool> --json` makes that folder the agent; then a new tab in that space runs the command kit
+  gave (`claude`, `codex` or `omp`) there. Progress and errors as notifications; another agent's folder or files
+  kit didn't put there are left alone and said so.
+  把 agent 拖到 space（或按「放到 space…」）：在那個 space 的資料夾裡建 agent 自己的資料夾，開新分頁跑它。
+- **倉庫 → MCP → ＋ 新增 → 貼上設定**: paste an MCP setup (JSON, `claude mcp add …`, `codex mcp add …`, Codex TOML);
+  「看看會變成什麼」 shows the yaml, the `${VAR}` names (never values), the pinned package, what it needs; 「建立」
+  writes it and opens the file. Several servers: pick one. The paste goes to kit in a file in Herdr's own folder,
+  blanked right after, never as an argument.
+  貼上別人的 MCP 設定：先看會寫成什麼（token 換成變數名字），再建立。
+- **MCP rows in an agent's Kit list** say which `${VAR}`s this machine hasn't set (names only) and 「每次啟動時下載
+  <package>@<version>」 with 裝套件 (`kit install-deps mcp <name>`, after showing what it runs).
+- 各機器 knows kit 0.5.0 (api 1.3): 貼上 MCP 設定, 各機器的核准和來源, 把 agent 放到 space.
+
 ## 2026-11-13, kit: 各機器
 
 Needs: **mods** (the kit mod changed: Windows copies it again; macOS symlink: nothing, Herdr picks it up on its next

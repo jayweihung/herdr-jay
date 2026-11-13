@@ -21,7 +21,7 @@ const H = (globalThis.__H = {
   store: {}, props: {}, layout: { id: "root", children: [] }, window: { platform: "macos" }, home: "/Users/amy",
   calls: [], answer: () => ({ code: 0, stdout: "", stderr: "" }), overlays: [], runs: [], notes: [], timeouts: [],
   texts: [], strings: [], panes: [], spaces: [], tasks: [], clicks: {}, lastId: null, files: null, writes: [],
-  machines: [], hcAnswer: null, reads: [], clipboard: [],
+  machines: [], hcAnswer: null, reads: [], clipboard: [], drags: [],
 });
 const COLOR_METHODS = /(^bg$|color|^border_color$|^text_color$)/;
 const el = new Proxy(function () {}, {
@@ -35,6 +35,7 @@ const el = new Proxy(function () {}, {
       if (String(k) === "on_mouse_down" && typeof args[1] !== "function") throw new Error("on_mouse_down(button, handler) expects a handler");
       if (String(k) === "id") { H.lastId = args[0]; H.ids?.push(args[0]); }
       if (String(k) === "on_click") H.clicks[H.lastId] = args[0];   // to press a button by its id
+      if (String(k) === "on_drag") H.drags.push([H.lastId, ...args]);   // a newer Herdr: what the element carries when dragged
       return el;
     };
   },
@@ -45,6 +46,7 @@ const unescape = (md) => md.replace(/\\\n/g, "\n").replace(/\\(.)/g, "$1").repla
 globalThis.__stubs = {
   View: class {}, div: () => el, svg: () => el, image: () => el, v_flex: () => el, h_flex: () => el,
   InputState: { new: inputState }, Input: { new: () => el }, Editor: { new: () => el }, EditorState: { new: inputState },
+  TextareaState: { new: inputState }, Textarea: { new: () => el },
   TextView: { markdown: (id, md) => { H.texts.push(unescape(md)); return { selectable: () => el }; } },
   theme: () => new Proxy({}, { get: (_t, k) => (k === "then" ? undefined : "#334455") }),
   settings: () => ({}), window: () => H.window, home: () => H.home,
@@ -79,12 +81,14 @@ async function loadMod() {
     let src = readFileSync(join(MOD, f), "utf8");
     src = src.replace(/^import\s*\{([^}]*)\}\s*from\s*"(gpui-kit|gpui-base|herdr)";\s*$/gm, (_m, names) =>
       `const {${names.replace(/\s+as\s+/g, ": ")}} = globalThis.__stubs;`);
+    // import * as host from "herdr": the stubs object itself (a test adds nextDrop to it for a newer Herdr)
+    src = src.replace(/^import\s*\*\s*as\s+(\w+)\s+from\s*"(gpui-kit|gpui-base|herdr)";\s*$/gm, (_m, name) => `const ${name} = globalThis.__stubs;`);
     assert.doesNotMatch(src, /from\s+"(gpui-kit|gpui-base|herdr)"/, `${f}: an import the test can't swap (keep them on one line each)`);
     writeFileSync(join(dir, f), src);
   }
   const at = (f) => import(pathToFileURL(join(dir, f)).href);
   const m = { main: await at("main.js"), common: await at("common.js"), layout: await at("layout.js"), context: await at("context.js"), bots: await at("bots.js"),
-    machines: await at("machines.js") };
+    machines: await at("machines.js"), place: await at("place.js") };
   rmSync(dir, { recursive: true, force: true });
   return m;
 }
@@ -105,7 +109,8 @@ async function settle() { for (let i = 0; i < 20 && H.tasks.length; i++) { const
 function fresh() {
   H.store = {}; H.calls = []; H.runs = []; H.overlays = []; H.notes = []; H.texts = []; H.strings = []; H.tasks = []; H.timeouts = []; H.files = null; H.writes = [];
   H.props = {}; H.layout = { id: "root", children: [] }; H.window = { platform: "macos" }; H.panes = []; H.spaces = [];
-  H.machines = []; H.hcAnswer = null; H.reads = []; H.clipboard = []; H.appHome = null;
+  H.machines = []; H.hcAnswer = null; H.reads = []; H.clipboard = []; H.appHome = null; H.drags = [];
+  delete globalThis.__stubs.nextDrop;   // an older Herdr: no drag API
   timers.length = 0; skew = 0;
 }
 // a fake kit, answering as kit 0.3.0 does (kit's README, "給程式讀的介面"): argv after the program -> answer.
@@ -629,6 +634,196 @@ test("下載看看: kit collect --look's JSON is shown; its error JSON shows kit
   assert.match(shown, /不在 collect_sources/); assert.doesNotMatch(shown, /"error"/);
 });
 
+// ---------- an agent in a space (place.js, agents.js): kit place, then a tab there ----------
+const AGENTS = { kit: "0.5.0", tools: ["claude", "codex"], available: {}, agents: [{ name: "reviewer", description: "看 PR", rules: [], skills: [], mcp: [], source: "team", path: "/s/agents/reviewer.md" }] };
+const PLACED = (dir, command = ["claude"], warnings = []) => ({ code: 0, stdout: `${JSON.stringify({ dir, agent: "reviewer", tool: command[0], command, warnings })}\n`, stderr: "" });
+// a fake kit that also answers kit place (answer(args) -> an answer, or null for the usual)
+function placeKit(answer) {
+  fakeKit({ api: "1.3", agents: AGENTS });
+  const base = H.answer;
+  H.answer = (argv, on) => { const a = argv[0] === "sh" ? argv.slice(4) : argv.slice(1); return (a[0] === "place" && answer(a, on)) || base(argv, on); };
+}
+// a newer Herdr: nextDrop hands out these drops, then stops (as when the panel closes: the loop ends)
+function dropping(drops) {
+  const q = [...drops];
+  globalThis.__stubs.nextDrop = async () => { if (!q.length) throw new Error("closed"); return q.shift(); };
+}
+test("place: what a card carries, what a drop is read as; the folder kit place makes, written as that machine writes paths", ({ place: P }) => {
+  assert.equal(P.dragPayload({ name: "reviewer", source: "team" }, "codex"), '{"agent":"reviewer","source":"team","tool":"codex"}');
+  assert.deepEqual(P.readPayload(P.dragPayload({ name: "reviewer" })), { agent: "reviewer", tool: "claude" });
+  assert.deepEqual(P.readPayload('{"agent":"a-1","tool":"vim"}'), { agent: "a-1", tool: "claude" });
+  for (const bad of ["x", "", null, '{"agent":"../x"}', '{"agent":"Big"}', '{"name":"a"}', "[1]"]) assert.equal(P.readPayload(bad), null, String(bad));
+  fresh();
+  assert.equal(P.placeDir({ folder: "/Users/amy/work/" }, "reviewer"), "/Users/amy/work/reviewer");
+  assert.equal(P.placeDir({ folder: "" }, "reviewer"), "/Users/amy/reviewer", "no folder: this computer's home");
+  assert.equal(P.placeDir({ folder: "", machine: "box" }, "reviewer"), "reviewer", "another machine's home: kit starts there");
+  assert.equal(P.placeDir({ folder: "/home/amy/p", machine: "box" }, "reviewer"), "/home/amy/p/reviewer");
+  assert.equal(P.placeDir({ folder: "C:\\work\\", machine: "winbox" }, "reviewer"), "C:\\work\\reviewer");
+  assert.equal(P.placeDir({ folder: "D:/x y", machine: "winbox" }, "reviewer"), "D:\\x y\\reviewer");
+  H.window = { platform: "windows" }; H.home = "C:\\Users\\amy";
+  assert.equal(P.placeDir({ folder: "C:/w" }, "reviewer"), "C:\\w\\reviewer");
+  assert.equal(P.placeDir({ folder: "" }, "reviewer"), "C:\\Users\\amy\\reviewer");
+  H.home = "/Users/amy";
+});
+test("agents, a newer Herdr: cards are draggable (payload, its name as the label); a drop runs kit place on the space's machine, then tab.new there with kit's command", async (M) => {
+  fresh();
+  const space = { id: "box/s2", machine: "box", name: "proj", folder: "/home/amy/proj" };
+  dropping([{ payload: "not one of ours", space }, { payload: M.place.dragPayload({ name: "reviewer", source: "team" }, "codex"), space }]);
+  placeKit(() => PLACED("/home/amy/proj/reviewer", ["codex"], ["Codex 不能只開某些內建工具：tools.only 不套用"]));
+  const v = view(M, { role: "agents" }); await settle(); await tick();
+  const place = kitCalls("place");
+  assert.equal(place.length, 1, "the payload that isn't an agent card does nothing");
+  assert.deepEqual(place[0].argv.slice(-6), ["place", "reviewer", "/home/amy/proj/reviewer", "--tool", "codex", "--json"]);
+  assert.equal(place[0].on, "box");
+  assert.deepEqual(H.runs.filter((r) => r[0] === "tab.new"), [["tab.new", { name: "reviewer", space: "box/s2", folder: "/home/amy/proj/reviewer", argv: ["codex"] }]]);
+  const done = H.notes.at(-1);
+  assert.equal(done.level, "success"); assert.match(done.title, /reviewer 放到 proj 了/); assert.match(done.body, /⚠ Codex 不能只開/);
+  assert.equal(H.notes[0].level, "info", "progress first");
+  assert.equal(H.store["kit.busy"] ?? null, null, "the lock is given back");
+  render(v);
+  assert.deepEqual(H.drags.map((d) => d.slice(1)), [['{"agent":"reviewer","source":"team","tool":"claude"}', "reviewer"]], "one card, its payload and label");
+  assert.match(render(v), /拖到 Agents 或 Spaces 面板的 space 上/);
+});
+test("agents: a drop kit refuses (another agent's folder, an older kit): said in plain words, no tab opened", async (M) => {
+  const space = { id: "s1", machine: null, name: "web", folder: "/Users/amy/web" };
+  for (const [answer, want] of [[kitError("other_agent", "/Users/amy/web/reviewer 已經是 agent writer 的資料夾"), /另一個 agent 的資料夾[\s\S]*agent writer/],
+    [kitError("not_empty", "x"), /不是 kit 放的/], [{ code: 1, stdout: "", stderr: "kit: 沒有這個指令：place（打 kit help）\n" }, /kit 太舊，沒有 kit place：要 kit 0\.5\.0/]]) {
+    fresh();
+    dropping([{ payload: M.place.dragPayload({ name: "reviewer" }), space }]);
+    placeKit(() => answer);
+    view(M, { role: "agents" }); await settle();
+    assert.equal(kitCalls("place")[0].on, null);
+    assert.equal(kitCalls("place")[0].argv.at(-4), "/Users/amy/web/reviewer");
+    assert.equal(H.runs.filter((r) => r[0] === "tab.new").length, 0);
+    const n = H.notes.at(-1);
+    assert.equal(n.level, "error"); assert.match(n.body, want);
+  }
+});
+test("agents, an older Herdr (no nextDrop): nothing draggable, no drop loop; 放到 space… lists the spaces, a click places it there", async (M) => {
+  fresh();
+  H.spaces = [{ id: "s1", name: "web", machine: null, folder: "/Users/amy/web" }, { id: "w/s3", name: "win", machine: "winbox", folder: "C:\\src" }];
+  placeKit((a) => PLACED(a[2]));
+  const v = view(M, { role: "agents" }); await settle(); await tick();
+  let shown = render(v);
+  assert.deepEqual(H.drags, []);
+  assert.match(shown, /按「放到 space…」/); assert.doesNotMatch(shown, /拖到/);
+  H.clicks["place-reviewer"]({}, cx);
+  shown = render(v);
+  assert.match(shown, /web/); assert.match(shown, /winbox · C:\\src\\reviewer/);
+  H.clicks["place-reviewer-w/s3"]({}, cx); await settle();
+  const c = kitCalls("place");
+  assert.equal(c.length, 1); assert.equal(c[0].on, "winbox"); assert.ok(c[0].argv.includes("C:\\src\\reviewer"));
+  assert.deepEqual(H.runs.find((r) => r[0] === "tab.new")[1], { name: "reviewer", space: "w/s3", folder: "C:\\src\\reviewer", argv: ["claude"] });
+  assert.ok(!ids(v).includes("place-reviewer-s1"), "the picker closes");
+  render(v); H.clicks["place-reviewer"]({}, cx); render(v); H.clicks["place-cancel-reviewer"]({}, cx);
+  assert.ok(!ids(v).includes("place-reviewer-s1"));
+});
+test("FEATURES: kit 0.5.0 (api 1.3) adds 貼上 MCP 設定, 各機器的核准和來源, 把 agent 放到 space", ({ machines: X }) => {
+  assert.deepEqual(X.FEATURES.filter((f) => f.api === "1.3").map((f) => [f.name, f.kit]),
+    [["貼上 MCP 設定", "0.5.0"], ["各機器的核准和來源", "0.5.0"], ["把 agent 放到 space", "0.5.0"]]);
+  assert.deepEqual(X.missing({ api: "1.2" }, { api: [1, 3] }).lacks.map((f) => f.name), ["貼上 MCP 設定", "各機器的核准和來源", "把 agent 放到 space"]);
+});
+
+// ---------- 倉庫 → MCP → ＋ 新增 → 貼上設定 (kit new mcp --config <file>) ----------
+const PASTE = '{"mcpServers": {"github": {"command": "npx", "args": ["-y", "@modelcontextprotocol/server-github"], "env": {"GITHUB_PERSONAL_ACCESS_TOKEN": "ghp_secret123"}}}}';
+const LOOK = { name: "github", source: "team", path: "/x/mcp/github.yaml", exists: false, type: "stdio",
+  yaml: "command: npx\nargs: [-y, \"@modelcontextprotocol/server-github@2025.4.8\"]\nenv:\n  GITHUB_PERSONAL_ACCESS_TOKEN: ${GITHUB_PERSONAL_ACCESS_TOKEN}\n",
+  secrets: [{ where: "env.GITHUB_PERSONAL_ACCESS_TOKEN", var: "GITHUB_PERSONAL_ACCESS_TOKEN" }], vars: ["GITHUB_PERSONAL_ACCESS_TOKEN"], requires: ["node"],
+  packages: [{ kind: "npm", package: "@modelcontextprotocol/server-github", version: "2025.4.8", bad: "" }], warnings: ["略過了 timeout"] };
+const MCP_LIST = { ...TEAM_LIST, kit: "0.5.0", items: [...TEAM_LIST.items, { kind: "mcp", name: "github", status: "unused", new: true, changed: true, source: "team", description: "", path: "/x/mcp/github.yaml" }] };
+async function pastePanel(M, newAnswer, { api = "1.3" } = {}) {
+  fresh(); fakeKit({ api, list: MCP_LIST }); H.files = { "/x/mcp/github.yaml": LOOK.yaml };
+  const base = H.answer;
+  H.answer = (argv, on) => (argv[1] === "new" ? newAnswer(argv.slice(1)) : base(argv, on));
+  const v = view(M, { role: "repo" }); await settle(); await tick();
+  render(v); H.clicks["tab-mcp"]({}, cx); render(v); H.clicks.new({}, cx); render(v); H.clicks["mode-paste"]({}, cx);
+  return v;
+}
+const FILE = "/Users/amy/.config/herdr-app/kit-tmp/mcp-paste.txt";
+test("MCP 貼上設定: the paste goes to kit in a file under the app's home (never an argument), blanked right after; --look shows the yaml, the variable names, the pinned package, needs, warnings", async (M) => {
+  const asked = [];
+  const v = await pastePanel(M, (a) => { asked.push([...a, H.files[FILE]]); return { code: 0, stdout: `${JSON.stringify(LOOK)}\n`, stderr: "" }; });
+  render(v); H.clicks["paste-look"]({}, cx); await settle();
+  assert.equal(kitCalls("new").length, 0, "nothing pasted: kit isn't asked");
+  assert.match(render(v), /先把設定貼在上面的框裡/);
+  v.part.pasteCode().set_value(PASTE);
+  render(v); H.clicks["paste-look"]({}, cx); await settle();
+  assert.deepEqual(asked, [["new", "mcp", "--config", FILE, "--to", "team", "--look", PASTE]], "kit read the paste from the file while it ran");
+  for (const c of H.calls) assert.ok(!c.argv.some((x) => String(x).includes("ghp_secret123") || String(x).includes("mcpServers")), "never an argument");
+  assert.deepEqual(H.writes.filter((w) => w[0] === FILE), [[FILE, PASTE, null], [FILE, "", PASTE]], "written (a new file: it must not be there), then blanked");
+  const shown = render(v);
+  assert.match(shown, /GITHUB_PERSONAL_ACCESS_TOKEN: \$\{GITHUB_PERSONAL_ACCESS_TOKEN\}/);
+  assert.match(shown, /每台電腦要先設定環境變數（只有名字，值各自設）：GITHUB_PERSONAL_ACCESS_TOKEN/);
+  assert.match(shown, /套件 @modelcontextprotocol\/server-github 固定在 2025\.4\.8 版/);
+  assert.match(shown, /它要的程式：node/); assert.match(shown, /⚠ 略過了 timeout/);
+  assert.match(shown, /kit install-deps mcp github/); assert.match(shown, /送出/);
+  assert.doesNotMatch(shown, /ghp_secret123/);
+  assert.ok(ids(v).includes("paste-make"));
+});
+test("MCP 貼上設定: 建立 runs it without --look (the same paste and name), then opens the file; changed since: look again first", async (M) => {
+  const asked = [];
+  const v = await pastePanel(M, (a) => { asked.push(a); return a.includes("--look") ? { code: 0, stdout: `${JSON.stringify(LOOK)}\n`, stderr: "" } : { code: 0, stdout: "", stderr: "kit：已建立 mcp/github.yaml（在 team）\n" }; });
+  v.part.pasteCode().set_value(PASTE);
+  render(v); H.clicks["paste-look"]({}, cx); await settle();
+  v.part.pasteCode().set_value(PASTE + " ");
+  render(v); H.clicks["paste-make"]({}, cx); await settle();
+  assert.equal(asked.length, 1, "changed after the look: not created");
+  assert.match(render(v), /再按一次「看看會變成什麼」/);
+  v.part.pasteCode().set_value(PASTE);
+  render(v); H.clicks["paste-look"]({}, cx); await settle();
+  render(v); H.clicks["paste-make"]({}, cx); await settle();
+  assert.deepEqual(asked.at(-1), ["new", "mcp", "--config", FILE, "--to", "team"]);
+  assert.deepEqual(H.writes.filter((w) => w[0] === FILE).at(-1), [FILE, "", PASTE]);
+  assert.equal(v.part.making, null); assert.equal(v.part.pasteCode().value(), "", "the paste box is emptied");
+  assert.ok(H.reads.some((r) => r[0] === "/x/mcp/github.yaml"), "the new file is opened");
+  assert.match(H.store["kit.msg.repo"].text, /已建立 mcp:github（在 team）/);
+});
+test("MCP 貼上設定: several servers / a name not in it: pick one (re-looked with that name); bad_config, bad_name, exists in plain words; Windows: the file with \\", async (M) => {
+  let answer = kitError("several_servers", "設定裡有好幾個 server，要寫名字：github、notion");
+  answer.stdout = `${JSON.stringify({ error: { code: "several_servers", message: "設定裡有好幾個 server，要寫名字：github、notion", servers: ["github", "notion"] } })}\n`;
+  const asked = [];
+  const v = await pastePanel(M, (a) => { asked.push(a); return answer; });
+  v.part.pasteCode().set_value(PASTE);
+  render(v); H.clicks["paste-look"]({}, cx); await settle();
+  assert.match(render(v), /有好幾個 server：點一個/);
+  answer = { code: 0, stdout: `${JSON.stringify({ ...LOOK, name: "notion" })}\n`, stderr: "" };
+  render(v); H.clicks["paste-server-notion"]({}, cx); await settle();
+  assert.deepEqual(asked.at(-1), ["new", "mcp", "notion", "--config", FILE, "--to", "team", "--look"]);
+  assert.equal(v.part.newName.value(), "notion");
+  for (const [code, want] of [["bad_config", /kit 看不懂貼上的設定[^\n]*JSON 讀不懂/], ["bad_name", /只能用小寫英文/], ["no_name", /在上面寫一個名字/]]) {
+    answer = kitError(code, code === "bad_config" ? "JSON 讀不懂（是不是少了括號、逗號或引號？）" : "m");
+    render(v); H.clicks["paste-look"]({}, cx); await settle();
+    assert.match(render(v), want, code);
+  }
+  answer = { code: 0, stdout: `${JSON.stringify({ ...LOOK, exists: true })}\n`, stderr: "" };
+  render(v); H.clicks["paste-look"]({}, cx); await settle();
+  assert.match(render(v), /已經有同名的/); assert.ok(!ids(v).includes("paste-make"), "exists: nothing to create");
+  fresh();
+  const w = await pastePanel(M, (a) => { asked.push(a); return { code: 0, stdout: `${JSON.stringify(LOOK)}\n`, stderr: "" }; });
+  H.window = { platform: "windows" }; H.appHome = "C:\\Users\\amy\\AppData\\Roaming\\herdr-app\\";
+  w.part.pasteCode().set_value(PASTE);
+  render(w); H.clicks["paste-look"]({}, cx); await settle();
+  assert.equal(asked.at(-1)[asked.at(-1).indexOf("--config") + 1], "C:\\Users\\amy\\AppData\\Roaming\\herdr-app\\kit-tmp\\mcp-paste.txt");
+});
+test("MCP 貼上設定: an older kit (api 1.2) says kit self-update", async (M) => {
+  const v = await pastePanel(M, () => ({ code: 1, stdout: "", stderr: "" }), { api: "1.2" });
+  assert.match(render(v), /貼上設定要 kit 0\.5\.0 以上/);
+});
+test("agent popup: an MCP's unset variables (names only) and its package downloaded each start; 裝套件 → kit install-deps mcp <name>", async (M) => {
+  fresh(); fakeKit();
+  const target = { key: "|/x|t1", term: "t1", machine: null, cwd: "/x", title: "Claude Code" };
+  H.store["kit.agent.data.v1"] = { [target.key]: { items: [{ kind: "mcp", name: "github", status: "used", type: "stdio",
+    vars: [{ name: "GITHUB_TOKEN", set: false }, { name: "HOME_URL", set: true }], needs: [],
+    packages: [{ kind: "npm", package: "@x/server", version: "1.2.3", ok: false, had: false, install: "npm install --ignore-scripts", bad: "" }] }], here: { items: [] } } };
+  H.store["kit.agent.v1"] = { [target.key]: { started: Date.now(), at: Date.now() } };
+  const v = view(M, { role: "agent", target }); await settle();
+  const shown = render(v);
+  assert.match(shown, /這台沒設環境變數：GITHUB_TOKEN（/); assert.doesNotMatch(shown, /HOME_URL/);
+  assert.match(shown, /每次啟動時下載 @x\/server@1\.2\.3/);
+  H.clicks["need-github-mcp"]({}, cx); render(v); H.clicks["need-go-github-mcp"]({}, cx); await settle();
+  assert.deepEqual(kitCalls("install-deps").map((c) => c.argv.slice(-3)), [["install-deps", "mcp", "github"]]);
+});
+
 // placing the panel in a layout of your own (放進上排)
 const userLayout = (paneHeader = { content: { mod: "pane" } }) => ({ id: "root", type: "column", children: [
   { id: "bar", type: "row", children: [{ id: "tabs", type: "block", content: { mod: "tabs" }, size: { weight: 1 } }], size: { px: 42 } },
@@ -774,8 +969,9 @@ machinesTest("各機器: what a row lacks is named (no counts), from the api tab
   assert.deepEqual(X.missing({ api: "1.0" }, top).lacks.map((f) => f.name), ["agent-files 清單", "按輪分段"]);
   assert.deepEqual(X.missing({ api: null }, top).lacks.map((f) => f.name), ["Kit 面板", "agent-files 清單", "按輪分段"]);
   // a kit newer than the table knows: said as that kit's new things
-  const t2 = X.newest([...rows, { state: "ok", kit: "0.5.0", api: "1.3" }]);
-  assert.deepEqual(X.missing(rows[0], t2), { lacks: [{ name: "kit 0.5.0 的新功能", kit: "0.5.0" }], kit: "0.5.0" });
+  const t2 = X.newest([...rows, { state: "ok", kit: "0.6.0", api: "1.4" }]);
+  assert.deepEqual(X.missing({ api: "1.3" }, t2), { lacks: [{ name: "kit 0.6.0 的新功能", kit: "0.6.0" }], kit: "0.6.0" });
+  assert.deepEqual(X.missing(rows[0], t2).lacks.map((f) => f.name), ["貼上 MCP 設定", "各機器的核准和來源", "把 agent 放到 space", "kit 0.6.0 的新功能"]);
   assert.equal(X.atApproved({ self: { commit: SHA("a"), approved: SHA("a") }, sources: [{ commit: SHA("b"), approved: SHA("b") }, { commit: SHA("c"), approved: null }] }), true);
   assert.equal(X.atApproved({ self: { commit: SHA("a"), approved: SHA("e") }, sources: [] }), false);
   assert.equal(X.atApproved({ self: { commit: SHA("a"), approved: null }, sources: [] }), null);

@@ -2042,9 +2042,10 @@ do
       vim.ui.select(opts, { prompt = "換成哪一版？", format_item = function(o) return o.label end }, function(o) if o then R.switch(o) end end)
     end
     -- the diff's hunks that touch lines l1..l2 of the new file (git diff -U3 text)
-    -- the diff of only lines l1..l2 (and 2 lines around them): the parts of hunks there, each with its own @@ header
+    -- the diff of only lines l1..l2 (removed lines right above them too): the parts of hunks there, each with its own
+    -- @@ header. Nothing around them: the agent has the folder for more.
     function R.hunks(text, l1, l2)
-      local lo, hi = l1 - 2, l2 + 2
+      local lo, hi = l1, l2
       local out, cur = {}, nil
       local function flush()
         if not cur then return end

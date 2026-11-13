@@ -326,7 +326,7 @@ export const REVIEW_OK = "gerrit.review.ok";       // { project: true } you agre
 export const REVIEW_DRAFTED = "gerrit.review.drafted"; // { n, at }: change n changed (nvim's drafts saved, a newer patch set): reload it
 const LIST_MAX = 50;
 const DRAFT_LINES_MAX = 200;
-const LATEST_EVERY = 60000;   // how often an open review asks Gerrit for a newer patch set
+const LATEST_EVERY = 60000;   // how often an open review asks Gerrit for a newer patch set and its comments / drafts
 export const quotePs = psq;
 
 // h: what main.js has: herdr's functions, gpui's elements, and the panel's own helpers (ui)
@@ -493,6 +493,7 @@ export function reviewMethods(h) {
       if (!e) return;
       const t = paneOf(e);
       if (t) { try { run("pane.focus", { terminal: t.address }); } catch {} return; }
+      this.reviewWrite(n).catch(() => {}); // what Gerrit has now (nvim reads it again when it changes)
       const space = localSpace();
       if (!space) { notify({ title: "沒有這台電腦上的 space", body: "nvim 要開在檔案所在的這台電腦：先開一個本機的 space", level: "warning" }); return; }
       openOverlay({ mod: "nvim-jay", props: { review: reviewFile(e), folder: e.wt, name: `review ${n}`, space }, kind: "popup", width: 1, height: 1 });
@@ -504,7 +505,7 @@ export function reviewMethods(h) {
       if (e && last && last !== e.latest) { e = { ...e, latest: last }; this.setReviewEntry(e); }
       if (e && paneOf(e)) this.reviewWrite(e.n).catch(() => {});
     },
-    // A newer patch set of a review nvim has open (asked once a minute): nvim offers to show what it changed.
+    // Once a minute for a review nvim has open: comments and drafts made elsewhere, and a newer patch set (nvim offers to show what it changed).
     async reviewLatest() {
       this.reviewLatestAt ??= {};
       for (const e of shared(REVIEW_LIST) ?? []) {
@@ -512,7 +513,8 @@ export function reviewMethods(h) {
         this.reviewLatestAt[e.n] = Date.now();
         const c = await this.get(`/changes/${e.n}?o=CURRENT_REVISION`).catch(() => null);
         const last = latestPs(c), now = this.reviewEntry(e.n);
-        if (!last || !now || last === now.latest) continue;
+        if (!now) continue;
+        if (!last || last === now.latest) { await this.reviewWrite(e.n); continue; } // comments and drafts made elsewhere (the agent's)
         this.setReviewEntry({ ...now, latest: last });
         await this.reviewWrite(e.n);
         setShared(REVIEW_DRAFTED, { n: e.n, at: Date.now() }); // a page showing it reloads (the newer patch set, its buttons)

@@ -171,12 +171,12 @@ test("a newer patch set: switch, only what it changed", function()
 end)
 
 test("ask the Gerrit agent about lines", function()
-  check("hunks: only those touching the lines", R.hunks("diff --git a/x b/x\n@@ -1,2 +1,2 @@\n-a\n+A\n b\n@@ -10 +10,2 @@\n z\n+y", 11, 11) == "@@ -10,1 +10,2 @@\n z\n+y")
+  check("hunks: only the selected lines", R.hunks("diff --git a/x b/x\n@@ -1,2 +1,2 @@\n-a\n+A\n b\n@@ -10 +10,2 @@\n z\n+y", 11, 11) == "@@ -10,0 +11,1 @@\n+y")
   local big = "@@ -1,2 +1,8 @@\n+.PHONY: test lint\n+\n test:\n-\tpython3 -m pytest\n+\tpython3 -m pytest -q\n+\n+lint:\n+\truff check .\n+check: lint test"
   local got = R.hunks(big, 4, 4)
-  check("hunks: only the selected lines and 2 around, not the whole hunk", got == "@@ -1,2 +2,5 @@\n+\n test:\n-\tpython3 -m pytest\n+\tpython3 -m pytest -q\n+\n+lint:", got)
+  check("hunks: only the selected line (and what it replaced), not the whole hunk", got == "@@ -2,1 +4,1 @@\n-\tpython3 -m pytest\n+\tpython3 -m pytest -q", got)
   got = R.hunks(big, 8, 8)
-  check("hunks: the last line", got == "@@ -2,0 +6,3 @@\n+lint:\n+\truff check .\n+check: lint test", got)
+  check("hunks: the last line", got == "@@ -2,0 +8,1 @@\n+check: lint test", got)
   R.data.updating = nil
   R.open(RV.ordered()[1], 2)
   with_ui("is this right?", nil, function() R.ask(2, 2) end)

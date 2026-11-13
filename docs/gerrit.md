@@ -524,9 +524,10 @@ show in the panel's thread, and **💬 送出回覆** publishes them with the re
 
 **Ask the agent about lines**: select them and press Enter (or 問 Gerrit agent 這一段 in the menu), then a question
 (empty: 這段改動在做什麼？有沒有問題？). It goes to the Gerrit agent (§7) with the change, the file and lines, the folder's
-path and this file's diff for them (lines that the change didn't touch: the lines themselves). One already open in
+path and the diff of exactly those lines (lines that the change didn't touch: the lines themselves); the agent has the
+folder for anything around them. One already open in
 this space gets it; else one opens here with it. It answers in its own tab; when it wants to comment it saves a draft
-on that line, which then shows in nvim.
+on that line, which shows in nvim within a minute (the panel asks Gerrit once a minute while nvim is open).
 選幾行按 Enter 就把那幾行（和它的 diff）問 Gerrit agent；它要留意見的話會存成草稿。
 
 **Both ways**: clicking a file in the panel's list makes the open nvim go to it too. New comments on Gerrit show in

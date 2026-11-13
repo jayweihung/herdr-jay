@@ -304,7 +304,7 @@ test("whose change: the owner's buttons only on yours, CI's labels never pressed
   const base = { current_revision: "b", revisions: { a: { _number: 1 }, b: { _number: 2, actions: { rebase: { enabled: true } } } },
     actions: { abandon: { enabled: true }, wip: { enabled: true }, topic: { enabled: true } }, submittable: true,
     permitted_labels: { "Code-Review": ["-2", "-1", " 0", "+1", "+2"], Verified: ["-1", " 0", "+1"] } };
-  const show = (c, rev = c.current_revision) => { g.detail = { change: c, comments: {} }; g.openId = c.id; g.seen = { id: c.id, rev }; return renderText(g).split("\n"); };
+  const show = (c, rev = c.current_revision) => { g.detail = { change: c, comments: {} }; g.openId = c.id; g.readPs = { id: c.id, rev }; return renderText(g).split("\n"); };
   // Alice's change
   let lines = show(change(7, base)), text = lines.join("\n");
   assert.doesNotMatch(text, /Rebase|放棄|改回草稿|合併（Submit）/, "no owner's buttons on someone else's change");
@@ -325,9 +325,15 @@ test("whose change: the owner's buttons only on yours, CI's labels never pressed
   assert.deepEqual(seen.filter((r) => r.method === "POST").map((r) => r.path), ["/a/changes/7/revisions/a/review"]);
   // 看第 2 版: now the newest, votes go there
   const yours = change(7, { ...base, owner: ME });
-  g.detail = { change: yours, comments: {} }; g.seen = { id: yours.id, rev: "b" }; seen.length = 0;
+  g.detail = { change: yours, comments: {} }; g.readPs = { id: yours.id, rev: "b" }; seen.length = 0;
   g.picked = { "Code-Review": 1 }; await g.sendReply(yours, cx);
   assert.deepEqual(seen.filter((r) => r.method === "POST").map((r) => r.path), ["/a/changes/7/revisions/b/review"]);
+  // opening a change remembers the patch set you read apart from the notifications' map (this.seen)
+  const g2 = freshView(G); g2.cfg = g.cfg; g2.seen = { "x~1": "2026-11-10 01:00:00.000000000" };
+  gerrit([["GET", /^\/a\/changes\/7\/detail/, [200, change(7, base)]], ["GET", /^\/a\/changes\/7\//, [200, {}]], ["GET", /^\/a\/changes\//, [200, []]]]);
+  await g2.openChange(change(7), cx);
+  assert.deepEqual(g2.seen, { "x~1": "2026-11-10 01:00:00.000000000" }, "the notifications' map untouched");
+  assert.equal(g2.seenRev(g2.detail.change), "b");
 });
 
 test("people: find by name, add as reviewer or CC (moving is the same call), remove", async (G) => {

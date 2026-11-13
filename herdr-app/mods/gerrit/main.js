@@ -288,7 +288,7 @@ export default class Gerrit extends View {
   // Labels CI votes on (gerrit.json "ci_labels"; default Build, Verified): shown in 合併條件, never as buttons to press
   ciLabels() { return Array.isArray(this.cfg?.ci_labels) ? this.cfg.ci_labels.map(String) : ["Build", "Verified"]; }
   // The patch set you opened the change at (a quiet refresh may bring a newer one): replies and votes go to it
-  seenRev(c) { return this.seen?.id === c.id ? this.seen.rev : c.current_revision; }
+  seenRev(c) { return this.readPs?.id === c.id ? this.readPs.rev : c.current_revision; }
   newerPs(c) {
     const seen = this.seenRev(c);
     if (!seen || !c.current_revision || seen === c.current_revision) return null;
@@ -1157,7 +1157,7 @@ export default class Gerrit extends View {
       ]);
       if (this.openId === c.id) {
         this.detail = { change: d, comments, drafts: drafts ?? {}, topic: topic && topic.filter((x) => x._number !== d._number), together };
-        if (!quiet || this.seen?.id !== d.id) this.seen = { id: d.id, rev: d.current_revision };
+        if (!quiet || this.readPs?.id !== d.id) this.readPs = { id: d.id, rev: d.current_revision }; // (not this.seen: the notifications' map)
       }
     } catch (e) {
       if (this.openId === c.id) this.detail = { change: c, error: String(e.message ?? e) };
@@ -1640,7 +1640,7 @@ export default class Gerrit extends View {
     if (open && newer != null) card.child(h_flex().id("newer-ps").gap(8).items_center().p(8).rounded(6).bg(t.raised)
       .child(div().flex_1().min_w(0).text_size(z - 1).text_color(t.ansi3).whitespace_normal()
         .child(`作者傳了第 ${newer} 版，你看的是第 ${c.revisions?.[this.seenRev(c)]?._number ?? "?"} 版：留言會留在你看的那版；要打分數或合併，先看新的這版。`))
-      .child(this.big(t, z, "see-newer", `看第 ${newer} 版`, { on: (cx) => { this.seen = { id: c.id, rev: c.current_revision }; this.picked = {}; cx.notify(); } })));
+      .child(this.big(t, z, "see-newer", `看第 ${newer} 版`, { on: (cx) => { this.readPs = { id: c.id, rev: c.current_revision }; this.picked = {}; cx.notify(); } })));
     // Score rows: Gerrit's permitted_labels, your current vote highlighted, the picked one filled. Not CI's labels;
     // on your own change Code-Review goes up to +1 (no approving yourself).
     const skipped = [];

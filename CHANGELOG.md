@@ -17,6 +17,7 @@ Needs: **app** (same v0.1.15, now five patches: rebuild it; core unchanged), **m
   too, and a line shows where it lands (the header: first; a row: right after it). An agent dragged from the Kit panel
   opens its tab there. Rows also drag to another place in their own space (the tab moves; other spaces refuse it).
 - The Kit panel's agent tab icon is its logo cropped to the drawing, as big as the programs' icons.
+- The Kit panel shows 放到 space… only on a Herdr that can't drag (dragging shows where it lands).
 - Build steps: [docs/macos.md](docs/macos.md) §3/§8, [docs/windows.md](docs/windows.md) §3/§8.2 (app blocks only).
 app 同樣是 v0.1.15，多了第五個 patch：Agents 面板裡可以放在 space 的某個位置、也能拖 agent 排順序；Kit 放的 agent 圖示跟其他程式一樣大。要重新 build app。
 

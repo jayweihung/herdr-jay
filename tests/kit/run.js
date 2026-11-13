@@ -680,7 +680,7 @@ test("place: what a card carries, what a drop is read as; the folder kit place m
   assert.equal(P.placeDir({ folder: "" }, "reviewer"), "C:\\Users\\amy\\reviewer");
   H.home = "/Users/amy";
 });
-test("agents, a newer Herdr: cards are draggable (payload, its name as the label); a drop runs kit place on the space's machine, then tab.new there with kit's command", async (M) => {
+test("agents, a newer Herdr: cards are draggable (payload, its name as the label), no 放到 space… button; a drop runs kit place on the space's machine, then tab.new there with kit's command", async (M) => {
   fresh();
   const space = { id: "box/s2", machine: "box", name: "proj", folder: "/home/amy/proj" };
   dropping([{ payload: "not one of ours", space }, { payload: M.place.dragPayload({ name: "reviewer", source: "team" }, "codex"), space }]);
@@ -699,6 +699,7 @@ test("agents, a newer Herdr: cards are draggable (payload, its name as the label
   render(v);
   assert.deepEqual(H.drags.map((d) => d.slice(1)), [['{"agent":"reviewer","source":"team","tool":"claude"}', "reviewer"]], "one card, its payload and label");
   assert.match(render(v), /拖到 Agents 或 Spaces 面板的 space 上/);
+  assert.doesNotMatch(render(v), /放到 space…/, "dragging says where: no 放到 space… button");
 });
 test("bots: a tab's icon is the logo cropped to a square just around the drawing (as big as the programs' icons); the page's logo keeps its room", ({ bots: B }) => {
   const box = (svg) => /viewBox="([^"]+)"/.exec(svg)[1].split(" ").map(Number);

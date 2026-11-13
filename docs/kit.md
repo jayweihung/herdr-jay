@@ -483,7 +483,8 @@ mod 只用這些欄位，每個都先檢查：`kit`（版本）、`api`（`major
 
 - **拖過去**：把 Agents 面板上的 agent 拖到 Agents 或 Spaces 面板的某個 space 上放開。要有拖放功能的 Herdr
   （herdr-app 的 drag 修改：元素的 `on_drag`、`nextDrop()`）；舊的 Herdr 沒有，就只有下面的按鈕，其他都一樣。
-- **放到 space…**（每個 Herdr 都有）：agent 那一列或它的詳細頁按「放到 space…」，從列出的 space 裡點一個。
+- **放到 space…**（只有不能拖的舊 Herdr 才有）：agent 那一列或它的詳細頁按「放到 space…」，從列出的 space 裡點一個。
+  能拖的 Herdr 不顯示這個按鈕：拖的時候看得到放在哪裡、哪個 space 不收。
 - 接著在那個 space 的機器上跑 `kit place <agent> <space 的資料夾>/<agent> --tool <工具> --json`：在 space 的資料夾裡建
   `<agent>` 這個資料夾（只建最後一層），放進它的東西。space 沒有資料夾的話是那台的家目錄。Windows 的機器用 `\`。
   工具是 agent 詳細頁選的（Claude、Codex、omp；沒選是 Claude）。

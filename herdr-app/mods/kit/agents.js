@@ -12,7 +12,8 @@
 //   kit agent <name> add|rm rule|skill|mcp <item>  change an agent (its file in the source)
 //   kit run <name> --tool claude|codex|omp         open it (in a new tab)
 //   kit place <name> <folder> --json               give it its own folder in a space, then a tab there (place.js):
-//                                                  its card dragged onto a space (a newer Herdr), or 放到 space…
+//                                                  its card dragged onto a space (a newer Herdr), or 放到 space… (only an
+//                                                  older Herdr, which can't drag: the drag says where better)
 // Each agent has a logo (bots.js): a cute animal-robot head, `bot: <animal>` or `bot: <animal> <color>` in its file's
 // frontmatter (written here, not by kit; kit keeps the line and kit push sends it), or one its name picks. In the list
 // a still picture; in its page drawn live (it says hello).
@@ -258,9 +259,9 @@ export class Agents {
     const body = v_flex().flex_1().min_h(0).overflow_y_scrollbar().px(10).py(8).gap(2);
     const ags = [...(d.agents ?? [])].sort((x, y) => x.name.localeCompare(y.name));
     if (!ags.length) return body.child(div().p(8).text_color(t.muted).child("來源裡還沒有 agent。在終端機打  kit new agent <名字>  寫一個。"));
-    // giving an agent its own folder in a space: drag (a newer Herdr), or the button
+    // giving an agent its own folder in a space: drag (a newer Herdr), or the button (an older one only)
     body.child(div().px(8).pb(4).text_size(z - 2).text_color(t.dim).child(canDrag()
-      ? "把 agent 拖到 Agents 或 Spaces 面板的 space 上（或按「放到 space…」）：在那個 space 的資料夾裡建它自己的資料夾，開一個分頁跑它。"
+      ? "把 agent 拖到 Agents 或 Spaces 面板的 space 上（放在哪一列就排在那裡）：在那個 space 的資料夾裡建它自己的資料夾，開一個分頁跑它。"
       : "按「放到 space…」：在那個 space 的資料夾裡建 agent 自己的資料夾，開一個分頁跑它。"));
     const tool = this.curTool(), live = liveNow();
     for (const a of ags) {
@@ -276,7 +277,7 @@ export class Agents {
           .child(copyOnRight(div().min_w(0).truncate().text_size(z - 1.5).text_color(t.muted).child([a.description, a.source].filter(Boolean).join(" · ") || "（還沒寫說明）"),
             a.description || a.path))
           .child(div().text_size(z - 2).text_color(t.dim).child(counts)))
-        .child(btn(t, z, `place-${a.name}`, "放到 space…", { small: true, on: (cx) => this.toggleSpaces(a.name, cx) }))
+        .when(!canDrag(), (el) => el.child(btn(t, z, `place-${a.name}`, "放到 space…", { small: true, on: (cx) => this.toggleSpaces(a.name, cx) })))
         .child(div().flex_none().text_color(t.dim).child("›")), a, tool, live));
       if (this.placing === a.name) body.child(this.spacePicker(t, z, a));
     }
@@ -330,7 +331,7 @@ export class Agents {
         .child(TOOL_NAMES[tool] ?? tool)) : [])
       .child(div().flex_1())
       .child(btn(t, z, "edit", "編輯檔案", { small: true, on: (cx) => cx.spawn(async (cx) => { await this.editFile(a, cx); cx.notify(); }) }))
-      .child(btn(t, z, `place-${a.name}`, "放到 space…", { small: true, on: (cx) => this.toggleSpaces(a.name, cx) }))
+      .when(!canDrag(), (el) => el.child(btn(t, z, `place-${a.name}`, "放到 space…", { small: true, on: (cx) => this.toggleSpaces(a.name, cx) })))
       .child(btn(t, z, "run", "開啟", { small: true, kind: "primary", on: (cx) => this.openAgent(a.name, cx) })));
     if (this.placing === a.name) body.child(this.spacePicker(t, z, a));
     // tools it may use

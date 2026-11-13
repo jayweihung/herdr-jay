@@ -9,6 +9,18 @@ says which) · **kit** = update kit itself on every machine where agents run (`k
 **snap hook** = a line in Claude Code's `settings.json` on each machine where you added the hook (the entry says
 which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/keys.md).
 
+## 2026-11-14, Gerrit panel: the owner's buttons only on your changes; votes on the patch set you read
+
+Needs: **gerrit** (Windows: copy it again), restart Herdr.
+
+- Rebase, WIP/Ready, Abandon/Restore, Topic ✎, 合併 (Submit) and Jenkins ▶ show only on your own change, even where
+  Gerrit would let you (a project owner, an admin).
+- Labels CI votes on (`ci_labels` in `gerrit.json`, default Build and Verified) are shown, never pressed.
+- On your own change Code-Review goes up to +1.
+- A new patch set arriving while you read: a line says so; replies go to the one you read, no scores or 合併 until you
+  press 看第 N 版. Details: [docs/gerrit.md](docs/gerrit.md) §3.
+作者才能按的按鈕只在自己的 change 出現；CI 的分數不給按；自己不能 +2；中途有新版會提醒，分數不會打到沒看過的版本。
+
 ## 2026-11-13, Gerrit panel: pick the question first; a kit gerrit agent
 
 Needs: **mods**, **gerrit**; for a kit gerrit agent, **kit** (`kit sync` after adding it to your kit source).

@@ -296,6 +296,40 @@ test("render: list, setup, change page, diff and the tab-bar button draw without
   H.props = { role: "toggle" }; const t = new G(); t.init({}, { timer: { every() {} }, spawn: () => {} }); render(t);
 });
 
+test("whose change: the owner's buttons only on yours, CI's labels never pressed, no +2 on your own, replies to the patch set you saw", async (G) => {
+  setConfig(LOGIN); const g = freshView(G); g.cfg = await g.readConfig();
+  H.store["gerrit.cfg.v1"] = { url: "https://gerrit.test", auth: true };
+  H.store["gerrit.data.v1"] = { at: Date.now(), err: null, self: ME, sections: [] };
+  gerrit([["POST", /^\/a\/changes\/7\/revisions\/[a-z]+\/review$/, [200, {}]], ["GET", /^\/a\/changes\/7\//, [200, {}]]]);
+  const base = { current_revision: "b", revisions: { a: { _number: 1 }, b: { _number: 2, actions: { rebase: { enabled: true } } } },
+    actions: { abandon: { enabled: true }, wip: { enabled: true }, topic: { enabled: true } }, submittable: true,
+    permitted_labels: { "Code-Review": ["-2", "-1", " 0", "+1", "+2"], Verified: ["-1", " 0", "+1"] } };
+  const show = (c, rev = c.current_revision) => { g.detail = { change: c, comments: {} }; g.openId = c.id; g.seen = { id: c.id, rev }; return renderText(g).split("\n"); };
+  // Alice's change
+  let lines = show(change(7, base)), text = lines.join("\n");
+  assert.doesNotMatch(text, /Rebase|放棄|改回草稿|合併（Submit）/, "no owner's buttons on someone else's change");
+  assert.match(text, /Verified 是 CI 打的分數/); assert.ok(lines.includes("+2"), "you may approve someone else's");
+  assert.ok(!lines.some((l) => /^Verified$/.test(l)), "no Verified buttons");
+  // yours
+  lines = show(change(7, { ...base, owner: ME })); text = lines.join("\n");
+  assert.match(text, /Rebase/); assert.match(text, /放棄/); assert.match(text, /合併（Submit）/);
+  assert.ok(!lines.includes("+2") && lines.includes("+1"), "Code-Review up to +1 on your own");
+  // ci_labels from gerrit.json: none → Verified can be pressed again
+  g.cfg = { ...g.cfg, ci_labels: [] }; assert.doesNotMatch(show(change(7, base)).join("\n"), /CI 打的分數/); g.cfg = { ...g.cfg, ci_labels: undefined };
+  // a newer patch set came in after you opened it: no submit, no votes, a message goes to the one you saw
+  text = show(change(7, { ...base, owner: ME }), "a").join("\n");
+  assert.match(text, /作者傳了第 2 版，你看的是第 1 版/); assert.doesNotMatch(text, /合併（Submit）/);
+  g.picked = { "Code-Review": 1 }; await g.sendReply(g.detail.change, cx);
+  assert.match(g.actErr, /有新的第 2 版/); assert.equal(seen.filter((r) => r.method === "POST").length, 0);
+  g.picked = {}; g.replyState().set_value("這版的第 3 行"); await g.sendReply(g.detail.change, cx);
+  assert.deepEqual(seen.filter((r) => r.method === "POST").map((r) => r.path), ["/a/changes/7/revisions/a/review"]);
+  // 看第 2 版: now the newest, votes go there
+  const yours = change(7, { ...base, owner: ME });
+  g.detail = { change: yours, comments: {} }; g.seen = { id: yours.id, rev: "b" }; seen.length = 0;
+  g.picked = { "Code-Review": 1 }; await g.sendReply(yours, cx);
+  assert.deepEqual(seen.filter((r) => r.method === "POST").map((r) => r.path), ["/a/changes/7/revisions/b/review"]);
+});
+
 test("people: find by name, add as reviewer or CC (moving is the same call), remove", async (G) => {
   setConfig(LOGIN); const g = freshView(G);
   gerrit([["GET", /^\/a\/accounts\/\?suggest/, (r) => [200, r.query.get("q") === "ali" ? [ALICE] : []]],

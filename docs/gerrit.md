@@ -69,6 +69,8 @@ Until it exists, the panel shows what to write. Create `<home>/.config/herdr-app
 - `user` / `http_password`: Gerrit's **HTTP password**, not your login password. In Gerrit: your avatar (top right) →
   Settings → HTTP Credentials → Generate new password. 不是登入密碼，是 Gerrit 設定頁產生的 HTTP 密碼。
 - `poll_seconds`: how often it asks Gerrit (at least 15; default 60).
+- `ci_labels` (optional): labels CI votes on, shown only as results, never as buttons; default `["Build", "Verified"]`.
+  `[]` if people on your team set Verified by hand. CI 打的分數，不給按；預設 Build、Verified。
 - `jenkins` (optional): Jenkins builds on a change's page, see [§6](#6-jenkins-builds--jenkins-build).
 - `sections` (optional): your own sections, see [§4](#4-your-own-sections--自訂分區).
 - `bots` (optional, usually not needed): which accounts are check systems (build, test, lint bots), as a regular
@@ -156,18 +158,25 @@ back to Base → latest. Useful to see what changed since you last reviewed (從
 
 **Reply, vote, submit** (only when logged in), at the top of a change's page, like Gerrit's REPLY dialog:
 - a row of big score buttons per label you may vote on (your current vote is highlighted; press one to pick it,
-  press your current one to drop the pick);
+  press your current one to drop the pick). Not for labels CI votes on (`ci_labels`, §2; default Build and
+  Verified): their results show under 合併條件. On your own change Code-Review goes up to +1 (no approving yourself);
+- **the patch set you opened it at**: the page refreshes by itself, and when the owner uploads a new patch set while
+  you are on it, a line says 「作者傳了第 N 版，你看的是第 M 版」. Until you press **看第 N 版**, a reply (and its
+  drafts) goes to the patch set you were reading, scores aren't sent, and there is no 合併. 作者中途傳了新版：留言留在你看的那版，
+  要打分數或合併先按「看第 N 版」。
 - a box for the message, and **💬 送出回覆** sends the message and the picked scores together (and publishes your
   drafts, as Gerrit's SEND does);
-- **✅ 合併（Submit）** when the change can be submitted: press once, it turns red 「再按一次確認合併」, press again
+- **✅ 合併（Submit）** when the change can be submitted, **on your own change** (the owner submits): press once, it turns red 「再按一次確認合併」, press again
   within 4 seconds.
 - **Reviewer／CC**: **＋ 加 Reviewer／CC** opens a box: type part of a name, username or email, press 🔍 找人, then
   **加 Reviewer** or **加 CC** next to the right person. Next to each name, **→CC** / **→Reviewer** moves them;
   **✕** removes them (only shown on your own changes, and for yourself: Gerrit allows only that without admin rights).
   在細節頁上面加人：打名字按「找人」，再按「加 Reviewer」或「加 CC」。
-- Under the send button, only what Gerrit allows you on this change now: **⤴ Rebase** (when it is behind its branch),
-  **✓ 可以 review 了（Ready）** / **✎ 改回草稿（WIP）**, **🗑 放棄（Abandon）** (press twice, like 合併), and on an
-  abandoned change **↺ 恢復（Restore）**.
+- Under the send button, on **your own change**, only what Gerrit allows you on it now: **⤴ Rebase** (when it is
+  behind its branch), **✓ 可以 review 了（Ready）** / **✎ 改回草稿（WIP）**, **🗑 放棄（Abandon）** (press twice, like 合併), and
+  on an abandoned change **↺ 恢復（Restore）**. Someone else's change never shows them (nor ✎ Topic, nor ▶ of §6), even
+  when Gerrit would let you (a project owner, an admin): those are the owner's to do.
+  Rebase、WIP、放棄、Topic、合併、▶ Preflight 只在自己的 change 出現；別人的 change 就算 Gerrit 允許也不顯示。
 - Each label you may vote on (e.g. Code-Review, Build, Verified) has its full name above its own row of buttons.
 - Under each comment thread: **✓ Done** and **Ack** reply and mark it resolved in one press; **💬 回覆** opens a box
   with 送出並解決 / 送出（不解決）/ 取消.

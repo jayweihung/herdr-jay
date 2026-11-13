@@ -278,6 +278,22 @@ export default class Gerrit extends View {
   get at() { return shared(DATA)?.at ?? null; }
   get busy() { return Boolean(shared(BUSY)); }
   get self() { return shared(DATA)?.self ?? null; }
+  // Your own change? The owner's buttons (▶ preflight, rebase, WIP/ready, abandon/restore, topic, submit) show only
+  // there, even where Gerrit would let you (a project owner, an admin). Not known yet who you are or who owns it: yes
+  // (Gerrit still decides what you may do).
+  ownChange(c) {
+    const me = this.self?._account_id, owner = c?.owner?._account_id;
+    return !me || !owner || me === owner;
+  }
+  // Labels CI votes on (gerrit.json "ci_labels"; default Build, Verified): shown in 合併條件, never as buttons to press
+  ciLabels() { return Array.isArray(this.cfg?.ci_labels) ? this.cfg.ci_labels.map(String) : ["Build", "Verified"]; }
+  // The patch set you opened the change at (a quiet refresh may bring a newer one): replies and votes go to it
+  seenRev(c) { return this.seen?.id === c.id ? this.seen.rev : c.current_revision; }
+  newerPs(c) {
+    const seen = this.seenRev(c);
+    if (!seen || !c.current_revision || seen === c.current_revision) return null;
+    return c.revisions?.[c.current_revision]?._number ?? "新";
+  }
 
   async moveIntoBar(cx) {
     this.moveErr = null;
@@ -413,8 +429,9 @@ export default class Gerrit extends View {
   }
 
   changeButtons(t, z, c) {
-    const on = (k) => c.actions?.[k]?.enabled === true;
-    const revOn = (k) => c.revisions?.[c.current_revision]?.actions?.[k]?.enabled === true;
+    const own = this.ownChange(c);
+    const on = (k) => own && c.actions?.[k]?.enabled === true;
+    const revOn = (k) => own && c.revisions?.[c.current_revision]?.actions?.[k]?.enabled === true;
     const busy = Boolean(this.sending);
     const row = h_flex().gap(6).flex_wrap();
     const b = (what, label, kind) => row.child(this.big(t, z, `ca-${what}`, this.sending === what ? "處理中…" : label,
@@ -735,8 +752,7 @@ export default class Gerrit extends View {
     const j = this.jenkinsCfg();
     if (!j || (!j.jobs.length && !j.start_job)) return null;
     // ▶ only on your own open changes: the owner runs the preflight (unknown who you are or who owns it: shown)
-    const mine = !this.self?._account_id || !c.owner?._account_id || c.owner._account_id === this.self._account_id;
-    const canStart = Boolean(j.start_job) && c.status === "NEW" && mine;
+    const canStart = Boolean(j.start_job) && c.status === "NEW" && this.ownChange(c);
     if (!j.jobs.length && !canStart) return null;
     const jk = this.jk?.change === c._number ? this.jk : null;
     const card = v_flex().id("jenkins").gap(6).p(10).rounded(8).bg(t.chrome).border_1().border_color(t.border);
@@ -827,7 +843,7 @@ export default class Gerrit extends View {
   // Topic: the name (click = search it), ✎ to change; then the other changes of the topic, like Gerrit's "Same topic".
   topicRows(t, z, c) {
     const out = [];
-    const canEdit = Boolean(shared(SAFE_CFG)?.auth) && c.actions?.topic?.enabled === true;
+    const canEdit = Boolean(shared(SAFE_CFG)?.auth) && c.actions?.topic?.enabled === true && this.ownChange(c);
     const small = (id, label, on) => div().id(id).px(6).rounded(4).cursor_pointer().text_color(t.accent).hover((st) => st.bg(t.hover))
       .on_mouse_down("left", stop).on_click((_e, cx) => on(cx)).child(withSpin(label, z - 2, t.accent));
     if (this.editTopic) {
@@ -971,7 +987,10 @@ export default class Gerrit extends View {
     const message = this.replyState().value().trim();
     const labels = { ...(this.picked ?? {}) };
     if (!message && !Object.keys(labels).length && !this.draftCount()) { this.actErr = "沒有要送的：寫點回覆或選個分數"; cx.notify(); return; }
-    const ok = await this.act("reply", () => this.req("POST", `/changes/${cid(c)}/revisions/current/review`,
+    const newer = this.newerPs(c);
+    if (newer != null && Object.keys(labels).length) { this.actErr = `有新的第 ${newer} 版：分數要打在看過的版本，先按「看第 ${newer} 版」`; cx.notify(); return; }
+    const rev = encodeURIComponent(this.seenRev(c) ?? "current");
+    const ok = await this.act("reply", () => this.req("POST", `/changes/${cid(c)}/revisions/${rev}/review`,
       { ...(message ? { message } : {}), ...(Object.keys(labels).length ? { labels } : {}), drafts: "PUBLISH_ALL_REVISIONS" }), cx);
     if (ok) { this.reply.set_value(""); this.picked = {}; cx.notify(); }
   }
@@ -1015,6 +1034,7 @@ export default class Gerrit extends View {
   }
 
   async submit(c, cx) {
+    if (!this.ownChange(c) || this.newerPs(c) != null) return;   // (the button isn't shown then)
     if (this.armed !== `submit-${c.id}` || Date.now() - this.armedAt > 4000) {
       this.armed = `submit-${c.id}`; this.armedAt = Date.now(); cx.notify();
       cx.spawn(async (cx) => { await cx.sleep(4100); cx.notify(); });
@@ -1135,7 +1155,10 @@ export default class Gerrit extends View {
         d.topic ? this.get(`/changes/?q=${encodeURIComponent(`topic:"${d.topic}" limit:${SEARCH_LIMIT}`)}&${OPTS}`).catch(() => null) : null,
         d.status === "NEW" ? this.get(`/changes/${id}/submitted_together?o=NON_VISIBLE_CHANGES`).catch(() => null) : null,
       ]);
-      if (this.openId === c.id) this.detail = { change: d, comments, drafts: drafts ?? {}, topic: topic && topic.filter((x) => x._number !== d._number), together };
+      if (this.openId === c.id) {
+        this.detail = { change: d, comments, drafts: drafts ?? {}, topic: topic && topic.filter((x) => x._number !== d._number), together };
+        if (!quiet || this.seen?.id !== d.id) this.seen = { id: d.id, rev: d.current_revision };
+      }
     } catch (e) {
       if (this.openId === c.id) this.detail = { change: c, error: String(e.message ?? e) };
     }
@@ -1613,9 +1636,17 @@ export default class Gerrit extends View {
     const me = this.self?._account_id;
     const busy = Boolean(this.sending);
     const card = v_flex().gap(8).p(10).rounded(8).bg(t.chrome).border_1().border_color(t.border);
-    const open = c.status === "NEW";
-    // Score rows: Gerrit's permitted_labels, your current vote highlighted, the picked one filled.
-    for (const [name, vals] of Object.entries(open ? c.permitted_labels ?? {} : {})) {
+    const open = c.status === "NEW", own = this.ownChange(c), ci = this.ciLabels(), newer = this.newerPs(c);
+    if (open && newer != null) card.child(h_flex().id("newer-ps").gap(8).items_center().p(8).rounded(6).bg(t.raised)
+      .child(div().flex_1().min_w(0).text_size(z - 1).text_color(t.ansi3).whitespace_normal()
+        .child(`作者傳了第 ${newer} 版，你看的是第 ${c.revisions?.[this.seenRev(c)]?._number ?? "?"} 版：留言會留在你看的那版；要打分數或合併，先看新的這版。`))
+      .child(this.big(t, z, "see-newer", `看第 ${newer} 版`, { on: (cx) => { this.seen = { id: c.id, rev: c.current_revision }; this.picked = {}; cx.notify(); } })));
+    // Score rows: Gerrit's permitted_labels, your current vote highlighted, the picked one filled. Not CI's labels;
+    // on your own change Code-Review goes up to +1 (no approving yourself).
+    const skipped = [];
+    for (const [name, all] of Object.entries(open ? c.permitted_labels ?? {} : {})) {
+      if (ci.includes(name)) { skipped.push(name); continue; }
+      const vals = own && name === "Code-Review" && this.self?._account_id ? all.filter((raw) => Number(raw) <= 1) : all;
       const mine = Number((c.labels?.[name]?.all ?? []).find((v) => v._account_id === me)?.value ?? 0);
       const picked = this.picked?.[name];
       // the label's full name above its buttons (Code-Review, Build, Verified …), as Gerrit's REPLY dialog
@@ -1639,6 +1670,7 @@ export default class Gerrit extends View {
       }
       card.child(row);
     }
+    if (skipped.length) card.child(div().text_size(z - 2).text_color(t.dim).whitespace_normal().child(`${skipped.join("、")} 是 CI 打的分數：結果看合併條件，這裡不按。`));
     if (open) {
       card.child(div().id("reply-box").w_full().min_h(64).p(6).rounded(6).bg(t.background).border_1().border_color(t.input)
         .cursor_text().on_mouse_down("left", stop)
@@ -1648,7 +1680,7 @@ export default class Gerrit extends View {
       const row = h_flex().gap(6).flex_wrap()
         .child(this.big(t, z, "send", this.sending === "reply" ? "送出中…" : what ? `💬 送出回覆和 ${what}` : "💬 送出回覆",
           { kind: "primary", grow: true, off: busy, on: (cx) => cx.spawn(async (cx) => this.sendReply(c, cx)) }));
-      if (c.submittable) {
+      if (c.submittable && own && newer == null) {
         const armed = this.armed === `submit-${c.id}` && Date.now() - this.armedAt <= 4000;
         row.child(this.big(t, z, "submit", this.sending === "submit" ? "合併中…" : armed ? "再按一次確認合併" : (this.detail.together?.changes?.length ?? 0) > 1 ? `✅ 合併（連同 topic 共 ${this.detail.together.changes.length} 個）` : "✅ 合併（Submit）",
           { kind: armed ? "danger" : undefined, off: busy, on: (cx) => cx.spawn(async (cx) => this.submit(c, cx)) }));

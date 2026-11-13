@@ -211,7 +211,12 @@ const keepIndent = (l) => String(l ?? "").replace(/^[ \t]+/, (m) => m.replace(/\
 // a right-click on a single value (number, link, path, name, error) copies it and says 已複製. Left clicks are untouched.
 const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 // Plain text as a selectable TextView: line breaks kept, nothing in it read as markup.
-const textBlock = (id, text) => (String(text ?? "") ? TextView.html(id, `<p>${String(text).split("\n").map(esc).join("<br>")}</p>`).selectable(true) : "");
+// Done as markdown with every special character escaped: a line break is a hard break ("\\" at the end), a blank
+// line starts a paragraph. (The HTML view drops <br>, and a <p> per line spaces every line apart.)
+// Links stay links: written as <url> (CommonMark autolink, its text taken as is), everything else escaped.
+const mdEsc = (l) => l.split(/(https?:\/\/[^\s<>]+)/).map((part, i) => (i % 2 ? `<${part}>` : part.replace(/[\\`*_{}\[\]()#+\-.!|<>~&]/g, (ch) => `\\${ch}`))).join("");
+const mdText = (text) => String(text).split(/\n[ \t]*\n+/).map((para) => para.split("\n").map(mdEsc).join("\\\n")).join("\n\n");
+const textBlock = (id, text) => (String(text ?? "") ? TextView.markdown(id, mdText(text)).selectable(true) : "");
 // on_mouse_down("right", copyOn(value))
 const copyOn = (value) => (_e, cx) => {
   const text = String(value ?? "");

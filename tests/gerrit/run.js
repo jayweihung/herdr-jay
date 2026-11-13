@@ -49,8 +49,8 @@ const textState = (o) => {
 globalThis.__stubs = {
   View: class {}, div: () => el, svg: () => el, v_flex: () => el, h_flex: () => el,
   Textarea: { new: () => el }, TextareaState: { new: textState }, Input: { new: () => el }, InputState: { new: textState },
-  // a TextView: its id, its HTML and whether it was made selectable
-  TextView: { html: (id, html) => { const v = { id, html, selectable: false }; H.texts.push(v); return { selectable: (on = true) => { v.selectable = on; return el; } }; } },
+  // a TextView: its id, its HTML or markdown (both kept in .html) and whether it was made selectable
+  TextView: Object.fromEntries(["html", "markdown"].map((kind) => [kind, (id, html) => { const v = { id, kind, html, selectable: false }; H.texts.push(v); return { selectable: (on = true) => { v.selectable = on; return el; } }; }])),
   // theme colors as Herdr gives them: #rrggbb
   theme: () => new Proxy({}, { get: (_t, k) => (k === "then" ? undefined : "#334455") }),
   settings: () => ({}), window: () => H.window ?? { platform: "macos" },
@@ -885,17 +885,19 @@ test("copying: messages, comments, logs and the commit message are selectable te
   let texts = copied().map((x) => x.text);
   assert.ok(texts.includes("https://gerrit.test/c/tools/build/+/6"), "a list row copies the change's address");
   assert.ok(texts.includes("6"), "its number copies the number");
-  const rev = { _number: 2, files: { "src/a.py": { lines_inserted: 1 } }, commit: { message: "Fix a < b\n\nline two & more\n\nChange-Id: I1" }, uploader: ALICE, created: "2026-11-10 01:00:00.000000000" };
+  const rev = { _number: 2, files: { "src/a.py": { lines_inserted: 1 } }, commit: { message: "Fix a < b\n\nline two & *more*\nsee https://x.test/a_b?c=1\n\nChange-Id: I1" }, uploader: ALICE, created: "2026-11-10 01:00:00.000000000" };
   g.openId = "x";
   g.detail = { change: change(7, { current_revision: "abc123", revisions: { abc123: rev }, messages: [{ author: ALICE, date: "2026-11-10 01:00:00.000000000", message: "Patch Set 2:\n\nlooks <ok>" }] }),
     comments: { "src/a.py": [{ id: "c1", line: 7, patch_set: 2, author: ALICE, message: "why\nthis?", unresolved: true, updated: "2026-11-10 01:00:00.000000000" }] } };
   H.right = []; H.texts = []; H.notes = []; render(g);
   const sel = (re) => H.texts.find((v) => re.test(v.html));
-  assert.equal(sel(/Change-Id/)?.selectable, true, "the commit message is selectable");
-  assert.match(sel(/Change-Id/).html, /Fix a &lt; b<br><br>line two &amp; more<br><br>Change-Id: I1/, "escaped, line breaks kept");
-  assert.equal(sel(/why<br>this\?/)?.selectable, true, "a code comment is selectable");
-  assert.equal(sel(/looks &lt;ok&gt;/)?.selectable, true, "a change-log message is selectable");
-  assert.equal(sel(/^<p>change 7<\/p>$/)?.selectable, true, "the subject is selectable");
+  assert.equal(sel(/Change\\-Id/)?.selectable, true, "the commit message is selectable");
+  // markdown with everything escaped: a line break is a hard break, a blank line a paragraph, a link stays a link
+  assert.equal(sel(/Change\\-Id/).html, "Fix a \\< b\n\nline two \\& \\*more\\*\\\nsee <https://x.test/a_b?c=1>\n\nChange\\-Id: I1", "escaped, line breaks kept");
+  assert.equal(sel(/Change\\-Id/).kind, "markdown");
+  assert.equal(sel(/why\\\nthis\?/)?.selectable, true, "a code comment is selectable");
+  assert.equal(sel(/looks \\<ok\\>/)?.selectable, true, "a change-log message is selectable");
+  assert.equal(sel(/^change 7$/)?.selectable, true, "the subject is selectable");
   const all = copied();
   texts = all.map((x) => x.text);
   for (const want of ["https://gerrit.test/c/tools/build/+/7", "tools/build", "master", "Alice", "src/a.py", "src/a.py:7", "abc123", rev.commit.message])

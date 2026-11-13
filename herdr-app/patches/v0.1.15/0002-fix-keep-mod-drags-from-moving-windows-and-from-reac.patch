@@ -1,0 +1,458 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: jayweihung <3034830+jayweihung@users.noreply.github.com>
+Date: Fri, 13 Nov 2026 14:56:40 +0800
+Subject: [PATCH 2/2] fix: keep mod drags from moving windows, and from
+ reaching the wrong mod
+
+A drag started in a window overlay or a window_drag area never moves the
+window, even on a first move past both thresholds. Drops queued for a copy that
+closed meanwhile expire after two seconds, and a drag whose source names two
+mods reaches neither. The drop plumbing moves to src/mods/drops.rs and
+drag::record, and the shipped panels take it with their own import lines.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ defaults/AGENTS.md                            |   1 +
+ defaults/mods/agents/main.js                  |  10 +-
+ defaults/mods/spaces/main.js                  |   3 +-
+ src/mods.rs                                   |  76 +-----------
+ src/mods/drops.rs                             | 117 ++++++++++++++++++
+ src/window.rs                                 |   2 +-
+ src/window/movable.rs                         |   4 +-
+ src/window/titlebar.rs                        |   5 +-
+ vendor/gpui-kit/crates/shell/src/drag.rs      |  23 +++-
+ .../crates/shell/src/engine/quickjs/mod.rs    |  35 +-----
+ 10 files changed, 159 insertions(+), 117 deletions(-)
+ create mode 100644 src/mods/drops.rs
+
+diff --git a/defaults/AGENTS.md b/defaults/AGENTS.md
+index dded9b8..d8acbaf 100644
+--- a/defaults/AGENTS.md
++++ b/defaults/AGENTS.md
+@@ -955,6 +955,7 @@ spaces panel, it reaches this mod's `nextDrop()` as `{ payload, space }` (`space
+ as `spaces()` lists it): one copy that is waiting gets it, any copy, so a popup
+ that started the drag may close. Keep the loop waiting:
+ `cx.spawn(async (cx) => { for (;;) { const d = await nextDrop(); this.make(d); cx.notify(); } })`.
++A press that starts such a drag doesn't move a `window` overlay or a `window_drag` area.
+ A panel that lists spaces takes such drops with `.drag_over((s) => s.bg(c))` and
+ `.on_drag_drop((drop) => dropOnSpace(drop, space.id))`.
+ `.on_hover((hovered, cx) => …)` reports pointer entry and exit on buttons
+diff --git a/defaults/mods/agents/main.js b/defaults/mods/agents/main.js
+index 96ec4a6..826aa5e 100644
+--- a/defaults/mods/agents/main.js
++++ b/defaults/mods/agents/main.js
+@@ -2,7 +2,8 @@
+ 
+ import { View, div, image, svg } from "gpui-kit";
+ import { v_flex, h_flex } from "gpui-base";
+-import { agents, terminals, panes, focused, spaces, run, theme, shared, setShared, setAgentOrder, openOverlay, closeOverlay, props, window, layout, dropOnSpace } from "herdr";
++import { agents, terminals, panes, focused, spaces, run, theme, shared, setShared, setAgentOrder, openOverlay, closeOverlay, props, window, layout } from "herdr";
++import { dropOnSpace } from "herdr";
+ 
+ function find(node, id) {
+   if (node?.id === id) return node;
+@@ -372,13 +373,14 @@ export default class Agents extends View {
+       const r = rankOf(a) || RANK.idle;
+       const id = byPriority ? `sec-${r}` : `sp-${a.space}`;
+       if (groups.at(-1)?.id === id) groups.at(-1).members.push(a);
+-      else groups.push({ id, label: byPriority ? SECTION[r] : a.space_name || "", status: byPriority ? SECTION_STATUS[r] : null, space: byPriority ? null : a.space, members: [a] });
++      else groups.push({ id, label: byPriority ? SECTION[r] : a.space_name || "", status: byPriority ? SECTION_STATUS[r] : null, members: [a] });
+     }
+ 
+     // A group's header; it folds the group. Folded, it says how many and the most urgent state.
+     const header = (g) => {
+       const open = !this.folded.has(g.id);
+       const top = g.members.reduce((m, a) => ((RANK[a.status] ?? 0) > (RANK[m] ?? 0) ? a.status : m), null);
++      const space = !byPriority && g.id !== "pinned" ? g.members[0].space : null;
+       return h_flex()
+         .id(g.id)
+         .px(8)
+@@ -396,8 +398,8 @@ export default class Agents extends View {
+           cx.notify();
+         })
+         // A space's group takes a mod's drag (`on_drag`), for that mod.
+-        .when(Boolean(g.space), (el) => el.rounded(8).drag_over((s) => s.bg(t.hover).text_color(t.foreground))
+-          .on_drag_drop((drop) => dropOnSpace(drop, g.space)))
++        .when(Boolean(space), (el) => el.rounded(8).drag_over((s) => s.bg(t.hover).text_color(t.foreground))
++          .on_drag_drop((drop) => dropOnSpace(drop, space)))
+         .child(div().truncate().text_color(t[g.status] ?? t.dim).child(g.label))
+         .when(byPriority || !open, (el) => el.child(div().text_color(t.dim).child(String(g.members.length))))
+         .child(div().flex_1())
+diff --git a/defaults/mods/spaces/main.js b/defaults/mods/spaces/main.js
+index 9dfa312..8787f1c 100644
+--- a/defaults/mods/spaces/main.js
++++ b/defaults/mods/spaces/main.js
+@@ -5,7 +5,8 @@
+ 
+ import { View, div, svg } from "gpui-kit";
+ import { v_flex, h_flex } from "gpui-base";
+-import { spaces, machines, panes, run, openOverlay, exec, hc, theme, shared, setShared, watchFolder, window, layout, dropOnSpace } from "herdr";
++import { spaces, machines, panes, run, openOverlay, exec, hc, theme, shared, setShared, watchFolder, window, layout } from "herdr";
++import { dropOnSpace } from "herdr";
+ 
+ function find(node, id) {
+   if (node?.id === id) return node;
+diff --git a/src/mods.rs b/src/mods.rs
+index e47abcd..d7ae9cd 100644
+--- a/src/mods.rs
++++ b/src/mods.rs
+@@ -17,6 +17,7 @@ use std::time::{Duration, SystemTime};
+ include!(concat!(env!("OUT_DIR"), "/default_mods.rs"));
+ include!(concat!(env!("OUT_DIR"), "/frame_mods.rs"));
+ 
++mod drops;
+ #[cfg(test)]
+ mod render_tests;
+ #[cfg(test)]
+@@ -905,8 +906,7 @@ fn module(inst: Instance, copy: u64) -> HostModule {
+         commands.retain(|(_, _, tx)| !tx.is_closed());
+         commands.push((copy, inst.name.clone(), cmd_tx));
+     });
+-    let drops = drops_of(&inst);
+-    HostModule::new("herdr")
++    drops::register(HostModule::new("herdr"), &inst)
+         .declarations(DECLARATIONS)
+         .async_function("exec", |a| {
+             let command = a.string(0)?.to_owned();
+@@ -1106,78 +1106,6 @@ fn module(inst: Instance, copy: u64) -> HostModule {
+             let rx = commands.clone();
+             Ok(async move { rx.recv().await.map(HostValue::Str).map_err(|_| HostError::new("herdr-app is shutting down")) })
+         })
+-        .async_function("nextDrop", move |_| {
+-            let (rx, waiting) = (drops.rx.clone(), Waiting::new(&drops.waiting));
+-            Ok(async move {
+-                let _waiting = waiting;
+-                rx.recv().await.map(|v| to_host(&v)).map_err(|_| HostError::new("herdr-app is shutting down"))
+-            })
+-        })
+-        .function("dropOnSpace", |a| Ok(HostValue::Bool(drop_on_space(&from_host(a.value(0)?), a.string(1)?))))
+-}
+-
+-/// A mod's drags (an element's `on_drag`) dropped on a space, for its copies'
+-/// nextDrop(): one channel per mod, so each drop goes to one copy, whichever
+-/// waits, even when the copy that started the drag has closed.
+-#[derive(Clone)]
+-struct Drops {
+-    tx: async_channel::Sender<Value>,
+-    rx: async_channel::Receiver<Value>,
+-    /// nextDrop() calls pending now (a closed copy's are cancelled).
+-    waiting: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+-}
+-
+-struct Waiting(std::sync::Arc<std::sync::atomic::AtomicUsize>);
+-impl Waiting {
+-    fn new(count: &std::sync::Arc<std::sync::atomic::AtomicUsize>) -> Self {
+-        count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+-        Waiting(count.clone())
+-    }
+-}
+-impl Drop for Waiting {
+-    fn drop(&mut self) {
+-        self.0.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+-    }
+-}
+-
+-thread_local! {
+-    static DROPS: RefCell<HashMap<String, Drops>> = RefCell::new(HashMap::new());
+-    /// Each copy's application name (`Instance::key`) and its mod: a drag's `source`.
+-    static APPLICATIONS: RefCell<HashMap<String, String>> = RefCell::new(HashMap::new());
+-}
+-
+-fn drops_of(inst: &Instance) -> Drops {
+-    APPLICATIONS.with_borrow_mut(|a| a.insert(inst.key(), inst.name.clone()));
+-    DROPS.with_borrow_mut(|d| {
+-        d.entry(inst.name.clone())
+-            .or_insert_with(|| {
+-                let (tx, rx) = async_channel::unbounded();
+-                Drops { tx, rx, waiting: Default::default() }
+-            })
+-            .clone()
+-    })
+-}
+-
+-/// Hands a mod drag dropped on a space (an `on_drag_drop` event) to the mod
+-/// that started it: `{payload, space}` to a copy waiting in nextDrop(), the
+-/// space as spaces() lists it. Returns whether one took it.
+-pub fn drop_on_space(drop: &Value, space: &str) -> bool {
+-    let (Some(source), Some(payload)) = (drop["source"].as_str(), drop["payload"].as_str()) else {
+-        return false;
+-    };
+-    let Some(name) = APPLICATIONS.with_borrow(|a| a.get(source).cloned()) else {
+-        tracing::warn!("a drag from {source:?} was dropped, but no mod started it");
+-        return false;
+-    };
+-    let Some(space) = SNAPSHOT.with(|s| s.borrow().spaces.as_array()?.iter().find(|s| s["id"] == space).cloned()) else {
+-        return false;
+-    };
+-    let Some(drops) = DROPS.with_borrow(|d| d.get(&name).cloned()) else { return false };
+-    if drops.waiting.load(std::sync::atomic::Ordering::SeqCst) == 0 {
+-        tracing::warn!("mod {name}: a drag was dropped on a space, but no copy waits in nextDrop()");
+-        return false;
+-    }
+-    drops.tx.try_send(json!({ "payload": payload, "space": space })).is_ok()
+ }
+ 
+ /// The runtime's base layer, themed from settings.json.
+diff --git a/src/mods/drops.rs b/src/mods/drops.rs
+new file mode 100644
+index 0000000..de08910
+--- /dev/null
++++ b/src/mods/drops.rs
+@@ -0,0 +1,117 @@
++//! A mod's drags (an element's `on_drag`) dropped on a space: `nextDrop()` for
++//! the mod that started one, `dropOnSpace()` for the panels that list spaces.
++//! One channel per mod, so each drop goes to one copy, whichever waits, even
++//! when the copy that started the drag has closed.
++
++use super::{Instance, SNAPSHOT, from_host, to_host};
++use gpui_shell::{HostError, HostModule, HostValue};
++use serde_json::{Value, json};
++use std::cell::RefCell;
++use std::collections::{BTreeSet, HashMap};
++use std::sync::Arc;
++use std::sync::atomic::{AtomicUsize, Ordering};
++use std::time::{Duration, Instant};
++
++/// A drop older than this when a copy reads it was meant for a copy that went
++/// away meanwhile: it's dropped, not acted on later.
++const FRESH: Duration = Duration::from_secs(2);
++
++#[derive(Clone)]
++struct Drops {
++    tx: async_channel::Sender<(Instant, Value)>,
++    rx: async_channel::Receiver<(Instant, Value)>,
++    /// nextDrop() calls pending now (a closed copy's are cancelled).
++    waiting: Arc<AtomicUsize>,
++}
++
++struct Waiting(Arc<AtomicUsize>);
++impl Waiting {
++    fn new(count: &Arc<AtomicUsize>) -> Self {
++        count.fetch_add(1, Ordering::SeqCst);
++        Waiting(count.clone())
++    }
++}
++impl Drop for Waiting {
++    fn drop(&mut self) {
++        self.0.fetch_sub(1, Ordering::SeqCst);
++    }
++}
++
++thread_local! {
++    static DROPS: RefCell<HashMap<String, Drops>> = RefCell::new(HashMap::new());
++    /// A drag's `source` (its copy's application name, `Instance::key`) and the
++    /// mods that name can be: name and props run together, so two can share one.
++    static APPLICATIONS: RefCell<HashMap<String, BTreeSet<String>>> = RefCell::new(HashMap::new());
++}
++
++/// Adds `nextDrop` and `dropOnSpace` to a copy's `herdr` module.
++pub(super) fn register(module: HostModule, inst: &Instance) -> HostModule {
++    APPLICATIONS.with_borrow_mut(|a| a.entry(inst.key()).or_default().insert(inst.name.clone()));
++    let drops = DROPS.with_borrow_mut(|d| {
++        d.entry(inst.name.clone())
++            .or_insert_with(|| {
++                let (tx, rx) = async_channel::unbounded();
++                Drops { tx, rx, waiting: Default::default() }
++            })
++            .clone()
++    });
++    module
++        .async_function("nextDrop", move |_| {
++            let (rx, waiting) = (drops.rx.clone(), Waiting::new(&drops.waiting));
++            Ok(async move {
++                let _waiting = waiting;
++                loop {
++                    let (at, drop) = rx.recv().await.map_err(|_| HostError::new("herdr-app is shutting down"))?;
++                    if at.elapsed() < FRESH {
++                        return Ok(to_host(&drop));
++                    }
++                }
++            })
++        })
++        .function("dropOnSpace", |a| Ok(HostValue::Bool(drop_on_space(&from_host(a.value(0)?), a.string(1)?))))
++}
++
++/// Hands a mod drag dropped on a space (an `on_drag_drop` event) to the mod
++/// that started it: `{payload, space}` to a copy waiting in nextDrop(), the
++/// space as spaces() lists it. Returns whether one was waiting.
++fn drop_on_space(drop: &Value, space: &str) -> bool {
++    let (Some(source), Some(payload)) = (drop["source"].as_str(), drop["payload"].as_str()) else {
++        return false;
++    };
++    let names = APPLICATIONS.with_borrow(|a| a.get(source).cloned()).unwrap_or_default();
++    let [name] = names.iter().collect::<Vec<_>>()[..] else {
++        tracing::warn!("a drag from {source:?} was dropped, but {} mods go by that name", names.len());
++        return false;
++    };
++    let Some(space) = SNAPSHOT.with(|s| s.borrow().spaces.as_array()?.iter().find(|s| s["id"] == space).cloned()) else {
++        return false;
++    };
++    let Some(drops) = DROPS.with_borrow(|d| d.get(name).cloned()) else { return false };
++    if drops.waiting.load(Ordering::SeqCst) == 0 {
++        tracing::warn!("mod {name}: a drag was dropped on a space, but no copy waits in nextDrop()");
++        return false;
++    }
++    drops.tx.try_send((Instant::now(), json!({ "payload": payload, "space": space }))).is_ok()
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn a_source_two_mods_go_by_reaches_neither() {
++        super::super::publish_spaces(json!([{ "id": "s1" }]));
++        let waiting = |inst: &Instance| {
++            let module = register(HostModule::new("herdr"), inst);
++            DROPS.with_borrow(|d| d[&inst.name].waiting.fetch_add(1, Ordering::SeqCst));
++            module
++        };
++        let props = Instance { name: "kit".into(), props: json!(1) };
++        let plain = Instance { name: "kit1".into(), props: Value::Null };
++        assert_eq!(props.key(), plain.key());
++        let _modules = (waiting(&props), waiting(&plain), waiting(&Instance { name: "solo".into(), props: Value::Null }));
++        assert!(!drop_on_space(&json!({ "source": "kit1", "payload": "x" }), "s1"));
++        assert!(drop_on_space(&json!({ "source": "solo", "payload": "x" }), "s1"));
++        assert!(!drop_on_space(&json!({ "source": "solo", "payload": "x" }), "elsewhere"));
++    }
++}
+diff --git a/src/window.rs b/src/window.rs
+index 08a4370..fe87f41 100644
+--- a/src/window.rs
++++ b/src/window.rs
+@@ -4970,7 +4970,7 @@ impl Render for AppWindow {
+             }))
+             .capture_any_mouse_down(cx.listener(|this, ev: &MouseDownEvent, _, _| this.pointer = ev.position))
+             .on_mouse_move(cx.listener(|this, ev: &MouseMoveEvent, window, cx| {
+-                this.drag_window(ev, window);
++                this.drag_window(ev, window, cx);
+                 if this.drag.is_none() {
+                     return;
+                 }
+diff --git a/src/window/movable.rs b/src/window/movable.rs
+index ae92ca9..563fae1 100644
+--- a/src/window/movable.rs
++++ b/src/window/movable.rs
+@@ -90,7 +90,7 @@ impl AppWindow {
+         let measured = self.bounds.borrow().get(&o.slot).map(|b| b.size);
+         let size = measured.unwrap_or_default();
+         let at = match (&self.win_drag, o.place) {
+-            (Some(d), _) if d.id == o.id && d.moving => d.pointer - d.grab,
++            (Some(d), _) if d.id == o.id && d.moving && !cx.has_active_drag() => d.pointer - d.grab,
+             (_, Some(p)) => p,
+             _ => point((viewport.width - size.width) / 2.0, (viewport.height - size.height) / 2.0),
+         };
+@@ -171,7 +171,7 @@ impl AppWindow {
+     fn window_release(&mut self, cx: &mut Context<Self>) -> bool {
+         let Some(d) = self.win_drag.take() else { return false };
+         cx.notify();
+-        if !d.moving {
++        if !d.moving || cx.has_active_drag() {
+             return false;
+         }
+         let at = d.pointer - d.grab;
+diff --git a/src/window/titlebar.rs b/src/window/titlebar.rs
+index 1319016..1100dbc 100644
+--- a/src/window/titlebar.rs
++++ b/src/window/titlebar.rs
+@@ -109,9 +109,10 @@ impl AppWindow {
+     }
+ 
+     /// The root's pointer moves: a press on a drag node that moved far enough moves the window.
+-    pub(super) fn drag_window(&mut self, ev: &MouseMoveEvent, window: &mut Window) {
++    pub(super) fn drag_window(&mut self, ev: &MouseMoveEvent, window: &mut Window, cx: &App) {
+         let Some(from) = self.drag_from else { return };
+-        if ev.pressed_button != Some(MouseButton::Left) {
++        // A press that started a drag inside the window (a mod's `on_drag`) is the drag's.
++        if ev.pressed_button != Some(MouseButton::Left) || cx.has_active_drag() {
+             self.drag_from = None;
+             return;
+         }
+diff --git a/vendor/gpui-kit/crates/shell/src/drag.rs b/vendor/gpui-kit/crates/shell/src/drag.rs
+index f9441f2..876993f 100644
+--- a/vendor/gpui-kit/crates/shell/src/drag.rs
++++ b/vendor/gpui-kit/crates/shell/src/drag.rs
+@@ -12,7 +12,9 @@ use gpui::{
+ };
+ use gpui_base::Theme;
+ 
+-use crate::{ShellRuntime, spec::CallbackId, value::scaled_px};
++use smallvec::{SmallVec, smallvec};
++
++use crate::{ShellRuntime, scope, spec::CallbackId, value::Bridged, value::scaled_px};
+ 
+ /// The longest payload `on_drag` takes, in bytes: a drag says what, not the data.
+ pub(crate) const MAX_PAYLOAD: usize = 8 * 1024;
+@@ -26,6 +28,25 @@ pub(crate) struct ScriptDrag {
+     pub source: SharedString,
+ }
+ 
++/// What `on_drag(payload, label?)` records: the payload, the label (default:
++/// the payload's first line) and the application whose view recorded it, so
++/// whoever takes the drop can tell whose drag it was.
++pub(crate) fn record(args: SmallVec<[Bridged; 2]>) -> Result<SmallVec<[Bridged; 2]>, String> {
++    let Some(Bridged::Str(payload)) = args.first() else {
++        return Err("on_drag(payload, label?) expects a string payload".into());
++    };
++    if payload.len() > MAX_PAYLOAD {
++        return Err(format!("on_drag payload is at most {MAX_PAYLOAD} bytes"));
++    }
++    let label = match args.get(1) {
++        None | Some(Bridged::Nil) => payload.lines().next().unwrap_or("").to_owned(),
++        Some(Bridged::Str(label)) => label.clone(),
++        Some(_) => return Err("on_drag(payload, label?) expects a string label".into()),
++    };
++    let application = scope::policy().application().to_owned();
++    Ok(smallvec![Bridged::Str(payload.clone()), Bridged::Str(label), Bridged::Str(application)])
++}
++
+ /// The chip under the pointer while dragging.
+ struct Chip {
+     label: SharedString,
+diff --git a/vendor/gpui-kit/crates/shell/src/engine/quickjs/mod.rs b/vendor/gpui-kit/crates/shell/src/engine/quickjs/mod.rs
+index 3067524..037175e 100644
+--- a/vendor/gpui-kit/crates/shell/src/engine/quickjs/mod.rs
++++ b/vendor/gpui-kit/crates/shell/src/engine/quickjs/mod.rs
+@@ -8330,39 +8330,10 @@ impl ShellRuntime {
+                 let name = callback_op_name(method).expect("this arm's own list");
+                 self.push_op_checked(ctx, self.push_op(id, SpecOp::Callback(name, callback)))
+             }
+-            // HERDR: the element starts a script drag. The application whose
+-            // view recorded it rides along, so whoever takes the drop can tell
+-            // whose drag it was.
++            // HERDR: the element starts a script drag (see `crate::drag`).
+             "on_drag" => {
+-                let bridged = args.values(method)?;
+-                let Some(Bridged::Str(payload)) = bridged.first() else {
+-                    return Err(Exception::throw_type(
+-                        ctx,
+-                        "on_drag(payload, label?) expects a string payload",
+-                    ));
+-                };
+-                if payload.len() > crate::drag::MAX_PAYLOAD {
+-                    return Err(Exception::throw_range(
+-                        ctx,
+-                        &format!("on_drag payload is at most {} bytes", crate::drag::MAX_PAYLOAD),
+-                    ));
+-                }
+-                let label = match bridged.get(1) {
+-                    None | Some(Bridged::Nil) => payload.lines().next().unwrap_or("").to_owned(),
+-                    Some(Bridged::Str(label)) => label.clone(),
+-                    Some(_) => {
+-                        return Err(Exception::throw_type(
+-                            ctx,
+-                            "on_drag(payload, label?) expects a string label",
+-                        ));
+-                    }
+-                };
+-                let application = scope::policy().application().to_owned();
+-                let recorded = smallvec::smallvec![
+-                    Bridged::Str(payload.clone()),
+-                    Bridged::Str(label),
+-                    Bridged::Str(application),
+-                ];
++                let recorded = crate::drag::record(args.values(method)?)
++                    .map_err(|error| Exception::throw_type(ctx, &error))?;
+                 self.push_op_checked(ctx, self.push_op(id, SpecOp::Method("on_drag", recorded)))
+             }
+             "disabled"

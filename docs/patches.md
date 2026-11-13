@@ -18,15 +18,15 @@ A tag that needs no patches still gets a folder holding only README.md, so the u
 |---|---|---|
 | herdr-core v0.1.20 | none (folder with README.md only) | the v0.1.19 patch is in the official source since v0.1.20 (#182) |
 | herdr-core v0.1.19 | `0001-build-skip-Ghostty-s-xcframework…` | lets core build on a Mac with only the Command Line Tools (herdr-app already does this); harmless on Windows |
-| herdr-app v0.1.15 | none | |
+| herdr-app v0.1.15 | `0001-feat-drag-from-a-mod-onto-a-space…`, `0002-fix-keep-mod-drags-from-moving-windows…` | a mod can make what it draws draggable (`.on_drag`) and learn when it is dropped on a space in the sidebar Agents / Spaces panels (`nextDrop`): the Kit panel drags an agent onto a space ([kit.md](kit.md)). Mods can't add this themselves; the two built-in panels (agents, spaces) are changed by one import line and a few lines each. Without the patches the Kit panel shows a 「放到 space…」 button instead. |
 
 ## Apply / 套用
 
 Step by step with checks: [macos.md](macos.md), [windows.md](windows.md).
 
-**Today (core v0.1.20, app v0.1.15) there is nothing to apply.** The commands below are for a tag whose folder has
-`.patch` files: set the tag from the README versions table; never apply one tag's patches on another tag.
-現在沒有要套的補丁；下面是某個 tag 有補丁時的做法，只套那個 tag 自己資料夾裡的。
+**Today (core v0.1.20, app v0.1.15): core has nothing to apply; the app has the two drag patches.** Set the tag from
+the README versions table; never apply one tag's patches on another tag.
+現在 core 沒有補丁；app v0.1.15 有兩個（拖到 space）。只套那個 tag 自己資料夾裡的。
 
 macOS (zsh), in the Herdr repo (`herdr-core` or `herdr-app`), on that tag:
 

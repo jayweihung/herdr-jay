@@ -226,7 +226,7 @@ git checkout v0.1.15
 git rev-parse --short HEAD                          # must be 9950887 (README versions table)
 git submodule update --init --recursive
 $j = "$env:USERPROFILE\src\herdr-jay"
-$pd = "$j\herdr-app\patches\v0.1.15"                # none today
+$pd = "$j\herdr-app\patches\v0.1.15"                # 2 patches: drag onto a space (docs/patches.md)
 $ps = @(Get-ChildItem "$pd\*.patch" -ErrorAction SilentlyContinue | Sort-Object Name).FullName
 if ($ps) { git -c user.name=me -c user.email=me@local am -3 $ps } else { "no patches" }
 ```

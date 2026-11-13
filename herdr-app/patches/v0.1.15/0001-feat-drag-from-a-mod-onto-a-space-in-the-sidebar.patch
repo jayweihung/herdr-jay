@@ -1,0 +1,750 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: jayweihung <3034830+jayweihung@users.noreply.github.com>
+Date: Fri, 13 Nov 2026 13:26:34 +0800
+Subject: [PATCH 1/2] feat: drag from a mod onto a space in the sidebar
+
+A mod element can start a drag inside the window with .on_drag(payload, label?).
+Space groups in the agents panel and space rows in the spaces panel take it
+(drag_over highlight, on_drag_drop) and hand { payload, space } to a copy of the
+mod that started it, through nextDrop(). A drag started in a window overlay no
+longer also moves the window.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ defaults/AGENTS.md                            |  9 ++
+ defaults/herdr.d.ts                           | 22 +++++
+ defaults/mods/agents/main.js                  |  7 +-
+ defaults/mods/spaces/main.js                  |  7 +-
+ src/mods.rs                                   | 73 +++++++++++++++
+ src/mods/lifecycle_tests.rs                   | 93 +++++++++++++++++++
+ src/mods/render_tests.rs                      |  4 +-
+ src/window/movable.rs                         |  3 +-
+ vendor/gpui-kit/crates/shell/src/drag.rs      | 84 +++++++++++++++++
+ .../crates/shell/src/engine/quickjs/mod.rs    | 64 ++++++++++++-
+ vendor/gpui-kit/crates/shell/src/lib.rs       |  2 +
+ .../gpui-kit/crates/shell/src/materialize.rs  | 30 ++++++
+ vendor/gpui-kit/crates/shell/src/typings.rs   | 18 ++++
+ 13 files changed, 409 insertions(+), 7 deletions(-)
+ create mode 100644 vendor/gpui-kit/crates/shell/src/drag.rs
+
+diff --git a/defaults/AGENTS.md b/defaults/AGENTS.md
+index 9cd5799..dded9b8 100644
+--- a/defaults/AGENTS.md
++++ b/defaults/AGENTS.md
+@@ -948,6 +948,15 @@ only the movement needed. Requests run once after layout; visible children stay
+ `.on_drop((event, cx) => …)` on a plain layout element receives external files as
+ `event.paths` (absolute paths). The feedback form accepts dropped images with
+ the same limits, previews and removal as picked images.
++`.id("card").on_drag(payload, label)` makes an element draggable inside the
++window (a string payload up to 8 KiB; a chip shows `label`, default the payload's
++first line). Dropped on a space's group in the agents panel (grouped by space) or its row in the
++spaces panel, it reaches this mod's `nextDrop()` as `{ payload, space }` (`space`
++as `spaces()` lists it): one copy that is waiting gets it, any copy, so a popup
++that started the drag may close. Keep the loop waiting:
++`cx.spawn(async (cx) => { for (;;) { const d = await nextDrop(); this.make(d); cx.notify(); } })`.
++A panel that lists spaces takes such drops with `.drag_over((s) => s.bg(c))` and
++`.on_drag_drop((drop) => dropOnSpace(drop, space.id))`.
+ `.on_hover((hovered, cx) => …)` reports pointer entry and exit on buttons
+ and other interactive controls too.
+ `.when(cond, (el) => …)`, `.children([...])`. Controls from `gpui-base`
+diff --git a/defaults/herdr.d.ts b/defaults/herdr.d.ts
+index c30dcd6..b55ae7e 100644
+--- a/defaults/herdr.d.ts
++++ b/defaults/herdr.d.ts
+@@ -408,6 +408,28 @@ export function setShared(key: string, value: unknown): null;
+  */
+ export function nextCommand(): Promise<string>;
+ 
++/** One of this mod's drags (an element's `.on_drag(payload, label?)`) dropped on a space:
++ *  a space's group in the agents panel (grouped by space), or its row in the spaces panel. */
++export interface SpaceDrop {
++  /** What `on_drag` was given. */
++  payload: string;
++  /** The space it was dropped on, as spaces() lists it (`machine` set for another machine's). */
++  space: SpaceInfo;
++}
++
++/**
++ * Waits for the next of this mod's drags dropped on a space. Each drop goes to one copy of the
++ * mod waiting here when it lands, not necessarily the one that started the drag (that one may
++ * have closed); with none waiting, the drop does nothing. Keep the loop waiting: start the work
++ * without awaiting it.
++ *   cx.spawn(async (cx) => { for (;;) { const d = await nextDrop(); this.create(d); cx.notify(); } });
++ */
++export function nextDrop(): Promise<SpaceDrop>;
++
++/** For panels that list spaces: hands an element's `.on_drag_drop` event to the mod whose drag
++ *  it was, as dropped on the space `space` (an id). Returns whether a copy of it took it. */
++export function dropOnSpace(drop: { payload: string; source: string }, space: string): boolean;
++
+ /**
+  * Waits for changes under a folder and returns absolute paths in batches.
+  * On Linux, Git-ignored directories and Git's object database are skipped; trees
+diff --git a/defaults/mods/agents/main.js b/defaults/mods/agents/main.js
+index 7d213b8..96ec4a6 100644
+--- a/defaults/mods/agents/main.js
++++ b/defaults/mods/agents/main.js
+@@ -2,7 +2,7 @@
+ 
+ import { View, div, image, svg } from "gpui-kit";
+ import { v_flex, h_flex } from "gpui-base";
+-import { agents, terminals, panes, focused, spaces, run, theme, shared, setShared, setAgentOrder, openOverlay, closeOverlay, props, window, layout } from "herdr";
++import { agents, terminals, panes, focused, spaces, run, theme, shared, setShared, setAgentOrder, openOverlay, closeOverlay, props, window, layout, dropOnSpace } from "herdr";
+ 
+ function find(node, id) {
+   if (node?.id === id) return node;
+@@ -372,7 +372,7 @@ export default class Agents extends View {
+       const r = rankOf(a) || RANK.idle;
+       const id = byPriority ? `sec-${r}` : `sp-${a.space}`;
+       if (groups.at(-1)?.id === id) groups.at(-1).members.push(a);
+-      else groups.push({ id, label: byPriority ? SECTION[r] : a.space_name || "", status: byPriority ? SECTION_STATUS[r] : null, members: [a] });
++      else groups.push({ id, label: byPriority ? SECTION[r] : a.space_name || "", status: byPriority ? SECTION_STATUS[r] : null, space: byPriority ? null : a.space, members: [a] });
+     }
+ 
+     // A group's header; it folds the group. Folded, it says how many and the most urgent state.
+@@ -395,6 +395,9 @@ export default class Agents extends View {
+           open ? this.folded.add(g.id) : this.folded.delete(g.id);
+           cx.notify();
+         })
++        // A space's group takes a mod's drag (`on_drag`), for that mod.
++        .when(Boolean(g.space), (el) => el.rounded(8).drag_over((s) => s.bg(t.hover).text_color(t.foreground))
++          .on_drag_drop((drop) => dropOnSpace(drop, g.space)))
+         .child(div().truncate().text_color(t[g.status] ?? t.dim).child(g.label))
+         .when(byPriority || !open, (el) => el.child(div().text_color(t.dim).child(String(g.members.length))))
+         .child(div().flex_1())
+diff --git a/defaults/mods/spaces/main.js b/defaults/mods/spaces/main.js
+index 544b857..9dfa312 100644
+--- a/defaults/mods/spaces/main.js
++++ b/defaults/mods/spaces/main.js
+@@ -5,7 +5,7 @@
+ 
+ import { View, div, svg } from "gpui-kit";
+ import { v_flex, h_flex } from "gpui-base";
+-import { spaces, machines, panes, run, openOverlay, exec, hc, theme, shared, setShared, watchFolder, window, layout } from "herdr";
++import { spaces, machines, panes, run, openOverlay, exec, hc, theme, shared, setShared, watchFolder, window, layout, dropOnSpace } from "herdr";
+ 
+ function find(node, id) {
+   if (node?.id === id) return node;
+@@ -400,6 +400,9 @@ export default class Spaces extends View {
+       .rounded(8)
+       .when(on, (el) => el.bg(t.selected))
+       .when(!on, (el) => el.hover((s) => s.bg(t.hover)))
++      // A mod's drag (`on_drag`) dropped here goes to that mod, for this space.
++      .drag_over((s) => s.bg(t.hover))
++      .on_drag_drop((drop) => dropOnSpace(drop, w.id))
+       .when(this.pressed === w.id && this.over !== w.id, (el) => el.opacity(0.5))
+       .when(this.pressed !== null && this.over === w.id && this.pressed !== w.id, (el) => el.child(
+         div().absolute().left(0).right(0).h(2).bg(t.accent)
+@@ -452,6 +455,8 @@ export default class Spaces extends View {
+       .items_center()
+       .when(w.active, (el) => el.bg(t.selected))
+       .when(!w.active, (el) => el.hover((s) => s.bg(t.hover)))
++      .drag_over((s) => s.bg(t.hover))
++      .on_drag_drop((drop) => dropOnSpace(drop, w.id))
+       .on_click(() => run("space.select", { id: w.id }))
+       .child(div().text_color(w.active ? t.foreground : t.muted).child(String(i + 1)))
+       .child(div().absolute().right(5).text_color(tone(t, w.status)).child(glyph(w.status))));
+diff --git a/src/mods.rs b/src/mods.rs
+index bb74a3f..e47abcd 100644
+--- a/src/mods.rs
++++ b/src/mods.rs
+@@ -905,6 +905,7 @@ fn module(inst: Instance, copy: u64) -> HostModule {
+         commands.retain(|(_, _, tx)| !tx.is_closed());
+         commands.push((copy, inst.name.clone(), cmd_tx));
+     });
++    let drops = drops_of(&inst);
+     HostModule::new("herdr")
+         .declarations(DECLARATIONS)
+         .async_function("exec", |a| {
+@@ -1105,6 +1106,78 @@ fn module(inst: Instance, copy: u64) -> HostModule {
+             let rx = commands.clone();
+             Ok(async move { rx.recv().await.map(HostValue::Str).map_err(|_| HostError::new("herdr-app is shutting down")) })
+         })
++        .async_function("nextDrop", move |_| {
++            let (rx, waiting) = (drops.rx.clone(), Waiting::new(&drops.waiting));
++            Ok(async move {
++                let _waiting = waiting;
++                rx.recv().await.map(|v| to_host(&v)).map_err(|_| HostError::new("herdr-app is shutting down"))
++            })
++        })
++        .function("dropOnSpace", |a| Ok(HostValue::Bool(drop_on_space(&from_host(a.value(0)?), a.string(1)?))))
++}
++
++/// A mod's drags (an element's `on_drag`) dropped on a space, for its copies'
++/// nextDrop(): one channel per mod, so each drop goes to one copy, whichever
++/// waits, even when the copy that started the drag has closed.
++#[derive(Clone)]
++struct Drops {
++    tx: async_channel::Sender<Value>,
++    rx: async_channel::Receiver<Value>,
++    /// nextDrop() calls pending now (a closed copy's are cancelled).
++    waiting: std::sync::Arc<std::sync::atomic::AtomicUsize>,
++}
++
++struct Waiting(std::sync::Arc<std::sync::atomic::AtomicUsize>);
++impl Waiting {
++    fn new(count: &std::sync::Arc<std::sync::atomic::AtomicUsize>) -> Self {
++        count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
++        Waiting(count.clone())
++    }
++}
++impl Drop for Waiting {
++    fn drop(&mut self) {
++        self.0.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
++    }
++}
++
++thread_local! {
++    static DROPS: RefCell<HashMap<String, Drops>> = RefCell::new(HashMap::new());
++    /// Each copy's application name (`Instance::key`) and its mod: a drag's `source`.
++    static APPLICATIONS: RefCell<HashMap<String, String>> = RefCell::new(HashMap::new());
++}
++
++fn drops_of(inst: &Instance) -> Drops {
++    APPLICATIONS.with_borrow_mut(|a| a.insert(inst.key(), inst.name.clone()));
++    DROPS.with_borrow_mut(|d| {
++        d.entry(inst.name.clone())
++            .or_insert_with(|| {
++                let (tx, rx) = async_channel::unbounded();
++                Drops { tx, rx, waiting: Default::default() }
++            })
++            .clone()
++    })
++}
++
++/// Hands a mod drag dropped on a space (an `on_drag_drop` event) to the mod
++/// that started it: `{payload, space}` to a copy waiting in nextDrop(), the
++/// space as spaces() lists it. Returns whether one took it.
++pub fn drop_on_space(drop: &Value, space: &str) -> bool {
++    let (Some(source), Some(payload)) = (drop["source"].as_str(), drop["payload"].as_str()) else {
++        return false;
++    };
++    let Some(name) = APPLICATIONS.with_borrow(|a| a.get(source).cloned()) else {
++        tracing::warn!("a drag from {source:?} was dropped, but no mod started it");
++        return false;
++    };
++    let Some(space) = SNAPSHOT.with(|s| s.borrow().spaces.as_array()?.iter().find(|s| s["id"] == space).cloned()) else {
++        return false;
++    };
++    let Some(drops) = DROPS.with_borrow(|d| d.get(&name).cloned()) else { return false };
++    if drops.waiting.load(std::sync::atomic::Ordering::SeqCst) == 0 {
++        tracing::warn!("mod {name}: a drag was dropped on a space, but no copy waits in nextDrop()");
++        return false;
++    }
++    drops.tx.try_send(json!({ "payload": payload, "space": space })).is_ok()
+ }
+ 
+ /// The runtime's base layer, themed from settings.json.
+diff --git a/src/mods/lifecycle_tests.rs b/src/mods/lifecycle_tests.rs
+index 2db6860..0879c9d 100644
+--- a/src/mods/lifecycle_tests.rs
++++ b/src/mods/lifecycle_tests.rs
+@@ -420,3 +420,96 @@ export default class extends View {
+     cx.run_until_parked();
+     window.update(cx, |_, window, _| window.remove_window()).unwrap();
+ }
++
++struct Beside(gpui::Entity<ShellRoot>, gpui::Entity<ShellRoot>);
++impl Render for Beside {
++    fn render(&mut self, _: &mut gpui::Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
++        use gpui::{ParentElement as _, Styled as _};
++        gpui::div().flex().size_full()
++            .child(gpui::div().w(gpui::px(240.)).h_full().child(self.0.clone()))
++            .child(gpui::div().flex_1().h_full().child(self.1.clone()))
++    }
++}
++
++#[gpui::test]
++fn a_mod_drag_dropped_on_a_space_group_reaches_the_mod_that_started_it(cx: &mut TestAppContext) {
++    use gpui::{Modifiers, MouseButton, point, px};
++    cx.update(gpui_shell::init);
++    // The shipped agents panel, grouped by space, beside a mod with a draggable card.
++    let shipped = DEFAULT_MODS.iter().find(|(path, _)| *path == "agents/main.js").unwrap().1;
++    let panel = Fixture::new(std::str::from_utf8(shipped).unwrap());
++    let source = Fixture::new(r#"
++import { View, div } from "gpui-kit";
++import { nextDrop } from "herdr";
++import { note } from "fixture";
++export default class extends View {
++  init(_, cx) {
++    cx.spawn(async () => { for (;;) note(await nextDrop()); });
++  }
++  render() {
++    return div().size_full().child(div().id("card").w(120).h(40).on_drag("new-agent\nwith details", "New agent"));
++  }
++}"#);
++    SHARED.with_borrow_mut(|slot| *slot = Some(SharedStore {
++        values: [("agents.sort".to_owned(), json!("grouped"))].into_iter().collect(),
++        path: panel.0.join("shared.json"),
++        writable: false,
++        writer: None,
++    }));
++    let space = json!({"id": "vps/s1", "index": 1, "name": "Remote", "named": true, "folder": "/srv/work", "machine": "vps",
++        "branch": null, "active": true, "status": "working", "tabs": []});
++    publish_spaces(json!([space]));
++    publish_agents(json!([{"address": "vps/t1", "pane": "vps/p1", "space": "vps/s1", "space_name": "Remote", "tab": "vps/tab1",
++        "tab_index": 1, "tab_name": "Build", "status": "working", "app": "pi", "program": {"key": "pi", "name": "Pi"},
++        "title": "Build", "seq": 1, "pinned": false, "focused": false}]));
++    let dropped = Rc::new(RefCell::new(Vec::new()));
++    let calls = dropped.clone();
++    let fixture = HostModule::new("fixture").function("note", move |a| {
++        calls.borrow_mut().push(from_host(a.value(0)?));
++        Ok(HostValue::Null)
++    });
++    let runtime = ShellRuntime::new_isolated().unwrap();
++    let window = cx.add_window(|window, cx| {
++        let agents = Instance { name: "agents".into(), props: Value::Null };
++        gpui_shell::policy::set_default(Policy::new()
++            .with_application(agents.key())
++            .with_capabilities(Capabilities::new().storage(true))
++            .with_storage_path(panel.0.join("store.json"))
++            .with_host_module(module(agents, 1)).unwrap());
++        let agents = runtime.try_load(&panel.0, window, cx).unwrap();
++        let kit = Instance { name: "kit".into(), props: Value::Null };
++        gpui_shell::policy::set_default(Policy::new()
++            .with_application(kit.key())
++            .with_host_module(module(kit, 2)).unwrap()
++            .with_host_module(fixture).unwrap());
++        let kit = runtime.try_load(&source.0, window, cx).unwrap();
++        Beside(agents, kit)
++    });
++    let mut visual = VisualTestContext::from_window(*window.deref(), cx);
++    let frame = |visual: &mut VisualTestContext| {
++        visual.update(|window, cx| window.draw(cx).clear(cx));
++        visual.run_until_parked();
++    };
++    frame(&mut visual);
++    // From the card, past the drag threshold, onto the space's group header (below "Agents").
++    let header = point(px(60.), px(62.));
++    visual.simulate_mouse_down(point(px(300.), px(20.)), MouseButton::Left, Modifiers::none());
++    visual.simulate_mouse_move(point(px(280.), px(30.)), Some(MouseButton::Left), Modifiers::none());
++    frame(&mut visual);
++    assert!(visual.update(|_, cx| cx.has_active_drag()), "the card must start a drag");
++    visual.simulate_mouse_move(header, Some(MouseButton::Left), Modifiers::none());
++    frame(&mut visual);
++    visual.simulate_mouse_up(header, MouseButton::Left, Modifiers::none());
++    frame(&mut visual);
++    assert_eq!(*dropped.borrow(), vec![json!({"payload": "new-agent\nwith details", "space": space})]);
++    // Dropped where nothing takes it: nothing arrives.
++    visual.simulate_mouse_down(point(px(300.), px(20.)), MouseButton::Left, Modifiers::none());
++    visual.simulate_mouse_move(point(px(280.), px(30.)), Some(MouseButton::Left), Modifiers::none());
++    frame(&mut visual);
++    visual.simulate_mouse_up(point(px(600.), px(300.)), MouseButton::Left, Modifiers::none());
++    frame(&mut visual);
++    assert_eq!(dropped.borrow().len(), 1);
++    visual.update(|window, _| window.remove_window());
++    visual.run_until_parked();
++    SHARED.with_borrow_mut(|slot| *slot = None);
++}
+diff --git a/src/mods/render_tests.rs b/src/mods/render_tests.rs
+index cdad24a..a736584 100644
+--- a/src/mods/render_tests.rs
++++ b/src/mods/render_tests.rs
+@@ -126,7 +126,7 @@ fn module(values: BTreeMap<String, Value>, calls: Rc<RefCell<Calls>>) -> HostMod
+         shared.borrow_mut().shared.insert(a.string(0)?.into(), from_host(a.value(1)?));
+         Ok(HostValue::Null)
+     });
+-    for name in ["run", "playSound", "setAgentOrder", "openOverlay", "closeOverlay", "notify", "presentUpdateNotes"] {
++    for name in ["run", "playSound", "setAgentOrder", "openOverlay", "closeOverlay", "notify", "presentUpdateNotes", "dropOnSpace"] {
+         let calls = calls.clone();
+         module = module.function(name, move |a| {
+             if name == "run" {
+@@ -152,7 +152,7 @@ fn module(values: BTreeMap<String, Value>, calls: Rc<RefCell<Calls>>) -> HostMod
+     module = module.async_function("feedbackPickImages", |_| Ok(async { Ok(HostValue::Array(vec![])) }));
+     module = module.async_function("knownAgents", |_| Ok(async { Ok(HostValue::Array(vec![])) }));
+     module = module.async_function("pickFolder", |_| Ok(async { Ok(HostValue::Null) }));
+-    for name in ["nextCommand", "watchFolder"] {
++    for name in ["nextCommand", "nextDrop", "watchFolder"] {
+         module = module.async_function(name, |_| Ok(std::future::pending::<gpui_shell::HostResult>()));
+     }
+     for name in ["exec", "hc", "readTextFile", "writeTextFile", "sendFeedback"] {
+diff --git a/src/window/movable.rs b/src/window/movable.rs
+index 7b4a4c7..ae92ca9 100644
+--- a/src/window/movable.rs
++++ b/src/window/movable.rs
+@@ -152,7 +152,8 @@ impl AppWindow {
+ 
+     fn window_move(&mut self, at: Point<Pixels>, pressed: bool, cx: &mut Context<Self>) {
+         let Some(d) = &mut self.win_drag else { return };
+-        if !pressed {
++        // A press that started a drag inside the window (a mod's `on_drag`) is the drag's.
++        if !pressed || cx.has_active_drag() {
+             self.win_drag = None;
+             cx.notify();
+             return;
+diff --git a/vendor/gpui-kit/crates/shell/src/drag.rs b/vendor/gpui-kit/crates/shell/src/drag.rs
+new file mode 100644
+index 0000000..f9441f2
+--- /dev/null
++++ b/vendor/gpui-kit/crates/shell/src/drag.rs
+@@ -0,0 +1,84 @@
++//! HERDR: drags a script starts with `on_drag(payload, label)`.
++//!
++//! GPUI's own drag, kept inside the window (no external payload, so it is never
++//! handed to the system): any view in the window takes it with `on_drag_drop`
++//! and styles itself with `drag_over` while one hovers.
++
++use std::rc::Rc;
++
++use gpui::{
++    AppContext as _, Context, IntoElement, ParentElement as _, Pixels,
++    Point, Render, SharedString, StatefulInteractiveElement, Styled as _, Window, div,
++};
++use gpui_base::Theme;
++
++use crate::{ShellRuntime, spec::CallbackId, value::scaled_px};
++
++/// The longest payload `on_drag` takes, in bytes: a drag says what, not the data.
++pub(crate) const MAX_PAYLOAD: usize = 8 * 1024;
++
++/// What a script drag carries: its payload, the chip's text, and the
++/// application (`Policy::application`) whose view started it.
++#[derive(Clone, Debug, PartialEq)]
++pub(crate) struct ScriptDrag {
++    pub payload: SharedString,
++    pub label: SharedString,
++    pub source: SharedString,
++}
++
++/// The chip under the pointer while dragging.
++struct Chip {
++    label: SharedString,
++    /// Where the press was in the source element: GPUI draws the drag view
++    /// that far up and left of the pointer, so the chip is padded back past it.
++    offset: Point<Pixels>,
++}
++
++impl Render for Chip {
++    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
++        let colors = Theme::global(cx).tokens.colors;
++        div()
++            .pl(self.offset.x + scaled_px(14.))
++            .pt(self.offset.y + scaled_px(10.))
++            .child(
++                div()
++                    .max_w(scaled_px(280.))
++                    .px(scaled_px(8.))
++                    .py(scaled_px(4.))
++                    .rounded(scaled_px(6.))
++                    .border_1()
++                    .border_color(colors.border)
++                    .bg(colors.surface)
++                    .text_color(colors.foreground)
++                    .text_size(scaled_px(12.))
++                    .shadow_md()
++                    .truncate()
++                    .child(self.label.clone()),
++            )
++    }
++}
++
++/// `on_drag` and `on_drag_drop` on one element.
++pub(crate) fn with_drag<E: StatefulInteractiveElement>(
++    element: E,
++    drag: Option<&ScriptDrag>,
++    on_drop: Option<CallbackId>,
++    runtime: &Rc<ShellRuntime>,
++) -> E {
++    let mut element = element;
++    if let Some(drag) = drag {
++        element = element.on_drag(drag.clone(), |drag, offset, _, cx| {
++            let label = drag.label.clone();
++            cx.new(|_| Chip { label, offset })
++        });
++    }
++    if let Some(callback) = on_drop {
++        let runtime = Rc::downgrade(runtime);
++        element = element.on_drop(move |drag: &ScriptDrag, window, cx| {
++            if let Some(runtime) = runtime.upgrade() {
++                runtime.dispatch_script_drop(callback, drag, window, cx);
++            }
++        });
++    }
++    element
++}
+diff --git a/vendor/gpui-kit/crates/shell/src/engine/quickjs/mod.rs b/vendor/gpui-kit/crates/shell/src/engine/quickjs/mod.rs
+index ed0d41c..3067524 100644
+--- a/vendor/gpui-kit/crates/shell/src/engine/quickjs/mod.rs
++++ b/vendor/gpui-kit/crates/shell/src/engine/quickjs/mod.rs
+@@ -4215,6 +4215,24 @@ impl ShellRuntime {
+         });
+     }
+ 
++    /// HERDR: delivers a script drag dropped on an `on_drag_drop` element.
++    pub(crate) fn dispatch_script_drop(
++        self: &Rc<Self>,
++        id: CallbackId,
++        drag: &crate::drag::ScriptDrag,
++        window: &mut Window,
++        cx: &mut App,
++    ) {
++        let drag = drag.clone();
++        self.dispatch_simple_event(id, "drag drop", window, cx, move |ctx| {
++            let payload = Object::new(ctx.clone())?;
++            payload.set("payload", drag.payload.as_ref())?;
++            payload.set("label", drag.label.as_ref())?;
++            payload.set("source", drag.source.as_ref())?;
++            Ok(payload)
++        });
++    }
++
+     /// Delivers one dispatched action to a script handler.
+     ///
+     /// The id is handed over even though the handler was registered for one
+@@ -5162,6 +5180,8 @@ impl ShellRuntime {
+             "hover" => "hover",
+             "active" => "active",
+             "focus" => "focus",
++            // HERDR: while a script drag hovers it.
++            "drag_over" => "drag_over",
+             // Not a runtime state, but the same mechanism: a detached node
+             // collecting ordinary style methods. A `SliderIndicator` draws its
+             // filled part from this one.
+@@ -5175,7 +5195,7 @@ impl ShellRuntime {
+                 return Err(Exception::throw_type(
+                     ctx,
+                     &format!(
+-                        "unknown state style `{other}`; expected hover, active, focus, \
++                        "unknown state style `{other}`; expected hover, active, focus, drag_over, \
+                          range_style, cell_style, cell_active_style or caret_style"
+                     ),
+                 ));
+@@ -5782,6 +5802,8 @@ globalThis.__gpui = (() => {
+   methods.hover = state("hover");
+   methods.active = state("active");
+   methods.focus = state("focus");
++  // HERDR: while a script drag (`on_drag`) is over the element.
++  methods.drag_over = state("drag_over");
+   // Not a state: the filled part of a slider, declared the same way because
+   // it is the same thing — a detached element collecting styles. The shell
+   // positions the box; this says what it looks like.
+@@ -7259,6 +7281,9 @@ impl ShellRuntime {
+                 "on_mouse_up",
+                 "on_mouse_down_out",
+                 "on_drop",
++                // HERDR: script drags.
++                "on_drag",
++                "on_drag_drop",
+                 "on_scroll_wheel",
+                 "on_action",
+                 "key_context",
+@@ -8261,6 +8286,7 @@ impl ShellRuntime {
+             | "on_modifiers_changed"
+             | "on_mouse_down_out"
+             | "on_drop"
++            | "on_drag_drop"
+             | "on_scroll_wheel"
+             | "tab_bar"
+             | "empty_group"
+@@ -8304,6 +8330,41 @@ impl ShellRuntime {
+                 let name = callback_op_name(method).expect("this arm's own list");
+                 self.push_op_checked(ctx, self.push_op(id, SpecOp::Callback(name, callback)))
+             }
++            // HERDR: the element starts a script drag. The application whose
++            // view recorded it rides along, so whoever takes the drop can tell
++            // whose drag it was.
++            "on_drag" => {
++                let bridged = args.values(method)?;
++                let Some(Bridged::Str(payload)) = bridged.first() else {
++                    return Err(Exception::throw_type(
++                        ctx,
++                        "on_drag(payload, label?) expects a string payload",
++                    ));
++                };
++                if payload.len() > crate::drag::MAX_PAYLOAD {
++                    return Err(Exception::throw_range(
++                        ctx,
++                        &format!("on_drag payload is at most {} bytes", crate::drag::MAX_PAYLOAD),
++                    ));
++                }
++                let label = match bridged.get(1) {
++                    None | Some(Bridged::Nil) => payload.lines().next().unwrap_or("").to_owned(),
++                    Some(Bridged::Str(label)) => label.clone(),
++                    Some(_) => {
++                        return Err(Exception::throw_type(
++                            ctx,
++                            "on_drag(payload, label?) expects a string label",
++                        ));
++                    }
++                };
++                let application = scope::policy().application().to_owned();
++                let recorded = smallvec::smallvec![
++                    Bridged::Str(payload.clone()),
++                    Bridged::Str(label),
++                    Bridged::Str(application),
++                ];
++                self.push_op_checked(ctx, self.push_op(id, SpecOp::Method("on_drag", recorded)))
++            }
+             "disabled"
+             | "selectable"
+             | "scrollable"
+@@ -10249,6 +10310,7 @@ fn callback_op_name(method: &str) -> Option<&'static str> {
+         "on_modifiers_changed" => "on_modifiers_changed",
+         "on_mouse_down_out" => "on_mouse_down_out",
+         "on_drop" => "on_drop",
++        "on_drag_drop" => "on_drag_drop",
+         "on_scroll_wheel" => "on_scroll_wheel",
+         "on_item_click" => "on_item_click",
+         "on_item_secondary_click" => "on_item_secondary_click",
+diff --git a/vendor/gpui-kit/crates/shell/src/lib.rs b/vendor/gpui-kit/crates/shell/src/lib.rs
+index 488ae37..3d453de 100644
+--- a/vendor/gpui-kit/crates/shell/src/lib.rs
++++ b/vendor/gpui-kit/crates/shell/src/lib.rs
+@@ -72,6 +72,8 @@ pub use input_tokens::{
+ };
+ pub(crate) mod dependencies;
+ pub mod dock;
++// HERDR: drags a script starts, and the views that take them.
++pub(crate) mod drag;
+ pub(crate) mod engine;
+ pub(crate) mod entities;
+ pub(crate) mod error;
+diff --git a/vendor/gpui-kit/crates/shell/src/materialize.rs b/vendor/gpui-kit/crates/shell/src/materialize.rs
+index 79081c1..f59928c 100644
+--- a/vendor/gpui-kit/crates/shell/src/materialize.rs
++++ b/vendor/gpui-kit/crates/shell/src/materialize.rs
+@@ -297,6 +297,8 @@ struct StateStyles {
+     hover: Option<StyleRefinement>,
+     active: Option<StyleRefinement>,
+     focus: Option<StyleRefinement>,
++    /// HERDR: while a script drag hovers the element.
++    drag_over: Option<StyleRefinement>,
+ }
+ 
+ impl StateStyles {
+@@ -377,6 +379,9 @@ struct Behavior {
+     /// script had no way to.
+     on_mouse_down_out: Option<CallbackId>,
+     on_drop: Option<CallbackId>,
++    /// HERDR: the script drag this element starts, and the handler for one dropped on it.
++    drag: Option<crate::drag::ScriptDrag>,
++    on_drag_drop: Option<CallbackId>,
+     /// Wheel and trackpad scrolling over this element.
+     on_scroll_wheel: Option<CallbackId>,
+     /// Handlers for named actions, one entry per action listened for.
+@@ -598,6 +603,8 @@ impl Behavior {
+             || self.on_hover.is_some()
+             || self.on_key_down.is_some()
+             || self.on_drop.is_some()
++            || self.drag.is_some()
++            || self.on_drag_drop.is_some()
+             || self.on_key_up.is_some()
+             || self.on_modifiers_changed.is_some()
+             || !self.on_mouse_down.is_empty()
+@@ -1651,6 +1658,13 @@ where
+ /// differ. Components that are not interactive silently ignore state styles
+ /// rather than failing the render — the script gets a `tracing` warning.
+ fn with_hover<E: InteractiveElement>(element: E, states: &StateStyles) -> E {
++    let element = match states.drag_over.clone() {
++        Some(over) => element.drag_over::<crate::drag::ScriptDrag>(move |mut style, _, _, _| {
++            style.refine(&over);
++            style
++        }),
++        None => element,
++    };
+     match states.hover.clone() {
+         Some(hover) => element.hover(move |mut style| {
+             style.refine(&hover);
+@@ -1797,6 +1811,7 @@ where
+             }
+         });
+     }
++    element = crate::drag::with_drag(element, behavior.drag.as_ref(), behavior.on_drag_drop, runtime);
+     if let Some(callback) = behavior.on_key_down {
+         let runtime = Rc::downgrade(runtime);
+         element = element.on_key_down(move |event, window, cx| {
+@@ -2022,6 +2037,8 @@ fn warn_unhonoured_input(component: &Component, behavior: &Behavior) {
+         ("on_key_down", behavior.on_key_down.is_some()),
+         ("on_key_up", behavior.on_key_up.is_some()),
+         ("on_drop", behavior.on_drop.is_some()),
++        ("on_drag", behavior.drag.is_some()),
++        ("on_drag_drop", behavior.on_drag_drop.is_some()),
+         (
+             "on_modifiers_changed",
+             behavior.on_modifiers_changed.is_some(),
+@@ -2631,6 +2648,17 @@ pub(in crate::materialize) fn resolve_ops(
+                     );
+                 }
+             }
++            SpecOp::Method("on_drag", args) => {
++                if let [Bridged::Str(payload), Bridged::Str(label), Bridged::Str(source)] =
++                    args.as_slice()
++                {
++                    behavior.drag = Some(crate::drag::ScriptDrag {
++                        payload: payload.clone().into(),
++                        label: label.clone().into(),
++                        source: source.clone().into(),
++                    });
++                }
++            }
+             SpecOp::Method("spin", args) => {
+                 if let [Bridged::Number(ms)] = args.as_slice() {
+                     behavior.spin = Some(ms.max(100.0));
+@@ -2690,6 +2718,7 @@ pub(in crate::materialize) fn resolve_ops(
+                     "hover" => states.hover = Some(resolved),
+                     "active" => states.active = Some(resolved),
+                     "focus" => states.focus = Some(resolved),
++                    "drag_over" => states.drag_over = Some(resolved),
+                     // Not a runtime state at all: the one style from which
+                     // a component draws a box of its own. It rides the same op
+                     // because what it collects is a refinement built from the
+@@ -2724,6 +2753,7 @@ pub(in crate::materialize) fn resolve_ops(
+                 "on_mouse_up_middle" => behavior.on_mouse_up.push((MouseButton::Middle, *id)),
+                 "on_mouse_down_out" => behavior.on_mouse_down_out = Some(*id),
+                 "on_drop" => behavior.on_drop = Some(*id),
++                "on_drag_drop" => behavior.on_drag_drop = Some(*id),
+                 "on_scroll_wheel" => behavior.on_scroll_wheel = Some(*id),
+                 "on_resize" => behavior.on_resize = Some(*id),
+                 "on_size_change" => behavior.on_size_change = Some(*id),
+diff --git a/vendor/gpui-kit/crates/shell/src/typings.rs b/vendor/gpui-kit/crates/shell/src/typings.rs
+index c71575f..e6269b9 100644
+--- a/vendor/gpui-kit/crates/shell/src/typings.rs
++++ b/vendor/gpui-kit/crates/shell/src/typings.rs
+@@ -1455,6 +1455,19 @@ const ELEMENT_METHODS: &str = r#"    /**
+     on_mouse_down_out<Self extends Element>(this: Self, handler: (event: MouseButtonEvent, cx: Context) => void): Self;
+     /** Files dropped from outside the app, as absolute paths. Use on a plain layout element. */
+     on_drop<Self extends Element>(this: Self, handler: (event: { paths: string[] }, cx: Context) => void): Self;
++    /**
++     * Makes the element draggable inside the window (GPUI's own drag, never the
++     * system's). A small chip with `label` (default: the payload's first line)
++     * follows the pointer. `payload`: a string, at most 8192 bytes.
++     */
++    on_drag<Self extends Element>(this: Self, payload: string, label?: string): Self;
++    /**
++     * An `on_drag` drag dropped on this element. `source`: the application
++     * whose view started it.
++     */
++    on_drag_drop<Self extends Element>(this: Self,
++      handler: (event: { payload: string; label: string; source: string }, cx: Context) => void,
++    ): Self;
+     /**
+      * GPUI `InteractiveElement::on_scroll_wheel`: wheel and trackpad scrolling
+      * over this element.
+@@ -1945,6 +1958,8 @@ const ELEMENT_METHODS: &str = r#"    /**
+     active<Self extends Element>(this: Self, declare: (el: NativeElement) => NativeElement | void): Self;
+     /** Styles applied while the element has focus. */
+     focus<Self extends Element>(this: Self, declare: (el: NativeElement) => NativeElement | void): Self;
++    /** Styles applied while an `on_drag` drag is over the element. */
++    drag_over<Self extends Element>(this: Self, declare: (el: NativeElement) => NativeElement | void): Self;
+     /**
+      * Displays the tab at `index` in `group` when this element is clicked.
+      *
+@@ -3999,6 +4014,8 @@ mod tests {
+         "on_mouse_up",
+         "on_mouse_down_out",
+         "on_drop",
++        "on_drag",
++        "on_drag_drop",
+         "on_scroll_wheel",
+         "on_action",
+         "key_context",
+@@ -4081,6 +4098,7 @@ mod tests {
+         "hover",
+         "active",
+         "focus",
++        "drag_over",
+     ];
+ 
+     /// Every method name declared in the `Element` interface, in order.
+
+base-commit: 9950887361af3ba218b9ce7a347cb8ec7b66c71d

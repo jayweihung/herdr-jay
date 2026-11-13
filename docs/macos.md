@@ -111,11 +111,13 @@ cd herdr-app
 git checkout v0.1.15
 git rev-parse --short HEAD
 git submodule update --init --recursive
-ls ~/src/herdr-jay/herdr-app/patches/v0.1.15/ 2>/dev/null
+git -c user.name=me -c user.email=me@local am -3 ~/src/herdr-jay/herdr-app/patches/v0.1.15/*.patch
 ```
 
-`git rev-parse` must print `9950887` (an older clone: `git fetch --tags --force` first). The `ls` shows nothing
-today (no app patches); if that folder ever has `.patch` files, `git am` them like step 2 before `just install`.
+`git rev-parse` must print `9950887` (an older clone: `git fetch --tags --force` first). `git am` applies the two app
+patches (drag from a mod onto a space: the Kit panel's 「把 agent 放到 space」, [patches.md](patches.md)); if it
+fails: `git am --abort`, check the tag, try again.
+`git am` 套上兩個 app patch（mod 的東西可以拖到左邊的 space，Kit 面板「把 agent 放到 space」要用）。
 
 ```sh
 cd ~/src/herdr-app && just install

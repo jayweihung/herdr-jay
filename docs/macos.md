@@ -2,7 +2,7 @@
 
 Build Herdr from the official source (plus jay's text patches), then install two mods (and the kit mod if you use kit).
 jay's own Mac is built from these same public sources and patches. Checked on Apple Silicon with only the Command Line Tools
-(no full Xcode), Herdr app v0.1.15 and core v0.1.20. Intel Macs are fine too: the official releases are
+(no full Xcode), Herdr app v0.1.15 and core v0.1.21. Intel Macs are fine too: the official releases are
 Apple-Silicon-only, so building from source is the way there.
 從官方原始碼 build Herdr（加上 jay 的文字補丁），再裝兩個 mod（有用 kit 再加 kit 的 mod）。jay 自己的 Mac 就是這樣裝的。
 
@@ -67,23 +67,23 @@ Install the core **before** the app.
 cd ~/src
 git clone --recurse-submodules https://github.com/herdrdev/herdr-core.git
 cd herdr-core
-git checkout v0.1.20
+git checkout v0.1.21
 git rev-parse --short HEAD
 git submodule update --init --recursive
 ```
 
-`git rev-parse` must print `de97ea5` (README versions table). An older clone: `git fetch --tags --force` before
+`git rev-parse` must print `1b0393f` (README versions table). An older clone: `git fetch --tags --force` before
 `git checkout`.
 
-**jay's patches** — none for core v0.1.20: the one v0.1.19 needed (skip Ghostty's Xcode framework, so core builds
+**jay's patches** — none for core v0.1.21 (nor v0.1.20): the one v0.1.19 needed (skip Ghostty's Xcode framework, so core builds
 with only the Command Line Tools) is in the official source since v0.1.20 (#182).
 
 ```sh
-ls ~/src/herdr-jay/herdr-core/patches/v0.1.20/
+ls ~/src/herdr-jay/herdr-core/patches/v0.1.21/
 ```
 
 It shows only `README.md` today; if that folder ever has `.patch` files, apply them before `just install`:
-`git -c user.name=me -c user.email=me@local am -3 ~/src/herdr-jay/herdr-core/patches/v0.1.20/*.patch`
+`git -c user.name=me -c user.email=me@local am -3 ~/src/herdr-jay/herdr-core/patches/v0.1.21/*.patch`
 
 ```sh
 just install
@@ -92,7 +92,7 @@ just install
 It builds a release, installs `~/.local/share/herdr-core/…/Herdr Core.app` (ad-hoc signed), links
 `~/.local/bin/herdr-core` and `~/.local/bin/hc`, and restarts the core server (running terminals are kept).
 
-**Check**: `hc --version` → `hc 0.1.20`; `hc server status --json` shows `"version":"0.1.20"`.
+**Check**: `hc --version` → `hc 0.1.21`; `hc server status --json` shows `"version":"0.1.21"`.
 
 **Never run plain `hc update`**, and never "Update herdr-core" / Install on Herdr's core screen: they replace your
 build with the official one. Update as in [step 8](#8-updating--更新).

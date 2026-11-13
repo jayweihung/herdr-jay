@@ -9,6 +9,18 @@ says which) · **kit** = update kit itself on every machine where agents run (`k
 **snap hook** = a line in Claude Code's `settings.json` on each machine where you added the hook (the entry says
 which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/keys.md).
 
+## 2026-11-13, Herdr core v0.1.21
+
+Needs: **core** (v0.1.20 → official v0.1.21, no patches: [herdr-core/patches/v0.1.21](herdr-core/patches/v0.1.21/README.md)).
+On the Linux server too ([docs/linux-remote.md](docs/linux-remote.md) §2).
+
+- Windows: Herdr sees the program running in a PowerShell / cmd terminal, so agents started from a shell show their
+  name and status; terminals start when PowerShell 7 isn't on PATH.
+- Remote Linux: cores started over SSH get your login profile's environment (tools in `~/.local/bin` are found);
+  a failing SSH login retries after 2, 5, then every 10 minutes; Herdr warns when logging out would stop your programs.
+- Official notes: the herdr-core CHANGELOG, 0.1.21.
+core 升到官方 v0.1.21（不用 patch）。Windows 看得到 PowerShell 裡跑的 agent；遠端 Linux 讀登入時的環境。
+
 ## 2026-11-13, Herdr app: drag onto a space
 
 Needs: **app** (same v0.1.15, now with two patches: rebuild it; core unchanged), **kit** 0.5.0, **mods**.

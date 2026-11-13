@@ -545,7 +545,7 @@ export default class Gerrit extends View {
   async askAgent(c, p, cx) {
     const target = this.pickedAgent(this.agentList());
     if (!target) return this.openAndAsk(c, p, cx);
-    const filled = fillPrompt(p.text, this.promptVars(c));
+    const filled = p.filled ?? fillPrompt(p.text, this.promptVars(c)); // (filled: written already, e.g. nvim's question)
     const text = target.kit ? forKit(filled) : filled;
     this.ask = { sending: p.label };
     cx.notify();
@@ -564,7 +564,7 @@ export default class Gerrit extends View {
   // once it's up. A kit gerrit agent when the kit sources have one (the Kit panel places it: kit place, its own folder
   // here); else gerrit.json's agent.start.
   openAndAsk(c, p, cx) {
-    const a = this.agentCfg(), space = this.currentSpace(), filled = fillPrompt(p.text, this.promptVars(c));
+    const a = this.agentCfg(), space = this.currentSpace(), filled = p.filled ?? fillPrompt(p.text, this.promptVars(c));
     if (!space) { this.ask = { error: "沒有開著的 space" }; cx.notify(); return; }
     const where = space.name || "這個 space";
     if (this.kitHasGerrit()) {

@@ -1608,21 +1608,37 @@ end })
 -- A Gerrit change opened from Herdr's Gerrit panel (its 在 nvim 看 button): nvim starts in the change's own folder
 -- (a git worktree at that patch set) with g:nvim_jay_review = the path of review.json, which the panel writes and
 -- keeps current:
---   { v = 1, change, ps, base_ps (nil: against the parent), subject, url, dir, base, head,
---     files = { { path, status (A D R M), old_path, ins, del } },
---     comments = { [path] = { { line, author, message, unresolved, draft } } },   -- this patch set's
+--   { v = 1, change, ps, base_ps (nil: against the parent), latest (the change's newest patch set), subject, url, dir,
+--     base, head, files = { { path, status (A D R M), old_path, ins, del } },
+--     comments = { [path] = { { id, thread, reply_to, line, author, message, unresolved, draft } } }, -- this patch set's
+--     updating = { to, base_ps, step, percent, error },                         -- another patch set being downloaded
 --     jump = { path, line, seq } }                                              -- the panel asks nvim to go there
 -- - marks compare with "base" (the parent, or an older patch set) instead of HEAD; a renamed file with its old name
 -- - the changed files on the left (seen ones ticked, kept in seen.json beside review.json, per head)
--- - comments of this patch set under their line; drafts marked as such
--- - space r c: a comment on this line, which the panel saves as your Gerrit draft (from-nvim.jsonl beside review.json,
---   one JSON object per line; the panel empties the file once it has saved them)
+-- - comments of this patch set under their line, as threads (replies under the first); drafts marked as such
+-- - Enter on a line (or the right-click menu): what can be done there, in a menu: a comment, a reply / Done / Ack in a
+--   thread, editing or deleting your draft, asking the Gerrit agent, another patch set. Lines selected + Enter: ask the
+--   agent about them. (Shortcuts: space r c / r r / r d / r k / r e / r x / r a / r u / r m.)
+--   All of it goes to the panel through from-nvim.jsonl beside review.json (one JSON object per line, emptied once
+--   done): drafts only, nothing is published from here.
 do
   local file = vim.g.nvim_jay_review
   if type(file) == "string" and file ~= "" then
     local R = { file = P.norm(file), data = nil, stamp = nil, jump = 0, order = "gerrit", rows = {}, list = nil, head = nil }
     R.home = vim.fs.dirname(R.file)
     JN.review = R
+    -- one line that fits the bottom row: a long message in a narrow pane would stop everything at "Press ENTER"
+    local function say(msg, level)
+      msg = tostring(msg):gsub("%s*\n%s*", " ")
+      local room = math.max(10, vim.v.echospace)
+      if vim.fn.strdisplaywidth(msg) > room then
+        local n = vim.fn.strchars(msg)
+        while n > 0 and vim.fn.strdisplaywidth(vim.fn.strcharpart(msg, 0, n)) > room - 1 do n = n - 1 end
+        msg = vim.fn.strcharpart(msg, 0, n) .. "…"
+      end
+      local hl = level == vim.log.levels.ERROR and "ErrorMsg" or level == vim.log.levels.WARN and "WarningMsg" or "None"
+      api.nvim_echo({ { msg, hl } }, true, {})
+    end
     follow.on = false
     local rns = api.nvim_create_namespace("nvim-jay-review")
     api.nvim_set_hl(0, "QtRevHead", { bold = true })
@@ -1691,11 +1707,37 @@ do
       end
       return out
     end
+    -- a file's comments as threads (replies under the first comment, oldest first, your drafts last), each shown on
+    -- its first comment's line; open or not by its last published comment, as Gerrit decides
+    local function threads(path)
+      local by, out = {}, {}
+      for i, c in ipairs((R.data and R.data.comments or {})[path] or {}) do
+        local k = c.thread or c.id or ("#" .. i)
+        local t = by[k]
+        if not t then t = { id = k, idx = i, items = {} } by[k] = t out[#out + 1] = t end
+        t.items[#t.items + 1] = c
+      end
+      for _, t in ipairs(out) do
+        local pos = {}
+        for i, c in ipairs(t.items) do pos[c] = i end
+        table.sort(t.items, function(a, b)
+          if (a.draft and true or false) ~= (b.draft and true or false) then return not a.draft end
+          if (a.reply_to and true or false) ~= (b.reply_to and true or false) then return not a.reply_to end
+          return pos[a] < pos[b]
+        end)
+        for _, c in ipairs(t.items) do
+          if not t.line and tonumber(c.line) then t.line = tonumber(c.line) end
+          if c.draft then t.draft = c else t.last = c end
+        end
+        t.open = (t.last or t.items[1]).unresolved and true or false
+      end
+      table.sort(out, function(a, b) if (a.line or 0) ~= (b.line or 0) then return (a.line or 0) < (b.line or 0) end return a.idx < b.idx end)
+      return out
+    end
     local function counts(path)
       local all, open = 0, 0
-      for _, c in ipairs((R.data and R.data.comments or {})[path] or {}) do
-        if not c.draft then all = all + 1 if c.unresolved then open = open + 1 end end
-      end
+      for _, c in ipairs((R.data and R.data.comments or {})[path] or {}) do if not c.draft then all = all + 1 end end
+      for _, t in ipairs(threads(path)) do if t.last and t.open then open = open + 1 end end
       return all, open
     end
 
@@ -1722,6 +1764,13 @@ do
       add(("#%s 第 %s 版"):format(tostring(d.change or "?"), tostring(d.ps or "?")), "QtRevHead")
       add(d.base_ps and ("跟第 %s 版比"):format(tostring(d.base_ps)) or "跟上一個 commit 比", "QtRevDim")
       add(tostring(d.subject or ""))
+      local up, latest, ps = d.updating, tonumber(d.latest), tonumber(d.ps)
+      if type(up) == "table" and up.to then
+        if up.error then add(("⚠ 沒換成第 %s 版：%s"):format(tostring(up.to), tostring(up.error)), "QtRevGone")
+        else add(("⏳ 下載第 %s 版中…%s"):format(tostring(up.to), up.percent and (" " .. tostring(up.percent) .. "%") or ""), "QtRevOpen") end
+      elseif latest and ps and latest > ps then
+        add(("🆕 有第 %d 版了：Enter 選單換"):format(latest), "QtRevOpen")
+      end
       add("")
       local n_seen, cur = 0, current_path()
       local width = (list_win() and api.nvim_win_get_width(list_win()) or 40) - 1
@@ -1745,11 +1794,11 @@ do
       end
       add("")
       add(("看過 %d / %d%s"):format(n_seen, #files, R.order == "tests" and "　先看測試" or ""), "QtRevDim")
-      add("Enter 開　]f [f 下一個／上一個檔", "QtRevDim")
-      add("]c [c 下一處／上一處改動", "QtRevDim")
-      add("空白 r c 留言（存成草稿）", "QtRevDim")
-      add("o 先看測試／照 Gerrit 的順序", "QtRevDim")
-      add("空白 r m 看 commit 說明", "QtRevDim")
+      add("在檔案裡按 Enter：這一行能做的事", "QtRevDim")
+      add("（留言、回覆、Done、問 agent、換版本…）", "QtRevDim")
+      add("選幾行再按 Enter：問 agent 這幾行", "QtRevDim")
+      add("]f [f 換檔　]c [c 換改動的地方", "QtRevDim")
+      add("這裡按 Enter 開檔　o 先看測試", "QtRevDim")
       vim.bo[b].modifiable = true
       api.nvim_buf_set_lines(b, 0, -1, false, lines)
       vim.bo[b].modifiable = false
@@ -1789,15 +1838,18 @@ do
       -- one mark per line, its comments in the panel's order (oldest first): several marks on one line would show
       -- the newest on top
       local at_line, order = {}, {}
-      for _, c in ipairs(list) do
-        local l = tonumber(c.line)
+      for _, th in ipairs(threads(path)) do
         -- a comment on the whole file (no line) sits above line 1
-        local k = l and math.min(math.max(l, 1), last) or 0
+        local k = th.line and math.min(math.max(th.line, 1), last) or 0
         if not at_line[k] then at_line[k] = {} order[#order + 1] = k end
-        local hl = c.draft and "QtRevDraft" or c.unresolved and "QtRevOpen" or "QtRevDone"
-        local head = c.draft and "📝 你的草稿（還沒送出）：" or ("💬 " .. tostring(c.author or "?") .. (c.unresolved and "（未解決）：" or "："))
-        for i, t in ipairs(wrap(head .. tostring(c.message or ""), width)) do
-          table.insert(at_line[k], { { (i == 1 and "  ┃ " or "  ┃   ") .. t, hl } })
+        for i, c in ipairs(th.items) do
+          local hl = c.draft and "QtRevDraft" or th.open and "QtRevOpen" or "QtRevDone"
+          local head = c.draft and "📝 你的草稿（還沒送出）：" or i == 1 and ("💬 " .. tostring(c.author or "?") .. (th.open and "（未解決）：" or "（已解決）："))
+            or (tostring(c.author or "?") .. "：")
+          local lead = i == 1 and "  ┃ " or "  ┃   ↳ "
+          for j, t in ipairs(wrap(head .. tostring(c.message or ""), width - (i == 1 and 0 or 2))) do
+            table.insert(at_line[k], { { (j == 1 and lead or (i == 1 and "  ┃   " or "  ┃       ")) .. t, hl } })
+          end
         end
       end
       for _, k in ipairs(order) do
@@ -1858,7 +1910,7 @@ do
       local cur, at = current_path(), nil
       for i, e in ipairs(files) do if e.path == cur then at = i end end
       at = at and (at + dir) or (dir > 0 and 1 or #files)
-      if at < 1 or at > #files then return vim.notify(dir > 0 and "已經是最後一個檔" or "已經是第一個檔") end
+      if at < 1 or at > #files then return say(dir > 0 and "已經是最後一個檔" or "已經是第一個檔") end
       R.open(files[at])
     end
     -- the next / previous change in this file (the marks nvim-jay draws)
@@ -1872,24 +1924,21 @@ do
       local to
       if dir > 0 then for _, r in ipairs(starts) do if r > row then to = r break end end
       else for i = #starts, 1, -1 do if starts[i] < row then to = starts[i] break end end end
-      if not to then return vim.notify(dir > 0 and "這個檔後面沒有改動了（]f 下一個檔）" or "這個檔前面沒有改動了") end
+      if not to then return say(dir > 0 and "這個檔後面沒有改動了（]f 下一個檔）" or "這個檔前面沒有改動了") end
       api.nvim_win_set_cursor(0, { to + 1, 0 })
       vim.cmd("normal! zz")
     end
     function R.draft()
       local path = current_path()
       if not path or not entry(path) or (entry(path).status == "D") then
-        return vim.notify("這個檔不在這個 change 的新版裡：留言要留在改過的檔上", vim.log.levels.WARN)
+        return say("這個檔不在這個 change 的新版裡：留言要留在改過的檔上", vim.log.levels.WARN)
       end
       local line = api.nvim_win_get_cursor(0)[1]
       local b = api.nvim_get_current_buf()
       vim.ui.input({ prompt = ("留言 %s:%d（存成 Gerrit 草稿）："):format(path, line) }, function(msg)
         msg = msg and vim.trim(msg) or ""
         if msg == "" then return end
-        local rec = { id = ("%d-%d"):format(os.time(), math.random(1, 1e9)), draft = { path = path, line = line, message = msg, head = R.data.head } }
-        if not write_file(R.home .. "/from-nvim.jsonl", vim.json.encode(rec) .. "\n", "a") then
-          return vim.notify("寫不進 " .. R.home, vim.log.levels.ERROR)
-        end
+        if not R.send({ draft = { path = path, line = line, message = msg, head = R.data.head } }) then return end
         -- shown at once; the panel's next review.json has it as a real draft
         local list = R.data.comments[path] or {}
         list[#list + 1] = { line = line, message = msg .. "（存到 Gerrit 中…）", draft = true }
@@ -1905,6 +1954,178 @@ do
       api.nvim_buf_set_lines(b, 0, -1, false, vim.split(r.code == 0 and r.stdout or r.stderr, "\n", { plain = true }))
       vim.bo[b].modifiable = false
       api.nvim_win_set_buf(edit_win(), b)
+    end
+
+    -- to the panel (from-nvim.jsonl): one request, with an id of its own
+    function R.send(rec)
+      rec.id = ("%d-%d"):format(os.time(), math.random(1, 1e9))
+      if write_file(R.home .. "/from-nvim.jsonl", vim.json.encode(rec) .. "\n", "a") then return true end
+      vim.notify("寫不進 " .. R.home, vim.log.levels.ERROR)
+      return false
+    end
+    local WARN = vim.log.levels.WARN
+    local function short(t, n)
+      t = tostring(t or ""):gsub("%s+", " ")
+      return vim.fn.strcharlen(t) > (n or 30) and (vim.fn.strcharpart(t, 0, n or 30) .. "…") or t
+    end
+    -- the threads shown on the cursor's line (a whole-file one counts as line 1's), in the file's window
+    local function here()
+      if api.nvim_get_current_win() ~= edit_win() then return nil, {}, nil end
+      local path, line = current_path(), api.nvim_win_get_cursor(0)[1]
+      if not path then return nil, {}, line end
+      local last, out = api.nvim_buf_line_count(0), {}
+      for _, t in ipairs(threads(path)) do
+        if (t.line and math.min(math.max(t.line, 1), last) or 1) == line then out[#out + 1] = t end
+      end
+      return path, out, line
+    end
+    -- shown at once, until the panel's next review.json has it as a real draft
+    local function pending(path, item)
+      local list = R.data.comments[path] or {}
+      item.draft, item.message = true, item.message .. "（存到 Gerrit 中…）"
+      list[#list + 1] = item
+      R.data.comments[path] = list
+      R.draw(api.nvim_get_current_buf())
+    end
+    -- an answer in a thread, saved as your draft: kind "reply" (typed), "done" or "ack" (resolve it)
+    function R.reply_to(path, t, kind)
+      if t.draft then return say("這串已經有你的草稿：改它或刪掉它就好", WARN) end
+      if not (t.last and t.last.id) then return say("這串留言沒有 id：在面板重新整理一下再試", WARN) end
+      local function go(msg, unresolved)
+        if R.send({ reply = { in_reply_to = t.last.id, message = msg, unresolved = unresolved } }) then
+          pending(path, { thread = t.id, reply_to = t.last.id, line = t.line, unresolved = unresolved, message = msg })
+        end
+      end
+      if kind == "done" then return go("Done", false) end
+      if kind == "ack" then return go("Ack", false) end
+      vim.ui.input({ prompt = ("回覆 %s（存成 Gerrit 草稿）："):format(short(t.last.author, 10)) }, function(msg)
+        msg = msg and vim.trim(msg) or ""
+        if msg ~= "" then go(msg, t.open) end
+      end)
+    end
+    function R.edit_draft(path, c)
+      vim.ui.input({ prompt = "改草稿：", default = c.message }, function(msg)
+        msg = msg and vim.trim(msg) or ""
+        if msg == "" or msg == c.message then return end
+        if R.send({ edit = { id = c.id, message = msg } }) then c.message = msg .. "（存到 Gerrit 中…）" R.draw(api.nvim_get_current_buf()) end
+      end)
+    end
+    function R.delete_draft(path, c)
+      vim.ui.select({ "刪掉", "不要" }, { prompt = ("刪掉這則草稿？「%s」"):format(short(c.message)) }, function(ch)
+        if ch ~= "刪掉" or not R.send({ delete = { id = c.id } }) then return end
+        R.data.comments[path] = vim.tbl_filter(function(x) return x ~= c end, R.data.comments[path] or {})
+        R.draw(api.nvim_get_current_buf())
+      end)
+    end
+    -- other patch sets this folder can switch to (the panel downloads it into the same folder)
+    local function versions()
+      local d, out = R.data or {}, {}
+      local ps, latest = tonumber(d.ps), tonumber(d.latest)
+      if latest and ps and latest > ps then
+        out[#out + 1] = { label = ("🆕 換成第 %d 版：只看第 %d→%d 版改的地方"):format(latest, ps, latest), to = latest, base = ps }
+        out[#out + 1] = { label = ("🆕 換成第 %d 版：全部（跟上一個 commit 比）"):format(latest), to = latest }
+      end
+      if d.base_ps and ps then out[#out + 1] = { label = ("📄 第 %d 版全部（跟上一個 commit 比）"):format(ps), to = ps } end
+      return out
+    end
+    function R.switch(o)
+      local up = R.data and R.data.updating
+      if type(up) == "table" and not up.error then return say(("第 %s 版下載中…"):format(tostring(up.to))) end
+      if R.send({ update = { to = o.to, base = o.base } }) then
+        R.data.updating = { to = o.to, step = "init" }
+        R.render()
+      end
+    end
+    function R.update()
+      local opts = versions()
+      if #opts == 0 then return say(("已經是最新的第 %s 版"):format(tostring(R.data and R.data.ps))) end
+      vim.ui.select(opts, { prompt = "換成哪一版？", format_item = function(o) return o.label end }, function(o) if o then R.switch(o) end end)
+    end
+    -- the diff's hunks that touch lines l1..l2 of the new file (git diff -U3 text)
+    function R.hunks(text, l1, l2)
+      local out, cur, keep = {}, nil, false
+      local function flush() if cur and keep then vim.list_extend(out, cur) end end
+      for _, l in ipairs(vim.split(text, "\n", { plain = true })) do
+        local c, n = l:match("^@@ %-%d+,?%d* %+(%d+),?(%d*) @@")
+        if c then
+          flush()
+          c, n = tonumber(c), tonumber(n ~= "" and n or "1")
+          keep = not (c + math.max(n, 1) - 1 < l1 or c > l2)
+          cur = { l }
+        elseif cur and not l:match("^diff ") then cur[#cur + 1] = l end
+      end
+      flush()
+      if #out > 200 then out = vim.list_slice(out, 1, 200) out[#out + 1] = "…（後面省略）" end
+      return table.concat(out, "\n")
+    end
+    -- ask the Gerrit agent about lines l1..l2 of this file: their change (or the lines, when unchanged) goes along
+    function R.ask(l1, l2)
+      local path = api.nvim_get_current_win() == edit_win() and current_path()
+      if not path then return say("先到 change 的檔案那一格", WARN) end
+      l1, l2 = math.min(l1, l2), math.max(l1, l2)
+      local d, e, diff = R.data, entry(path), ""
+      if e and type(d.base) == "string" and type(d.head) == "string" then
+        local args = { "diff", "--no-ext-diff", "--no-color", "-M", "-U3", d.base, d.head, "--", path }
+        if e.old_path then args[#args + 1] = e.old_path end
+        local r = git(d.dir, args, { text = true }):wait()
+        if r.code == 0 then diff = R.hunks(r.stdout, l1, l2) end
+      end
+      if diff == "" then
+        local b = api.nvim_get_current_buf()
+        local a, z = math.max(1, l1 - 3), math.min(api.nvim_buf_line_count(b), l2 + 3)
+        local ls = api.nvim_buf_get_lines(b, a - 1, z, false)
+        for i, l in ipairs(ls) do ls[i] = ("%5d  %s"):format(a + i - 1, l) end
+        diff = "（這幾行沒有改動）\n" .. table.concat(ls, "\n")
+      end
+      vim.ui.input({ prompt = ("問 agent %s:%d%s（可留空）："):format(path, l1, l2 > l1 and ("-" .. l2) or "") }, function(q)
+        if q == nil then return end -- Esc
+        if R.send({ ask = { path = path, line = l1, ["end"] = l2, question = vim.trim(q), diff = diff } }) then
+          say("送給 Gerrit agent 了：答案在 agent 那一格")
+        end
+      end)
+    end
+    -- Enter on a line: everything that can be done there, in one menu (only what applies)
+    function R.menu()
+      local path, ts, line = here()
+      if not path then return say("先到 change 的檔案那一格", WARN) end
+      local e, items = entry(path), {}
+      local function add(label, fn) items[#items + 1] = { label = label, fn = fn } end
+      if e and e.status ~= "D" then add("💬 在這一行留言", R.draft) end
+      for _, t in ipairs(ts) do
+        if t.last and not t.draft then
+          local who = ("%s「%s」"):format(short(t.items[1].author, 8), short(t.items[1].message, 18))
+          add("↩ 回覆 " .. who, function() R.reply_to(path, t, "reply") end)
+          if t.open then
+            add("✓ Done（改好了）" .. who, function() R.reply_to(path, t, "done") end)
+            add("👍 Ack（知道了）" .. who, function() R.reply_to(path, t, "ack") end)
+          end
+        end
+        for _, c in ipairs(t.items) do
+          if c.draft and c.id then
+            add(("✎ 改我的草稿「%s」"):format(short(c.message, 18)), function() R.edit_draft(path, c) end)
+            add(("🗑 刪我的草稿「%s」"):format(short(c.message, 18)), function() R.delete_draft(path, c) end)
+          end
+        end
+      end
+      add("🤖 問 Gerrit agent 這一段", function() R.ask(line, line) end)
+      for _, o in ipairs(versions()) do add(o.label, function() R.switch(o) end) end
+      add("📄 看 commit 說明", R.commit_message)
+      vim.ui.select(items, { prompt = ("%s:%d 要做什麼？"):format(path, line), format_item = function(x) return x.label end }, function(x)
+        if x then x.fn() end
+      end)
+    end
+    -- the old shortcuts: the first thread on the line that fits
+    local function first_thread(kind)
+      local path, ts = here()
+      for _, t in ipairs(ts) do
+        if t.last and not t.draft and (kind == "reply" or t.open) then return R.reply_to(path, t, kind) end
+      end
+      say("這一行沒有可以回的留言（留言顯示在它那一行的下面）", WARN)
+    end
+    local function first_draft(fn)
+      local path, ts = here()
+      for _, t in ipairs(ts) do for _, c in ipairs(t.items) do if c.draft and c.id then return fn(path, c) end end end
+      say("這一行沒有你存好的草稿", WARN)
     end
 
     -- review.json, again whenever the panel rewrites it
@@ -1935,6 +2156,11 @@ do
     function R.tick()
       if not R.load() then return end
       R.render()
+      local lt, ps = tonumber(R.data.latest), tonumber(R.data.ps)
+      if lt and ps and lt > ps and R.told ~= lt and not R.data.updating then
+        R.told = lt
+        say(("🆕 第 %d 版出來了：Enter 選單裡可以換"):format(lt))
+      end
       for _, b in ipairs(api.nvim_list_bufs()) do if api.nvim_buf_is_loaded(b) then R.draw(b) end end
       local j = R.data.jump
       if type(j) == "table" and tonumber(j.seq) and tonumber(j.seq) > R.jump then
@@ -1961,6 +2187,33 @@ do
     map("n", "[c", function() hunk(-1) end, { desc = "上一處改動" })
     map("n", "<leader>rc", R.draft, { desc = "留言（存成 Gerrit 草稿）" })
     map("n", "<leader>rm", R.commit_message, { desc = "看 commit 說明" })
+    map("n", "<leader>rr", function() first_thread("reply") end, { desc = "回覆這一行的留言（存成草稿）" })
+    map("n", "<leader>rd", function() first_thread("done") end, { desc = "這一行的留言：Done（存成草稿）" })
+    map("n", "<leader>rk", function() first_thread("ack") end, { desc = "這一行的留言：Ack（存成草稿）" })
+    map("n", "<leader>re", function() first_draft(R.edit_draft) end, { desc = "改這一行的草稿" })
+    map("n", "<leader>rx", function() first_draft(R.delete_draft) end, { desc = "刪這一行的草稿" })
+    map("n", "<leader>ru", R.update, { desc = "換成另一版" })
+    map("n", "<leader>ra", function() local l = api.nvim_win_get_cursor(0)[1] R.ask(l, l) end, { desc = "問 Gerrit agent 這一段" })
+    local function ask_sel()
+      local a, z = vim.fn.line("v"), vim.fn.line(".")
+      api.nvim_feedkeys(api.nvim_replace_termcodes("<Esc>", true, false, true), "nx", false)
+      R.ask(a, z)
+    end
+    map("x", "<leader>ra", ask_sel, { desc = "問 Gerrit agent 選起來的這幾行" })
+    -- Enter in a file of the change: the menu (selected lines: ask the agent); elsewhere Enter as usual
+    local function in_change(b) return vim.b[b].nvim_jay_review_path ~= nil or rel(api.nvim_buf_get_name(b)) ~= nil end
+    R.menu_keys = function(b)
+      if b == R.list or vim.b[b].nvim_jay_review_keys or not in_change(b) then return end
+      vim.b[b].nvim_jay_review_keys = true
+      map("n", "<CR>", R.menu, { buffer = b, desc = "這一行能做的事（Gerrit）" })
+      map("x", "<CR>", ask_sel, { buffer = b, desc = "問 Gerrit agent 選起來的這幾行" })
+    end
+    JN.review_menu, JN.review_ask_sel = R.menu, ask_sel
+    vim.cmd([[
+      nnoremenu 1 PopUp.Gerrit：這一行能做的事 <Cmd>lua JN.review_menu()<CR>
+      vnoremenu 1 PopUp.Gerrit：問\ agent\ 選起來的行 <Cmd>lua JN.review_ask_sel()<CR>
+      anoremenu 1 PopUp.-gerrit- <Nop>
+    ]])
     map("n", "<leader>rl", function()
       local w = list_win()
       if w then api.nvim_set_current_win(w) else
@@ -1977,7 +2230,7 @@ do
     vim.wo[lw].signcolumn, vim.wo[lw].wrap, vim.wo[lw].cursorline = "no", false, true
     vim.cmd("wincmd l")
     api.nvim_create_autocmd({ "BufWinEnter", "BufReadPost" }, { group = AUG, callback = function(a)
-      if a.buf ~= R.list then R.draw(a.buf) R.render() end
+      if a.buf ~= R.list then R.draw(a.buf) R.menu_keys(a.buf) R.render() end
     end })
     api.nvim_create_autocmd("VimResized", { group = AUG, callback = function() R.render() end })
     vim.api.nvim_create_user_command("GerritDraft", R.draft, {})
@@ -1996,7 +2249,8 @@ do
       elseif first then R.open(first) end
     end
     new_timer():start(1000, 1000, vim.schedule_wrap(function() pcall(R.tick) end))
-    JN.test.review = { R = R, rel = rel, step = step, hunk = hunk, ordered = ordered, seen = seen_set }
+    for _, b in ipairs(api.nvim_list_bufs()) do if api.nvim_buf_is_loaded(b) then R.menu_keys(b) end end
+    JN.test.review = { R = R, rel = rel, step = step, hunk = hunk, ordered = ordered, seen = seen_set, threads = threads, here = here, versions = versions }
   end
 end
 `;

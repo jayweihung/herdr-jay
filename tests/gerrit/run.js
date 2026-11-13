@@ -452,6 +452,64 @@ test("在 nvim 看: no clone here asks first, then a store of its own (only the 
   assert.match(renderText(g), /沒有下載好：取消了/);
 });
 
+test("在 nvim 看: nvim's replies, edits and deletes become drafts; a newer patch set; another one asked for; a question to the agent", async (G) => {
+  setConfig({ ...LOGIN, review: { root: "~/rv", search: ["~/src"] } }); const g = freshView(G); g.cfg = await g.readConfig();
+  H.store["gerrit.cfg.v1"] = { url: "https://gerrit.test", auth: true }; H.store["gerrit.data.v1"] = { at: Date.now(), err: null, self: ME, sections: [] };
+  const R = await import(pathToFileURL(join(dirname(MOD), "review.js")).href);
+  // threads in review.json: each comment's id and its thread's first comment
+  const rc = R.reviewComments({ "a.txt": [{ id: "c1", patch_set: 2, line: 5, author: ALICE, message: "why", unresolved: true }, { id: "c2", in_reply_to: "c1", patch_set: 2, line: 5, author: ME, message: "because" }] },
+    { "a.txt": [{ id: "d1", in_reply_to: "c2", patch_set: 2, line: 5, message: "Done" }] }, 2, (a) => a?.name ?? "?");
+  assert.deepEqual(rc["a.txt"].map((x) => [x.id, x.thread, x.reply_to ?? null, Boolean(x.draft)]), [["c1", "c1", null, false], ["c2", "c1", "c1", false], ["d1", "c1", "c2", true]]);
+  const data = join(H.home, ".config", "herdr-app", "data", "gerrit", "review", "7"); mkdirSync(data, { recursive: true });
+  const wt = `${H.home}/rv/tools-build-7`;
+  g.setReviewEntry({ n: 7, project: "tools/build", subject: "s", ps: 2, base_ps: null, head: "bbb2", base: "0000", wt, data, store: `${H.home}/rv/.repos/tools-build.git`, clone: false, seq: 0 });
+  H.spaces = [{ id: "s1", name: "web" }]; H.focused = { space: "s1" };
+  H.terminals = [{ address: "t9", argv: ["nvim", "--cmd", `let g:nvim_jay_review = '${data}/review.json'`] }, { address: "t5", cwd: "/w" }];
+  const revs = { current_revision: "ccc3", revisions: { bbb2: { _number: 2, ref: "refs/changes/07/7/2" }, ccc3: { _number: 3, ref: "refs/changes/07/7/3" } } };
+  gerrit([["GET", /^\/a\/changes\/7\/comments$/, [200, { "a.txt": [{ id: "c1", patch_set: 1, line: 5, side: "REVISION", message: "why", unresolved: true }] }]],
+    ["GET", /^\/a\/changes\/7\/drafts$/, [200, { "a.txt": [{ id: "d1", patch_set: 2, line: 3, in_reply_to: "c0", message: "m", unresolved: true }], "b.txt": [{ id: "d2", patch_set: 2, line: 1, message: "x" }] }]],
+    ["PUT", /^\/a\/changes\/7\/revisions\/1\/drafts$/, [201, {}]], ["PUT", /^\/a\/changes\/7\/revisions\/2\/drafts\/d1$/, [200, {}]],
+    ["DELETE", /^\/a\/changes\/7\/revisions\/2\/drafts\/d2$/, [204, null]],
+    ["GET", /^\/a\/changes\/7\?o=/, [200, change(7, revs)]], ["GET", /^\/a\/changes\/7\//, [200, {}]]]);
+  const jsonl = join(data, "from-nvim.jsonl");
+  writeFileSync(jsonl, [{ id: "r1", reply: { in_reply_to: "c1", message: "Done", unresolved: false } }, { id: "e1", edit: { id: "d1", message: "better" } },
+    { id: "x1", delete: { id: "d2" } }].map((x) => JSON.stringify(x)).join("\n") + "\n");
+  await g.reviewTick(cx);
+  const req = (m, re) => seen.find((r) => r.method === m && re.test(r.path));
+  assert.deepEqual(req("PUT", /revisions\/1\/drafts$/).body, { path: "a.txt", line: 5, side: "REVISION", in_reply_to: "c1", message: "Done", unresolved: false }, "a reply: on its parent's patch set and line");
+  assert.deepEqual(req("PUT", /drafts\/d1$/).body, { path: "a.txt", line: 3, in_reply_to: "c0", message: "better", unresolved: true }, "an edit keeps where the draft is");
+  assert.ok(req("DELETE", /drafts\/d2$/), "a delete");
+  assert.equal(readFileSync(jsonl, "utf8"), "");
+  // a newer patch set (asked once a minute while nvim has it open): in review.json for nvim
+  assert.equal(g.reviewEntry(7).latest, 3);
+  assert.equal(JSON.parse(readFileSync(join(data, "review.json"), "utf8")).latest, 3);
+  assert.equal(H.store["gerrit.review.drafted"]?.n, 7, "a page showing change 7 reloads");
+  // nvim asks for 2→3 and asks the agent about two lines
+  H.execAnswer = (cmd, args) => {
+    if (cmd === "/bin/sh" && /for d in/.test(args[1])) return { code: 0, stdout: "", stderr: "" };
+    if (cmd === "/bin/mkdir") { mkdirSync(args[1], { recursive: true }); return { code: 0, stdout: "", stderr: "" }; }
+    if (cmd === "/bin/sh" && /nohup/.test(args[1])) return { code: 0, stdout: "55\n", stderr: "" };
+    return null;
+  };
+  H.agents = [{ address: "t5", title: "gerrit", space: "s1" }]; H.store["gerrit.agents.v1"] = ["t5"]; H.opened = []; H.runs = [];
+  writeFileSync(jsonl, [{ id: "u1", update: { to: 3, base: 2 } }, { id: "a1", ask: { path: "a.txt", line: 2, end: 3, question: "why?", diff: "@@ -1 +1 @@\n-a\n+b" } }]
+    .map((x) => JSON.stringify(x)).join("\n") + "\n");
+  await g.reviewTick(cx);
+  const job = g.reviewJob(7);
+  assert.equal(job.state, "running"); assert.equal(job.ps, 3); assert.equal(job.base_ps, 2); assert.equal(job.wt, wt, "the same folder");
+  const script = readFileSync(join(job.dir, "run.sh"), "utf8");
+  assert.match(script, /HEAD_REF='refs\/changes\/07\/7\/3'/); assert.match(script, /BASE_REF='refs\/changes\/07\/7\/2'/);
+  assert.deepEqual(JSON.parse(readFileSync(join(data, "review.json"), "utf8")).updating, { to: 3, base_ps: 2, step: "init" }, "nvim shows the download");
+  const sent = H.opened.find((x) => x[0] === "hc" && x[1] === "send");
+  assert.equal(sent[2], "t5");
+  for (const want of ["change 7", "第 2 版", "a.txt 第 2–3 行", `${wt}/a.txt`, "```diff\n@@ -1 +1 @@\n-a\n+b\n```", "問題：why?", "存成那一行的草稿"]) assert.ok(sent[3].includes(want), `the question has ${want}`);
+  assert.equal(readFileSync(jsonl, "utf8"), "");
+  // the page: a newer patch set than the folder's offers only what it changed
+  g.detail = { change: change(7, revs), comments: {} }; g.openId = g.detail.change.id; g.setReviewJob(7, null);
+  const page = renderText(g);
+  assert.match(page, /只看第 2→3 版改的/); assert.match(page, /nvim 開著/); assert.match(page, /切到 nvim/); assert.match(page, /改成看第 3 版/);
+});
+
 test("在 nvim 看: the job scripts with a real git (sh; PowerShell when installed): a new store, then the next patch set in the same folder", async () => {
   const { spawnSync } = await import("node:child_process");
   const R = await import(pathToFileURL(join(dirname(MOD), "review.js")).href);

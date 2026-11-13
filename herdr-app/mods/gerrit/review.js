@@ -15,7 +15,13 @@
 //    of its own.
 // 3. Then the panel writes review.json (files, this patch set's comments, base / head) into the data folder and opens
 //    nvim-jay with it (nvim-jay's REVIEW part); it rewrites the file when comments change or you click a file here
-//    (jump). nvim appends your new comments to from-nvim.jsonl; the panel saves them as Gerrit drafts.
+//    (jump). nvim appends what you do there to from-nvim.jsonl, one JSON object per line, each with an id:
+//      draft  { path, line, message, head }          a new comment -> your Gerrit draft on that patch set
+//      reply  { in_reply_to, message, unresolved }   an answer in a thread (Done / Ack too) -> your draft
+//      edit   { id, message }  /  delete { id }      one of your drafts
+//      update { to, base }                           another patch set into the same folder (base: null = its parent)
+//      ask    { path, line, end, question, diff }    a question to the Gerrit agent about those lines
+//    Nothing nvim does is published: drafts go out with the panel's 💬 送出回覆.
 // Data folder: <Herdr home>/data/gerrit/review/<change> (review.json, seen.json, from-nvim.jsonl, the job's files).
 
 export const SKIP_FILES = new Set(["/COMMIT_MSG", "/MERGE_LIST", "/PATCHSET_LEVEL"]);
@@ -81,15 +87,20 @@ export function reviewFiles(files) {
     ins: Number(f?.lines_inserted ?? 0), del: Number(f?.lines_deleted ?? 0),
   }));
 }
-// This patch set's comments (and your drafts on it) by file, as nvim shows them: line, who, text, open or not.
+// This patch set's comments (and your drafts on it) by file, as nvim shows them: line, who, text, open or not, its
+// id and thread (the first comment's id: replies follow in_reply_to, like Gerrit's threads).
 export function reviewComments(comments, drafts, ps, who) {
   const out = {};
+  const byId = new Map();
+  for (const src of [comments, drafts]) for (const xs of Object.values(src ?? {})) for (const m of xs ?? []) if (m?.id) byId.set(m.id, m);
+  const rootOf = (m) => { let r = m, i = 0; while (r.in_reply_to && byId.has(r.in_reply_to) && i++ < 50) r = byId.get(r.in_reply_to); return r; };
   const add = (list, draft) => {
     for (const [path, xs] of Object.entries(list ?? {})) {
       if (SKIP_FILES.has(path)) continue;
       for (const m of xs ?? []) {
         if (Number(m.patch_set) !== Number(ps) || m.side === "PARENT") continue;
-        (out[path] ??= []).push({ ...(m.line ? { line: m.line } : {}), author: draft ? "你" : who(m.author), message: String(m.message ?? ""),
+        (out[path] ??= []).push({ ...(m.id ? { id: m.id, thread: rootOf(m).id ?? m.id } : {}), ...(m.in_reply_to ? { reply_to: m.in_reply_to } : {}),
+          ...(m.line ? { line: m.line } : {}), author: draft ? "你" : who(m.author), message: String(m.message ?? ""),
           unresolved: Boolean(m.unresolved), ...(draft ? { draft: true } : {}), at: m.updated ?? "" });
       }
     }
@@ -99,6 +110,22 @@ export function reviewComments(comments, drafts, ps, who) {
   for (const xs of Object.values(out)) xs.sort((a, b) => (a.line ?? 0) - (b.line ?? 0) || String(a.at).localeCompare(String(b.at)));
   return out;
 }
+
+// nvim's question about some lines -> the text the Gerrit agent gets (everything it needs, also in a new session)
+export function askText(e, url, a) {
+  const lines = Number(a.end) > Number(a.line) ? `第 ${a.line}–${a.end} 行` : `第 ${a.line} 行`;
+  const diff = String(a.diff ?? "").replace(/```/g, "ˋˋˋ").slice(0, 12000);
+  return [
+    `我在 nvim 看 Gerrit change ${e.n}（${e.project}，第 ${e.ps} 版${e.base_ps != null ? `，跟第 ${e.base_ps} 版比` : ""}）時卡在這裡：`,
+    url,
+    `檔案：${a.path} ${lines}（這台電腦上的檔案：${e.wt}/${a.path}，整個 change 在 ${e.wt}）`,
+    ...(diff ? ["```diff", diff, "```"] : []),
+    `問題：${String(a.question ?? "").trim() || "這段改動在做什麼？有沒有問題？"}`,
+    "要對這段留意見的話，用 Gerrit 存成那一行的草稿（不要直接送出），我在 nvim 和 Gerrit 面板都看得到。用繁體中文回答。",
+  ].join("\n");
+}
+// the newest patch set's number of a change Gerrit gave (with its current revision)
+export const latestPs = (c) => Number(c?.revisions?.[c?.current_revision]?._number) || null;
 
 // ---------- git's progress, as the panel draws it ----------
 const PHASES = [
@@ -294,11 +321,12 @@ export function trashArgs(dirs, windows) {
 
 // ---------- the panel's side (methods added to the Gerrit view by main.js) ----------
 export const REVIEW_JOBS = "gerrit.review.jobs";   // { [change]: job } downloads in progress (and a failed one's words)
-export const REVIEW_LIST = "gerrit.review.list";   // [{ n, project, subject, ps, base_ps, head, base, wt, data, store, seq, jump }]
+export const REVIEW_LIST = "gerrit.review.list";   // [{ n, project, subject, ps, base_ps, head, base, wt, data, store, seq, jump, latest }]
 export const REVIEW_OK = "gerrit.review.ok";       // { project: true } you agreed to download it (no clone of it here)
-export const REVIEW_DRAFTED = "gerrit.review.drafted"; // { n, at }: nvim's comments were just saved as drafts on change n
+export const REVIEW_DRAFTED = "gerrit.review.drafted"; // { n, at }: change n changed (nvim's drafts saved, a newer patch set): reload it
 const LIST_MAX = 50;
 const DRAFT_LINES_MAX = 200;
+const LATEST_EVERY = 60000;   // how often an open review asks Gerrit for a newer patch set
 export const quotePs = psq;
 
 // h: what main.js has: herdr's functions, gpui's elements, and the panel's own helpers (ui)
@@ -348,7 +376,8 @@ export function reviewMethods(h) {
     },
 
     // 在 nvim 看: the patch set shown (or the two compared) -> download in the background, then nvim
-    async reviewStart(c, cx, agreed = false) {
+    // want: { base, to } instead of the page's choice (nvim asking for another patch set)
+    async reviewStart(c, cx, agreed = false, want = null) {
       const n = c?._number;
       if (!n || this.reviewJob(n)?.state === "running") return;
       this.reviewMsg = { n, finding: true };
@@ -357,7 +386,7 @@ export function reviewMethods(h) {
       try {
         this.cfg = await this.readConfig();
         if (this.cfg.missing || this.cfg.error) return say(this.cfg.error ?? "還沒有 gerrit.json");
-        const { base, to } = this.compare();
+        const { base, to } = want ?? this.compare();
         const revs = Object.entries(c.revisions ?? {});
         const headRev = revs.find(([, r]) => r._number === to);
         const baseRev = base != null ? revs.find(([, r]) => r._number === base) : null;
@@ -387,6 +416,7 @@ export function reviewMethods(h) {
         this.reviewMsg = null;
       } catch (e) { return say(String(e?.message ?? e)); }
       cx.notify();
+      return true;
     },
     async reviewCancel(n, cx) {
       const j = this.reviewJob(n);
@@ -408,11 +438,12 @@ export function reviewMethods(h) {
           const pr = parseProgress(await read(`${j.dir}/progress`));
           const now = this.reviewJob(j.n);
           if (now?.state !== "running") continue; // cancelled meanwhile
-          if (st.fail) { this.setReviewJob(j.n, { ...now, state: "fail", error: st.fail }); continue; }
-          if (!st.pid && Date.now() - j.at > 30000) { this.setReviewJob(j.n, { ...now, state: "fail", error: `下載程式沒有開始（看 ${j.dir}）` }); continue; }
+          if (st.fail) { this.setReviewJob(j.n, { ...now, state: "fail", error: st.fail }); await this.reviewWrite(j.n); continue; }
+          if (!st.pid && Date.now() - j.at > 30000) { this.setReviewJob(j.n, { ...now, state: "fail", error: `下載程式沒有開始（看 ${j.dir}）` }); await this.reviewWrite(j.n); continue; }
           if (st.done && st.head && st.base) {
             const e = { n: j.n, project: j.project, subject: j.subject, ps: j.ps, base_ps: j.base_ps, head: st.head, base: st.base,
-              wt: j.wt, data: j.data, store: j.store, clone: j.clone, at: Date.now(), seq: this.reviewEntry(j.n)?.seq ?? 0 };
+              wt: j.wt, data: j.data, store: j.store, clone: j.clone, at: Date.now(), seq: this.reviewEntry(j.n)?.seq ?? 0,
+              ...(this.reviewEntry(j.n)?.latest ? { latest: this.reviewEntry(j.n).latest } : {}) };
             this.setReviewEntry(e);
             this.setReviewJob(j.n, null);
             await this.reviewWrite(j.n);
@@ -420,9 +451,13 @@ export function reviewMethods(h) {
             continue;
           }
           const k = `${st.step}|${JSON.stringify(pr)}`;
-          if (k !== now.seenKey) this.setReviewJob(j.n, { ...now, step: st.step ?? now.step, progress: pr ?? now.progress, seenKey: k });
+          if (k !== now.seenKey) {
+            this.setReviewJob(j.n, { ...now, step: st.step ?? now.step, progress: pr ?? now.progress, seenKey: k });
+            if (this.reviewEntry(j.n)) await this.reviewWrite(j.n); // nvim shows the download too
+          }
         }
-        await this.reviewDrafts();
+        await this.reviewLatest();
+        await this.reviewFromNvim(cx);
       } finally { this.reviewTicking = false; }
       cx.notify();
     },
@@ -439,7 +474,11 @@ export function reviewMethods(h) {
       ]);
       if (jump) { e = { ...e, seq: (e.seq ?? 0) + 1, jump: { path: jump.path, ...(jump.line ? { line: jump.line } : {}) } }; this.setReviewEntry(e); }
       const old = this.reviewSent?.[n];
-      const body = { v: 1, change: n, ps: e.ps, base_ps: e.base_ps ?? null, subject: e.subject, project: e.project,
+      const job = this.reviewJob(n);
+      const updating = job ? { to: job.ps, base_ps: job.base_ps ?? null, ...(job.state === "fail" ? { error: String(job.error ?? "") }
+        : { step: job.step ?? "init", ...(job.step === "fetch" && job.progress?.percent != null ? { percent: job.progress.percent } : {}) }) } : null;
+      const body = { v: 1, change: n, ps: e.ps, base_ps: e.base_ps ?? null, latest: Math.max(Number(e.latest) || 0, Number(e.ps) || 0),
+        ...(updating ? { updating } : {}), subject: e.subject, project: e.project,
         url: `${String(this.cfg.url ?? "").replace(/\/+$/, "")}/c/${e.project}/+/${n}/${e.ps}`, dir: e.wt, base: e.base, head: e.head,
         files: files ? reviewFiles(files) : old?.files ?? [], comments: reviewComments(comments, drafts, e.ps, ui.who),
         ...(e.jump ? { jump: { ...e.jump, seq: e.seq } } : {}) };
@@ -460,8 +499,24 @@ export function reviewMethods(h) {
     },
     // The change's page loaded again (new comments, your drafts): the open review's nvim shows them too.
     reviewRefresh(c) {
-      const e = this.reviewEntry(c?._number);
+      let e = this.reviewEntry(c?._number);
+      const last = latestPs(c);
+      if (e && last && last !== e.latest) { e = { ...e, latest: last }; this.setReviewEntry(e); }
       if (e && paneOf(e)) this.reviewWrite(e.n).catch(() => {});
+    },
+    // A newer patch set of a review nvim has open (asked once a minute): nvim offers to show what it changed.
+    async reviewLatest() {
+      this.reviewLatestAt ??= {};
+      for (const e of shared(REVIEW_LIST) ?? []) {
+        if (!paneOf(e) || Date.now() - (this.reviewLatestAt[e.n] ?? 0) < LATEST_EVERY) continue;
+        this.reviewLatestAt[e.n] = Date.now();
+        const c = await this.get(`/changes/${e.n}?o=CURRENT_REVISION`).catch(() => null);
+        const last = latestPs(c), now = this.reviewEntry(e.n);
+        if (!last || !now || last === now.latest) continue;
+        this.setReviewEntry({ ...now, latest: last });
+        await this.reviewWrite(e.n);
+        setShared(REVIEW_DRAFTED, { n: e.n, at: Date.now() }); // a page showing it reloads (the newer patch set, its buttons)
+      }
     },
     // A file clicked in the panel: the review's nvim (if open) goes there too.
     reviewJump(c, path, line) {
@@ -469,8 +524,9 @@ export function reviewMethods(h) {
       if (!e || !paneOf(e)) return;
       this.reviewWrite(e.n, { path, line });
     },
-    // nvim's new comments (from-nvim.jsonl) -> your Gerrit drafts on that patch set; the file is emptied once saved
-    async reviewDrafts() {
+    // What nvim did (from-nvim.jsonl, see the top of this file) -> your Gerrit drafts, another patch set, a question to
+    // the agent. The file is emptied once done; a line that failed stays for the next round (and says why).
+    async reviewFromNvim(cx) {
       for (const e of shared(REVIEW_LIST) ?? []) {
         if (!paneOf(e)) continue; // only reviews nvim has open write there
         const f = `${e.data}/from-nvim.jsonl`;
@@ -485,19 +541,62 @@ export function reviewMethods(h) {
         const keep = [];
         let saved = 0;
         this.reviewDone ??= new Set();
+        // Gerrit's comments and your drafts with their path (a reply goes where its parent is), read once per round
+        let known = null;
+        const lookup = async () => {
+          if (known) return known;
+          const [cm, dr] = await Promise.all([this.get(`/changes/${e.n}/comments`), this.get(`/changes/${e.n}/drafts`)]);
+          known = new Map();
+          for (const [src, draft] of [[cm, false], [dr, true]]) for (const [path, xs] of Object.entries(src ?? {})) for (const m of xs ?? []) known.set(m.id, { ...m, path, draft });
+          return known;
+        };
+        const where = (m) => ({ path: m.path, ...(m.line ? { line: m.line } : {}), ...(m.range ? { range: m.range } : {}), ...(m.side ? { side: m.side } : {}) });
         for (const line of text.split(/\r?\n/).filter((l) => l.trim()).slice(0, DRAFT_LINES_MAX)) {
           let rec;
           try { rec = JSON.parse(line); } catch { continue; }
-          const d = rec?.draft;
-          if (!d?.path || !d?.message || this.reviewDone.has(rec.id)) continue;
-          const rev = /^[0-9a-f]{7,64}$/i.test(String(d.head ?? "")) ? d.head : e.head;
+          if (!rec?.id || this.reviewDone.has(rec.id)) continue;
+          let what = "";
           try {
-            await this.req("PUT", `/changes/${e.n}/revisions/${rev}/drafts`, { path: d.path, ...(Number(d.line) > 0 ? { line: Number(d.line) } : {}), message: String(d.message), unresolved: true });
+            if (rec.draft?.path && rec.draft?.message) {
+              const d = rec.draft;
+              what = `${d.path}:${d.line}`;
+              const rev = /^[0-9a-f]{7,64}$/i.test(String(d.head ?? "")) ? d.head : e.head;
+              await this.req("PUT", `/changes/${e.n}/revisions/${rev}/drafts`, { path: d.path, ...(Number(d.line) > 0 ? { line: Number(d.line) } : {}), message: String(d.message), unresolved: true });
+              saved++;
+            } else if (rec.reply?.in_reply_to && rec.reply?.message) {
+              const r = rec.reply, parent = (await lookup()).get(r.in_reply_to);
+              if (!parent || parent.draft) throw new Error("找不到要回覆的那則留言（被刪了？）");
+              what = `${parent.path}:${parent.line ?? ""}`;
+              await this.req("PUT", `/changes/${e.n}/revisions/${parent.patch_set}/drafts`, { ...where(parent), in_reply_to: parent.id, message: String(r.message), unresolved: Boolean(r.unresolved) });
+              saved++;
+            } else if ((rec.edit?.id && rec.edit?.message) || rec.delete?.id) {
+              const id = rec.edit?.id ?? rec.delete.id, d = (await lookup()).get(id);
+              if (!d?.draft) throw new Error("找不到這則草稿（已經送出或刪掉了？）");
+              what = `${d.path}:${d.line ?? ""}`;
+              if (rec.edit) await this.req("PUT", `/changes/${e.n}/revisions/${d.patch_set}/drafts/${id}`, { ...where(d), ...(d.in_reply_to ? { in_reply_to: d.in_reply_to } : {}), message: String(rec.edit.message), unresolved: Boolean(d.unresolved) });
+              else await this.req("DELETE", `/changes/${e.n}/revisions/${d.patch_set}/drafts/${id}`);
+              saved++;
+            } else if (rec.update?.to) {
+              what = `第 ${rec.update.to} 版`;
+              const c = await this.get(`/changes/${e.n}?o=ALL_REVISIONS`);
+              const base = rec.update.base != null ? Number(rec.update.base) : null;
+              if (!(await this.reviewStart(c, cx, true, { base, to: Number(rec.update.to) }))) throw new Error(this.reviewMsg?.error ?? "沒有開始下載");
+              await this.reviewWrite(e.n);
+            } else if (rec.ask?.path) {
+              what = `問 agent：${rec.ask.path}:${rec.ask.line}`;
+              const c = await this.get(`/changes/${e.n}?o=CURRENT_REVISION`);
+              const url = `${String(this.cfg.url ?? "").replace(/\/+$/, "")}/c/${e.project}/+/${e.n}/${e.ps}`;
+              await this.askAgent(c, { label: "nvim 問", filled: askText(e, url, rec.ask) }, cx);
+              if (this.ask?.error) notify({ title: "沒有問到 Gerrit agent", body: this.ask.error, level: "warning" });
+            }
             this.reviewDone.add(rec.id);
-            saved++;
           } catch (err) {
-            keep.push(line);
-            notify({ title: "nvim 的留言沒存成草稿", body: `${d.path}:${d.line}：${String(err?.message ?? err).slice(0, 200)}`, level: "warning" });
+            // drafts are tried again a few times (Gerrit away for a moment); a patch set or a question once
+            const tries = ((this.reviewTries ??= {})[rec.id] ?? 0) + 1;
+            this.reviewTries[rec.id] = tries;
+            const again = Boolean(rec.draft || rec.reply || rec.edit || rec.delete) && tries < 5;
+            if (again) keep.push(line);
+            if (tries === 1 || !again) notify({ title: "nvim 那邊的動作沒做成", body: `${what}：${String(err?.message ?? err).slice(0, 200)}${again ? "（會再試幾次）" : ""}`, level: "warning" });
           }
         }
         try { await writeTextFile(f, keep.length ? `${keep.join("\n")}\n` : "", text); } catch { /* nvim added one meanwhile: next round */ }
@@ -505,7 +604,7 @@ export function reviewMethods(h) {
       }
     },
     // Every copy, every second: one showing that change reloads it, so the drafts nvim just saved show
-    // (the 📝 notice, inside their threads) without leaving the page.
+    // (the 📝 notice, inside their threads), or a newer patch set, without leaving the page.
     reviewDraftedTick(cx) {
       const d = shared(REVIEW_DRAFTED), at = d?.at ?? 0;
       if (this.reviewDraftedAt === undefined) { this.reviewDraftedAt = at; return; } // from before this copy started
@@ -568,8 +667,14 @@ export function reviewMethods(h) {
         card.child(div().id("rv-wt").text_size(z - 1).text_color(t.muted).whitespace_normal().on_mouse_down("right", ui.copyOn(e.wt)).child(`已下載：${e.wt}`));
         row.child(this.big(t, z, "rv-open", paneOf(e) ? "切到 nvim" : `🔍 在 nvim 看${what}`, { kind: "primary", on: (cx) => { this.reviewOpen(n); cx.notify(); } }));
       } else {
-        if (e) card.child(small(`資料夾裡是第 ${e.ps} 版${e.base_ps != null ? `（跟第 ${e.base_ps} 版比）` : ""}：按了換成${what}`));
-        row.child(this.big(t, z, "rv-start", `🔍 在 nvim 看${what}`, { kind: "primary", on: (cx) => cx.spawn(async (cx) => { this.setReviewJob(n, null); await this.reviewStart(c, cx); }) }));
+        // the folder holds another patch set / comparison (nvim may have switched it): open that, or change it to this page's
+        const open = e && paneOf(e);
+        if (e) card.child(small(`資料夾裡是第 ${e.ps} 版${e.base_ps != null ? `（跟第 ${e.base_ps} 版比）` : ""}${open ? "，nvim 開著" : ""}`));
+        if (open) row.child(this.big(t, z, "rv-open", "切到 nvim", { kind: "primary", on: (cx) => { this.reviewOpen(n); cx.notify(); } }));
+        // a newer patch set than the folder's: only what it changed since (the files the author touched again)
+        const since = e && base == null && to > e.ps ? { base: e.ps, to } : null;
+        if (since) row.child(this.big(t, z, "rv-since", `🔍 只看第 ${e.ps}→${to} 版改的`, { kind: open ? undefined : "primary", on: (cx) => cx.spawn(async (cx) => { this.setReviewJob(n, null); await this.reviewStart(c, cx, false, since); }) }));
+        row.child(this.big(t, z, "rv-start", `🔍 ${e ? "改成看" : "在 nvim 看"}${what}`, { kind: since || open ? undefined : "primary", on: (cx) => cx.spawn(async (cx) => { this.setReviewJob(n, null); await this.reviewStart(c, cx); }) }));
       }
       if (e) {
         const armed = this.armed === `rv-trash-${n}` && Date.now() - this.armedAt <= 4000;

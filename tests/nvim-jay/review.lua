@@ -83,6 +83,107 @@ test("the panel's jump", function()
   check("the same jump only once", R.jump == 5)
 end)
 
+-- the last request nvim wrote for the panel
+local function last_rec()
+  local f = io.open(R.home .. "/from-nvim.jsonl", "r")
+  local text = f and f:read("*a") or ""
+  if f then f:close() end
+  local ls = vim.tbl_filter(function(l) return l ~= "" end, vim.split(text, "\n"))
+  return ls[#ls] and vim.json.decode(ls[#ls]) or nil
+end
+local function with_ui(input, choose, fn)
+  local oi, os_ = vim.ui.input, vim.ui.select
+  local seen = {}
+  vim.ui.input = function(o, cb) seen.prompt = o.prompt seen.default = o.default cb(input) end
+  vim.ui.select = function(items, o, cb)
+    seen.labels = vim.tbl_map(function(x) return o.format_item and o.format_item(x) or x end, items)
+    local pick
+    for _, x in ipairs(items) do if (o.format_item and o.format_item(x) or x):find(choose or "\0", 1, true) then pick = x break end end
+    cb(pick)
+  end
+  local ok, e = pcall(fn)
+  vim.ui.input, vim.ui.select = oi, os_
+  if not ok then error(e) end
+  return seen
+end
+
+test("threads, the Enter menu, replies and your drafts", function()
+  local d = vim.json.decode(table.concat(vim.fn.readfile(R.file), "\n"))
+  d.jump = vim.NIL
+  d.comments = { ["a.txt"] = {
+    { id = "c1", thread = "c1", line = 2, author = "Alice", message = "why TWO?", unresolved = true, at = "1" },
+    { id = "c2", thread = "c1", reply_to = "c1", line = 2, author = "Bob", message = "me too", unresolved = true, at = "2" },
+    { id = "d9", thread = "d9", line = 3, author = "你", message = "mine", unresolved = true, draft = true, at = "3" },
+  } }
+  vim.fn.writefile({ vim.json.encode(d) }, R.file)
+  vim.uv.sleep(20) R.stamp = nil R.tick()
+  R.open(RV.ordered()[1], 2)
+  local th = RV.threads("a.txt")
+  check("two threads: Alice's with Bob's reply under it, your draft", #th == 2 and #th[1].items == 2 and th[1].last.id == "c2" and th[1].open and th[2].draft ~= nil, th)
+  local shown = vim.inspect(api.nvim_buf_get_extmarks(0, cmt, 0, -1, { details = true }))
+  check("drawn as a thread: the reply indented", shown:find("↳ Bob", 1, true) ~= nil and shown:find("Alice（未解決）", 1, true) ~= nil, shown)
+  check("Enter is the menu in a file of the change", vim.fn.maparg("<CR>", "n", false, true).desc == "這一行能做的事（Gerrit）")
+  local seen = with_ui(nil, nil, function() R.menu() end)
+  local all = table.concat(seen.labels or {}, "\n")
+  check("the menu: comment, reply / Done / Ack in Alice's thread, ask the agent", all:find("在這一行留言", 1, true) and all:find("回覆 Alice", 1, true)
+    and all:find("Done", 1, true) and all:find("Ack", 1, true) and all:find("問 Gerrit agent", 1, true) and not all:find("改我的草稿", 1, true), seen.labels)
+  with_ui(nil, "Done", function() R.menu() end)
+  local rec = last_rec()
+  check("Done: a resolving reply to the thread's last comment", rec.reply and rec.reply.in_reply_to == "c2" and rec.reply.message == "Done" and rec.reply.unresolved == false, rec)
+  local now = vim.inspect(api.nvim_buf_get_extmarks(0, cmt, 0, -1, { details = true }))
+  check("shown at once in the thread, as your draft", now:find("↳ 📝 你的草稿", 1, true) ~= nil and now:find("Done", 1, true) ~= nil, now)
+  vim.uv.sleep(20) R.stamp = nil R.load()  -- the panel's review.json again (without the pending one)
+  with_ui("  yes, see line 4 ", "回覆", function() R.menu() end)
+  rec = last_rec()
+  check("a typed reply keeps the thread open", rec.reply and rec.reply.message == "yes, see line 4" and rec.reply.unresolved == true, rec)
+  vim.uv.sleep(20) R.stamp = nil R.load()
+  api.nvim_win_set_cursor(0, { 3, 0 })
+  seen = with_ui("better", "改我的草稿", function() R.menu() end)
+  rec = last_rec()
+  check("edit your draft: its text offered, then saved", seen.default == "mine" and rec.edit and rec.edit.id == "d9" and rec.edit.message == "better", { seen, rec })
+  vim.uv.sleep(20) R.stamp = nil R.load()
+  local orig = vim.ui.select
+  local asked = {}
+  vim.ui.select = function(items, o, cb)
+    local labels = vim.tbl_map(function(x) return o.format_item and o.format_item(x) or x end, items)
+    asked[#asked + 1] = o.prompt
+    for i, l in ipairs(labels) do if l:find("刪我的草稿", 1, true) or l == "刪掉" then return cb(items[i]) end end
+    cb(nil)
+  end
+  R.menu()
+  vim.ui.select = orig
+  rec = last_rec()
+  check("delete your draft (asked first)", rec.delete and rec.delete.id == "d9" and asked[2] and asked[2]:find("刪掉這則草稿", 1, true), { rec, asked })
+end)
+
+test("a newer patch set: switch, only what it changed", function()
+  vim.uv.sleep(20) R.stamp = nil R.load()
+  R.data.latest = 3
+  R.render()
+  check("the list says there is a newer one", list_text():find("有第 3 版了", 1, true) ~= nil, list_text())
+  local v = RV.versions()
+  check("offered: 2→3 only, or all of 3", #v == 2 and v[1].to == 3 and v[1].base == 2 and v[2].to == 3 and v[2].base == nil, v)
+  R.open(RV.ordered()[1], 2)
+  with_ui(nil, "只看第 2→3", function() R.menu() end)
+  local rec = last_rec()
+  check("asks the panel for patch set 3 against 2", rec.update and rec.update.to == 3 and rec.update.base == 2, rec)
+  check("shows the download meanwhile", list_text():find("下載第 3 版中", 1, true) ~= nil, list_text())
+end)
+
+test("ask the Gerrit agent about lines", function()
+  check("hunks: only those touching the lines", R.hunks("diff --git a/x b/x\n@@ -1,2 +1,2 @@\n-a\n+A\n b\n@@ -10 +10,2 @@\n z\n+y", 11, 11) == "@@ -10 +10,2 @@\n z\n+y")
+  R.data.updating = nil
+  R.open(RV.ordered()[1], 2)
+  with_ui("is this right?", nil, function() R.ask(2, 2) end)
+  local rec = last_rec()
+  check("the question, the lines and their change", rec.ask and rec.ask.path == "a.txt" and rec.ask.line == 2 and rec.ask["end"] == 2
+    and rec.ask.question == "is this right?" and rec.ask.diff:find("+TWO", 1, true) ~= nil, rec)
+  R.open({ path = "new.txt", status = "R", old_path = "old.txt" }, 1)  -- renamed, its text unchanged
+  with_ui("", nil, function() R.ask(1, 1) end)
+  rec = last_rec()
+  check("unchanged lines: the lines themselves", rec.ask.path == "new.txt" and rec.ask.diff:find("沒有改動", 1, true) ~= nil and rec.ask.diff:find("same", 1, true) ~= nil, rec)
+end)
+
 print(("%d review checks, %d failed"):format(n, fails))
 local out = io.open(ROOT .. "/result-review", "w")
 out:write(fails == 0 and "pass" or "fail")

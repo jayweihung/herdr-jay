@@ -253,6 +253,7 @@ Opened by the Gerrit panel's **在 nvim 看** ([gerrit.md §9](gerrit.md#9-read-
 and it rewrites it when something changes. Everything else of nvim-jay stays (language servers, the mouse, the
 comments to an agent); follow is off and there is no tree.
 由 Gerrit 面板的「在 nvim 看」打開，在那個 change 自己的資料夾開新分頁；左邊是改過的檔，右邊是整個檔案。
+不用記鍵：在檔案裡按 Enter 就有這一行能做的事，選幾行按 Enter 就問 agent；下面的 space r … 只是捷徑。
 
 - **Left**: the change's files in Gerrit's order: 新增 / 刪除 / 改名, `+N -M`, `💬N（K 未解）`; ✓ on the ones you
   opened (kept per patch set in `seen.json` beside review.json); 看過 N / M. `Enter` or a double click opens one.
@@ -260,18 +261,33 @@ comments to an agent); follow is off and there is no tree.
 - **Right**: the whole file. Changed lines are marked against the change's **base** (its parent, or the older patch set
   picked in the panel), not against HEAD; a renamed file against its old name; a deleted file shows what it had, all
   in red. It opens on the first change.
-- **Comments**: this patch set's under their line: `💬 Alice（未解決）：…` in yellow, resolved ones grey, your drafts
-  blue `📝 你的草稿（還沒送出）`.
-- **Writing one**: `space r c` (or `:GerritDraft`) asks for the text and writes it to `from-nvim.jsonl` beside
-  review.json; the panel saves it as your Gerrit draft on that patch set (it shows at once, marked 存到 Gerrit 中…). It is
-  published with the panel's 💬 送出回覆. Nothing is sent to Gerrit from nvim itself.
+- **Comments**: this patch set's under their line, as threads: `💬 Alice（未解決）：…` in yellow, replies `↳ Bob：…`,
+  resolved threads grey, your drafts blue `📝 你的草稿（還沒送出）`.
+- **Enter on a line** (in a file of the change): a menu of what fits there: 💬 在這一行留言, ↩ 回覆 / ✓ Done / 👍 Ack a
+  thread on the line (Done and Ack resolve it), ✎ 改 / 🗑 刪 your draft there, 🗨 問 Gerrit agent, 🆕 換成第 N 版 (only
+  what it changed since, or all of it), 📄 commit 說明. The right-click menu has 「Gerrit：這一行能做的事」 too.
+  Elsewhere (the list, other files) Enter does what it did.
+- **Select lines, then Enter**: asks the Gerrit agent about them; it asks for the question (empty: what does it do,
+  anything wrong). The panel sends the change, file, lines, this folder's path and the diff of those lines.
+- **Where it goes**: every one of these is a line in `from-nvim.jsonl` beside review.json (`draft`, `reply`, `edit`,
+  `delete`, `update`, `ask`); the panel saves drafts on Gerrit (on the thread's patch set; they show at once, marked
+  存到 Gerrit 中…), moves the folder, or asks the agent. Drafts are published with the panel's 💬 送出回覆. Nothing is
+  published from nvim.
+- **A newer patch set**: the panel looks once a minute; the list says 🆕 有第 N 版了, and while it downloads ⏳ (or ⚠
+  why it didn't). The same folder moves; the files reload.
 - **The panel's clicks**: a file clicked in the panel's list opens here too (review.json's `jump`, read every second).
 
 | Key | What |
 |---|---|
 | `]f` `[f` | next / previous changed file (marks it seen) |
 | `]c` `[c` | next / previous change in this file |
+| `Enter` (in a file) | what you can do on this line (the menu above) |
+| `Enter` (lines selected) | ask the Gerrit agent about them |
 | `space r c` | a comment on this line, as your Gerrit draft |
+| `space r r` `space r d` `space r k` | reply / Done / Ack to the thread on this line |
+| `space r e` `space r x` | edit / delete your draft on this line |
+| `space r u` | another patch set |
+| `space r a` | ask the Gerrit agent (this line, or the selected ones) |
 | `space r l` | the list of files (back to it, or open it again) |
 | `space r m` | the commit message |
 | `o` (in the list) | tests first / Gerrit's order |

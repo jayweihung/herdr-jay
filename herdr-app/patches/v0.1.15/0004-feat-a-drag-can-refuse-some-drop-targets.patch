@@ -1,0 +1,534 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: jayweihung <3034830+jayweihung@users.noreply.github.com>
+Date: Fri, 13 Nov 2026 20:34:21 +0800
+Subject: [PATCH 4/4] feat: a drag can refuse some drop targets
+
+on_drag(payload, label, refuse, refused_label): refuse names the drop
+targets (a target's drop_key) that won't take the drag, one per line.
+Over one of them the target dims instead of its drag_over style, the
+chip says refused_label, the pointer shows the not-allowed sign, and a
+drop there isn't handed to the script. The agents and spaces panels key
+a space's row by its id.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ defaults/AGENTS.md                            |   7 +-
+ defaults/herdr.d.ts                           |   4 +-
+ defaults/mods/agents/main.js                  |   2 +-
+ defaults/mods/spaces/main.js                  |   2 +
+ src/mods/lifecycle_tests.rs                   |  19 ++-
+ vendor/gpui-kit/crates/shell/src/drag.rs      | 160 ++++++++++++++++--
+ .../crates/shell/src/engine/quickjs/mod.rs    |   8 +
+ .../gpui-kit/crates/shell/src/materialize.rs  |  44 +++--
+ vendor/gpui-kit/crates/shell/src/typings.rs   |   9 +-
+ 9 files changed, 217 insertions(+), 38 deletions(-)
+
+diff --git a/defaults/AGENTS.md b/defaults/AGENTS.md
+index 1a72c8a..e51af2e 100644
+--- a/defaults/AGENTS.md
++++ b/defaults/AGENTS.md
+@@ -961,8 +961,11 @@ as `spaces()` lists it): one copy that is waiting gets it, any copy, so a popup
+ that started the drag may close. Keep the loop waiting:
+ `cx.spawn(async (cx) => { for (;;) { const d = await nextDrop(); this.make(d); cx.notify(); } })`.
+ A press that starts such a drag doesn't move a `window` overlay or a `window_drag` area.
+-A panel that lists spaces takes such drops with `.drag_over((s) => s.bg(c))` and
+-`.on_drag_drop((drop) => dropOnSpace(drop, space.id))`.
++`.on_drag(payload, label, refuse, refusedLabel)` also names the spaces that won't take it
++(`refuse`: space ids, one per line): over one of them the row dims, the chip says
++`refusedLabel`, the pointer shows the not-allowed sign, and a drop there does nothing.
++A panel that lists spaces takes such drops with `.drag_over((s) => s.bg(c))`,
++`.drop_key(space.id)` and `.on_drag_drop((drop) => dropOnSpace(drop, space.id))`.
+ `.on_hover((hovered, cx) => …)` reports pointer entry and exit on buttons
+ and other interactive controls too.
+ `.when(cond, (el) => …)`, `.children([...])`. Controls from `gpui-base`
+diff --git a/defaults/herdr.d.ts b/defaults/herdr.d.ts
+index 3bf34b5..d258c4e 100644
+--- a/defaults/herdr.d.ts
++++ b/defaults/herdr.d.ts
+@@ -428,7 +428,9 @@ export interface SpaceDrop {
+ export function nextDrop(): Promise<SpaceDrop>;
+ 
+ /** For panels that list spaces: hands an element's `.on_drag_drop` event to the mod whose drag
+- *  it was, as dropped on the space `space` (an id). Returns whether a copy of it took it. */
++ *  it was, as dropped on the space `space` (an id). Returns whether a copy of it took it.
++ *  Give the same element `.drop_key(space)`, so a drag that refuses that space
++ *  (`.on_drag(payload, label, refuse)`, space ids one per line) is shown refused there. */
+ export function dropOnSpace(drop: { payload: string; source: string }, space: string): boolean;
+ 
+ /**
+diff --git a/defaults/mods/agents/main.js b/defaults/mods/agents/main.js
+index 826aa5e..ee7fca6 100644
+--- a/defaults/mods/agents/main.js
++++ b/defaults/mods/agents/main.js
+@@ -399,7 +399,7 @@ export default class Agents extends View {
+         })
+         // A space's group takes a mod's drag (`on_drag`), for that mod.
+         .when(Boolean(space), (el) => el.rounded(8).drag_over((s) => s.bg(t.hover).text_color(t.foreground))
+-          .on_drag_drop((drop) => dropOnSpace(drop, space)))
++          .drop_key(space).on_drag_drop((drop) => dropOnSpace(drop, space)))
+         .child(div().truncate().text_color(t[g.status] ?? t.dim).child(g.label))
+         .when(byPriority || !open, (el) => el.child(div().text_color(t.dim).child(String(g.members.length))))
+         .child(div().flex_1())
+diff --git a/defaults/mods/spaces/main.js b/defaults/mods/spaces/main.js
+index 8787f1c..3a78220 100644
+--- a/defaults/mods/spaces/main.js
++++ b/defaults/mods/spaces/main.js
+@@ -403,6 +403,7 @@ export default class Spaces extends View {
+       .when(!on, (el) => el.hover((s) => s.bg(t.hover)))
+       // A mod's drag (`on_drag`) dropped here goes to that mod, for this space.
+       .drag_over((s) => s.bg(t.hover))
++      .drop_key(w.id)
+       .on_drag_drop((drop) => dropOnSpace(drop, w.id))
+       .when(this.pressed === w.id && this.over !== w.id, (el) => el.opacity(0.5))
+       .when(this.pressed !== null && this.over === w.id && this.pressed !== w.id, (el) => el.child(
+@@ -457,6 +458,7 @@ export default class Spaces extends View {
+       .when(w.active, (el) => el.bg(t.selected))
+       .when(!w.active, (el) => el.hover((s) => s.bg(t.hover)))
+       .drag_over((s) => s.bg(t.hover))
++      .drop_key(w.id)
+       .on_drag_drop((drop) => dropOnSpace(drop, w.id))
+       .on_click(() => run("space.select", { id: w.id }))
+       .child(div().text_color(w.active ? t.foreground : t.muted).child(String(i + 1)))
+diff --git a/src/mods/lifecycle_tests.rs b/src/mods/lifecycle_tests.rs
+index 0879c9d..05404cb 100644
+--- a/src/mods/lifecycle_tests.rs
++++ b/src/mods/lifecycle_tests.rs
+@@ -432,7 +432,9 @@ impl Render for Beside {
+ }
+ 
+ #[gpui::test]
+-fn a_mod_drag_dropped_on_a_space_group_reaches_the_mod_that_started_it(cx: &mut TestAppContext) {
++fn a_mod_drag_dropped_on_a_space_group_reaches_the_mod_that_started_it_unless_it_refuses_that_space(
++    cx: &mut TestAppContext,
++) {
+     use gpui::{Modifiers, MouseButton, point, px};
+     cx.update(gpui_shell::init);
+     // The shipped agents panel, grouped by space, beside a mod with a draggable card.
+@@ -447,7 +449,9 @@ export default class extends View {
+     cx.spawn(async () => { for (;;) note(await nextDrop()); });
+   }
+   render() {
+-    return div().size_full().child(div().id("card").w(120).h(40).on_drag("new-agent\nwith details", "New agent"));
++    return div().size_full().flex().flex_col()
++      .child(div().id("card").w(120).h(40).on_drag("new-agent\nwith details", "New agent"))
++      .child(div().id("open").w(120).h(40).on_drag("open-agent", "Open agent", "elsewhere\nvps/s1", "Already there"));
+   }
+ }"#);
+     SHARED.with_borrow_mut(|slot| *slot = Some(SharedStore {
+@@ -509,6 +513,17 @@ export default class extends View {
+     visual.simulate_mouse_up(point(px(600.), px(300.)), MouseButton::Left, Modifiers::none());
+     frame(&mut visual);
+     assert_eq!(dropped.borrow().len(), 1);
++    // A drag that refuses that space (its `drop_key`): dropped on it, nothing arrives.
++    visual.simulate_mouse_down(point(px(300.), px(60.)), MouseButton::Left, Modifiers::none());
++    visual.simulate_mouse_move(point(px(280.), px(70.)), Some(MouseButton::Left), Modifiers::none());
++    frame(&mut visual);
++    assert!(visual.update(|_, cx| cx.has_active_drag()), "the second card must start a drag");
++    visual.simulate_mouse_move(header, Some(MouseButton::Left), Modifiers::none());
++    frame(&mut visual);
++    frame(&mut visual);
++    visual.simulate_mouse_up(header, MouseButton::Left, Modifiers::none());
++    frame(&mut visual);
++    assert_eq!(dropped.borrow().len(), 1, "a refused space takes nothing");
+     visual.update(|window, _| window.remove_window());
+     visual.run_until_parked();
+     SHARED.with_borrow_mut(|slot| *slot = None);
+diff --git a/vendor/gpui-kit/crates/shell/src/drag.rs b/vendor/gpui-kit/crates/shell/src/drag.rs
+index 876993f..a31993a 100644
+--- a/vendor/gpui-kit/crates/shell/src/drag.rs
++++ b/vendor/gpui-kit/crates/shell/src/drag.rs
+@@ -3,13 +3,22 @@
+ //! GPUI's own drag, kept inside the window (no external payload, so it is never
+ //! handed to the system): any view in the window takes it with `on_drag_drop`
+ //! and styles itself with `drag_over` while one hovers.
++//!
++//! A drag can also name the drop targets that will not take it
++//! (`on_drag(payload, label, refuse, refused_label)`, matched against a
++//! target's `drop_key`). Over one of those the target dims instead of taking
++//! its `drag_over` style, the chip says `refused_label`, the pointer becomes
++//! the not-allowed sign, and letting go there does nothing.
+ 
++use std::cell::Cell;
+ use std::rc::Rc;
+ 
+ use gpui::{
+-    AppContext as _, Context, IntoElement, ParentElement as _, Pixels,
+-    Point, Render, SharedString, StatefulInteractiveElement, Styled as _, Window, div,
++    AppContext as _, Context, CursorStyle, IntoElement, ParentElement as _, Pixels, Point, Refineable as _,
++    Render, SharedString, StatefulInteractiveElement, StyleRefinement, Styled as _, Window,
++    canvas, div,
+ };
++use gpui::prelude::FluentBuilder as _;
+ use gpui_base::Theme;
+ 
+ use smallvec::{SmallVec, smallvec};
+@@ -19,37 +28,126 @@ use crate::{ShellRuntime, scope, spec::CallbackId, value::Bridged, value::scaled
+ /// The longest payload `on_drag` takes, in bytes: a drag says what, not the data.
+ pub(crate) const MAX_PAYLOAD: usize = 8 * 1024;
+ 
+-/// What a script drag carries: its payload, the chip's text, and the
+-/// application (`Policy::application`) whose view started it.
++/// What a script drag carries: its payload, the chip's text, the
++/// application (`Policy::application`) whose view started it, the drop keys
++/// that refuse it and the chip's text over one of those.
+ #[derive(Clone, Debug, PartialEq)]
+ pub(crate) struct ScriptDrag {
+     pub payload: SharedString,
+     pub label: SharedString,
+     pub source: SharedString,
++    pub refuse: Vec<SharedString>,
++    pub refused_label: SharedString,
++}
++
++impl ScriptDrag {
++    /// From what `record` returned (the `on_drag` op's arguments).
++    pub(crate) fn from_recorded(args: &[Bridged]) -> Option<Self> {
++        let [Bridged::Str(payload), Bridged::Str(label), Bridged::Str(source), rest @ ..] = args
++        else {
++            return None;
++        };
++        let text = |index: usize| match rest.get(index) {
++            Some(Bridged::Str(text)) => text.as_str(),
++            _ => "",
++        };
++        Some(Self {
++            payload: payload.clone().into(),
++            label: label.clone().into(),
++            source: source.clone().into(),
++            refuse: keys(text(0)),
++            refused_label: text(1).to_owned().into(),
++        })
++    }
++
++    /// Whether the target with this `drop_key` refuses the drag.
++    pub(crate) fn refused_by(&self, key: &str) -> bool {
++        self.refuse.iter().any(|refused| refused.as_ref() == key)
++    }
++}
++
++/// The keys in `on_drag`'s `refuse`: one per line, blank lines left out.
++fn keys(text: &str) -> Vec<SharedString> {
++    text.lines()
++        .map(str::trim)
++        .filter(|key| !key.is_empty())
++        .map(|key| SharedString::from(key.to_owned()))
++        .collect()
+ }
+ 
+-/// What `on_drag(payload, label?)` records: the payload, the label (default:
+-/// the payload's first line) and the application whose view recorded it, so
+-/// whoever takes the drop can tell whose drag it was.
++/// What `on_drag(payload, label?, refuse?, refused_label?)` records: the
++/// payload, the label (default: the payload's first line), the application
++/// whose view recorded it (so whoever takes the drop can tell whose drag it
++/// was), the refusing drop keys (one per line) and the chip's text over one
++/// of them (default: the label).
+ pub(crate) fn record(args: SmallVec<[Bridged; 2]>) -> Result<SmallVec<[Bridged; 2]>, String> {
++    const USAGE: &str = "on_drag(payload, label?, refuse?, refused_label?)";
+     let Some(Bridged::Str(payload)) = args.first() else {
+-        return Err("on_drag(payload, label?) expects a string payload".into());
++        return Err(format!("{USAGE} expects a string payload"));
+     };
+     if payload.len() > MAX_PAYLOAD {
+         return Err(format!("on_drag payload is at most {MAX_PAYLOAD} bytes"));
+     }
+-    let label = match args.get(1) {
+-        None | Some(Bridged::Nil) => payload.lines().next().unwrap_or("").to_owned(),
+-        Some(Bridged::Str(label)) => label.clone(),
+-        Some(_) => return Err("on_drag(payload, label?) expects a string label".into()),
++    let text = |index: usize, what: &str| match args.get(index) {
++        None | Some(Bridged::Nil) => Ok(None),
++        Some(Bridged::Str(text)) if text.len() <= MAX_PAYLOAD => Ok(Some(text.clone())),
++        Some(Bridged::Str(_)) => Err(format!("on_drag {what} is at most {MAX_PAYLOAD} bytes")),
++        Some(_) => Err(format!("{USAGE} expects a string {what}")),
+     };
++    let label = text(1, "label")?
++        .unwrap_or_else(|| payload.lines().next().unwrap_or("").to_owned());
++    let refuse = text(2, "refuse (drop keys, one per line)")?.unwrap_or_default();
++    let refused_label = text(3, "refused_label")?.unwrap_or_else(|| label.clone());
+     let application = scope::policy().application().to_owned();
+-    Ok(smallvec![Bridged::Str(payload.clone()), Bridged::Str(label), Bridged::Str(application)])
++    Ok(smallvec![
++        Bridged::Str(payload.clone()),
++        Bridged::Str(label),
++        Bridged::Str(application),
++        Bridged::Str(refuse),
++        Bridged::Str(refused_label),
++    ])
++}
++
++thread_local! {
++    /// Set while this frame paints a target that refuses the drag under the
++    /// pointer; the chip, painted last, reads and clears it.
++    static REFUSED_UNDER_POINTER: Cell<bool> = const { Cell::new(false) };
++    /// What the chip showed this frame: GPUI works out drag styles while
++    /// painting, after the chip was laid out, so the chip catches up a frame
++    /// later.
++    static CHIP_REFUSED: Cell<bool> = const { Cell::new(false) };
++}
++
++/// How a target that refuses the drag looks while it is under the pointer.
++pub(crate) fn refused_style() -> StyleRefinement {
++    StyleRefinement {
++        opacity: Some(0.4),
++        ..StyleRefinement::default()
++    }
++}
++
++/// The `drag_over` style of a target with an optional `drop_key`: refused
++/// (dimmed, and the chip and pointer told) or its own `over`.
++pub(crate) fn over_style(
++    style: StyleRefinement,
++    drag: &ScriptDrag,
++    key: Option<&SharedString>,
++    over: Option<&StyleRefinement>,
++) -> StyleRefinement {
++    let mut style = style;
++    if key.is_some_and(|key| drag.refused_by(key)) {
++        REFUSED_UNDER_POINTER.set(true);
++        style.refine(&refused_style());
++    } else if let Some(over) = over {
++        style.refine(over);
++    }
++    style
+ }
+ 
+ /// The chip under the pointer while dragging.
+ struct Chip {
+     label: SharedString,
++    refused_label: SharedString,
+     /// Where the press was in the source element: GPUI draws the drag view
+     /// that far up and left of the pointer, so the chip is padded back past it.
+     offset: Point<Pixels>,
+@@ -58,6 +156,8 @@ struct Chip {
+ impl Render for Chip {
+     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+         let colors = Theme::global(cx).tokens.colors;
++        let refused = CHIP_REFUSED.get();
++        let label = if refused { self.refused_label.clone() } else { self.label.clone() };
+         div()
+             .pl(self.offset.x + scaled_px(14.))
+             .pt(self.offset.y + scaled_px(10.))
+@@ -74,28 +174,56 @@ impl Render for Chip {
+                     .text_size(scaled_px(12.))
+                     .shadow_md()
+                     .truncate()
+-                    .child(self.label.clone()),
++                    .when(refused, |chip| chip.text_color(colors.muted_foreground))
++                    .child(label),
++            )
++            // Painted after every other element: a window-wide cursor asked
++            // for here is the one the window shows.
++            .child(
++                canvas(
++                    |_, _, _| (),
++                    |_, _, window, _| {
++                        let refused = REFUSED_UNDER_POINTER.replace(false);
++                        if refused {
++                            window.set_window_cursor_style(CursorStyle::OperationNotAllowed);
++                        }
++                        if CHIP_REFUSED.replace(refused) != refused {
++                            window.on_next_frame(|window, _| window.refresh());
++                        }
++                    },
++                )
++                .absolute()
++                .size_0(),
+             )
+     }
+ }
+ 
+-/// `on_drag` and `on_drag_drop` on one element.
++/// `on_drag` and `on_drag_drop` on one element. A drop on a `drop_key` the
++/// drag refuses is not handed to the script.
+ pub(crate) fn with_drag<E: StatefulInteractiveElement>(
+     element: E,
+     drag: Option<&ScriptDrag>,
+     on_drop: Option<CallbackId>,
++    drop_key: Option<&SharedString>,
+     runtime: &Rc<ShellRuntime>,
+ ) -> E {
+     let mut element = element;
+     if let Some(drag) = drag {
+         element = element.on_drag(drag.clone(), |drag, offset, _, cx| {
++            REFUSED_UNDER_POINTER.set(false);
++            CHIP_REFUSED.set(false);
+             let label = drag.label.clone();
+-            cx.new(|_| Chip { label, offset })
++            let refused_label = drag.refused_label.clone();
++            cx.new(|_| Chip { label, refused_label, offset })
+         });
+     }
+     if let Some(callback) = on_drop {
+         let runtime = Rc::downgrade(runtime);
++        let drop_key = drop_key.cloned();
+         element = element.on_drop(move |drag: &ScriptDrag, window, cx| {
++            if drop_key.as_ref().is_some_and(|key| drag.refused_by(key)) {
++                return;
++            }
+             if let Some(runtime) = runtime.upgrade() {
+                 runtime.dispatch_script_drop(callback, drag, window, cx);
+             }
+diff --git a/vendor/gpui-kit/crates/shell/src/engine/quickjs/mod.rs b/vendor/gpui-kit/crates/shell/src/engine/quickjs/mod.rs
+index 037175e..5b98e90 100644
+--- a/vendor/gpui-kit/crates/shell/src/engine/quickjs/mod.rs
++++ b/vendor/gpui-kit/crates/shell/src/engine/quickjs/mod.rs
+@@ -7284,6 +7284,7 @@ impl ShellRuntime {
+                 // HERDR: script drags.
+                 "on_drag",
+                 "on_drag_drop",
++                "drop_key",
+                 "on_scroll_wheel",
+                 "on_action",
+                 "key_context",
+@@ -8356,6 +8357,7 @@ impl ShellRuntime {
+             | "tab_index"
+             | "tab_stop"
+             | "href"
++            | "drop_key"
+             | "id"
+             | "overflow_scroll"
+             | "overflow_x_scroll"
+@@ -8447,6 +8449,7 @@ impl ShellRuntime {
+                     "spin" => "spin",
+                     "loop" => "loop",
+                     "href" => "href",
++                    "drop_key" => "drop_key",
+                     _ => "accessibility_label",
+                 };
+                 if name == "id"
+@@ -8573,6 +8576,11 @@ impl ShellRuntime {
+                         "tab_index(index) expects a whole number",
+                     ));
+                 }
++                if name == "drop_key"
++                    && bridged.first().and_then(|value| value.as_str().ok()).is_none()
++                {
++                    return Err(Exception::throw_type(ctx, "drop_key(key) expects a string"));
++                }
+                 if name == "href" {
+                     let Some(target) = bridged.first().and_then(|value| value.as_str().ok()) else {
+                         return Err(Exception::throw_type(ctx, "href(url) expects a string"));
+diff --git a/vendor/gpui-kit/crates/shell/src/materialize.rs b/vendor/gpui-kit/crates/shell/src/materialize.rs
+index f59928c..e4dd6ee 100644
+--- a/vendor/gpui-kit/crates/shell/src/materialize.rs
++++ b/vendor/gpui-kit/crates/shell/src/materialize.rs
+@@ -299,6 +299,8 @@ struct StateStyles {
+     focus: Option<StyleRefinement>,
+     /// HERDR: while a script drag hovers the element.
+     drag_over: Option<StyleRefinement>,
++    /// HERDR: the element's `drop_key`; a drag that refuses it dims it instead.
++    drop_key: Option<SharedString>,
+ }
+ 
+ impl StateStyles {
+@@ -382,6 +384,8 @@ struct Behavior {
+     /// HERDR: the script drag this element starts, and the handler for one dropped on it.
+     drag: Option<crate::drag::ScriptDrag>,
+     on_drag_drop: Option<CallbackId>,
++    /// HERDR: which drop target this is, for drags that refuse some (`drop_key`).
++    drop_key: Option<SharedString>,
+     /// Wheel and trackpad scrolling over this element.
+     on_scroll_wheel: Option<CallbackId>,
+     /// Handlers for named actions, one entry per action listened for.
+@@ -1658,12 +1662,14 @@ where
+ /// differ. Components that are not interactive silently ignore state styles
+ /// rather than failing the render — the script gets a `tracing` warning.
+ fn with_hover<E: InteractiveElement>(element: E, states: &StateStyles) -> E {
+-    let element = match states.drag_over.clone() {
+-        Some(over) => element.drag_over::<crate::drag::ScriptDrag>(move |mut style, _, _, _| {
+-            style.refine(&over);
+-            style
+-        }),
+-        None => element,
++    let element = if states.drag_over.is_some() || states.drop_key.is_some() {
++        let over = states.drag_over.clone();
++        let key = states.drop_key.clone();
++        element.drag_over::<crate::drag::ScriptDrag>(move |style, drag, _, _| {
++            crate::drag::over_style(style, drag, key.as_ref(), over.as_ref())
++        })
++    } else {
++        element
+     };
+     match states.hover.clone() {
+         Some(hover) => element.hover(move |mut style| {
+@@ -1811,7 +1817,13 @@ where
+             }
+         });
+     }
+-    element = crate::drag::with_drag(element, behavior.drag.as_ref(), behavior.on_drag_drop, runtime);
++    element = crate::drag::with_drag(
++        element,
++        behavior.drag.as_ref(),
++        behavior.on_drag_drop,
++        behavior.drop_key.as_ref(),
++        runtime,
++    );
+     if let Some(callback) = behavior.on_key_down {
+         let runtime = Rc::downgrade(runtime);
+         element = element.on_key_down(move |event, window, cx| {
+@@ -2649,16 +2661,18 @@ pub(in crate::materialize) fn resolve_ops(
+                 }
+             }
+             SpecOp::Method("on_drag", args) => {
+-                if let [Bridged::Str(payload), Bridged::Str(label), Bridged::Str(source)] =
+-                    args.as_slice()
+-                {
+-                    behavior.drag = Some(crate::drag::ScriptDrag {
+-                        payload: payload.clone().into(),
+-                        label: label.clone().into(),
+-                        source: source.clone().into(),
+-                    });
++                if let Some(drag) = crate::drag::ScriptDrag::from_recorded(args) {
++                    behavior.drag = Some(drag);
+                 }
+             }
++            SpecOp::Method("drop_key", args) => {
++                let key = args
++                    .first()
++                    .and_then(|value| value.as_str().ok())
++                    .map(|key| SharedString::from(key.to_owned()));
++                behavior.drop_key = key.clone();
++                states.drop_key = key;
++            }
+             SpecOp::Method("spin", args) => {
+                 if let [Bridged::Number(ms)] = args.as_slice() {
+                     behavior.spin = Some(ms.max(100.0));
+diff --git a/vendor/gpui-kit/crates/shell/src/typings.rs b/vendor/gpui-kit/crates/shell/src/typings.rs
+index e6269b9..7673706 100644
+--- a/vendor/gpui-kit/crates/shell/src/typings.rs
++++ b/vendor/gpui-kit/crates/shell/src/typings.rs
+@@ -1459,8 +1459,12 @@ const ELEMENT_METHODS: &str = r#"    /**
+      * Makes the element draggable inside the window (GPUI's own drag, never the
+      * system's). A small chip with `label` (default: the payload's first line)
+      * follows the pointer. `payload`: a string, at most 8192 bytes.
++     * `refuse`: the `drop_key`s of the targets that do not take this drag, one
++     * per line. Over one of them the target dims instead of its `drag_over`
++     * style, the chip says `refused_label` (default: `label`), the pointer
++     * shows the not-allowed sign, and a drop there is not handed over.
+      */
+-    on_drag<Self extends Element>(this: Self, payload: string, label?: string): Self;
++    on_drag<Self extends Element>(this: Self, payload: string, label?: string, refuse?: string, refused_label?: string): Self;
+     /**
+      * An `on_drag` drag dropped on this element. `source`: the application
+      * whose view started it.
+@@ -1468,6 +1472,8 @@ const ELEMENT_METHODS: &str = r#"    /**
+     on_drag_drop<Self extends Element>(this: Self,
+       handler: (event: { payload: string; label: string; source: string }, cx: Context) => void,
+     ): Self;
++    /** Names this drop target, so an `on_drag` drag can refuse it (see `on_drag`'s `refuse`). */
++    drop_key<Self extends Element>(this: Self, key: string): Self;
+     /**
+      * GPUI `InteractiveElement::on_scroll_wheel`: wheel and trackpad scrolling
+      * over this element.
+@@ -4016,6 +4022,7 @@ mod tests {
+         "on_drop",
+         "on_drag",
+         "on_drag_drop",
++        "drop_key",
+         "on_scroll_wheel",
+         "on_action",
+         "key_context",
+-- 
+2.54.0
+

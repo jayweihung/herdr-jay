@@ -49,7 +49,7 @@ one was checked.
 
 | herdr-jay | Herdr app | Herdr core | core patches | Checked on macOS | Checked on Windows |
 |---|---|---|---|---|---|
-| `main` (now) | v0.1.15 (`9950887`) | v0.1.21 (`1b0393f`) | core: none (`herdr-core/patches/v0.1.21` holds only README.md); app: 2 (drag onto a space, [docs/patches.md](docs/patches.md)) | 2026-11-13 | not yet |
+| `main` (now) | v0.1.15 (`9950887`) | v0.1.21 (`1b0393f`) | core: none (`herdr-core/patches/v0.1.21` holds only README.md); app: 4 (drag onto a space, a terminal's own icon, refused drop targets, [docs/patches.md](docs/patches.md)) | 2026-11-13 | not yet |
 
 The app needs at least the core in its `distribution/core-version` (v0.1.15: core 0.1.11).
 Neovim: **v0.12.6** (the Linux server builds this tag from source; anything ≥ 0.11 works with nvim-jay).

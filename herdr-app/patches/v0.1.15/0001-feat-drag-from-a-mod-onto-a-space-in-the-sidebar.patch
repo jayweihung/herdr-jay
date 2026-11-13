@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: jayweihung <3034830+jayweihung@users.noreply.github.com>
 Date: Fri, 13 Nov 2026 13:26:34 +0800
-Subject: [PATCH 1/2] feat: drag from a mod onto a space in the sidebar
+Subject: [PATCH 1/4] feat: drag from a mod onto a space in the sidebar
 
 A mod element can start a drag inside the window with .on_drag(payload, label?).
 Space groups in the agents panel and space rows in the spaces panel take it
@@ -746,5 +746,6 @@ index c71575f..e6269b9 100644
      ];
  
      /// Every method name declared in the `Element` interface, in order.
+-- 
+2.54.0
 
-base-commit: 9950887361af3ba218b9ce7a347cb8ec7b66c71d

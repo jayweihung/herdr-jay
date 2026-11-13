@@ -9,6 +9,22 @@ says which) · **kit** = update kit itself on every machine where agents run (`k
 **snap hook** = a line in Claude Code's `settings.json` on each machine where you added the hook (the entry says
 which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/keys.md).
 
+## 2026-11-13, Herdr app: a placed agent's own logo; one of each agent per space
+
+Needs: **app** (same v0.1.15, now four patches: rebuild it; core unchanged), **kit** 0.5.2, **mods**.
+
+- `herdr-app/patches/v0.1.15/0003-…`: a terminal can have its own icon in the lists (`tab.new {icon}`,
+  `terminal.icon`, label `herdr.icon`). An agent dragged onto a space (or 放到 space…) now shows its own logo in the
+  Agents panel instead of Claude's ([docs/kit.md](docs/kit.md)). An older app opens it with the program's icon.
+- Dropping an agent on a space where it already runs opens no second one: its tab is shown (no toast). With
+  `0004-…` you see it while dragging: that space dims, the chip says it's already open there, the pointer shows the
+  not-allowed sign, and letting go does nothing.
+- kit 0.5.2: placing an agent no longer shows the Claude tools.only note (its author sees it in `kit check`); Claude's
+  tool limits no longer name `MultiEdit` (newer Claude Code warned "Deny rule MultiEdit matches no tool").
+- Build steps: [docs/macos.md](docs/macos.md) §3/§8, [docs/windows.md](docs/windows.md) §3/§8.2 (the app blocks only;
+  they already apply every patch in the folder).
+app 同樣是 v0.1.15，多了第三、第四個 patch（agent 自己的 logo；拖的時候看得出哪個 space 已經開著），要重新 build app；同一個 space 不會開第二個同樣的 agent；kit 升到 0.5.2。
+
 ## 2026-11-13, Herdr core v0.1.21
 
 Needs: **core** (v0.1.20 → official v0.1.21, no patches: [herdr-core/patches/v0.1.21](herdr-core/patches/v0.1.21/README.md)).

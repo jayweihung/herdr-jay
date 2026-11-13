@@ -1,0 +1,289 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: jayweihung <3034830+jayweihung@users.noreply.github.com>
+Date: Fri, 13 Nov 2026 20:11:58 +0800
+Subject: [PATCH 3/4] feat: a terminal's own icon in the lists (tab.new icon,
+ terminal.icon)
+
+A mod that opens an agent (a kit agent, say) can show that agent's own
+logo in place of its program's: tab.new {icon} or terminal.icon
+{terminal, icon} set the herdr.icon label, an .svg or .png under the
+app's folder as a plain relative path (no .., no leading /); agents()
+and terminals() then carry it as program.icon, drawn as a picture.
+Anything else in the label is ignored.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ defaults/AGENTS.md  | 11 +++++--
+ defaults/herdr.d.ts |  3 +-
+ docs/commands.md    | 12 +++++++-
+ docs/labels.md      | 16 +++++++++-
+ src/commands.rs     |  5 ++--
+ src/window.rs       | 73 +++++++++++++++++++++++++++++++++++++++++++--
+ 6 files changed, 110 insertions(+), 10 deletions(-)
+
+diff --git a/defaults/AGENTS.md b/defaults/AGENTS.md
+index d8acbaf..1a72c8a 100644
+--- a/defaults/AGENTS.md
++++ b/defaults/AGENTS.md
+@@ -554,8 +554,9 @@ The main ones:
+   `space.close {id?, confirmed?}`, `space.rename {id?, name}` ("": Herdr's name again),
+   `space.move {id, index}`, `space.select {index | id}`, `space.next`, `space.prev`.
+   With no `argv`, the target core chooses that machine's default shell (PowerShell 7 when available on Windows).
+-- Tabs: `tab.new {name?, space?, folder?, argv?, task?}` (argv: an
+-  agent to run, task: its first message). Agents run in your interactive
++- Tabs: `tab.new {name?, space?, folder?, argv?, task?, icon?}` (argv: an
++  agent to run, task: its first message, icon: its own icon in the lists, as
++  `terminal.icon`). Agents run in your interactive
+   shell (including fish), which stays open after the agent exits. A terminal
+   that exits with a nonzero code within two seconds of launch shows an error
+   toast with its exit code and last output lines. Or `tab.new {name?, space?, mod,
+@@ -605,7 +606,11 @@ The main ones:
+   there is no history, so nothing moves),
+   `terminal.pin {terminal, pinned}` (pins an agent to the top of the agent lists;
+   kept on the terminal as `herdr.pinned`, so every Herdr client shows it, and
+-  gone when the terminal ends; read it as `agents()` `pinned`). Copy, paste, paste-image and implicit
++  gone when the terminal ends; read it as `agents()` `pinned`),
++  `terminal.icon {terminal, icon}` (the terminal's own icon in place of its
++  program's: an .svg or .png under the app's folder, such as one your mod wrote
++  under `data/`; empty: back to the program's; kept as `herdr.icon` like a pin;
++  `program.icon` then names it, drawn with `image()`). Copy, paste, paste-image and implicit
+   right-click targeting follow keyboard focus, including peek and floating terminals;
+   with no terminal holding keyboard focus, they use the focused pane or block.
+   Dragging a text selection past the terminal's top or bottom scrolls while held;
+diff --git a/defaults/herdr.d.ts b/defaults/herdr.d.ts
+index b55ae7e..3bf34b5 100644
+--- a/defaults/herdr.d.ts
++++ b/defaults/herdr.d.ts
+@@ -51,7 +51,8 @@ export function playSound(sound: string): null;
+  * "" gives the space or tab Herdr's automatic name again. The main ones:
+  * Spaces: space.new {name?, folder?, tab?, argv?, task?, machine?}, space.close {id?}, space.rename {id?, name},
+  *   space.move {id, index}, space.select {index | id}, space.next, space.prev.
+- * Tabs: tab.new {name?, space?, folder?, argv?, task?} (argv: an agent, task: its first message)
++ * Tabs: tab.new {name?, space?, folder?, argv?, task?, icon?} (argv: an agent, task: its first message,
++ *   icon: its own icon, as terminal.icon {terminal, icon}: an .svg/.png under the app's folder, "" = its program's)
+  *   or {name?, space?, mod, props?} (a tab whose only pane is a mod),
+  *   tab.close {id?}, tab.rename {id?, name}, tab.move {id, index}, tab.select {index | id},
+  *   tab.next, tab.prev.
+diff --git a/docs/commands.md b/docs/commands.md
+index 800b438..d8b85b4 100644
+--- a/docs/commands.md
++++ b/docs/commands.md
+@@ -59,7 +59,7 @@ Move a space to a position (1 = first).
+ 
+ ## `tab.new`
+ 
+-Make a tab in a space (default: the selected one; name default: none, so it's called by its number) with a terminal in folder (default: the focused terminal's), optionally an agent (argv) and its first message (task); or with a mod as its only pane (`mod`, its `props`: a file, a board). With no space open, a person's new tab starts a space (as space.new).
++Make a tab in a space (default: the selected one; name default: none, so it's called by its number) with a terminal in folder (default: the focused terminal's), optionally an agent (argv) and its first message (task), and its own icon (icon: an .svg or .png under the app's folder, as terminal.icon); or with a mod as its only pane (`mod`, its `props`: a file, a board). With no space open, a person's new tab starts a space (as space.new).
+ 
+ | Argument | Required |
+ |---|---|
+@@ -70,6 +70,7 @@ Make a tab in a space (default: the selected one; name default: none, so it's ca
+ | `task` | no |
+ | `mod` | no |
+ | `props` | no |
++| `icon` | no |
+ 
+ ## `tab.close`
+ 
+@@ -164,6 +165,15 @@ Pin an agent to the top of the agent lists (pinned true) or unpin it (false). Pi
+ | `terminal` | yes |
+ | `pinned` | yes |
+ 
++## `terminal.icon`
++
++Show a terminal with its own icon in the lists, in place of its program's: an .svg or .png under the app's folder (e.g. one a mod wrote under data/), an empty icon goes back to the program's. Kept with the terminal (label herdr.icon), so every Herdr client shows it, and ends with it.
++
++| Argument | Required |
++|---|---|
++| `terminal` | yes |
++| `icon` | yes |
++
+ ## `terminal.kill`
+ 
+ End a terminal and its sub-agents.
+diff --git a/docs/labels.md b/docs/labels.md
+index a810c8a..a91803d 100644
+--- a/docs/labels.md
++++ b/docs/labels.md
+@@ -2,7 +2,7 @@
+ 
+ Herdr clients (the desktop app, the phone app, a terminal UI) share two
+ things through herdr-core terminal labels: which agents a person has seen,
+-and which are pinned. Look at an agent on one client and it stops being
++which are pinned, and a terminal's own icon. Look at an agent on one client and it stops being
+ "done" on all of them; pin it on one and it's pinned everywhere.
+ 
+ Labels live on the terminal, so this state ends with it. Every client
+@@ -60,6 +60,20 @@ client's usual order.
+ In the desktop app, mods pin with `terminal.pin {terminal, pinned}` and
+ read `pinned` from `agents()`; they never write the label themselves.
+ 
++## `herdr.icon=<path>`: its own icon
++
++A picture shown for the terminal in the lists in place of its program's
++icon (a mod's agent, say, with its own logo): an `.svg` or `.png` under the
++app's folder, as a plain relative path (`data/kit/bots/v2/fox.svg`; no `..`,
++no leading `/`). Anything else is ignored and the program's icon shows.
++Empty removes it.
++
++In the desktop app, mods set it with `tab.new {…, icon}` or
++`terminal.icon {terminal, icon}`, and read it as `program.icon` (with
++`tint` false). The file is read by the client that draws it, from its own
++app folder: write it before setting the label. Clients that don't know this
++label show the program's icon.
++
+ ## Adding more
+ 
+ Labels suit small values that change at human speed. Use the `herdr.`
+diff --git a/src/commands.rs b/src/commands.rs
+index 5350999..01d5e36 100644
+--- a/src/commands.rs
++++ b/src/commands.rs
+@@ -34,8 +34,8 @@ pub const COMMANDS: &[Command] = &[
+     cmd("space.close", &[opt("id"), opt("confirmed")], "Close a space and end its terminals (asks first unless confirmed)."),
+     cmd("space.rename", &[opt("id"), opt("name")], "Rename a space (asks the person when no name; an empty name: called after where its first terminal is again)."),
+     cmd("space.move", &[req("id"), req("index")], "Move a space to a position (1 = first)."),
+-    cmd("tab.new", &[opt("name"), opt("space"), opt("folder"), opt("argv"), opt("task"), opt("mod"), opt("props")],
+-        "Make a tab in a space (default: the selected one; name default: none, so it's called by its number) with a terminal in folder (default: the focused terminal's), optionally an agent (argv) and its first message (task); or with a mod as its only pane (`mod`, its `props`: a file, a board). With no space open, a person's new tab starts a space (as space.new)."),
++    cmd("tab.new", &[opt("name"), opt("space"), opt("folder"), opt("argv"), opt("task"), opt("mod"), opt("props"), opt("icon")],
++        "Make a tab in a space (default: the selected one; name default: none, so it's called by its number) with a terminal in folder (default: the focused terminal's), optionally an agent (argv) and its first message (task), and its own icon (icon: an .svg or .png under the app's folder, as terminal.icon); or with a mod as its only pane (`mod`, its `props`: a file, a board). With no space open, a person's new tab starts a space (as space.new)."),
+     cmd("tab.close", &[opt("id"), opt("confirmed")], "Close a tab and end its terminals."),
+     cmd("tab.rename", &[opt("id"), opt("name")], "Rename a tab (asks the person when no name; an empty name: called by its number again)."),
+     cmd("tab.move", &[req("id"), req("index")], "Move a tab to a position in its space (1 = first)."),
+@@ -46,6 +46,7 @@ pub const COMMANDS: &[Command] = &[
+     cmd("terminal.park", &[req("terminal")], "Take a terminal's pane away and disable core keep; it keeps running (a sub-agent shows under its parent again)."),
+     cmd("terminal.right_click", &[req("to"), opt("terminal")], "Where right-clicks in a terminal (default: the focused one) go when its program takes the mouse: \"program\" or \"menu\" (Herdr's, the default). Shift+right-click is always the menu."),
+     cmd("terminal.pin", &[req("terminal"), req("pinned")], "Pin an agent to the top of the agent lists (pinned true) or unpin it (false). Pins are kept with the terminal, so every Herdr client shows them, and end with it."),
++    cmd("terminal.icon", &[req("terminal"), req("icon")], "Show a terminal with its own icon in the lists, in place of its program's: an .svg or .png under the app's folder (e.g. one a mod wrote under data/), an empty icon goes back to the program's. Kept with the terminal (label herdr.icon), so every Herdr client shows it, and ends with it."),
+     cmd("terminal.kill", &[req("terminal")], "End a terminal and its sub-agents."),
+     // What you see.
+     cmd("space.select", &[opt("index"), opt("id")], "Show a space (by position or id)."),
+diff --git a/src/window.rs b/src/window.rs
+index fe87f41..644b128 100644
+--- a/src/window.rs
++++ b/src/window.rs
+@@ -1705,7 +1705,20 @@ impl AppWindow {
+     /// How a terminal shows (`program` for mods): its agent, else what it runs.
+     fn program(&self, addr: &str) -> Value {
+         let rec = self.live.get(addr).and_then(Value::as_object);
+-        program_of(rec.and_then(|r| r.get("report")).unwrap_or(&Value::Null), rec.and_then(running_argv))
++        with_icon(program_of(rec.and_then(|r| r.get("report")).unwrap_or(&Value::Null), rec.and_then(running_argv)), rec.and_then(|r| r.get("labels")))
++    }
++
++    /// Writes one label on a terminal, off the UI thread (a terminal on a slow machine answers late).
++    fn label_terminal(&self, terminal: &str, key: &'static str, value: &str, cx: &mut Context<Self>) {
++        let core = self.core.clone();
++        let params = json!({ "terminal": terminal, "labels": { key: value } });
++        cx.background_executor()
++            .spawn(async move {
++                if let Err(e) = core.call("terminal.label", params) {
++                    tracing::warn!("{key} label: {e:#}");
++                }
++            })
++            .detach();
+     }
+ 
+     /// Tells mods what changed (they re-render only if something did).
+@@ -2030,7 +2043,7 @@ impl AppWindow {
+             let report = obj.remove("status").unwrap_or(Value::Null);
+             let word = report.get("state").cloned().unwrap_or_else(|| if report.is_string() { report.clone() } else { Value::Null });
+             obj.insert("status".into(), word);
+-            obj.insert("program".into(), program_of(&report, running_argv(obj)));
++            obj.insert("program".into(), with_icon(program_of(&report, running_argv(obj)), obj.get("labels")));
+             obj.insert("report".into(), report);
+             // As the panes show it: a spinning title would change every listing.
+             if let Some(title) = obj.get("title").and_then(Value::as_str).map(|t| crate::terminal::shown_title(t).into_owned()) {
+@@ -2941,6 +2954,11 @@ impl AppWindow {
+             // ---- tabs
+             "tab.new" => {
+                 let name = Self::arg(a, "name").unwrap_or_default();
++                let icon = match a.get("icon") {
++                    None | Some(Value::Null) => None,
++                    Some(Value::String(p)) if icon_ok(p) && a.get("mod").is_none_or(Value::is_null) => Some(p.clone()),
++                    Some(_) => return self.fail("tab.new icon is an .svg or .png under the app's folder (e.g. data/x/y.svg), for a terminal tab"),
++                };
+                 let r = match Self::owned(a, "mod") {
+                     Some(m) => self.new_mod_tab(Self::owned(a, "space"), name, m, a.get("props").cloned().unwrap_or(Value::Null)),
+                     // A person's new tab with no space open starts one, as space.new does.
+@@ -2949,6 +2967,11 @@ impl AppWindow {
+                     }
+                     None => self.new_tab(Self::owned(a, "space"), name, Self::owned(a, "folder"), Self::argv(a), Self::arg(a, "task"), window),
+                 };
++                if let (Ok(v), Some(icon)) = (&r, icon) {
++                    if let Some(t) = v.get("terminal").and_then(Value::as_str) {
++                        self.label_terminal(t, "herdr.icon", &icon, cx);
++                    }
++                }
+                 self.answer(r);
+             }
+             "tab.close" => {
+@@ -3149,6 +3172,16 @@ impl AppWindow {
+                     })
+                     .detach();
+             }
++            "terminal.icon" => {
++                let Some(icon) = Self::arg(a, "icon").filter(|p| p.is_empty() || icon_ok(p)) else {
++                    return self.fail("terminal.icon icon is an .svg or .png under the app's folder (e.g. data/x/y.svg), or empty");
++                };
++                let t = Self::arg(a, "terminal").unwrap_or_default();
++                if !self.live.contains_key(t) {
++                    return self.fail(format!("no running terminal {t:?}"));
++                }
++                self.label_terminal(t, "herdr.icon", icon, cx);
++            }
+             "terminal.kill" => {
+                 let t = Self::arg(a, "terminal").unwrap_or_default();
+                 if !self.live.contains_key(t) {
+@@ -4826,6 +4859,25 @@ fn adoptable(record: &Value, space: &str, tab: Option<&str>, machine: Option<&st
+         && labeled_tab == tab.map(|t| crate::mirror::local(t, machine))
+ }
+ 
++/// A terminal's own icon (label `herdr.icon`, see icon_ok) in place of its program's: drawn as a picture.
++fn with_icon(mut program: Value, labels: Option<&Value>) -> Value {
++    if let Some(icon) = labels.and_then(|l| l.get("herdr.icon")).and_then(Value::as_str).filter(|p| icon_ok(p)) {
++        program["icon"] = icon.into();
++        program["tint"] = false.into();
++        program["tile"] = Value::Null;
++        program["color"] = Value::Null;
++    }
++    program
++}
++
++/// An icon a terminal may have: an .svg or .png under the app's folder, as a plain relative path
++/// (letters, digits, `.`, `_`, `-` between slashes; no `..`), at most 200 bytes.
++fn icon_ok(p: &str) -> bool {
++    p.len() <= 200
++        && (p.ends_with(".svg") || p.ends_with(".png"))
++        && p.split('/').all(|s| !s.is_empty() && s != "." && s != ".." && s.bytes().all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b)))
++}
++
+ fn program_of(report: &Value, argv: Option<&Value>) -> Value {
+     let app = report.get("app").and_then(Value::as_str);
+     let argv: Vec<String> = argv.and_then(Value::as_array).into_iter().flatten().filter_map(|a| a.as_str().map(str::to_owned)).collect();
+@@ -5049,6 +5101,23 @@ mod tests {
+     use gpui::{div, point, px, size, Context, IntoElement, Render, TestAppContext, Window};
+     use gpui::prelude::*;
+ 
++    #[test]
++    fn a_terminal_icon_is_a_picture_under_the_app_folder_only() {
++        use serde_json::json;
++        for ok in ["data/kit/bots/v2/fox-blue.svg", "icons/x.png", "a_b-c.d.svg"] {
++            assert!(super::icon_ok(ok), "{ok}");
++        }
++        for bad in ["/etc/x.svg", "../x.svg", "data/../x.svg", "data//x.svg", "./x.svg", "x.svg/", "x.gif", "data\\x.svg", "d a/x.svg", "", &format!("{}.svg", "a".repeat(200))] {
++            assert!(!super::icon_ok(bad), "{bad}");
++        }
++        let program = json!({ "key": "claude", "icon": "icons/claude.svg", "tint": true, "tile": "#000", "color": "#fff" });
++        let own = super::with_icon(program.clone(), Some(&json!({ "herdr.icon": "data/kit/bots/v2/fox.svg" })));
++        assert_eq!(own, json!({ "key": "claude", "icon": "data/kit/bots/v2/fox.svg", "tint": false, "tile": null, "color": null }));
++        assert_eq!(super::with_icon(program.clone(), Some(&json!({ "herdr.icon": "../x.svg" }))), program);
++        assert_eq!(super::with_icon(program.clone(), Some(&json!({ "herdr.icon": "" }))), program);
++        assert_eq!(super::with_icon(program.clone(), None), program);
++    }
++
+     #[test]
+     fn going_back_into_a_split_column_takes_its_top_pane_whatever_the_fractions() {
+         let r = |x: f32, y: f32, w: f32, h: f32| gpui::Bounds::new(point(px(x), px(y)), size(px(w), px(h)));
+-- 
+2.54.0
+

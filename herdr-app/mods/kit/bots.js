@@ -64,16 +64,26 @@ function posed(b, pose = STILL) {
   s.scene.translate.y = 12;
   return s;
 }
-// the logo as an SVG document
-export function botSvg(b) {
+// the logo as an SVG document. tight: the square just around the drawing (a little margin), for a tab's icon in
+// Herdr's lists, where it shares a small box with the programs' icons: the whole square (made for the page's big
+// logo, with room around the head) would draw it a size smaller than they are.
+export function botSvg(b, tight = false) {
   const polys = zdogPolygons(posed(b).scene, PX, PX / UNITS);
   const n = (v) => String(Math.round(v * 10) / 10);
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${PX}" height="${PX}" viewBox="0 0 ${PX} ${PX}">\n`
+  let box = `0 0 ${PX} ${PX}`;
+  const pts = polys.flatMap((p) => p.pts);
+  if (tight && pts.length) {
+    const xs = pts.map(([x]) => x), ys = pts.map(([, y]) => y);
+    const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+    const side = Math.max(x1 - x0, y1 - y0) * 1.04;
+    box = [(x0 + x1 - side) / 2, (y0 + y1 - side) / 2, side, side].map(n).join(" ");
+  }
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${PX}" height="${PX}" viewBox="${box}">\n`
     + polys.map((p) => `<polygon fill="${p.color}" points="${p.pts.map(([x, y]) => `${n(x)},${n(y)}`).join(" ")}"/>`).join("\n")
     + "\n</svg>\n";
 }
 const DIR = `data/kit/bots/v${BOT_VERSION}`;
-const fileName = (b) => `${b.animal}${b.color ? `-${b.color}` : ""}.svg`;
+const fileName = (b, tight = false) => `${b.animal}${b.color ? `-${b.color}` : ""}${tight ? ".icon" : ""}.svg`;
 
 // file name -> "checking" | "ready" | "failed"
 const state = new Map();
@@ -81,10 +91,15 @@ let failText = null;
 const bump = () => setShared(BOTS_TICK, Date.now());
 
 // its SVG is written (again when what is there isn't this version's drawing)
-async function ensure(b) {
-  const path = `${String(appHome()).replace(/[\\/]+$/, "")}/${DIR}/${fileName(b)}`, svg = botSvg(b);
+async function ensure(b, tight = false) {
+  const path = `${String(appHome()).replace(/[\\/]+$/, "")}/${DIR}/${fileName(b, tight)}`, svg = botSvg(b, tight);
   const now = await readTextFile(path);
   if (now !== svg) await writeTextFile(path, svg, now);
+}
+// a logo's tab icon (botSvg tight: <animal>[-<color>].icon.svg), written when it isn't there -> its path under Herdr's
+// folder (what tab.new / terminal.icon take), or null when it can't be written
+export async function botFile(b) {
+  try { await ensure(b, true); return `${DIR}/${fileName(b, true)}`; } catch { return null; }
 }
 // what the logo's SVG is up to; the first ask writes it when it isn't there
 export function botStatus(b) {

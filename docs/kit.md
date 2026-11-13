@@ -489,8 +489,15 @@ mod 只用這些欄位，每個都先檢查：`kit`（版本）、`api`（`major
   工具是 agent 詳細頁選的（Claude、Codex、omp；沒選是 Claude）。
 - kit 做好後，在那個 space 開一個新分頁，在那個資料夾跑 kit 給的指令（就是 `claude`、`codex` 或 `omp`；Herdr 的
   `tab.new`，帶 `space`、`folder`、`argv`）。進度和結果用通知說；kit 的提醒（例如 Codex 不能只開某些工具）也會列出來。
-- 同一個 agent 再放到同一個 space：kit 只同步那個資料夾，再開一個分頁。那裡已經是別的 agent 的資料夾、或已經有不是 kit 放的
-  東西時，kit 不會動它，通知會說原因。那台的 kit 太舊（沒有 `kit place`）也會直接說。
+- **它自己的 logo**：那一格在 Herdr 的清單（左邊 Agents 欄等）顯示這個 agent 的機器人頭像，不是 Claude／Codex 的圖示
+  （`tab.new` 多帶 `icon`，圖檔是 Kit 寫在 Herdr 資料夾裡的 `data/kit/bots/…svg`）。要有 icon 修改的 Herdr
+  （herdr-app 的 `0003` patch）；舊的 Herdr 不認得 `icon`，分頁照開，只是用程式的圖示。
+- **一個 space 只開一個**：那個 space 裡已經有 agent 在 `<space 的資料夾>/<agent>`（或底下）跑著，再放一次不會多開，
+  只切到那一格，Agents 面板寫一行「已經在 … 開著了」（不跳通知）。要它的資料夾重新照 agent 檔同步：`kit sync`。
+  拖的時候就看得出來（herdr-app 的 `0004` patch）：拖到它已經開著的 space 上，那一列變淡、跟著游標的小標籤變成
+  「… 已經在這個 space 開著了」、游標變成禁止符號，放開也不會做任何事。舊的 Herdr 拖的時候看不出來，放下去才切到那一格。
+- 那裡已經是別的 agent 的資料夾、或已經有不是 kit 放的東西時，kit 不會動它，通知會說原因。那台的 kit 太舊（沒有
+  `kit place`）也會直接說。
 - 之後在那裡開的 agent 的 Kit 清單按「加到這個資料夾」／「從資料夾拿掉」，只改這個資料夾。拖好幾個 agent 就是好幾個資料夾。
 - 從 Agents **視窗**放的，交給分頁列上的 Agents 按鈕去跑：放了之後馬上關掉視窗也照樣做完。版面裡沒有那個按鈕時由視窗自己跑；
   這時、或是跑的那一份（面板、按鈕）在 kit 跑到一半被關掉時，會說「視窗關了，分頁沒開：再放一次（kit place 可以重跑）」，

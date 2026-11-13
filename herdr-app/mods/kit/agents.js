@@ -24,7 +24,7 @@ import { AGENTS_DATA, AGENTS_LOAD, AGENTS_MSG, NODES, fs, stop, isWindows, short
   localGet, localSet, kitAction, loadNewest, loadingNow } from "./common.js";
 import { ANIMALS, COLORS } from "./bot-models.js";
 import { readBot, withBot, pickBot, botIcon, botProblem, LiveBot } from "./bots.js";
-import { canDrag, draggable, dropLoop, requestPlace, takeAsks, placeClosed, placeDir } from "./place.js";
+import { canDrag, draggable, dropLoop, requestPlace, takeAsks, placeClosed, placeDir, liveNow } from "./place.js";
 
 const PANEL = NODES.agents;
 const SHORT = 120000, STALE = 50000;
@@ -262,7 +262,7 @@ export class Agents {
     body.child(div().px(8).pb(4).text_size(z - 2).text_color(t.dim).child(canDrag()
       ? "把 agent 拖到 Agents 或 Spaces 面板的 space 上（或按「放到 space…」）：在那個 space 的資料夾裡建它自己的資料夾，開一個分頁跑它。"
       : "按「放到 space…」：在那個 space 的資料夾裡建 agent 自己的資料夾，開一個分頁跑它。"));
-    const tool = this.curTool();
+    const tool = this.curTool(), live = liveNow();
     for (const a of ags) {
       const counts = `規則 ${(a.rules ?? []).length} · skill ${(a.skills ?? []).length} · MCP ${(a.mcp ?? []).length}`;
       body.child(draggable(h_flex().id(`ag-${a.name}`).gap(10).items_center().px(8).py(6).rounded(6).cursor_pointer()
@@ -277,7 +277,7 @@ export class Agents {
             a.description || a.path))
           .child(div().text_size(z - 2).text_color(t.dim).child(counts)))
         .child(btn(t, z, `place-${a.name}`, "放到 space…", { small: true, on: (cx) => this.toggleSpaces(a.name, cx) }))
-        .child(div().flex_none().text_color(t.dim).child("›")), a, tool));
+        .child(div().flex_none().text_color(t.dim).child("›")), a, tool, live));
       if (this.placing === a.name) body.child(this.spacePicker(t, z, a));
     }
     return body;

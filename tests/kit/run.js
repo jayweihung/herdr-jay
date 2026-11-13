@@ -63,7 +63,7 @@ globalThis.__stubs = {
     if (r instanceof Error) throw r;
     return r ?? { code: 0, stdout: JSON.stringify({ pid: 4242 }), stderr: "" };
   },
-  run: (name, args) => { H.runs.push([name, args]); }, layout: () => H.layout,
+  run: (name, args) => { H.runs.push([name, args]); const e = H.runFail?.(name, args); if (e) throw e; }, layout: () => H.layout,
   shared: (k) => H.store[k], setShared: (k, v) => { H.store[k] = v; return null; }, props: () => H.props,
   // files: path -> text a test gives (others read as ""); writes: every [path, text, expected] written
   // (another machine's files are "<machine>:<path>" in H.files; with H.files, a file not in it is absent: null).
@@ -80,7 +80,7 @@ globalThis.__stubs = {
   },
   appHome: () => H.appHome ?? "/Users/amy/.config/herdr-app",
   openOverlay: (o) => { H.overlays.push(o); return "o1"; }, closeOverlay: () => {}, notify: (n) => H.notes.push(n),
-  panes: () => H.panes, spaces: () => H.spaces, machines: () => H.machines, agents: () => [], focused: () => null,
+  panes: () => H.panes, spaces: () => H.spaces, machines: () => H.machines, agents: () => H.agents ?? [], terminals: () => H.terminals ?? [], focused: () => null,
 };
 
 // Load the mod (every .js in its folder, side by side in a temp folder) with its imports swapped for the stubs.
@@ -115,8 +115,14 @@ const cx = {
   new: (_Class, props) => ({ props, set_props(p) { this.props = p; }, release() { return true; } }),
 };
 async function settle() { for (let i = 0; i < 20 && H.tasks.length; i++) { const t = H.tasks.splice(0); await Promise.all(t); } }
+// an agent's tab icon SVG (the logo cropped tight), under Herdr's folder (the one its name picks: these test agents'
+// files name none)
+function logoPath(M, name) {
+  const b = M.bots.pickBot(name);
+  return `data/kit/bots/v${M.bots.BOT_VERSION}/${b.animal}${b.color ? `-${b.color}` : ""}.icon.svg`;
+}
 function fresh() {
-  H.store = {}; H.calls = []; H.runs = []; H.overlays = []; H.notes = []; H.texts = []; H.strings = []; H.tasks = []; H.timeouts = []; H.files = null; H.writes = [];
+  H.store = {}; H.calls = []; H.runs = []; H.overlays = []; H.notes = []; H.texts = []; H.strings = []; H.tasks = []; H.timeouts = []; H.files = null; H.writes = []; H.runFail = null; H.agents = null; H.terminals = null;
   H.props = {}; H.layout = { id: "root", children: [] }; H.window = { platform: "macos" }; H.panes = []; H.spaces = [];
   H.machines = []; H.hcAnswer = null; H.reads = []; H.clipboard = []; H.appHome = null; H.drags = []; H.afters = []; H.writeFail = null;
   delete globalThis.__stubs.nextDrop;   // an older Herdr: no drag API
@@ -684,7 +690,8 @@ test("agents, a newer Herdr: cards are draggable (payload, its name as the label
   assert.equal(place.length, 1, "the payload that isn't an agent card does nothing");
   assert.deepEqual(place[0].argv.slice(-6), ["place", "reviewer", "/home/amy/proj/reviewer", "--tool", "codex", "--json"]);
   assert.equal(place[0].on, "box");
-  assert.deepEqual(H.runs.filter((r) => r[0] === "tab.new"), [["tab.new", { name: "reviewer", space: "box/s2", folder: "/home/amy/proj/reviewer", argv: ["codex"] }]]);
+  assert.deepEqual(H.runs.filter((r) => r[0] === "tab.new"), [["tab.new", { name: "reviewer", space: "box/s2", folder: "/home/amy/proj/reviewer", argv: ["codex"], icon: logoPath(M, "reviewer") }]]);
+  assert.ok(H.writes.some(([p]) => p === `/Users/amy/.config/herdr-app/${logoPath(M, "reviewer")}`), "its logo's SVG is written first");
   const done = H.notes.at(-1);
   assert.equal(done.level, "success"); assert.match(done.title, /reviewer 放到 proj 了/); assert.match(done.body, /⚠ Codex 不能只開/);
   assert.equal(H.notes[0].level, "info", "progress first");
@@ -692,6 +699,79 @@ test("agents, a newer Herdr: cards are draggable (payload, its name as the label
   render(v);
   assert.deepEqual(H.drags.map((d) => d.slice(1)), [['{"agent":"reviewer","source":"team","tool":"claude"}', "reviewer"]], "one card, its payload and label");
   assert.match(render(v), /拖到 Agents 或 Spaces 面板的 space 上/);
+});
+test("bots: a tab's icon is the logo cropped to a square just around the drawing (as big as the programs' icons); the page's logo keeps its room", ({ bots: B }) => {
+  const box = (svg) => /viewBox="([^"]+)"/.exec(svg)[1].split(" ").map(Number);
+  const b = { animal: "bear", color: null };
+  assert.deepEqual(box(B.botSvg(b)), [0, 0, 128, 128]);
+  const [x, y, w, h] = box(B.botSvg(b, true));
+  assert.equal(w, h, "square");
+  assert.ok(w < 110 && w > 60, `about the drawing: ${w}`);
+  const pts = [...B.botSvg(b, true).matchAll(/(-?[\d.]+),(-?[\d.]+)/g)].map((m) => [Number(m[1]), Number(m[2])]);
+  assert.ok(pts.every(([px, py]) => px >= x - 0.2 && px <= x + w + 0.2 && py >= y - 0.2 && py <= y + h + 0.2), "all of it inside");
+  assert.equal(B.botSvg(b, true).replace(/viewBox="[^"]+"/, ""), B.botSvg(b).replace(/viewBox="[^"]+"/, ""), "the same drawing");
+});
+test("place: the tab's own icon is the agent's logo; an older Herdr that doesn't know icon opens it without; other errors stay", ({ place: P }) => {
+  fresh();
+  P.openTab({ name: "a", space: "s1" }, "data/kit/bots/v2/fox.svg");
+  assert.deepEqual(H.runs, [["tab.new", { name: "a", space: "s1", icon: "data/kit/bots/v2/fox.svg" }]]);
+  fresh();
+  H.runFail = (_n, a) => (a.icon ? new Error("tab.new: unknown argument(s): icon; valid arguments: name, space, folder, argv, task, mod, props") : null);
+  P.openTab({ name: "a", space: "s1" }, "data/kit/bots/v2/fox.svg");
+  assert.deepEqual(H.runs.map((r) => r[1]), [{ name: "a", space: "s1", icon: "data/kit/bots/v2/fox.svg" }, { name: "a", space: "s1" }]);
+  fresh();
+  H.runFail = () => new Error("no space \"s9\"");
+  assert.throws(() => P.openTab({ name: "a", space: "s9" }, "data/kit/bots/v2/fox.svg"), /no space/);
+  assert.equal(H.runs.length, 1, "not tried again: icon wasn't the trouble");
+  fresh();
+  P.openTab({ name: "a", space: "s1" }, null);
+  assert.deepEqual(H.runs, [["tab.new", { name: "a", space: "s1" }]], "no logo: no icon");
+  H.runFail = null;
+});
+test("place: one of each agent per space: dropped again where it already runs, its tab is shown, no kit place, no new tab, no toast", async (M) => {
+  const P = M.place;
+  fresh();
+  const s1 = { id: "s1", machine: null, name: "web", folder: "/Users/amy/web" };
+  H.agents = [{ address: "t9", space: "s1", tab: "tb9" }, { address: "t8", space: "s2", tab: "tb8" }];
+  H.terminals = [{ address: "t9", cwd: "/Users/amy/web/reviewer" }, { address: "t8", cwd: "/Users/amy/web/reviewer" }];
+  assert.deepEqual(P.openHere(s1, "/Users/amy/web/reviewer"), { tab: "tb9", address: "t9" });
+  assert.equal(P.openHere(s1, "/Users/amy/web/writer"), null, "another agent's folder");
+  assert.equal(P.openHere({ ...s1, id: "s3" }, "/Users/amy/web/reviewer"), null, "another space");
+  H.terminals = [{ address: "t9", cwd: "/Users/amy/web/reviewer/src" }];
+  assert.ok(P.openHere(s1, "/Users/amy/web/reviewer"), "under its folder counts");
+  H.terminals = [{ address: "t9", cwd: "/Users/amy/web/reviewer2" }];
+  assert.equal(P.openHere(s1, "/Users/amy/web/reviewer"), null, "a folder that only starts the same doesn't");
+  H.agents = [{ address: "w/t1", space: "w/s1", tab: "w/tb1" }]; H.terminals = [{ address: "w/t1", cwd: "C:\\Src\\Reviewer" }];
+  assert.ok(P.openHere({ id: "w/s1", machine: "w" }, "C:\\src\\reviewer"), "Windows paths: either slash, any case");
+  H.agents = [{ address: "b/t1", space: "b/s1", tab: "b/tb1" }]; H.terminals = [{ address: "b/t1", cwd: "/home/amy/reviewer" }];
+  assert.ok(P.openHere({ id: "b/s1", machine: "b", folder: "" }, "reviewer"), "a remote space without a folder: the agent's name");
+  // through placeAgent: shown, nothing else
+  H.agents = [{ address: "t9", space: "s1", tab: "tb9" }]; H.terminals = [{ address: "t9", cwd: "/Users/amy/web/reviewer" }];
+  assert.equal(P.placeAgent("reviewer", s1, "claude", cx), true);
+  await settle();
+  assert.deepEqual(H.runs, [["tab.select", { id: "tb9" }]]);
+  assert.equal(kitCalls("place").length, 0); assert.deepEqual(H.notes, []);
+  assert.match(H.store["kit.agents.msg"].text, /reviewer 已經在 web 開著了（t9）/);
+  assert.equal(H.store["kit.busy"] ?? null, null, "no lock taken");
+});
+test("place: while dragging, the spaces where that agent already runs are refused (ids one per line, and the chip's text there)", async (M) => {
+  const P = M.place;
+  fresh();
+  H.spaces = [{ id: "s1", name: "web", folder: "/Users/amy/web" }, { id: "s2", name: "api", folder: "/Users/amy/api" },
+    { id: "b/s3", machine: "b", name: "ops", folder: "/home/amy/ops" }];
+  H.agents = [{ address: "t9", space: "s1", tab: "tb9" }, { address: "b/t2", space: "b/s3", tab: "b/tb2" }, { address: "t7", space: "s2", tab: "tb7" }];
+  H.terminals = [{ address: "t9", cwd: "/Users/amy/web/reviewer" }, { address: "b/t2", cwd: "/home/amy/ops/reviewer/src" },
+    { address: "t7", cwd: "/Users/amy/api/writer" }];
+  assert.deepEqual(P.openSpaces("reviewer"), ["s1", "b/s3"], "where it runs; another agent's folder doesn't count");
+  assert.deepEqual(P.openSpaces("tester"), []);
+  dropping([]);   // a newer Herdr
+  const el = (args) => ({ on_drag: (...a) => { args.push(a); return "dragged"; } });
+  let got = [];
+  assert.equal(P.draggable(el(got), { name: "reviewer", source: "team" }, "claude"), "dragged");
+  assert.deepEqual(got, [['{"agent":"reviewer","source":"team","tool":"claude"}', "reviewer", "s1\nb/s3", "reviewer 已經在這個 space 開著了"]]);
+  got = [];
+  P.draggable(el(got), { name: "tester" }, "claude");
+  assert.deepEqual(got, [['{"agent":"tester","source":"","tool":"claude"}', "tester"]], "nowhere yet: payload and label only");
 });
 test("agents: a drop kit refuses (another agent's folder, an older kit): said in plain words, no tab opened", async (M) => {
   const space = { id: "s1", machine: null, name: "web", folder: "/Users/amy/web" };
@@ -722,7 +802,7 @@ test("agents, an older Herdr (no nextDrop): nothing draggable, no drop loop; 放
   H.clicks["place-reviewer-w/s3"]({}, cx); await settle();
   const c = kitCalls("place");
   assert.equal(c.length, 1); assert.equal(c[0].on, "winbox"); assert.ok(c[0].argv.includes("C:\\src\\reviewer"));
-  assert.deepEqual(H.runs.find((r) => r[0] === "tab.new")[1], { name: "reviewer", space: "w/s3", folder: "C:\\src\\reviewer", argv: ["claude"] });
+  assert.deepEqual(H.runs.find((r) => r[0] === "tab.new")[1], { name: "reviewer", space: "w/s3", folder: "C:\\src\\reviewer", argv: ["claude"], icon: logoPath(M, "reviewer") });
   assert.ok(!ids(v).includes("place-reviewer-s1"), "the picker closes");
   render(v); H.clicks["place-reviewer"]({}, cx); render(v); H.clicks["place-cancel-reviewer"]({}, cx);
   assert.ok(!ids(v).includes("place-reviewer-s1"));
@@ -768,7 +848,7 @@ test("agents window: a place is handed to the tab-bar button, so closing the win
   assert.equal(H.store["kit.agents.msg"] ?? null, null, "nothing to say: the button has it");
   assert.equal(H.store["kit.busy"].label, "放 reviewer");
   s.release(); await settle();
-  assert.deepEqual(H.runs.find((r) => r[0] === "tab.new")[1], { name: "reviewer", space: "s1", folder: "/Users/amy/web/reviewer", argv: ["claude"] });
+  assert.deepEqual(H.runs.find((r) => r[0] === "tab.new")[1], { name: "reviewer", space: "s1", folder: "/Users/amy/web/reviewer", argv: ["claude"], icon: logoPath(M, "reviewer") });
   assert.equal(H.store["kit.busy"] ?? null, null);
   assert.match(H.store["kit.agents.msg"].text, /在 \/Users\/amy\/web\/reviewer 開了 reviewer/);
   H.afters.splice(0).forEach((f) => f(cx)); await settle();

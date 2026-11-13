@@ -17,7 +17,7 @@ const mem = new Map();
 Object.defineProperty(globalThis, "localStorage", { configurable: true, value: { getItem: (k) => mem.get(k) ?? null, setItem: (k, v) => mem.set(k, String(v)), removeItem: (k) => mem.delete(k) } });
 const H = (globalThis.__H = {
   rendering: false, store: {}, notes: [], runs: [], home: "", props: {}, layout: { id: "root", children: [] },
-  colors: [], right: [], texts: [],
+  colors: [], right: [], texts: [], execs: [], overlays: [],
 });
 const COLOR_METHODS = /(^bg$|color|^border_color$|^text_color$)/;
 const el = new Proxy(function () {}, {
@@ -56,6 +56,14 @@ globalThis.__stubs = {
   settings: () => ({}), window: () => H.window ?? { platform: "macos" },
   notify: (n) => H.notes.push(n), home: () => H.home,
   readTextFile: async (p) => readFileSync(p, "utf8"),
+  // writeTextFile as Herdr's: only if the file still holds expected (null: a new file)
+  writeTextFile: async (p, text, expected) => {
+    let now = null; try { now = readFileSync(p, "utf8"); } catch {}
+    if (now !== expected) throw new Error("stale snapshot");
+    mkdirSync(dirname(p), { recursive: true }); writeFileSync(p, text); return null;
+  },
+  exec: async (cmd, args, opts) => { H.execs.push([cmd, ...(args ?? [])]); return H.execAnswer?.(cmd, args ?? [], opts) ?? { code: 0, stdout: "", stderr: "" }; },
+  openOverlay: (spec) => { H.overlays.push(spec); return "ov1"; },
   run: (name, args) => { H.runs.push([name, args]); return H.runAnswer?.(name, args); }, layout: () => H.layout,
   process: { run: async (cmd, args) => { H.opened.push([cmd, ...args]); return { code: 0, stdout: "", stderr: "" }; } },
   agents: () => H.agents ?? [], terminals: () => H.terminals ?? [], spaces: () => H.spaces ?? [], focused: () => H.focused ?? null,
@@ -69,6 +77,8 @@ function loadMod() {
   src = src.replace(/^import\s*\{([^}]*)\}\s*from\s*"(gpui-kit|gpui-base|herdr)";\s*$/gm, (_m, names) =>
     `const {${names.replace(/\s+as\s+/g, ": ")}} = globalThis.__stubs;`);
   src = src.replace(/^import process from "process";$/m, "const process = globalThis.__stubs.process;");
+  // the mod's own files: from where they are
+  src = src.replace(/^import (\{[^}]*\}) from "\.\/([a-z-]+\.js)";$/gm, (_m, names, f) => `import ${names} from ${JSON.stringify(pathToFileURL(join(dirname(MOD), f)).href)};`);
   const dir = mkdtempSync(join(tmpdir(), "gerrit-test-"));
   const f = join(dir, "main.mjs");
   writeFileSync(f, src);
@@ -334,6 +344,151 @@ test("whose change: the owner's buttons only on yours, CI's labels never pressed
   await g2.openChange(change(7), cx);
   assert.deepEqual(g2.seen, { "x~1": "2026-11-10 01:00:00.000000000" }, "the notifications' map untouched");
   assert.equal(g2.seenRev(g2.detail.change), "b");
+});
+
+test("在 nvim 看: your clone is used, the job runs in the background with its progress, then review.json and nvim", async (G) => {
+  setConfig({ ...LOGIN, review: { root: "~/rv", search: ["~/src"] } }); const g = freshView(G);
+  H.store["gerrit.cfg.v1"] = { url: "https://gerrit.test", auth: true }; H.store["gerrit.data.v1"] = { at: Date.now(), err: null, self: ME, sections: [] };
+  const clone = join(H.home, "src", "build");
+  mkdirSync(join(clone, ".git"), { recursive: true });
+  writeFileSync(join(clone, ".git", "config"), '[remote "origin"]\n\turl = https://gerrit.test/a/tools/build\n');
+  H.spaces = [{ id: "s1", name: "web" }]; H.focused = { space: "s1" }; H.terminals = [];
+  H.execAnswer = (cmd, args) => {
+    if (cmd === "/bin/sh" && /for d in/.test(args[1])) return { code: 0, stdout: `${clone}\n`, stderr: "" };
+    if (cmd === "/bin/mkdir") { mkdirSync(args[1], { recursive: true }); return { code: 0, stdout: "", stderr: "" }; }
+    if (cmd === "/bin/sh" && /nohup/.test(args[1])) return { code: 0, stdout: "4242\n", stderr: "" };
+    return null;
+  };
+  const c = change(7, { current_revision: "bbb2", revisions: { aaa1: { _number: 1, ref: "refs/changes/07/7/1" }, bbb2: { _number: 2, ref: "refs/changes/07/7/2" } } });
+  g.detail = { change: c, comments: {} }; g.openId = c.id;
+  assert.match(renderText(g), /在 nvim 看第 2 版/);
+  await g.reviewStart(c, cx);
+  const job = g.reviewJob(7);
+  assert.equal(job.state, "running"); assert.equal(job.pid, 4242); assert.equal(job.store, clone, "your clone is the store");
+  assert.equal(job.wt, `${H.home}/rv/tools-build-7`);
+  const script = readFileSync(join(job.dir, "run.sh"), "utf8");
+  assert.match(script, /NEWSTORE='0'/); assert.match(script, /HEAD_REF='refs\/changes\/07\/7\/2'/); assert.match(script, /BASE_REF=''/);
+  assert.match(script, /URL='https:\/\/gerrit\.test\/a\/tools\/build'/);
+  const cred = readFileSync(join(job.dir, "cred.sh"), "utf8");
+  assert.match(cred, /HOST='gerrit\.test'/);
+  for (const f of ["run.sh", "cred.sh"]) assert.doesNotMatch(readFileSync(join(job.dir, f), "utf8"), /\bpw\b/, `${f}: no password in it`);
+  // progress
+  writeFileSync(join(job.dir, "status"), "pid 4242\nstep fetch\n");
+  writeFileSync(join(job.dir, "progress"), "remote: Counting objects: 100% (10/10)\rReceiving objects:  40% (4/10), 1.00 MiB | 2.00 MiB/s\r");
+  await g.reviewTick(cx);
+  assert.equal(g.reviewJob(7).progress.percent, 40);
+  const text = renderText(g);
+  assert.match(text, /下載 tools\/build（第 2 版）：下載…/); assert.match(text, /40% · 1\.00 MiB · 2\.00 MiB\/s · 4\/10 個物件/);
+  // done: review.json, then nvim in a tab of this computer's space
+  gerrit([["GET", /^\/a\/changes\/7\/revisions\/bbb2\/files$/, [200, { "/COMMIT_MSG": { status: "A" }, "a.txt": { lines_inserted: 1, lines_deleted: 1 }, "n.txt": { status: "A", lines_inserted: 2 } }]],
+    ["GET", /^\/a\/changes\/7\/comments$/, [200, { "a.txt": [{ id: "c1", patch_set: 2, line: 2, author: ALICE, message: "why?", unresolved: true }, { id: "c0", patch_set: 1, line: 9, author: ALICE, message: "old", unresolved: false }] }]],
+    ["GET", /^\/a\/changes\/7\/drafts$/, [200, { "n.txt": [{ id: "d1", patch_set: 2, line: 1, message: "mine", unresolved: true }] }]]]);
+  writeFileSync(join(job.dir, "status"), "pid 4242\nstep fetch\nhead bbb2\nbase 0000\nstep checkout\nstep prepare\ndone\n");
+  await g.reviewTick(cx);
+  assert.equal(g.reviewJob(7), null, "the job is over");
+  const e = g.reviewEntry(7);
+  assert.equal(e.head, "bbb2"); assert.equal(e.base, "0000");
+  const rj = JSON.parse(readFileSync(join(e.data, "review.json"), "utf8"));
+  assert.deepEqual(rj.files.map((f) => f.path), ["a.txt", "n.txt"], "no /COMMIT_MSG");
+  assert.deepEqual(rj.comments["a.txt"].map((x) => x.message), ["why?"], "only this patch set's");
+  assert.equal(rj.comments["n.txt"][0].draft, true);
+  assert.equal(rj.dir, job.wt); assert.equal(rj.base, "0000");
+  assert.equal(H.overlays.length, 1);
+  assert.deepEqual(H.overlays[0].props, { review: `${e.data}/review.json`, folder: job.wt, name: "review 7", space: "s1" });
+  assert.equal(H.overlays[0].mod, "nvim-jay");
+  // open: the card says where it is; pressing again shows the open pane instead of a new one
+  H.terminals = [{ address: "t9", argv: ["nvim", "--cmd", `let g:nvim_jay_review = '${e.data}/review.json'`] }];
+  assert.match(renderText(g), /切到 nvim/);
+  g.reviewOpen(7);
+  assert.deepEqual(H.runs.at(-1), ["pane.focus", { terminal: "t9" }]); assert.equal(H.overlays.length, 1);
+  // a file clicked in the panel: nvim goes there (a jump in review.json)
+  g.reviewJump(c, "n.txt"); await new Promise((r) => setTimeout(r, 10));
+  const rj2 = JSON.parse(readFileSync(join(e.data, "review.json"), "utf8"));
+  assert.deepEqual(rj2.jump, { path: "n.txt", seq: 1 });
+  // nvim's comment -> a Gerrit draft on that patch set, the file emptied
+  writeFileSync(join(e.data, "from-nvim.jsonl"), JSON.stringify({ id: "x1", draft: { path: "a.txt", line: 2, message: "and this?", head: "bbb2" } }) + "\n");
+  gerrit([["PUT", /^\/a\/changes\/7\/revisions\/bbb2\/drafts$/, [201, {}]], ["GET", /^\/a\/changes\/7\//, [200, {}]]]);
+  await g.reviewTick(cx);
+  const put = seen.find((r) => r.method === "PUT");
+  assert.deepEqual(put.body, { path: "a.txt", line: 2, message: "and this?", unresolved: true });
+  assert.equal(readFileSync(join(e.data, "from-nvim.jsonl"), "utf8"), "");
+  // to the Trash: not while nvim has it open; then both folders, and git forgets it
+  await g.reviewTrash(7, cx);
+  assert.match(g.reviewMsg.error, /nvim 還開著/); assert.ok(g.reviewEntry(7));
+  H.terminals = []; H.execs = [];
+  await g.reviewTrash(7, cx);
+  assert.equal(g.reviewEntry(7), null);
+  const tr = H.execs.find((x) => x[0] === "/bin/sh" && /Trash/.test(x[2]));
+  assert.deepEqual(tr.slice(4), [job.wt, e.data]);
+  assert.ok(H.execs.some((x) => x[0] === "git" && x.includes("prune")));
+});
+
+test("在 nvim 看: no clone here asks first, then a store of its own (only the patch set and its parent); comparing two patch sets; cancel", async (G) => {
+  setConfig({ ...LOGIN, review: { root: "~/rv", search: ["~/src"] } }); const g = freshView(G);
+  H.store["gerrit.cfg.v1"] = { url: "https://gerrit.test", auth: true }; H.store["gerrit.data.v1"] = { at: Date.now(), err: null, self: ME, sections: [] };
+  H.spaces = [{ id: "s1" }]; H.focused = { space: "s1" };
+  H.execAnswer = (cmd, args) => {
+    if (cmd === "/bin/sh" && /for d in/.test(args[1])) return { code: 0, stdout: "", stderr: "" };
+    if (cmd === "/bin/mkdir") { mkdirSync(args[1], { recursive: true }); return { code: 0, stdout: "", stderr: "" }; }
+    if (cmd === "/bin/sh" && /nohup/.test(args[1])) return { code: 0, stdout: "77\n", stderr: "" };
+    return null;
+  };
+  const c = change(8, { current_revision: "c3", revisions: { c1: { _number: 1 }, c3: { _number: 3 } } });
+  g.detail = { change: c, comments: {} }; g.openId = c.id;
+  await g.reviewStart(c, cx);
+  assert.equal(g.reviewJob(8), null); assert.equal(g.reviewMsg.ask, true);
+  assert.match(renderText(g), /找不到 tools\/build 的 clone。要下載嗎/);
+  g.cmp = { base: 1, to: 3 };
+  await g.reviewStart(c, cx, true);
+  const job = g.reviewJob(8);
+  assert.equal(job.store, `${H.home}/rv/.repos/tools-build.git`); assert.equal(job.base_ps, 1); assert.equal(job.ps, 3);
+  const script = readFileSync(join(job.dir, "run.sh"), "utf8");
+  assert.match(script, /NEWSTORE='1'/); assert.match(script, /HEAD_REF='refs\/changes\/08\/8\/3'/); assert.match(script, /BASE_REF='refs\/changes\/08\/8\/1'/);
+  assert.deepEqual(H.store["gerrit.review.ok"], { "tools/build": true }, "not asked again for this project");
+  H.execs = [];
+  await g.reviewCancel(8, cx);
+  assert.deepEqual(H.execs[0], ["kill", "-TERM", "77"]);
+  assert.equal(g.reviewJob(8).state, "fail");
+  assert.match(renderText(g), /沒有下載好：取消了/);
+});
+
+test("在 nvim 看: the job scripts with a real git (sh; PowerShell when installed): a new store, then the next patch set in the same folder", async () => {
+  const { spawnSync } = await import("node:child_process");
+  const R = await import(pathToFileURL(join(dirname(MOD), "review.js")).href);
+  const has = (p) => spawnSync(p, ["--version"], { encoding: "utf8" }).status === 0;
+  if (!has("git")) return console.log("      (skipped: no git)");
+  const root = mkdtempSync(join(tmpdir(), "gerrit-review-"));
+  const env = { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@t", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@t", GIT_CONFIG_NOSYSTEM: "1" };
+  const g = (cwd, ...a) => { const r = spawnSync("git", a, { cwd, env, encoding: "utf8" }); if (r.status !== 0) throw new Error(a.join(" ") + ": " + r.stderr); return r.stdout.trim(); };
+  try {
+    const src = join(root, "src"); mkdirSync(src);
+    g(src, "init", "-q"); writeFileSync(join(src, "a.txt"), "one\ntwo\n"); g(src, "add", "."); g(src, "commit", "-qm", "base");
+    writeFileSync(join(src, "a.txt"), "one\nTWO\n"); g(src, "commit", "-qam", "ps1"); g(src, "update-ref", "refs/changes/07/7/1", "HEAD");
+    writeFileSync(join(src, "a.txt"), "one\nTWO\nthree\n"); g(src, "commit", "-q", "--amend", "-am", "ps2"); g(src, "update-ref", "refs/changes/07/7/2", "HEAD");
+    g(root, "clone", "-q", "--mirror", src, "gerrit.git");
+    const ps2 = g(src, "rev-parse", "refs/changes/07/7/2"), ps1 = g(src, "rev-parse", "refs/changes/07/7/1");
+    const shells = [...(process.platform !== "win32" ? [["sh", false]] : []), ...(has("pwsh") ? [["pwsh", true]] : process.platform === "win32" ? [["powershell", true]] : [])];
+    for (const [shell, ps] of shells) {
+      const run = (ref, baseRef, tag) => {
+        const d = join(root, `job-${shell}-${tag}`); mkdirSync(d);
+        const { files } = R.jobFiles({ status: join(d, "status"), progress: join(d, "progress"), err: join(d, "err"), store: join(root, `store-${shell}.git`),
+          newStore: true, url: pathToFileURL(join(root, "gerrit.git")).href, wt: join(root, `wt it's ${shell}`), n: 7, headRef: ref, baseRef }, ps);
+        for (const [f, t] of Object.entries(files)) writeFileSync(join(d, f), t);
+        const r = ps ? spawnSync(shell, ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", join(d, "run.ps1")], { env, encoding: "utf8" })
+          : spawnSync("sh", [join(d, "run.sh")], { env, encoding: "utf8" });
+        return { code: r.status, st: R.parseStatus(readFileSync(join(d, "status"), "utf8")) };
+      };
+      const a = run(R.changeRef(7, 1), "", "1");
+      assert.equal(a.code, 0, `${shell}: ${JSON.stringify(a.st)}`);
+      assert.equal(a.st.head, ps1); assert.ok(a.st.done && a.st.base, `${shell}: base is the parent`);
+      const b = run(R.changeRef(7, 2), R.changeRef(7, 1), "2");
+      assert.equal(b.code, 0, `${shell}: ${JSON.stringify(b.st)}`);
+      assert.deepEqual([b.st.head, b.st.base], [ps2, ps1], `${shell}: patch set 2 against 1`);
+      assert.equal(g(join(root, `wt it's ${shell}`), "rev-parse", "HEAD"), ps2, `${shell}: the folder is at patch set 2`);
+      const bad = run("refs/changes/07/7/9", "", "3");
+      assert.notEqual(bad.code, 0); assert.match(bad.st.fail, /下載失敗/);
+    }
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
 test("people: find by name, add as reviewer or CC (moving is the same call), remove", async (G) => {

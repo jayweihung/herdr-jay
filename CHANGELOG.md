@@ -9,6 +9,22 @@ says which) · **kit** = update kit itself on every machine where agents run (`k
 **snap hook** = a line in Claude Code's `settings.json` on each machine where you added the hook (the entry says
 which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/keys.md).
 
+## 2026-11-14, Gerrit panel: 在 nvim 看 (a change as files, in nvim)
+
+Needs: **gerrit** and **mods** (nvim-jay too; Windows: copy both again), restart Herdr.
+
+- A change's page has **在 nvim 看**: the patch set shown (or two compared) goes into a folder of its own,
+  `~/src/review/<project>-<change>`, made from your clone when there is one (a git worktree beside it), else from a
+  download of only that patch set and its parent (asked first, once per project). It downloads in the background with
+  a progress bar and 取消, then opens nvim in a new tab.
+- nvim-jay's review mode: the changed files on the left (seen ones ticked), the whole file with the changes marked
+  against the base, this patch set's comments under their lines, `]f` / `]c` to move on, `space r c` writes a comment
+  that the panel saves as your Gerrit draft. A file clicked in the panel opens in nvim too.
+- The home page lists these folders; 清掉資料夾 moves one to the Trash. Settings: `review` in `gerrit.json`.
+- Also fixed: since 880e059, opening a change in the panel that polls could replace its notification memory.
+- Details: [docs/gerrit.md](docs/gerrit.md) §9, [docs/nvim-jay.md](docs/nvim-jay.md) §9.
+在 nvim 看：把這一版拉到這台電腦（有自己的 clone 就用它），背景下載有進度條，開好在 nvim 裡左邊是改過的檔、右邊整個檔案和留言；在 nvim 留言會存成 Gerrit 草稿。
+
 ## 2026-11-14, Gerrit panel: the owner's buttons only on your changes; votes on the patch set you read
 
 Needs: **gerrit** (Windows: copy it again), restart Herdr.

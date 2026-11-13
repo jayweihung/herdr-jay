@@ -7,8 +7,9 @@
 // A panel with no toggle in the layout polls itself and offers to move into the tab bar.
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, TextareaState, Textarea, InputState, Input, TextView } from "gpui-base";
-import { theme, settings, notify, home, readTextFile, run, layout, shared, setShared, window, agents, terminals, focused, spaces, hc as herdrHc, props as blockProps } from "herdr";
+import { theme, settings, notify, home, readTextFile, writeTextFile, exec, openOverlay, run, layout, shared, setShared, window, agents, terminals, focused, spaces, hc as herdrHc, props as blockProps } from "herdr";
 import process from "process";
+import { reviewMethods } from "./review.js";
 
 const TOGGLE = "gerrit-toggle", PANEL = "gerrit-panel";
 const SHIPPED = ["main", "terminals", "win98"]; // Herdr's own layouts: read-only, so moving clones one first
@@ -261,6 +262,7 @@ export default class Gerrit extends View {
       const r = shared(REFRESH) ?? 0;
       if (r !== this.refreshSeen) { this.refreshSeen = r; this.nextAt = 0; }
       if (Date.now() >= this.nextAt) this.poll(cx);
+      this.reviewTick(cx); // 在 nvim 看 (review.js): downloads, nvim's new comments
     });
     cx.timer.every(30000, (cx) => cx.notify()); // keep "幾分前" fresh
     // Jenkins builds of the open change: every 10 s while one runs or waits, else every minute
@@ -1158,6 +1160,7 @@ export default class Gerrit extends View {
       if (this.openId === c.id) {
         this.detail = { change: d, comments, drafts: drafts ?? {}, topic: topic && topic.filter((x) => x._number !== d._number), together };
         if (!quiet || this.readPs?.id !== d.id) this.readPs = { id: d.id, rev: d.current_revision }; // (not this.seen: the notifications' map)
+        this.reviewRefresh(d); // 在 nvim 看: its comments in nvim too
       }
     } catch (e) {
       if (this.openId === c.id) this.detail = { change: c, error: String(e.message ?? e) };
@@ -1276,6 +1279,8 @@ export default class Gerrit extends View {
       if (!s.items.length) { list.child(div().px(14).py(6).text_size(z - 1).text_color(t.dim).child("沒有")); continue; }
       for (const c of s.items) list.child(this.row(t, z, c, s));
     }
+    const rf = this.reviewFolders(t, z); // 在 nvim 看 (review.js)
+    if (rf) list.child(rf);
     return list;
   }
 
@@ -1804,6 +1809,7 @@ export default class Gerrit extends View {
     // Files of the current patch set (or of two compared ones), with comment counts
     const { base, to } = this.compare();
     if (revs.length > 1) body.child(this.comparePicker(t, z, revs.map((r) => r._number).sort((a, b) => a - b), base, to));
+    body.child(this.reviewCard(t, z, c)); // 在 nvim 看 (review.js)
     const cf = this.comparing() ? this.cmpFiles : null;
     if (cf?.loading) body.child(waiting(t, z - 1, "讀取檔案…"));
     if (cf?.error) body.child(div().id("cmp-err").text_size(z - 1).text_color(t.ansi1).on_mouse_down("right", copyOn(cf.error)).child(`讀不到：${cf.error}`));
@@ -1816,7 +1822,7 @@ export default class Gerrit extends View {
       for (const [path, f] of files) {
         const n = (comments?.[path] ?? []).length;
         body.child(h_flex().id(`f-${path}`).gap(8).items_center().text_size(z - 1).px(4).py(3).rounded(5)
-          .cursor_pointer().hover((st) => st.bg(t.hover)).on_mouse_down("right", copyOn(path)).on_click((_e, cx) => { this.remember(); cx.spawn(async (cx) => this.openDiff(path, cx)); })
+          .cursor_pointer().hover((st) => st.bg(t.hover)).on_mouse_down("right", copyOn(path)).on_click((_e, cx) => { this.remember(); this.reviewJump(c, path); cx.spawn(async (cx) => this.openDiff(path, cx)); })
           .child(div().flex_none().w(14).text_color(t.muted).child(f.status === "A" ? "+" : f.status === "D" ? "−" : f.status === "R" ? "→" : ""))
           .child(div().flex_1().min_w(0).text_ellipsis_start().font_family(mono()).child(vim_name(path)))
           .when(n > 0, (el) => el.child(div().flex_none().text_color(t.blocked).child(`留言 ${n}`)))
@@ -1890,3 +1896,7 @@ export default class Gerrit extends View {
     return body;
   }
 }
+
+// 在 nvim 看: review.js's methods on the panel
+Object.assign(Gerrit.prototype, reviewMethods({ div, h_flex, v_flex, exec, readTextFile, writeTextFile, openOverlay, run, shared, setShared,
+  terminals, spaces, focused, home, notify, window, configPath: CONFIG, REFRESH, ui: { who, copyOn, waiting, mono } }));

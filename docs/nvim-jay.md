@@ -17,6 +17,7 @@ Needs **Neovim 0.11 or newer**, `git`, and `hc` on the machine where the pane op
 6. [Agent running as root](#6-agent-running-as-root--agent-用-root-跑)
 7. [Snapshots for Bash edits (optional)](#7-snapshots-for-bash-edits-optional--bash-改檔的快照選用)
 8. [When something goes wrong](#8-when-something-goes-wrong--出問題時)
+9. [Gerrit review mode](#9-gerrit-review-mode--gerrit-review-模式)
 
 ---
 
@@ -143,10 +144,11 @@ herdr-app/mods/nvim-jay/
   main.js     picks the launcher: Windows + a pane on this computer → windows.js, otherwise unix.js
   unix.js     macOS / Linux / other machines: /bin/sh finds nvim
   windows.js  Windows: .init.lua + :source
-  mark.js     the argv item both launchers pass, so agent-files finds the pane
+  mark.js     the argv item both launchers pass, so agent-files finds the pane; a review's --cmd and how its tab opens
   nvim.js     the Lua (one string, NVIM_INIT), run by nvim on the machine where the pane opens
                 PLATFORM  every OS difference, in one table P (nothing below tests the OS)
-                then: reload + diff, swap-file heads-up, tree, agent + follow, comments, keys, LSP, mouse
+                then: reload + diff, swap-file heads-up, tree, agent + follow, comments, keys, LSP, mouse,
+                and REVIEW (a Gerrit change, §9)
 herdr-app/mods/agent-files/      (its own mod: agent-files.md)
   main.js     finds the pane by the argv item `let g:nvim_jay = 1`; opens a file through nvim's server
               (JN.open_hex), or, without kit files, focuses it and sends alt+o (nvim: <M-o>, its own list)
@@ -156,7 +158,8 @@ herdr-app/mods/agent-files/      (its own mod: agent-files.md)
 pinned by its sha256.
 
 **Tests** (after changing the follow code): `node tests/nvim-jay/run.js` in herdr-jay (Node 18+, Neovim, git;
-macOS / Linux). It runs the Lua in a headless nvim with a temp HOME and a fake `hc`, so nothing of yours is touched.
+macOS / Linux). It runs the Lua in a headless nvim with a temp HOME and a fake `hc`, so nothing of yours is touched;
+then a second nvim in review mode (`tests/nvim-jay/review.lua`, §9) on a small repo it makes.
 改了之後跑 `node tests/nvim-jay/run.js`，全部 ok 才算過。
 
 Programs nvim waits for get a time limit, so a stuck one can't freeze it: `hc` 2 s, `git` 5 s (a git that can't
@@ -241,3 +244,39 @@ OS-specific problems (install, PATH, keys) are in each install guide. These are 
 | No "another nvim has this file" warning | the other nvim uses no swap file, or is on another machine | — |
 
 Anything else: `:messages` in nvim, plus a photo of the error.
+
+## 9. Gerrit review mode / Gerrit review 模式
+
+Opened by the Gerrit panel's **在 nvim 看** ([gerrit.md §9](gerrit.md#9-read-a-change-in-nvim--在-nvim-看)), never by
+`cmd-e`: a new tab in the change's own folder (a git worktree at that patch set). The panel passes
+`--cmd "let g:nvim_jay_review = '<…>/review.json'"`; that file is the panel's (files, comments, base and head, a jump)
+and it rewrites it when something changes. Everything else of nvim-jay stays (language servers, the mouse, the
+comments to an agent); follow is off and there is no tree.
+由 Gerrit 面板的「在 nvim 看」打開，在那個 change 自己的資料夾開新分頁；左邊是改過的檔，右邊是整個檔案。
+
+- **Left**: the change's files in Gerrit's order: 新增 / 刪除 / 改名, `+N -M`, `💬N（K 未解）`; ✓ on the ones you
+  opened (kept per patch set in `seen.json` beside review.json); 看過 N / M. `Enter` or a double click opens one.
+  `o`: tests first / Gerrit's order.
+- **Right**: the whole file. Changed lines are marked against the change's **base** (its parent, or the older patch set
+  picked in the panel), not against HEAD; a renamed file against its old name; a deleted file shows what it had, all
+  in red. It opens on the first change.
+- **Comments**: this patch set's under their line: `💬 Alice（未解決）：…` in yellow, resolved ones grey, your drafts
+  blue `📝 你的草稿（還沒送出）`.
+- **Writing one**: `space r c` (or `:GerritDraft`) asks for the text and writes it to `from-nvim.jsonl` beside
+  review.json; the panel saves it as your Gerrit draft on that patch set (it shows at once, marked 存到 Gerrit 中…). It is
+  published with the panel's 💬 送出回覆. Nothing is sent to Gerrit from nvim itself.
+- **The panel's clicks**: a file clicked in the panel's list opens here too (review.json's `jump`, read every second).
+
+| Key | What |
+|---|---|
+| `]f` `[f` | next / previous changed file (marks it seen) |
+| `]c` `[c` | next / previous change in this file |
+| `space r c` | a comment on this line, as your Gerrit draft |
+| `space r l` | the list of files (back to it, or open it again) |
+| `space r m` | the commit message |
+| `o` (in the list) | tests first / Gerrit's order |
+
+The files can be edited (to try something), but the panel then can't move the folder to another patch set until you
+undo them (`git checkout .`).
+檔案可以改來試，但改過之後面板就換不了版本，要先還原。
+

@@ -33,7 +33,7 @@ jayweihung 的 Herdr 通用 mod 與設定。
 | `herdr-app/mods/nvim-jay` | Neovim beside your agent: follow the agent's files, live diff, file tree, comments to the agent, LSP, mouse |
 | `herdr-app/mods/agent-files` | `cmd-o` / `ctrl-shift-j`: the files the agent read or edited in a popup; opens one in nvim-jay or your editor (needs kit 0.4.0; split by turn with 0.4.1; [docs/agent-files.md](docs/agent-files.md)) |
 | `herdr-app/mods/kit` | kit (a separate tool, 0.3.0 or later) in Herdr: a Kit button and the context cell on every agent pane, the repository (rules / skills / MCP) and Agents panels ([docs/kit.md](docs/kit.md)) |
-| `herdr-app/mods/gerrit` | Gerrit beside your agents: 輪到你 / 我送出的 / 等我 review…, a change's votes, comment threads and files, notifications ([docs/gerrit.md](docs/gerrit.md)) |
+| `herdr-app/mods/gerrit` | Gerrit beside your agents: 輪到你 / 我送出的 / 等我 review…, a change's votes, comment threads and files, notifications; `review.js`: 在 nvim 看, a change as files in nvim-jay's review mode ([docs/gerrit.md](docs/gerrit.md)) |
 | `herdr-app/mods/gerrit/claude-plugin` | the `gerrit-panel` Claude Code plugin: the skills the Gerrit panel's 問 agent buttons call (`/gerrit-panel:review` …), loaded with `--plugin-dir` ([docs/gerrit.md §8](docs/gerrit.md#8-a-gerrit-agent-step-by-step--gerrit-agent-安裝步驟)). The same four skills are in agentkit-library as `gerrit-review` … for a kit gerrit agent: change both together |
 | `herdr-app/layouts/jay.json`, `jay-win.json` | jay's layout (macOS, Windows): Agents / Kit / Gerrit buttons and panels, the Kit bar on every terminal ([docs/layout.md](docs/layout.md)) |
 | `herdr-core/patches/<tag>/`, `herdr-app/patches/<tag>/` | changes to Herdr's own source (only what a mod can't do), one folder per official tag |

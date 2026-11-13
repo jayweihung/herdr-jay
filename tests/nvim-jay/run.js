@@ -51,6 +51,27 @@ esac
   let result = "";
   try { result = readFileSync(join(root, "result"), "utf8"); } catch {}
   if (r.status !== 0 || result.trim() !== "pass") { console.log(`failed (exit ${r.status}${r.error ? ", " + r.error.message : ""})`); process.exitCode = 1; }
+
+  // review mode: a Gerrit change opened from the panel (g:nvim_jay_review = its review.json)
+  const wt = join(root, "wt"), rdir = join(root, "rv");
+  mkdirSync(rdir, { recursive: true });
+  const g = (cmd) => { const x = spawnSync("sh", ["-c", cmd], { cwd: wt, env, encoding: "utf8" }); if (x.status !== 0) throw new Error(cmd + ": " + x.stderr); return x.stdout.trim(); };
+  mkdirSync(wt, { recursive: true });
+  g("git init -q && printf 'one\\ntwo\\nthree\\n' > a.txt && echo bye > gone.txt && echo same > old.txt && echo t > t_test.txt && git add . && git commit -qm base");
+  const base = g("git rev-parse HEAD");
+  g("printf 'one\\nTWO\\nthree\\n' > a.txt && printf 'n1\\nn2\\n' > n.txt && git rm -q gone.txt && git mv old.txt new.txt && echo t2 > t_test.txt && git add . && git commit -qm head");
+  const head = g("git rev-parse HEAD");
+  writeFileSync(join(rdir, "review.json"), JSON.stringify({ v: 1, change: 7, ps: 2, subject: "fix two", dir: wt, base, head,
+    files: [{ path: "a.txt", status: "M", ins: 1, del: 1 }, { path: "n.txt", status: "A", ins: 2, del: 0 }, { path: "gone.txt", status: "D", ins: 0, del: 1 },
+      { path: "new.txt", status: "R", old_path: "old.txt", ins: 0, del: 0 }, { path: "t_test.txt", status: "M", ins: 1, del: 1 }],
+    comments: { "a.txt": [{ line: 2, author: "Alice", message: "why TWO?", unresolved: true }] } }));
+  const r2 = spawnSync(nvim, ["--headless", "--clean", "-i", "NONE", "-n", "--cmd", `let g:nvim_jay_review = '${join(rdir, "review.json")}'`,
+    "-c", `luafile ${join(root, "init.lua")}`, "-c", `luafile ${join(here, "review.lua")}`], { cwd: wt, env: { ...env, JN_REVIEW_DIR: wt }, encoding: "utf8", timeout: 120000 });
+  const out2 = (r2.stdout || "") + (r2.stderr || "");
+  process.stdout.write(out2.endsWith("\n") ? out2 : out2 + "\n");
+  let result2 = "";
+  try { result2 = readFileSync(join(root, "result-review"), "utf8"); } catch {}
+  if (r2.status !== 0 || result2.trim() !== "pass") { console.log(`review failed (exit ${r2.status}${r2.error ? ", " + r2.error.message : ""})`); process.exitCode = 1; }
 } finally {
   rmSync(root, { recursive: true, force: true });
 }

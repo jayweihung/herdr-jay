@@ -20,6 +20,7 @@ bring it to jay.
 | [6](#6-jenkins-builds--jenkins-build) | Jenkins builds / Jenkins build |
 | [7](#7-ask-an-agent--問-agent) | Ask an agent / 問 agent |
 | [8](#8-a-gerrit-agent-step-by-step--gerrit-agent-安裝步驟) | A Gerrit agent, step by step / Gerrit agent 安裝步驟 |
+| [9](#9-read-a-change-in-nvim--在-nvim-看) | Read a change in nvim / 在 nvim 看 |
 
 ---
 
@@ -69,6 +70,7 @@ Until it exists, the panel shows what to write. Create `<home>/.config/herdr-app
 - `user` / `http_password`: Gerrit's **HTTP password**, not your login password. In Gerrit: your avatar (top right) →
   Settings → HTTP Credentials → Generate new password. 不是登入密碼，是 Gerrit 設定頁產生的 HTTP 密碼。
 - `poll_seconds`: how often it asks Gerrit (at least 15; default 60).
+- `review` (optional): where 在 nvim 看 puts a change's files, see [§9](#9-read-a-change-in-nvim--在-nvim-看).
 - `ci_labels` (optional): labels CI votes on, shown only as results, never as buttons; default `["Build", "Verified"]`.
   `[]` if people on your team set Verified by hand. CI 打的分數，不給按；預設 Build、Verified。
 - `jenkins` (optional): Jenkins builds on a change's page, see [§6](#6-jenkins-builds--jenkins-build).
@@ -470,4 +472,78 @@ step 3. Type `/gerrit-panel` and the four skills should be offered.
 | `Unknown command: /gerrit-panel:…` | the second `--plugin-dir` (step 5) is missing or wrong; restart the agent |
 | a button still sends a long sentence | it was edited before: ✎ 編輯問題 → 還原成原本的 |
 | 「沒送出」 in the card | the agent's pane was closed: pick another, or start it again |
+
+## 9. Read a change in nvim / 在 nvim 看
+
+When the diff isn't enough (who calls this, where does that come from), read the change as files on this computer, in
+nvim with the language servers: the whole file, the changed lines marked, go to definition. A change's page has a
+**在 nvim 看** card above its files.
+diff 看不懂的時候：把這一版拉到這台電腦，用 nvim 看整個檔案、跳到定義。change 頁面的檔案上面有「在 nvim 看」。
+
+Needs the [nvim-jay](nvim-jay.md) mod (and its Neovim 0.11+), and `git` on PATH. Windows: PowerShell (built in).
+要裝 nvim-jay mod，還要有 git。
+
+**What a press does**
+1. **Finds your clone** of the project: `review.repos` in `gerrit.json`, else a folder up to two levels under `~/src`
+   whose `.git/config` has a remote for this project on this Gerrit (https `…/a/<project>`, or ssh). It only adds to
+   it: the change goes into a separate folder (a git worktree), so your own folder, its branch and unsaved work stay as
+   they are.
+2. **No clone here**: it asks first: 「這台電腦上找不到 … 的 clone。要下載嗎？」. 下載 makes a store of its own
+   (`<root>/.repos/<project>.git`) with only this patch set and its parent, not the history. Asked once per project.
+3. **Downloads in the background** with a progress bar (Gerrit 準備中 → 下載 with %, size and speed → 整理 → 放進資料夾);
+   **取消** stops it. Closing the panel doesn't stop it, and a big repo is not cut off after 10 minutes. The login
+   reaches git only through a small credential helper that reads `gerrit.json` itself and answers only for the
+   Gerrit's host: the password is never in a command line or a file of its own.
+4. **Opens nvim** in a new tab (a space on this computer: the one you are in, else the first), in
+   `<root>/<project>-<change>`, default `~/src/review/tools-build-7`. Pressing again goes to that tab.
+
+**Which versions**: what the panel shows. Normally 第 N 版 against its parent commit; with 比較哪兩版 set (§3), 第 N 版
+against 第 M 版 (only what changed since then: good for a second round). Another patch set later: press again, the same
+folder moves to it.
+跟上一個 commit 比；上面選了「從第 M 版到第 N 版」就只看兩版之間改了什麼（第二輪 review 用）。
+
+**In nvim** (nvim-jay's review mode, [nvim-jay.md](nvim-jay.md#9-gerrit-review-mode--gerrit-review-模式)):
+- left: the changed files (新增 / 刪除 / 改名, +/−, 💬 comments), ✓ on the ones you opened, 看過 N / M;
+- right: the whole file, changed lines marked against the base (removed lines in red above, added in green);
+- this patch set's comments under their line (unresolved in yellow, your drafts in blue);
+- `]f` `[f` next / previous file, `]c` `[c` next / previous change, `o` in the list: tests first;
+- `space r c`: a comment on this line, saved as **your Gerrit draft** (the panel saves it; it shows in the panel's
+  thread, and **💬 送出回覆** publishes it with the rest);
+- `space r m`: the commit message.
+
+**Both ways**: clicking a file in the panel's list makes the open nvim go to it too. New comments on Gerrit show in
+nvim when the panel loads the change again.
+面板點檔案，nvim 跟著跳；Gerrit 上有新留言，面板重新讀這個 change 時 nvim 也會更新。
+
+**Folders**: the home page lists the changes you read in nvim (在 nvim 看過的 change). On a change's page,
+**清掉資料夾** (press twice) moves its folder and the panel's notes to the Trash (Windows: the Recycle Bin), never
+deletes them; not while its nvim is open. The store of a project without a clone stays (the next change of it
+downloads less).
+清掉資料夾：移到垃圾桶，不會直接刪；nvim 開著時不能清。
+
+Optional, in `gerrit.json`:
+
+```json
+  "review": {
+    "root": "~/src/review",
+    "repos": { "tools/build": "~/src/build" },
+    "search": ["~/src", "~/work"],
+    "fetch_url": "ssh://you@gerrit.example.com:29418/{project}"
+  }
+```
+
+- `root`: where the folders go (default `~/src/review`; Windows `%USERPROFILE%\src\review`).
+- `repos`: your clone of a project, when it isn't found by itself.
+- `search`: where to look for clones (two levels down; default `~/src`).
+- `fetch_url`: how git reaches a project, `{project}` filled in. With ssh your own key is used and the HTTP password
+  isn't needed. Default: the Gerrit address + `/a/<project>` with a login (`/<project>` without).
+
+| What you see / 看到什麼 | Why / 原因 | Fix / 怎麼修 |
+|---|---|---|
+| 下載失敗：… Authentication failed / 401 | the HTTP password in `gerrit.json` (§2) | Gerrit → Settings → HTTP Credentials |
+| 下載失敗：… couldn't find remote ref | that patch set isn't on Gerrit any more | reload the change |
+| 下載失敗 over https at work | the company allows git only over ssh | `fetch_url` with ssh |
+| 換不到這一版（那個資料夾裡有改過的檔？） | you edited files in the review folder | undo them there (`git checkout .`), or 清掉資料夾 |
+| 沒有這台電腦上的 space | every space is on another machine | open a space on this computer |
+| nvim opens without the list | nvim-jay is older than this panel | update the nvim-jay mod too |
 

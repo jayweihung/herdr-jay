@@ -470,9 +470,11 @@ local function head_lines(b)
   if f == "" or vim.bo[b].buftype ~= "" then return end
   local dir, name = vim.fn.fnamemodify(f, ":h"), vim.fn.fnamemodify(f, ":t")
   if name:find("[\r\n]") then return end
+  -- A Gerrit review (REVIEW below) compares with the change's base, and a renamed file with its old name there.
+  local spec = JN.review_spec and JN.review_spec(f) or ("HEAD:./" .. name)
   -- Its size first (the working file's size says nothing: an agent may have truncated a committed 20 MB log), then
   -- that very object by its id, so a commit landing in between can't swap in a bigger one.
-  local r = git(dir, { "cat-file", "--batch-check" }, { text = true, stdin = "HEAD:./" .. name .. "\n" }):wait()
+  local r = git(dir, { "cat-file", "--batch-check" }, { text = true, stdin = spec .. "\n" }):wait()
   local oid, kind, size = (r.code == 0 and r.stdout or ""):match("^(%x+) (%a+) (%d+)\n?$")
   if oid then
     if kind ~= "blob" or tonumber(size) > FILE_MAX then return nil, true end
@@ -565,7 +567,8 @@ local function has_tree()
   end
 end
 -- ! puts the tree on the right; the file window keeps focus. Lexplore toggles: not again on a re-run.
-if not has_tree() then vim.cmd("Lexplore! | wincmd h") end
+-- (A Gerrit review has its list of changed files on the left instead: REVIEW below.)
+if not has_tree() and not (type(vim.g.nvim_jay_review) == "string" and vim.g.nvim_jay_review ~= "") then vim.cmd("Lexplore! | wincmd h") end
 -- The tree keeps at least 30 columns (25% of a 90-column pane was 16), also after the pane resizes
 local tree_ns = api.nvim_create_namespace("nvim-jay-tree")
 api.nvim_set_hl(0, "QtTreeCur", { bg = "#1f4f7a", bold = true })
@@ -865,12 +868,13 @@ function JN.agent_files(t)
   return paths_in(text, start == 0 and 1 or 2) -- line 1 may start mid-record
 end
 
--- The window that shows files, not the netrw tree.
+-- The window that shows files, not the netrw tree (nor a review's list of files).
+local SIDE = { netrw = true, ["nvim-jay-review"] = true }
 local function edit_win()
   local cur = vim.api.nvim_get_current_win()
-  if vim.bo[vim.api.nvim_win_get_buf(cur)].filetype ~= "netrw" then return cur end
+  if not SIDE[vim.bo[vim.api.nvim_win_get_buf(cur)].filetype] then return cur end
   for _, w in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
-    if vim.bo[vim.api.nvim_win_get_buf(w)].filetype ~= "netrw" then return w end
+    if not SIDE[vim.bo[vim.api.nvim_win_get_buf(w)].filetype] then return w end
   end
   return cur
 end
@@ -1237,7 +1241,7 @@ JN.test = { abs_paths = P.abs_paths, paths_in = paths_in, scan = scan, scan_root
 new_timer():start(1000, 1000, vim.schedule_wrap(function() pcall(follow_tick) end))
 -- Title bar above each file: its path, and whether the agent is reading or editing it right now.
 function JN.bar()
-  if vim.bo.filetype == "netrw" then return "" end
+  if SIDE[vim.bo.filetype] then return "" end
   local name = vim.fn.expand("%:~:.")
   if name == "" then return "" end
   local it = follow.last
@@ -1599,4 +1603,400 @@ api.nvim_create_autocmd("MenuPopup", { group = api.nvim_create_augroup("nvim.pop
   vim.cmd("nmenu " .. (open and "enable" or "disable") .. " PopUp.關掉錯誤清單")
   local url = require("vim.ui")._get_urls()[1]
   vim.cmd("amenu " .. (url and vim.startswith(url, "http") and "enable" or "disable") .. " PopUp.開網址")
-end })`;
+end })
+-- ===================================== REVIEW =====================================
+-- A Gerrit change opened from Herdr's Gerrit panel (its 在 nvim 看 button): nvim starts in the change's own folder
+-- (a git worktree at that patch set) with g:nvim_jay_review = the path of review.json, which the panel writes and
+-- keeps current:
+--   { v = 1, change, ps, base_ps (nil: against the parent), subject, url, dir, base, head,
+--     files = { { path, status (A D R M), old_path, ins, del } },
+--     comments = { [path] = { { line, author, message, unresolved, draft } } },   -- this patch set's
+--     jump = { path, line, seq } }                                              -- the panel asks nvim to go there
+-- - marks compare with "base" (the parent, or an older patch set) instead of HEAD; a renamed file with its old name
+-- - the changed files on the left (seen ones ticked, kept in seen.json beside review.json, per head)
+-- - comments of this patch set under their line; drafts marked as such
+-- - space r c: a comment on this line, which the panel saves as your Gerrit draft (from-nvim.jsonl beside review.json,
+--   one JSON object per line; the panel empties the file once it has saved them)
+do
+  local file = vim.g.nvim_jay_review
+  if type(file) == "string" and file ~= "" then
+    local R = { file = P.norm(file), data = nil, stamp = nil, jump = 0, order = "gerrit", rows = {}, list = nil, head = nil }
+    R.home = vim.fs.dirname(R.file)
+    JN.review = R
+    follow.on = false
+    local rns = api.nvim_create_namespace("nvim-jay-review")
+    api.nvim_set_hl(0, "QtRevHead", { bold = true })
+    api.nvim_set_hl(0, "QtRevDim", { link = "Comment" })
+    api.nvim_set_hl(0, "QtRevSeen", { link = "DiagnosticOk" })
+    api.nvim_set_hl(0, "QtRevNew", { fg = "#7ee787" })
+    api.nvim_set_hl(0, "QtRevGone", { fg = "#ff7b72" })
+    api.nvim_set_hl(0, "QtRevCur", { bg = "#1f4f7a", bold = true })
+    api.nvim_set_hl(0, "QtRevOpen", { fg = "#f0c674", bold = true })
+    api.nvim_set_hl(0, "QtRevDone", { link = "Comment" })
+    api.nvim_set_hl(0, "QtRevDraft", { fg = "#8ab4f8", italic = true })
+    local function key(p) return P.key(P.norm(p)) end
+    -- the file's path inside the change (forward slashes), or nil when it isn't in the change's folder
+    local function rel(f)
+      local d = R.data and R.data.dir
+      if type(d) ~= "string" or type(f) ~= "string" then return end
+      d, f = P.norm(d):gsub("/+$", ""), P.norm(f)
+      if key(f):sub(1, #d + 1) ~= key(d .. "/") then return end
+      return f:sub(#d + 2)
+    end
+    local function entry(path)
+      for _, e in ipairs(R.data and R.data.files or {}) do if e.path == path then return e end end
+    end
+    -- head_lines' git object: the base's copy of this file (a renamed one: its old path, from the repo's top)
+    function JN.review_spec(f)
+      local base = R.data and R.data.base
+      if type(base) ~= "string" or not base:match("^%x+$") then return end
+      local p = rel(f)
+      if not p then return end -- a file outside the change's folder: its own repo's HEAD, as usual
+      local e = entry(p)
+      if e and type(e.old_path) == "string" and e.old_path ~= "" then return base .. ":" .. e.old_path end
+      return base .. ":./" .. vim.fn.fnamemodify(f, ":t")
+    end
+
+    -- seen files, per head
+    local function seen_file() return R.home .. "/seen.json" end
+    local function seen_all() return read_json(seen_file(), 1048576) or {} end
+    local function seen_set()
+      local all = seen_all()
+      local h = R.data and R.data.head or ""
+      return type(all[h]) == "table" and all[h] or {}, all, h
+    end
+    local function write_file(f, text, mode)
+      local fd = vim.uv.fs_open(f, mode or "w", 384) -- 0600
+      if not fd then return false end
+      vim.uv.fs_write(fd, text, mode == "a" and -1 or 0)
+      vim.uv.fs_close(fd)
+      return true
+    end
+    local function mark_seen(path)
+      local set, all, h = seen_set()
+      if set[path] then return end
+      set[path] = true
+      all[h] = set
+      -- only this head's (an old patch set's ticks don't matter any more)
+      write_file(seen_file(), vim.json.encode({ [h] = set }))
+    end
+
+    local function is_test(p) return p:lower():find("test") ~= nil or p:lower():find("spec") ~= nil end
+    local function ordered()
+      local out = vim.deepcopy(R.data and R.data.files or {})
+      if R.order == "tests" then
+        local t, o = {}, {}
+        for _, e in ipairs(out) do table.insert(is_test(e.path) and t or o, e) end
+        out = vim.list_extend(t, o)
+      end
+      return out
+    end
+    local function counts(path)
+      local all, open = 0, 0
+      for _, c in ipairs((R.data and R.data.comments or {})[path] or {}) do
+        if not c.draft then all = all + 1 if c.unresolved then open = open + 1 end end
+      end
+      return all, open
+    end
+
+    -- the list of files, in its own window on the left
+    local function list_win()
+      for _, w in ipairs(api.nvim_tabpage_list_wins(0)) do
+        if api.nvim_win_get_buf(w) == R.list then return w end
+      end
+    end
+    local function current_path()
+      local w = edit_win()
+      local b = api.nvim_win_get_buf(w)
+      local n = api.nvim_buf_get_name(b)
+      return vim.b[b].nvim_jay_review_path or rel(n)
+    end
+    function R.render()
+      local b = R.list
+      if not (b and api.nvim_buf_is_valid(b)) then return end
+      local d = R.data or {}
+      local set = seen_set()
+      local files = ordered()
+      local lines, hls, rows = {}, {}, {}
+      local function add(t, hl) lines[#lines + 1] = t if hl then hls[#hls + 1] = { #lines - 1, hl } end end
+      add(("#%s 第 %s 版"):format(tostring(d.change or "?"), tostring(d.ps or "?")), "QtRevHead")
+      add(d.base_ps and ("跟第 %s 版比"):format(tostring(d.base_ps)) or "跟上一個 commit 比", "QtRevDim")
+      add(tostring(d.subject or ""))
+      add("")
+      local n_seen, cur = 0, current_path()
+      local width = (list_win() and api.nvim_win_get_width(list_win()) or 40) - 1
+      for _, e in ipairs(files) do
+        local seen = set[e.path] and true or false
+        if seen then n_seen = n_seen + 1 end
+        local tag = e.status == "A" and " 新增" or e.status == "D" and " 刪除" or e.status == "R" and " 改名" or ""
+        local all, open = counts(e.path)
+        local tail = ("%s  +%d -%d%s"):format(tag, tonumber(e.ins) or 0, tonumber(e.del) or 0,
+          all > 0 and ("  💬%d%s"):format(all, open > 0 and ("（%d 未解）"):format(open) or "") or "")
+        local name = e.path
+        local room = width - 2 - vim.fn.strdisplaywidth(tail)
+        if vim.fn.strdisplaywidth(name) > room and room > 4 then
+          -- keep the end of a long path (the file's name)
+          while vim.fn.strdisplaywidth(name) > room - 1 do name = vim.fn.strcharpart(name, 1) end
+          name = "…" .. name
+        end
+        add((seen and "✓ " or "  ") .. name .. tail,
+          cur == e.path and "QtRevCur" or e.status == "A" and "QtRevNew" or e.status == "D" and "QtRevGone" or (seen and "QtRevSeen" or nil))
+        rows[#lines] = e
+      end
+      add("")
+      add(("看過 %d / %d%s"):format(n_seen, #files, R.order == "tests" and "　先看測試" or ""), "QtRevDim")
+      add("Enter 開　]f [f 下一個／上一個檔", "QtRevDim")
+      add("]c [c 下一處／上一處改動", "QtRevDim")
+      add("空白 r c 留言（存成草稿）", "QtRevDim")
+      add("o 先看測試／照 Gerrit 的順序", "QtRevDim")
+      add("空白 r m 看 commit 說明", "QtRevDim")
+      vim.bo[b].modifiable = true
+      api.nvim_buf_set_lines(b, 0, -1, false, lines)
+      vim.bo[b].modifiable = false
+      api.nvim_buf_clear_namespace(b, rns, 0, -1)
+      for _, h in ipairs(hls) do api.nvim_buf_set_extmark(b, rns, h[1], 0, { line_hl_group = h[2] }) end
+      R.rows = rows
+    end
+
+    -- comments under their lines
+    local cmt = api.nvim_create_namespace("nvim-jay-review-comments")
+    local function wrap(text, width)
+      local out = {}
+      for _, line in ipairs(vim.split(text, "\n", { plain = true })) do
+        repeat
+          local piece, w = "", 0
+          for ch in line:gmatch("[%z\1-\127\194-\244][\128-\191]*") do
+            local cw = vim.fn.strdisplaywidth(ch)
+            if w + cw > width then break end
+            piece, w = piece .. ch, w + cw
+          end
+          if piece == "" and line ~= "" then piece = vim.fn.strcharpart(line, 0, 1) end
+          out[#out + 1] = piece
+          line = line:sub(#piece + 1)
+        until line == ""
+      end
+      return out
+    end
+    function R.draw(b)
+      if not api.nvim_buf_is_valid(b) then return end
+      api.nvim_buf_clear_namespace(b, cmt, 0, -1)
+      local path = vim.b[b].nvim_jay_review_path or rel(api.nvim_buf_get_name(b))
+      local list = path and (R.data and R.data.comments or {})[path]
+      if not list then return end
+      local w = vim.fn.win_findbuf(b)[1]
+      local width = math.max((w and api.nvim_win_get_width(w) or vim.o.columns) - 8, 20)
+      local last = api.nvim_buf_line_count(b)
+      -- one mark per line, its comments in the panel's order (oldest first): several marks on one line would show
+      -- the newest on top
+      local at_line, order = {}, {}
+      for _, c in ipairs(list) do
+        local l = tonumber(c.line)
+        -- a comment on the whole file (no line) sits above line 1
+        local k = l and math.min(math.max(l, 1), last) or 0
+        if not at_line[k] then at_line[k] = {} order[#order + 1] = k end
+        local hl = c.draft and "QtRevDraft" or c.unresolved and "QtRevOpen" or "QtRevDone"
+        local head = c.draft and "📝 你的草稿（還沒送出）：" or ("💬 " .. tostring(c.author or "?") .. (c.unresolved and "（未解決）：" or "："))
+        for i, t in ipairs(wrap(head .. tostring(c.message or ""), width)) do
+          table.insert(at_line[k], { { (i == 1 and "  ┃ " or "  ┃   ") .. t, hl } })
+        end
+      end
+      for _, k in ipairs(order) do
+        api.nvim_buf_set_extmark(b, cmt, math.max(k, 1) - 1, 0, { virt_lines = at_line[k], virt_lines_above = k == 0 })
+      end
+    end
+
+    -- a deleted file: what the base had, all marked as removed
+    local function show_deleted(e)
+      R.gone = R.gone or {}
+      local b = R.gone[e.path]
+      if not (b and api.nvim_buf_is_valid(b)) then
+        b = api.nvim_create_buf(true, true)
+        pcall(api.nvim_buf_set_name, b, "gerrit-deleted://" .. e.path)
+        vim.bo[b].bufhidden = "hide"
+        R.gone[e.path] = b
+      end
+      vim.b[b].nvim_jay_review_path = e.path
+      api.nvim_win_set_buf(edit_win(), b)
+      local base = R.data and R.data.base
+      local before = {}
+      if type(base) == "string" and base:match("^%x+$") then
+        local r = git(R.data.dir, { "cat-file", "blob", base .. ":" .. e.path }, { text = true }):wait()
+        if r.code == 0 then before = vim.split(r.stdout, "\n", { plain = true, trimempty = false }) end
+      end
+      if before[#before] == "" then before[#before] = nil end
+      vim.bo[b].modifiable = true
+      api.nvim_buf_set_lines(b, 0, -1, false, {})
+      vim.bo[b].modifiable = false
+      mark(b, before)
+    end
+    function R.open(e, line)
+      if not e then return end
+      local w = edit_win()
+      api.nvim_set_current_win(w)
+      if e.status == "D" then show_deleted(e)
+      else
+        local f = P.norm(R.data.dir):gsub("/+$", "") .. "/" .. e.path
+        local ok, err = pcall(vim.cmd.edit, vim.fn.fnameescape(f))
+        if not ok then return vim.notify(tostring(err), vim.log.levels.ERROR) end
+      end
+      local b = api.nvim_get_current_buf()
+      R.draw(b)
+      if line then
+        api.nvim_win_set_cursor(0, { math.max(1, math.min(tonumber(line) or 1, api.nvim_buf_line_count(b))), 0 })
+        vim.cmd("normal! zz")
+      else
+        -- the first change, so a long file doesn't start at its top
+        local m = api.nvim_buf_get_extmarks(b, ns, 0, -1, {})[1]
+        if m then api.nvim_win_set_cursor(0, { m[2] + 1, 0 }) vim.cmd("normal! zz") end
+      end
+      mark_seen(e.path)
+      R.render()
+    end
+    local function step(dir)
+      local files = ordered()
+      if #files == 0 then return end
+      local cur, at = current_path(), nil
+      for i, e in ipairs(files) do if e.path == cur then at = i end end
+      at = at and (at + dir) or (dir > 0 and 1 or #files)
+      if at < 1 or at > #files then return vim.notify(dir > 0 and "已經是最後一個檔" or "已經是第一個檔") end
+      R.open(files[at])
+    end
+    -- the next / previous change in this file (the marks nvim-jay draws)
+    local function hunk(dir)
+      local row = api.nvim_win_get_cursor(0)[1] - 1
+      local starts, prev = {}, -2
+      for _, m in ipairs(api.nvim_buf_get_extmarks(0, ns, 0, -1, {})) do
+        if m[2] > prev + 1 then starts[#starts + 1] = m[2] end
+        prev = m[2]
+      end
+      local to
+      if dir > 0 then for _, r in ipairs(starts) do if r > row then to = r break end end
+      else for i = #starts, 1, -1 do if starts[i] < row then to = starts[i] break end end end
+      if not to then return vim.notify(dir > 0 and "這個檔後面沒有改動了（]f 下一個檔）" or "這個檔前面沒有改動了") end
+      api.nvim_win_set_cursor(0, { to + 1, 0 })
+      vim.cmd("normal! zz")
+    end
+    function R.draft()
+      local path = current_path()
+      if not path or not entry(path) or (entry(path).status == "D") then
+        return vim.notify("這個檔不在這個 change 的新版裡：留言要留在改過的檔上", vim.log.levels.WARN)
+      end
+      local line = api.nvim_win_get_cursor(0)[1]
+      local b = api.nvim_get_current_buf()
+      vim.ui.input({ prompt = ("留言 %s:%d（存成 Gerrit 草稿）："):format(path, line) }, function(msg)
+        msg = msg and vim.trim(msg) or ""
+        if msg == "" then return end
+        local rec = { id = ("%d-%d"):format(os.time(), math.random(1, 1e9)), draft = { path = path, line = line, message = msg, head = R.data.head } }
+        if not write_file(R.home .. "/from-nvim.jsonl", vim.json.encode(rec) .. "\n", "a") then
+          return vim.notify("寫不進 " .. R.home, vim.log.levels.ERROR)
+        end
+        -- shown at once; the panel's next review.json has it as a real draft
+        local list = R.data.comments[path] or {}
+        list[#list + 1] = { line = line, message = msg .. "（存到 Gerrit 中…）", draft = true }
+        R.data.comments[path] = list
+        R.draw(b)
+      end)
+    end
+    function R.commit_message()
+      local h = R.data and R.data.head
+      if type(h) ~= "string" or not h:match("^%x+$") then return end
+      local r = git(R.data.dir, { "show", "-s", "--format=%B", h }, { text = true }):wait()
+      local b = api.nvim_create_buf(false, true)
+      api.nvim_buf_set_lines(b, 0, -1, false, vim.split(r.code == 0 and r.stdout or r.stderr, "\n", { plain = true }))
+      vim.bo[b].modifiable = false
+      api.nvim_win_set_buf(edit_win(), b)
+    end
+
+    -- review.json, again whenever the panel rewrites it
+    function R.load()
+      local st = vim.uv.fs_stat(R.file)
+      local stamp = st and (st.mtime.sec .. "." .. st.mtime.nsec .. ":" .. st.size)
+      if not stamp or stamp == R.stamp then return false end
+      local d = read_json(R.file, 8 * 1048576)
+      if not d or type(d.files) ~= "table" or type(d.dir) ~= "string" then return false end
+      -- JSON null is vim.NIL (true in Lua): gone, as if the key weren't there
+      local function no_nil(t)
+        for k, v in pairs(t) do if v == vim.NIL then t[k] = nil elseif type(v) == "table" then no_nil(v) end end
+        return t
+      end
+      no_nil(d)
+      if type(d.comments) ~= "table" then d.comments = {} end
+      local head_before = R.data and R.data.head
+      R.stamp, R.data = stamp, d
+      if head_before and head_before ~= d.head then
+        -- a newer patch set checked out in the same folder: the files on disk changed, marks against the new base
+        vim.cmd("silent! checktime")
+        for _, b in ipairs(api.nvim_list_bufs()) do
+          if api.nvim_buf_is_loaded(b) and rel(api.nvim_buf_get_name(b)) then pcall(mark_head, b) end
+        end
+      end
+      return true
+    end
+    function R.tick()
+      if not R.load() then return end
+      R.render()
+      for _, b in ipairs(api.nvim_list_bufs()) do if api.nvim_buf_is_loaded(b) then R.draw(b) end end
+      local j = R.data.jump
+      if type(j) == "table" and tonumber(j.seq) and tonumber(j.seq) > R.jump then
+        R.jump = tonumber(j.seq)
+        R.open(entry(j.path) or (type(j.path) == "string" and { path = j.path }), j.line)
+      end
+    end
+
+    -- the list's window and keys
+    R.list = api.nvim_create_buf(false, true)
+    api.nvim_buf_set_name(R.list, "gerrit-review://" .. vim.fn.fnamemodify(R.home, ":t"))
+    vim.bo[R.list].filetype = "nvim-jay-review"
+    vim.bo[R.list].bufhidden = "hide"
+    local function pick_row()
+      local e = R.rows[api.nvim_win_get_cursor(0)[1]]
+      if e then R.open(e) end
+    end
+    map("n", "<CR>", pick_row, { buffer = R.list, desc = "開這個檔" })
+    map("n", "<2-LeftMouse>", pick_row, { buffer = R.list, desc = "開這個檔" })
+    map("n", "o", function() R.order = R.order == "tests" and "gerrit" or "tests" R.render() end, { buffer = R.list, desc = "先看測試／照 Gerrit 的順序" })
+    map("n", "]f", function() step(1) end, { desc = "下一個改過的檔" })
+    map("n", "[f", function() step(-1) end, { desc = "上一個改過的檔" })
+    map("n", "]c", function() hunk(1) end, { desc = "下一處改動" })
+    map("n", "[c", function() hunk(-1) end, { desc = "上一處改動" })
+    map("n", "<leader>rc", R.draft, { desc = "留言（存成 Gerrit 草稿）" })
+    map("n", "<leader>rm", R.commit_message, { desc = "看 commit 說明" })
+    map("n", "<leader>rl", function()
+      local w = list_win()
+      if w then api.nvim_set_current_win(w) else
+        vim.cmd("topleft vsplit")
+        api.nvim_win_set_buf(0, R.list)
+        api.nvim_win_set_width(0, math.max(34, math.floor(vim.o.columns / 4)))
+      end
+    end, { desc = "改過的檔的清單" })
+    vim.cmd("topleft vsplit")
+    local lw = api.nvim_get_current_win()
+    api.nvim_win_set_buf(lw, R.list)
+    api.nvim_win_set_width(lw, math.max(34, math.floor(vim.o.columns / 4)))
+    vim.wo[lw].winfixwidth, vim.wo[lw].number, vim.wo[lw].relativenumber = true, false, false
+    vim.wo[lw].signcolumn, vim.wo[lw].wrap, vim.wo[lw].cursorline = "no", false, true
+    vim.cmd("wincmd l")
+    api.nvim_create_autocmd({ "BufWinEnter", "BufReadPost" }, { group = AUG, callback = function(a)
+      if a.buf ~= R.list then R.draw(a.buf) R.render() end
+    end })
+    api.nvim_create_autocmd("VimResized", { group = AUG, callback = function() R.render() end })
+    vim.api.nvim_create_user_command("GerritDraft", R.draft, {})
+    R.load()
+    R.render()
+    -- start on the first file not seen yet (all seen: the first), or the panel's jump
+    do
+      local set, first = seen_set(), nil
+      for _, e in ipairs(ordered()) do if not set[e.path] then first = e break end end
+      first = first or ordered()[1] -- all seen already: the first one, not an empty window
+      local j = R.data and R.data.jump
+      if type(j) == "table" and tonumber(j.seq) then
+        R.jump = tonumber(j.seq)
+        if entry(j.path) then first = entry(j.path) end
+        R.open(first, entry(j.path) and j.line or nil)
+      elseif first then R.open(first) end
+    end
+    new_timer():start(1000, 1000, vim.schedule_wrap(function() pcall(R.tick) end))
+    JN.test.review = { R = R, rel = rel, step = step, hunk = hunk, ordered = ordered, seen = seen_set }
+  end
+end
+`;

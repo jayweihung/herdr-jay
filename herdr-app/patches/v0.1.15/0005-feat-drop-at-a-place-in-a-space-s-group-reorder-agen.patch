@@ -1,0 +1,251 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: jayweihung <3034830+jayweihung@users.noreply.github.com>
+Date: Fri, 13 Nov 2026 21:38:18 +0800
+Subject: [PATCH 5/5] feat: drop at a place in a space's group; reorder agents
+ by dragging
+
+In the agents panel grouped by space, every agent row under a space's
+header takes a mod's drag too, and a line shows where it lands: the
+header is first, a row is right after its tab. dropOnSpace takes that
+place and nextDrop() gives it as `index` (before that tab position,
+1 = first; null on the spaces panel). A row also drags to another place
+in its own group, which moves its tab (tab.move); the other spaces
+refuse that drag.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ defaults/AGENTS.md           |  7 ++++--
+ defaults/herdr.d.ts          |  9 ++++++--
+ defaults/mods/agents/main.js | 43 +++++++++++++++++++++++++++++++++---
+ src/mods/drops.rs            | 21 +++++++++++-------
+ src/mods/lifecycle_tests.rs  | 17 +++++++++++---
+ 5 files changed, 79 insertions(+), 18 deletions(-)
+
+diff --git a/defaults/AGENTS.md b/defaults/AGENTS.md
+index e51af2e..6f5fc31 100644
+--- a/defaults/AGENTS.md
++++ b/defaults/AGENTS.md
+@@ -956,8 +956,11 @@ the same limits, previews and removal as picked images.
+ `.id("card").on_drag(payload, label)` makes an element draggable inside the
+ window (a string payload up to 8 KiB; a chip shows `label`, default the payload's
+ first line). Dropped on a space's group in the agents panel (grouped by space) or its row in the
+-spaces panel, it reaches this mod's `nextDrop()` as `{ payload, space }` (`space`
+-as `spaces()` lists it): one copy that is waiting gets it, any copy, so a popup
++spaces panel, it reaches this mod's `nextDrop()` as `{ payload, space, index }` (`space`
++as `spaces()` lists it; `index`: where among its tabs, before that position, 1 = first, null for the space as a
++whole). In the agents panel grouped by space, a space's header and every agent row under it take drops (a line
++shows where: the header is first, a row is right after its tab), and a row drags to another place in its group
++(`tab.move`): one copy that is waiting gets it, any copy, so a popup
+ that started the drag may close. Keep the loop waiting:
+ `cx.spawn(async (cx) => { for (;;) { const d = await nextDrop(); this.make(d); cx.notify(); } })`.
+ A press that starts such a drag doesn't move a `window` overlay or a `window_drag` area.
+diff --git a/defaults/herdr.d.ts b/defaults/herdr.d.ts
+index d258c4e..8d08781 100644
+--- a/defaults/herdr.d.ts
++++ b/defaults/herdr.d.ts
+@@ -416,6 +416,10 @@ export interface SpaceDrop {
+   payload: string;
+   /** The space it was dropped on, as spaces() lists it (`machine` set for another machine's). */
+   space: SpaceInfo;
++  /** Where in it: before its tab at this position (1 = first; `tab.move`'s index, counted before anything
++   *  moves), as the agents panel shows with a line: its header (1) or under an agent's row (the next tab).
++   *  null: dropped on the space as a whole (its row in the spaces panel). */
++  index: number | null;
+ }
+ 
+ /**
+@@ -428,10 +432,11 @@ export interface SpaceDrop {
+ export function nextDrop(): Promise<SpaceDrop>;
+ 
+ /** For panels that list spaces: hands an element's `.on_drag_drop` event to the mod whose drag
+- *  it was, as dropped on the space `space` (an id). Returns whether a copy of it took it.
++ *  it was, as dropped on the space `space` (an id), at `index` (before that tab position, 1 = first;
++ *  left out: the space as a whole). Returns whether a copy of it took it.
+  *  Give the same element `.drop_key(space)`, so a drag that refuses that space
+  *  (`.on_drag(payload, label, refuse)`, space ids one per line) is shown refused there. */
+-export function dropOnSpace(drop: { payload: string; source: string }, space: string): boolean;
++export function dropOnSpace(drop: { payload: string; source: string }, space: string, index?: number): boolean;
+ 
+ /**
+  * Waits for changes under a folder and returns absolute paths in batches.
+diff --git a/defaults/mods/agents/main.js b/defaults/mods/agents/main.js
+index ee7fca6..0b11925 100644
+--- a/defaults/mods/agents/main.js
++++ b/defaults/mods/agents/main.js
+@@ -4,6 +4,16 @@ import { View, div, image, svg } from "gpui-kit";
+ import { v_flex, h_flex } from "gpui-base";
+ import { agents, terminals, panes, focused, spaces, run, theme, shared, setShared, setAgentOrder, openOverlay, closeOverlay, props, window, layout } from "herdr";
+ import { dropOnSpace } from "herdr";
++import * as host from "herdr";
++
++// A row dragged within its space's group (grouped by space): which tab, from which space.
++const MOVE = "agents.move";
++const movePayload = (a) => JSON.stringify({ [MOVE]: a.tab, space: a.space });
++function readMove(p) {
++  try { const j = JSON.parse(String(p ?? "")); return typeof j?.[MOVE] === "string" ? { tab: j[MOVE], space: j.space } : null; } catch { return null; }
++}
++// Where a tab now at position `from` goes to land before the tab at `at` (both 1 = first, counted before it moves).
++export const moveTarget = (from, at) => (from < at ? at - 1 : at);
+ 
+ function find(node, id) {
+   if (node?.id === id) return node;
+@@ -86,6 +96,23 @@ export default class Agents extends View {
+     if (!this.pendingPins.length) localStorage.removeItem("pins");
+     this.migratingPins = new Set();
+     cx.timer.every(30000, (cx) => cx.notify());
++    // Rows dragged to another place in their space's group: that tab moves there.
++    if (typeof host.nextDrop === "function") {
++      cx.spawn(async (cx) => {
++        for (;;) { this.moved(await host.nextDrop()); cx.notify(); }
++      });
++    }
++  }
++
++  // A row's drag dropped in its own space's group: its tab before the tab at d.index (its space only: the others
++  // refuse the drag).
++  moved(d) {
++    const m = readMove(d?.payload);
++    if (!m || m.space !== d?.space?.id || !Number.isInteger(d?.index)) return;
++    const from = agents().find((a) => a.tab === m.tab)?.tab_index;
++    if (!from) return;
++    const to = moveTarget(from, d.index);
++    if (to !== from) run("tab.move", { id: m.tab, index: to });
+   }
+ 
+   // Stamps agents whose state changed. Done and idle count as one: looking at a
+@@ -332,6 +359,9 @@ export default class Agents extends View {
+       // Under a space header the space goes without saying; an automatic tab number says nothing.
+       // Without a space header above (priority, pinned) the row names its space.
+       const full = byPriority || isPinned;
++      // In a space's group: a mod's drag dropped here lands right after this tab (the line under it), and the row
++      // itself drags to another place in the group (the other spaces refuse it).
++      const inGroup = !byPriority && !isPinned;
+       const name = full ? a.space_name || label(a) : more ?? (/^\d+$/.test(label(a)) ? a.program?.name || label(a) : label(a));
+       return h_flex()
+         .id(`ag-${a.address}`)
+@@ -350,6 +380,8 @@ export default class Agents extends View {
+           cx.notify();
+         })
+         .on_click(() => run("pane.focus", { pane: a.pane }))
++        .when(inGroup, (el) => dropHere(el, a.space, a.tab_index + 1)
++          .on_drag(movePayload(a), label(a) || a.program?.name || "", otherSpaces(a.space), "只能在同一個 space 裡排順序"))
+         .when(Boolean(pic), el => el.child(div().id(`agent-fold-${a.address}`)
+           .when(subs.length > 0, el => el.on_click((_e, cx) => {
+             cx.stop_propagation();
+@@ -376,6 +408,12 @@ export default class Agents extends View {
+       else groups.push({ id, label: byPriority ? SECTION[r] : a.space_name || "", status: byPriority ? SECTION_STATUS[r] : null, members: [a] });
+     }
+ 
++    // A drop target in a space's group: a line under it shows where the dragged thing lands (before the tab at `at`).
++    const dropHere = (el, space, at) => el.drag_over((s) => s.border_b(2).border_color(t.accent))
++      .drop_key(space).on_drag_drop((drop) => dropOnSpace(drop, space, at));
++    const spaceIds = spaces().map((s) => s.id);
++    const otherSpaces = (space) => spaceIds.filter((id) => id !== space).join("\n");
++
+     // A group's header; it folds the group. Folded, it says how many and the most urgent state.
+     const header = (g) => {
+       const open = !this.folded.has(g.id);
+@@ -397,9 +435,8 @@ export default class Agents extends View {
+           open ? this.folded.add(g.id) : this.folded.delete(g.id);
+           cx.notify();
+         })
+-        // A space's group takes a mod's drag (`on_drag`), for that mod.
+-        .when(Boolean(space), (el) => el.rounded(8).drag_over((s) => s.bg(t.hover).text_color(t.foreground))
+-          .drop_key(space).on_drag_drop((drop) => dropOnSpace(drop, space)))
++        // A space's group takes a mod's drag (`on_drag`), for that mod: on its header, first in the space.
++        .when(Boolean(space), (el) => dropHere(el.rounded(8), space, 1))
+         .child(div().truncate().text_color(t[g.status] ?? t.dim).child(g.label))
+         .when(byPriority || !open, (el) => el.child(div().text_color(t.dim).child(String(g.members.length))))
+         .child(div().flex_1())
+diff --git a/src/mods/drops.rs b/src/mods/drops.rs
+index de08910..bbcdc54 100644
+--- a/src/mods/drops.rs
++++ b/src/mods/drops.rs
+@@ -68,13 +68,18 @@ pub(super) fn register(module: HostModule, inst: &Instance) -> HostModule {
+                 }
+             })
+         })
+-        .function("dropOnSpace", |a| Ok(HostValue::Bool(drop_on_space(&from_host(a.value(0)?), a.string(1)?))))
++        .function("dropOnSpace", |a| {
++            // Where in the space: before its tab at this position (1 = first); none: anywhere.
++            let index = a.get(2).and_then(HostValue::as_number).filter(|n| *n >= 1. && n.fract() == 0.).map(|n| n as u64);
++            Ok(HostValue::Bool(drop_on_space(&from_host(a.value(0)?), a.string(1)?, index)))
++        })
+ }
+ 
+ /// Hands a mod drag dropped on a space (an `on_drag_drop` event) to the mod
+-/// that started it: `{payload, space}` to a copy waiting in nextDrop(), the
+-/// space as spaces() lists it. Returns whether one was waiting.
+-fn drop_on_space(drop: &Value, space: &str) -> bool {
++/// that started it: `{payload, space, index}` to a copy waiting in nextDrop(),
++/// the space as spaces() lists it, `index` where in it (before its tab at that
++/// position, 1 = first; null: anywhere). Returns whether one was waiting.
++fn drop_on_space(drop: &Value, space: &str, index: Option<u64>) -> bool {
+     let (Some(source), Some(payload)) = (drop["source"].as_str(), drop["payload"].as_str()) else {
+         return false;
+     };
+@@ -91,7 +96,7 @@ fn drop_on_space(drop: &Value, space: &str) -> bool {
+         tracing::warn!("mod {name}: a drag was dropped on a space, but no copy waits in nextDrop()");
+         return false;
+     }
+-    drops.tx.try_send((Instant::now(), json!({ "payload": payload, "space": space }))).is_ok()
++    drops.tx.try_send((Instant::now(), json!({ "payload": payload, "space": space, "index": index }))).is_ok()
+ }
+ 
+ #[cfg(test)]
+@@ -110,8 +115,8 @@ mod tests {
+         let plain = Instance { name: "kit1".into(), props: Value::Null };
+         assert_eq!(props.key(), plain.key());
+         let _modules = (waiting(&props), waiting(&plain), waiting(&Instance { name: "solo".into(), props: Value::Null }));
+-        assert!(!drop_on_space(&json!({ "source": "kit1", "payload": "x" }), "s1"));
+-        assert!(drop_on_space(&json!({ "source": "solo", "payload": "x" }), "s1"));
+-        assert!(!drop_on_space(&json!({ "source": "solo", "payload": "x" }), "elsewhere"));
++        assert!(!drop_on_space(&json!({ "source": "kit1", "payload": "x" }), "s1", None));
++        assert!(drop_on_space(&json!({ "source": "solo", "payload": "x" }), "s1", None));
++        assert!(!drop_on_space(&json!({ "source": "solo", "payload": "x" }), "elsewhere", None));
+     }
+ }
+diff --git a/src/mods/lifecycle_tests.rs b/src/mods/lifecycle_tests.rs
+index 05404cb..e0c7fb6 100644
+--- a/src/mods/lifecycle_tests.rs
++++ b/src/mods/lifecycle_tests.rs
+@@ -505,14 +505,25 @@ export default class extends View {
+     frame(&mut visual);
+     visual.simulate_mouse_up(header, MouseButton::Left, Modifiers::none());
+     frame(&mut visual);
+-    assert_eq!(*dropped.borrow(), vec![json!({"payload": "new-agent\nwith details", "space": space})]);
++    assert_eq!(*dropped.borrow(), vec![json!({"payload": "new-agent\nwith details", "space": space, "index": 1})]);
++    // On the agent's row under it: right after that agent's tab.
++    let agent_row = point(px(60.), px(95.));
++    visual.simulate_mouse_down(point(px(300.), px(20.)), MouseButton::Left, Modifiers::none());
++    visual.simulate_mouse_move(point(px(280.), px(30.)), Some(MouseButton::Left), Modifiers::none());
++    frame(&mut visual);
++    visual.simulate_mouse_move(agent_row, Some(MouseButton::Left), Modifiers::none());
++    frame(&mut visual);
++    visual.simulate_mouse_up(agent_row, MouseButton::Left, Modifiers::none());
++    frame(&mut visual);
++    assert_eq!(dropped.borrow().last(), Some(&json!({"payload": "new-agent\nwith details", "space": space, "index": 2})));
++    dropped.borrow_mut().clear();
+     // Dropped where nothing takes it: nothing arrives.
+     visual.simulate_mouse_down(point(px(300.), px(20.)), MouseButton::Left, Modifiers::none());
+     visual.simulate_mouse_move(point(px(280.), px(30.)), Some(MouseButton::Left), Modifiers::none());
+     frame(&mut visual);
+     visual.simulate_mouse_up(point(px(600.), px(300.)), MouseButton::Left, Modifiers::none());
+     frame(&mut visual);
+-    assert_eq!(dropped.borrow().len(), 1);
++    assert_eq!(dropped.borrow().len(), 0);
+     // A drag that refuses that space (its `drop_key`): dropped on it, nothing arrives.
+     visual.simulate_mouse_down(point(px(300.), px(60.)), MouseButton::Left, Modifiers::none());
+     visual.simulate_mouse_move(point(px(280.), px(70.)), Some(MouseButton::Left), Modifiers::none());
+@@ -523,7 +534,7 @@ export default class extends View {
+     frame(&mut visual);
+     visual.simulate_mouse_up(header, MouseButton::Left, Modifiers::none());
+     frame(&mut visual);
+-    assert_eq!(dropped.borrow().len(), 1, "a refused space takes nothing");
++    assert_eq!(dropped.borrow().len(), 0, "a refused space takes nothing");
+     visual.update(|window, _| window.remove_window());
+     visual.run_until_parked();
+     SHARED.with_borrow_mut(|slot| *slot = None);
+-- 
+2.54.0
+

@@ -63,7 +63,7 @@ globalThis.__stubs = {
     if (r instanceof Error) throw r;
     return r ?? { code: 0, stdout: JSON.stringify({ pid: 4242 }), stderr: "" };
   },
-  run: (name, args) => { H.runs.push([name, args]); const e = H.runFail?.(name, args); if (e) throw e; }, layout: () => H.layout,
+  run: (name, args) => { H.runs.push([name, args]); const e = H.runFail?.(name, args); if (e) throw e; return H.runAnswer?.(name, args); }, layout: () => H.layout,
   shared: (k) => H.store[k], setShared: (k, v) => { H.store[k] = v; return null; }, props: () => H.props,
   // files: path -> text a test gives (others read as ""); writes: every [path, text, expected] written
   // (another machine's files are "<machine>:<path>" in H.files; with H.files, a file not in it is absent: null).
@@ -122,7 +122,7 @@ function logoPath(M, name) {
   return `data/kit/bots/v${M.bots.BOT_VERSION}/${b.animal}${b.color ? `-${b.color}` : ""}.icon.svg`;
 }
 function fresh() {
-  H.store = {}; H.calls = []; H.runs = []; H.overlays = []; H.notes = []; H.texts = []; H.strings = []; H.tasks = []; H.timeouts = []; H.files = null; H.writes = []; H.runFail = null; H.agents = null; H.terminals = null;
+  H.store = {}; H.calls = []; H.runs = []; H.overlays = []; H.notes = []; H.texts = []; H.strings = []; H.tasks = []; H.timeouts = []; H.files = null; H.writes = []; H.runFail = null; H.runAnswer = null; H.agents = null; H.terminals = null;
   H.props = {}; H.layout = { id: "root", children: [] }; H.window = { platform: "macos" }; H.panes = []; H.spaces = [];
   H.machines = []; H.hcAnswer = null; H.reads = []; H.clipboard = []; H.appHome = null; H.drags = []; H.afters = []; H.writeFail = null;
   delete globalThis.__stubs.nextDrop;   // an older Herdr: no drag API
@@ -772,6 +772,18 @@ test("place: while dragging, the spaces where that agent already runs are refuse
   got = [];
   P.draggable(el(got), { name: "tester" }, "claude");
   assert.deepEqual(got, [['{"agent":"tester","source":"","tool":"claude"}', "tester"]], "nowhere yet: payload and label only");
+});
+test("agents: dropped at a place among the space's tabs (a newer Herdr's index), the new tab is moved there; without one it stays last", async (M) => {
+  for (const [index, moves] of [[2, [["tab.move", { id: "tb7", index: 2 }]]], [null, []]]) {
+    fresh();
+    const space = { id: "s1", machine: null, name: "web", folder: "/Users/amy/web", index: 4 };
+    H.runAnswer = (n) => (n === "tab.new" ? { space: "s1", tab: "tb7", terminal: "t7" } : null);
+    dropping([{ payload: M.place.dragPayload({ name: "reviewer" }), space, index }]);
+    placeKit(() => PLACED("/Users/amy/web/reviewer", ["claude"], []));
+    view(M, { role: "agents" }); await settle(); await tick();
+    assert.equal(H.runs[0][0], "tab.new");
+    assert.deepEqual(H.runs.slice(1), moves, "the space's own index (its place among spaces) isn't the tab's");
+  }
 });
 test("agents: a drop kit refuses (another agent's folder, an older kit): said in plain words, no tab opened", async (M) => {
   const space = { id: "s1", machine: null, name: "web", folder: "/Users/amy/web" };

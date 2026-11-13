@@ -9,6 +9,17 @@ says which) · **kit** = update kit itself on every machine where agents run (`k
 **snap hook** = a line in Claude Code's `settings.json` on each machine where you added the hook (the entry says
 which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/keys.md).
 
+## 2026-11-13, Herdr app: drop at a place in a space; reorder agents by dragging
+
+Needs: **app** (same v0.1.15, now five patches: rebuild it; core unchanged), **mods**.
+
+- `herdr-app/patches/v0.1.15/0005-…`: in the Agents panel grouped by space, every agent row under a space takes a drop
+  too, and a line shows where it lands (the header: first; a row: right after it). An agent dragged from the Kit panel
+  opens its tab there. Rows also drag to another place in their own space (the tab moves; other spaces refuse it).
+- The Kit panel's agent tab icon is its logo cropped to the drawing, as big as the programs' icons.
+- Build steps: [docs/macos.md](docs/macos.md) §3/§8, [docs/windows.md](docs/windows.md) §3/§8.2 (app blocks only).
+app 同樣是 v0.1.15，多了第五個 patch：Agents 面板裡可以放在 space 的某個位置、也能拖 agent 排順序；Kit 放的 agent 圖示跟其他程式一樣大。要重新 build app。
+
 ## 2026-11-13, Herdr app: a placed agent's own logo; one of each agent per space
 
 Needs: **app** (same v0.1.15, now four patches: rebuild it; core unchanged), **kit** 0.5.2, **mods**.

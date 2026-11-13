@@ -114,11 +114,11 @@ git submodule update --init --recursive
 git -c user.name=me -c user.email=me@local am -3 ~/src/herdr-jay/herdr-app/patches/v0.1.15/*.patch
 ```
 
-`git rev-parse` must print `9950887` (an older clone: `git fetch --tags --force` first). `git am` applies the four app
+`git rev-parse` must print `9950887` (an older clone: `git fetch --tags --force` first). `git am` applies the five app
 patches (drag from a mod onto a space: the Kit panel's 「把 agent 放到 space」; a terminal's own icon: the placed
-agent's logo; a drag shows the spaces that won't take it; [patches.md](patches.md)); if it
+agent's logo; a drag shows the spaces that won't take it; drop at a place in a space, reorder agents; [patches.md](patches.md)); if it
 fails: `git am --abort`, check the tag, try again.
-`git am` 套上四個 app patch（mod 的東西可以拖到左邊的 space，Kit 面板「把 agent 放到 space」要用；放好的 agent 用自己的 logo；拖的時候看得出哪個 space 不收）。
+`git am` 套上五個 app patch（mod 的東西可以拖到左邊的 space，Kit 面板「把 agent 放到 space」要用；放好的 agent 用自己的 logo；拖的時候看得出哪個 space 不收；可以放在 space 裡的某個位置，Agents 面板也能拖來排順序）。
 
 ```sh
 cd ~/src/herdr-app && just install
@@ -229,7 +229,7 @@ cd ~/src/herdr-jay && git checkout main && git pull
 If the README tag table names a tag for your Herdr (`for-herdr-v<app>-r<N>`), you may check it out instead of staying on
 `main`; follow the docs inside that tag then (`for-herdr-v0.1.15-r1` still has the older `mods/` and `patches/` folders).
 
-Core, then the same for the app (`repo=herdr-app`), only if the table lists a newer version **or the same version with different patches** (2026-11-13: app v0.1.15 got two patches, drag an agent onto a space, then a third and a fourth, a terminal's own icon and refused drop targets: app only). Set `tag` to the
+Core, then the same for the app (`repo=herdr-app`), only if the table lists a newer version **or the same version with different patches** (2026-11-13: app v0.1.15 got two patches, drag an agent onto a space, then three more, a terminal's own icon, refused drop targets, a place in a space: app only). Set `tag` to the
 version from the table. The block runs `just install` only when the tag checked out, the app's
 `distribution/core-version` is ≤ `hc --version` (app only), and jay's patches (if any) applied (terminals keep running):
 

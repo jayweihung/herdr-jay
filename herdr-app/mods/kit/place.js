@@ -155,8 +155,13 @@ export function placeAgent(agent, space, tool, cx, label = "放到 space", owner
       const cmd = Array.isArray(data.command) && data.command.length && data.command.every((x) => typeof x === "string") ? data.command : [tool];
       const folder = typeof data.dir === "string" && data.dir ? data.dir : dir;
       const icon = await agentIcon(agent);
-      try { openTab({ name: agent, space: space.id, folder, argv: cmd }, icon); }
+      let opened;
+      try { opened = openTab({ name: agent, space: space.id, folder, argv: cmd }, icon); }
       catch (e) { say(false, `資料夾做好了（${folder}），但開不了分頁：${e?.message ?? e}`); return; }
+      // dropped at a place among the space's tabs (space.at, 1 = first): the new tab, opened last, goes there
+      if (Number.isInteger(space.at) && space.at >= 1 && opened?.tab) {
+        try { run("tab.move", { id: opened.tab, index: space.at }); } catch { /* it stays last */ }
+      }
       const warns = (Array.isArray(data.warnings) ? data.warnings : []).filter((w) => typeof w === "string");
       say(true, [`在 ${folder} 開了 ${agent}：在那裡開的 ${cmd[0]} 就是它。`,
         "之後在它的 Kit 清單按「加到這個資料夾」或「從資料夾拿掉」，只改這個資料夾。", ...warns.map((w) => `⚠ ${w}`)].join("\n"));
@@ -173,7 +178,7 @@ export function placeAgent(agent, space, tool, cx, label = "放到 space", owner
 
 // the asks still waiting (younger than ASK_OLD); a JSON copy of the space: shared state keeps plain values
 const asksNow = () => (Array.isArray(shared(PLACE_ASK)) ? shared(PLACE_ASK) : []).filter((a) => a && Date.now() - (a.at ?? 0) < ASK_OLD);
-const plainSpace = (s) => ({ id: s.id, name: s.name ?? "", machine: s.machine ?? null, folder: s.folder ?? "" });
+const plainSpace = (s) => ({ id: s.id, name: s.name ?? "", machine: s.machine ?? null, folder: s.folder ?? "", at: s.at ?? null });
 // take one ask off the list (only one copy gets it: copies run one at a time) -> the ask, or null when it is gone
 function takeAsk(id) {
   const all = asksNow(), a = all.find((x) => x.id === id) ?? null;
@@ -230,7 +235,8 @@ export function dropLoop(owner, cx) {
       for (;;) {
         const d = await host.nextDrop();
         const p = readPayload(d?.payload);
-        if (p && d?.space?.id) requestPlace(p.agent, d.space, p.tool, cx, "拖到 space", owner);
+        // d.index: where among the space's tabs it was dropped (a newer Herdr; 1 = first), carried as space.at
+        if (p && d?.space?.id) requestPlace(p.agent, { ...d.space, at: d.index ?? null }, p.tool, cx, "拖到 space", owner);
         cx.notify();
       }
     } catch { /* this copy closed */ } finally { owner.dropping = false; }

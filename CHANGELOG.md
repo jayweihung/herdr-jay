@@ -9,6 +9,18 @@ says which) · **kit** = update kit itself on every machine where agents run (`k
 **snap hook** = a line in Claude Code's `settings.json` on each machine where you added the hook (the entry says
 which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/keys.md).
 
+## 2026-11-13, Herdr app: drag onto a space
+
+Needs: **app** (same v0.1.15, now with two patches: rebuild it; core unchanged), **kit** 0.5.0, **mods**.
+
+- `herdr-app/patches/v0.1.15/`: a mod can make what it draws draggable and learns when it is dropped on a space in
+  the sidebar Agents (grouped by space) or Spaces panel. The Kit panel uses it: drag an agent card onto a space and
+  it gets its own folder there, with a tab running it ([docs/kit.md](docs/kit.md)). Without the patches the Kit panel
+  shows 「放到 space…」 instead, which does the same.
+- Build steps apply them: [docs/macos.md](docs/macos.md) §3/§8, [docs/windows.md](docs/windows.md) §3/§8.2 (the app
+  blocks only). [docs/patches.md](docs/patches.md) says what they change.
+app 同樣是 v0.1.15，多了兩個 patch（拖到 space），要重新 build app；core 不用動。
+
 ## 2026-11-13, kit: fixes to pasted MCP setups, placing agents, 各機器
 
 Needs: **mods** (the kit mod changed: Windows copies it again; macOS symlink: nothing, Herdr picks it up on its next

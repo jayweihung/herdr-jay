@@ -496,7 +496,7 @@ Windows 欄沒有日期的 tag 不要切過去，留在 `main`。 ZIP: delete th
 
 ### 8.2 Core and app on the PC
 
-Only if the README table lists a newer version. Order: **core** checkout block → its build block → [8.3](#83-core-on-the-linux-server)
+Only if the README table lists a newer version, **or the same version with different patches** (e.g. 2026-11-13: app v0.1.15 got two patches for dragging an agent onto a space: run the **app** blocks only). Order: **core** checkout block → its build block → [8.3](#83-core-on-the-linux-server)
 (server) → **app** checkout block (`$repo = "herdr-app"`, the app version) → its build block.
 In the first line replace `<version from the README table>` with that version (e.g. `v0.1.20`).
 Paste each block with **Ctrl+V as one block** (not right-click, not line by line).

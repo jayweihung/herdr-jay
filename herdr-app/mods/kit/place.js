@@ -8,11 +8,18 @@
 // dragged are several folders. Dropping the same agent again on the same space syncs its folder and opens another tab.
 // The drag API is looked up at run time (import * as host): an older Herdr has no nextDrop and no on_drag, and then
 // only the button is there.
+// A copy's unfinished work is cancelled when it closes (never settles: no finally). The Agents window is closed
+// whenever people like, so it hands a place to the tab-bar button (the longest-lived copy) through shared state
+// (PLACE_ASK) and runs it itself only when no button took it; whichever copy runs it holds the lock in owner.mine, and
+// its close gives the lock back and says the tab wasn't opened (placeClosed).
 import * as host from "herdr";
-import { run, notify, home, setShared } from "herdr";
-import { AGENTS_MSG, kit, kitJson, isWindows, takeBusy, giveBusy, markChanged } from "./common.js";
+import { run, notify, home, shared, setShared } from "herdr";
+import { AGENTS_MSG, PLACE_ASK, kit, kitJson, isWindows, busyNow, takeBusy, giveBusy, markChanged } from "./common.js";
 
 export const PLACE_TTL = 180000;
+export const ASK_WAIT = 1500;    // a window's place no button took by then: the window runs it itself
+export const ASK_OLD = 10000;    // an ask older than this is dropped, never run (its window is long gone)
+export const CLOSED_TEXT = "視窗關了，分頁沒開：再放一次（kit place 可以重跑）";
 const TOOLS = ["claude", "codex", "omp"];
 const NAME = /^[a-z0-9][a-z0-9-]*$/;   // kit's names
 
@@ -63,17 +70,25 @@ function placeError(error, r, machine) {
   return plain ? `${plain}。\n${error.message}` : error.message;
 }
 
-// kit place on the space's machine, then a tab there in the folder kit made, running the command kit gave. Progress
-// and the outcome as toasts, and in the Agents panel's message. One kit action at a time (the mod's lock).
-// -> false when another action holds the lock (said so)
-export function placeAgent(agent, space, tool, cx, label = "放到 space") {
-  const where = space?.name || "這個 space", machine = space?.machine ?? null;
-  const say = (ok, text) => {
+// the outcome, in the Agents panel's message and as a toast
+function sayer(agent, where, label) {
+  return (ok, text) => {
     setShared(AGENTS_MSG, { ok, label, text, at: Date.now() });
     notify({ title: ok ? `${agent} 放到 ${where} 了` : `${agent} 放不進 ${where}`, body: text, level: ok ? "success" : "error", timeout: ok ? 5000 : 10000 });
   };
+}
+
+// kit place on the space's machine, then a tab there in the folder kit made, running the command kit gave. Progress
+// and the outcome as toasts, and in the Agents panel's message. One kit action at a time (the mod's lock, its id in
+// owner.mine and the place in owner.placeRun while it runs, so owner's close can give it back: placeClosed).
+// -> false when another action holds the lock (said so)
+export function placeAgent(agent, space, tool, cx, label = "放到 space", owner = {}) {
+  const where = space?.name || "這個 space", machine = space?.machine ?? null;
+  const say = sayer(agent, where, label);
   const id = takeBusy(`放 ${agent}`, PLACE_TTL);
   if (!id) { say(false, "另一個 kit 動作還在跑，等它跑完再試一次。"); return false; }
+  owner.mine = id;
+  owner.placeRun = { agent, where, label };
   const dir = placeDir(space, agent);
   notify({ title: `把 ${agent} 放到 ${where}…`, body: `kit place ${agent} ${dir}${machine ? `（在 ${machine}）` : ""}`, level: "info", timeout: 3000 });
   cx.spawn(async (cx) => {
@@ -88,9 +103,63 @@ export function placeAgent(agent, space, tool, cx, label = "放到 space") {
       const warns = (Array.isArray(data.warnings) ? data.warnings : []).filter((w) => typeof w === "string");
       say(true, [`在 ${folder} 開了 ${agent}：在那裡開的 ${cmd[0]} 就是它。`,
         "之後在它的 Kit 清單按「加到這個資料夾」或「從資料夾拿掉」，只改這個資料夾。", ...warns.map((w) => `⚠ ${w}`)].join("\n"));
-    } finally { giveBusy(id); markChanged(machine); cx.notify(); }
+    } finally {
+      giveBusy(id);
+      if (owner.mine === id) owner.mine = null;
+      owner.placeRun = null;
+      markChanged(machine);
+      cx.notify();
+    }
   });
   return true;
+}
+
+// the asks still waiting (younger than ASK_OLD); a JSON copy of the space: shared state keeps plain values
+const asksNow = () => (Array.isArray(shared(PLACE_ASK)) ? shared(PLACE_ASK) : []).filter((a) => a && Date.now() - (a.at ?? 0) < ASK_OLD);
+const plainSpace = (s) => ({ id: s.id, name: s.name ?? "", machine: s.machine ?? null, folder: s.folder ?? "" });
+// take one ask off the list (only one copy gets it: copies run one at a time) -> the ask, or null when it is gone
+function takeAsk(id) {
+  const all = asksNow(), a = all.find((x) => x.id === id) ?? null;
+  if (a) setShared(PLACE_ASK, all.filter((x) => x.id !== id));
+  return a;
+}
+
+// Put an agent in a space from a copy of the Agents panel (owner). The Agents window (owner.handOff) hands it to the
+// tab-bar button, and runs it itself only when no button took it within ASK_WAIT (a layout without the button);
+// the panel in the layout and the button run it themselves. -> false when another action holds the lock (said so)
+export function requestPlace(agent, space, tool, cx, label = "放到 space", owner = {}) {
+  if (!owner.handOff) return placeAgent(agent, space, tool, cx, label, owner);
+  if (busyNow()) { sayer(agent, space?.name || "這個 space", label)(false, "另一個 kit 動作還在跑，等它跑完再試一次。"); return false; }
+  const ask = { id: `${Date.now()}-${Math.random()}`, agent, space: plainSpace(space), tool, label, at: Date.now() };
+  setShared(PLACE_ASK, [...asksNow(), ask]);
+  (owner.asks ??= new Set()).add(ask.id);
+  cx.timer.after(ASK_WAIT, (cx) => {
+    owner.asks?.delete(ask.id);
+    const mine = takeAsk(ask.id);
+    if (mine) placeAgent(mine.agent, mine.space, mine.tool, cx, mine.label, owner);
+  });
+  return true;
+}
+// The tab-bar button (owner): start the places the Agents window handed over, one each time (the lock: one at a time)
+export function takeAsks(owner, cx) {
+  const all = asksNow();
+  if (all.length !== (Array.isArray(shared(PLACE_ASK)) ? shared(PLACE_ASK).length : 0)) setShared(PLACE_ASK, all);   // drop old ones
+  if (!all.length || busyNow()) return;
+  const a = takeAsk(all[0].id);
+  if (a) placeAgent(a.agent, a.space, a.tool, cx, a.label, owner);
+}
+// owner closes: its unfinished work is cancelled and never ends, so the lock is given back here, and the asks no button
+// took are taken back; either way the tab wasn't opened, and people are told
+export function placeClosed(owner) {
+  const going = owner.placeRun, left = [...(owner.asks ?? [])].map(takeAsk).filter(Boolean);
+  owner.asks?.clear();
+  if (going) {
+    giveBusy(owner.mine);
+    owner.mine = null;
+    owner.placeRun = null;
+  }
+  const what = going ?? (left[0] ? { agent: left[0].agent, where: left[0].space.name || "這個 space", label: left[0].label } : null);
+  if (what) sayer(what.agent, what.where, what.label)(false, CLOSED_TEXT);
 }
 
 // The drops of this mod's drags (an agent card onto a space). One waiting loop per copy that runs it (the Agents panel
@@ -104,7 +173,7 @@ export function dropLoop(owner, cx) {
       for (;;) {
         const d = await host.nextDrop();
         const p = readPayload(d?.payload);
-        if (p && d?.space?.id) placeAgent(p.agent, d.space, p.tool, cx, "拖到 space");
+        if (p && d?.space?.id) requestPlace(p.agent, d.space, p.tool, cx, "拖到 space", owner);
         cx.notify();
       }
     } catch { /* this copy closed */ } finally { owner.dropping = false; }

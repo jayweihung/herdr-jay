@@ -19,6 +19,8 @@ export const CTX = "kit.ctx.v1";               // key -> how full the agent's co
 export const AGENTS_DATA = "kit.agents.data.v1";   // kit agents --json
 export const AGENTS_LOAD = "kit.agents.load";      // { seq, at, done } its load in progress
 export const AGENTS_MSG = "kit.agents.msg";        // kit's words after an action in the Agents panel
+export const PLACE_ASK = "kit.place.ask";          // [{ id, agent, space, tool, label, at }] places the Agents window handed to
+                                                   // the tab-bar button (place.js), taken off as it starts them
 export const API = "kit.api.v1";               // machine ("" = this computer) -> what kit api said (see checkApi)
 
 // ---------- the layout's nodes (the panels are found and shown / hidden by these ids) ----------

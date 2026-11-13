@@ -19,7 +19,11 @@ export const MACHINES = "kit.machines.v1";   // { seq, started, done, at, rows, 
 export const SETTINGS_FILE = "kit-machines.json";
 export const REPORT_MAX = 65536;             // a report file bigger than this is not read
 const ASK_TTL = 20000, OLD_TTL = 15000;      // kit status; kit api / --version of an older kit
-const LOAD_TTL = 60000, STALE = 600000;      // a load older than this never finished; look again after 10 minutes
+const HC_TTL = 30000;                        // hc machine ls (exec's own limit)
+// A load older than LOAD_TTL never finished (Herdr quit meanwhile): longer than the slowest one, hc machine ls, then
+// a machine's kit status by sh and then kit.cmd (common.js kit()), then an older kit's api / --version the same way,
+// plus room (a report file, read there by cat and then type, 2 × 30 s, is quicker). Look again after 10 minutes.
+export const LOAD_TTL = HC_TTL + 2 * ASK_TTL + 2 * OLD_TTL + 30000, STALE = 600000;
 
 // What each kit api (major.minor) added that people see in Herdr, by the short name they know from the screen.
 // A row whose api is older than the newest row's lacks the ones in between. New kit features: add a line here.
@@ -99,7 +103,16 @@ export function readSettings(text) {
   return { reported, error: reported.length < list.length ? `${SETTINGS_FILE} 有 ${list.length - reported.length} 筆缺 label 或 file，沒用` : null };
 }
 
-// the newest kit and api among the rows that answered, and the newest valid approval serial
+// The approvals to trust: a report file is the account's own word (anyone who can write that file could put any serial
+// in it), so the rows asked directly come first and the reported ones count only when no asked row has valid approvals
+// (Windows: kit there never has approvals of its own). -> the rows with valid approvals, and whether they are reported
+function trusted(rows) {
+  const ok = rows.filter((r) => r.state === "ok" && r.approvals?.valid);
+  const asked = ok.filter((r) => !r.reported);
+  return asked.length ? { rows: asked, reported: false } : { rows: ok, reported: ok.length > 0 };
+}
+// the newest kit and api among the rows that answered, and the newest valid approval serial (serialReported: it is
+// only a report file's, see trusted)
 export function newest(rows) {
   let kit = null, api = null, serial = null;
   for (const r of rows) {
@@ -107,9 +120,10 @@ export function newest(rows) {
     if (r.kit && (!kit || verCmp(r.kit, kit) > 0)) kit = r.kit;
     const a = apiOf(r.api);
     if (a && (!api || apiCmp(a, api) > 0)) api = a;
-    if (r.approvals?.valid && r.approvals.serial != null && (serial == null || r.approvals.serial > serial)) serial = r.approvals.serial;
   }
-  return { kit, api, serial };
+  const t = trusted(rows);
+  for (const r of t.rows) if (r.approvals.serial != null && (serial == null || r.approvals.serial > serial)) serial = r.approvals.serial;
+  return { kit, api, serial, serialReported: serial != null && t.reported };
 }
 // what a row lacks next to the newest: [{ name, kit }], and the kit version that has them all
 export function missing(row, top) {
@@ -128,11 +142,12 @@ export function atApproved(row) {
   return known.length ? known.every((x) => x.commit === x.approved) : null;
 }
 // the approved commits to compare this computer's sources with: this computer's own approvals, else the row with the
-// newest valid serial -> { row, of(name) } or null
+// newest valid serial among the trusted ones (asked rows; reported ones only when there is no asked one)
+// -> { row, of(name) } or null
 export function approvedRef(rows) {
-  const ok = rows.filter((r) => r.state === "ok" && r.approvals?.valid);
-  const here = ok.find((r) => r.here);
-  const row = here ?? ok.sort((a, b) => (b.approvals.serial ?? -1) - (a.approvals.serial ?? -1))[0];
+  const t = trusted(rows);
+  const here = t.rows.find((r) => r.here);
+  const row = here ?? [...t.rows].sort((a, b) => (b.approvals.serial ?? -1) - (a.approvals.serial ?? -1))[0];
   if (!row) return null;
   const of = (name) => [row.self, ...(row.sources ?? [])].find((x) => x?.name === name)?.approved ?? null;
   return { row, of };
@@ -217,7 +232,7 @@ export function machinesTab(t, z) {
   const d = machinesData(), rows = d?.rows ?? [], top = newest(rows), loading = machinesLoading();
   const box = v_flex().flex_1().min_h(0).overflow_y_scrollbar().px(10).py(8).gap(2);
   if (!d?.rows) return box.child(h_flex().gap(6).items_center().text_color(t.muted).child(spin(z - 1, t.muted)).child("讀取中…"));
-  const head = [top.kit ? `kit ${top.kit}` : null, top.serial != null ? `核准簽到第 ${top.serial} 號` : null].filter(Boolean).join(" · ");
+  const head = [top.kit ? `kit ${top.kit}` : null, top.serial != null ? `核准簽到第 ${top.serial} 號${top.serialReported ? "（自報）" : ""}` : null].filter(Boolean).join(" · ");
   box.child(h_flex().gap(6).items_center().pb(6).font_semibold()
     .child(`最新：${head || "—"}`).when(loading, (el) => el.child(spin(z - 2, t.muted))));
   const cell = (w, el) => div().w(w).flex_none().min_w(0).child(el);
@@ -283,7 +298,7 @@ function sourcesCard(t, z, rows) {
   const list = [here.self, ...(here.sources ?? [])].filter(Boolean);
   if (!list.length) return v.child(div().text_size(z - 2).text_color(t.dim).child("—"));
   if (ref) v.child(div().text_size(z - 2).text_color(t.dim).child(ref.row.here ? `核准紀錄：第 ${ref.row.approvals.serial} 號（這台的）`
-    : `核准紀錄：第 ${ref.row.approvals.serial} 號（${rowLabel(ref.row)}${ref.row.user ? ` ${ref.row.user}` : ""} 回報的）`));
+    : `核准紀錄：第 ${ref.row.approvals.serial} 號（${rowLabel(ref.row)}${ref.row.user ? ` ${ref.row.user}` : ""} 回報的）${ref.row.reported ? "（自報）" : ""}`));
   for (const s of list) {
     const ok = ref?.of(s.name) ?? null;
     const [mark, color] = !s.commit ? ["不是 git，沒有 commit", t.dim] : !ref ? ["—　沒有核准紀錄", t.dim] : !ok ? ["—　核准紀錄裡沒有它", t.dim]

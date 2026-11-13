@@ -9,6 +9,27 @@ says which) · **kit** = update kit itself on every machine where agents run (`k
 **snap hook** = a line in Claude Code's `settings.json` on each machine where you added the hook (the entry says
 which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/keys.md).
 
+## 2026-11-13, kit: fixes to pasted MCP setups, placing agents, 各機器
+
+Needs: **mods** (the kit mod changed: Windows copies it again; macOS symlink: nothing, Herdr picks it up on its next
+start).
+要做：mods（kit mod 有改）。
+
+- **貼上設定**: the file the paste goes to kit in (`<Herdr's settings folder>/kit-tmp/mcp-paste.txt`) is made
+  private first on Mac / Linux (folder 700, file 600; not written when that fails), is also blanked when the panel
+  closes while kit reads it (Herdr quit, another layout, the window closed), and one left over is blanked the next
+  time the panel opens. A blank that fails is said (a notification), not swallowed. A server picked from a paste with
+  several is sent by kit's name (`MCP_DOCKER` → `mcp-docker`), so kit no longer refuses it.
+  貼上的設定：暫存檔先設成只有自己能讀；kit 還在讀時面板被關掉也會清，下次打開也會清；清不掉會說。好幾個 server 時點的名字改用 kit 的寫法交給 kit。
+- **Put an agent in a space** from the Agents window: handed to the tab-bar Agents button, so closing the window
+  right after no longer cancels it. A place cut off by its panel closing gives the lock back at once (the other kit
+  buttons no longer stay grey for 3 minutes) and says 「視窗關了，分頁沒開：再放一次」.
+  從 Agents 視窗放 agent：交給分頁列的按鈕去跑，關掉視窗也會做完；被關掉中斷的會說，按鈕不會卡住變灰。
+- **各機器**: the approval serial and the approved commits come from machines asked directly; an account's own report
+  file counts only when no machine asked has approvals, labelled 「（自報）」. A slow load (many machines, older kits)
+  is no longer restarted every minute.
+  各機器：核准號碼和核准的 commit 先看直接問到的機器，自己回報的只在沒有時才用，標「（自報）」；慢的讀取不會一直重來。
+
 ## 2026-11-13, kit: an agent in a space, pasted MCP setups
 
 Needs: **mods** (the kit mod changed: Windows copies it again; macOS symlink: nothing, Herdr picks it up on its next

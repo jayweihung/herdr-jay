@@ -24,7 +24,7 @@ import { AGENTS_DATA, AGENTS_LOAD, AGENTS_MSG, NODES, fs, stop, isWindows, short
   localGet, localSet, kitAction, loadNewest, loadingNow } from "./common.js";
 import { ANIMALS, COLORS } from "./bot-models.js";
 import { readBot, withBot, pickBot, botIcon, botProblem, LiveBot } from "./bots.js";
-import { canDrag, draggable, dropLoop, placeAgent, placeDir } from "./place.js";
+import { canDrag, draggable, dropLoop, requestPlace, takeAsks, placeClosed, placeDir } from "./place.js";
 
 const PANEL = NODES.agents;
 const SHORT = 120000, STALE = 50000;
@@ -46,10 +46,16 @@ export class Agents {
   constructor(role) { this.role = role; }
 
   init(_p, cx) {
+    // the Agents window (an overlay, closed whenever people like) hands its places to the tab-bar button, which
+    // starts them: closing the window then doesn't cancel one (place.js)
+    this.handOff = this.role === "agents" && Boolean(props()?.overlay);
     // an agent card dropped on a space (newer Herdr): the panel and its button both wait for drops, so one is waiting
     // while the panel is shown (place.js)
     dropLoop(this, cx);
-    if (this.role === "agents-toggle") return;   // the button only reads what the panel loaded
+    if (this.role === "agents-toggle") {   // the button only reads what the panel loaded, and runs the window's places
+      cx.timer.every(400, (cx) => takeAsks(this, cx));
+      return;
+    }
     this.open = null;      // the agent shown in detail (its name)
     this.placing = null;   // the agent whose 放到 space… list of spaces is open (its name)
     this.adding = {};      // kind -> the "加上…" list is unfolded
@@ -70,6 +76,7 @@ export class Agents {
   }
 
   async close(_cx) {
+    placeClosed(this);   // a place it was running, or one no button took yet: the lock back, and people told
     giveBusy(this.mine);
     this.code?.release();
     this.code = null;
@@ -290,7 +297,7 @@ export class Agents {
       const where = placeDir(s, a.name);
       box.child(h_flex().id(`place-${a.name}-${s.id}`).gap(8).items_center().px(6).py(4).rounded(5)
         .when(!busy, (el) => el.cursor_pointer().hover((st) => st.bg(t.hover)).on_mouse_down("left", stop)
-          .on_click((_e, cx) => { this.placing = null; placeAgent(a.name, s, tool, cx); cx.notify(); }))
+          .on_click((_e, cx) => { this.placing = null; requestPlace(a.name, s, tool, cx, "放到 space", this); cx.notify(); }))
         .child(v_flex().flex_1().min_w(0)
           .child(div().truncate().text_color(busy ? t.dim : t.foreground).child(s.name || s.id))
           .child(div().truncate().text_size(z - 2).text_color(t.dim).child(`${s.machine ?? "這台電腦"} · ${s.machine ? where : shortDir(where)}`))));

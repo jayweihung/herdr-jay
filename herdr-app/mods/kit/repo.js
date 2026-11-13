@@ -10,7 +10,7 @@
 // the panel sits in the layout, and 放進上排 / 更新版面: layout.js. The shared state keys are in common.js.
 import { div } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input, Editor, TextareaState, Textarea } from "gpui-base";
-import { theme, exec, run, layout, shared, setShared, window, readTextFile, writeTextFile, closeOverlay, openOverlay, appHome, props as blockProps } from "herdr";
+import { theme, exec, run, layout, shared, setShared, window, readTextFile, writeTextFile, closeOverlay, openOverlay, appHome, notify, props as blockProps } from "herdr";
 import { DATA, LOAD, EDITORS, NODES, MSG, fs, mono, stop, slash, shortDir, clean, spin, waiting, find, textBlock, copyOnRight, btn,
   busyNow, dropStaleBusy, takeBusy, giveBusy, markChanged, kit, kitJson, apiState, apiKnown, apiAtLeast, checkApi, apiCard, messageBox, problemCard, versionCard,
   squeeze, newEditor, liveEditors, localGet, localSet, kitAction, loadNewest, loadingNow, isWindows } from "./common.js";
@@ -71,6 +71,44 @@ function pasteNext(x) {
     ...((x.packages ?? []).some((p) => p.version && !p.bad) ? [`3. 每台電腦在 MCP 清單按「裝套件」（kit install-deps mcp ${x.name}）：裝好之後不用每次啟動時下載。`] : []),
     ...((x.vars ?? []).length ? [`${(x.packages ?? []).some((p) => p.version && !p.bad) ? 4 : 3}. 每台電腦設好環境變數 ${x.vars.join("、")}（值不會進來源）。`] : [])];
 }
+// The paste goes to kit in a file, never as an argument (kit.cmd on Windows mangles quotes in arguments): one file in
+// this app's own folder, written just before kit runs and blanked as soon as kit has read it (it may hold a token until
+// kit has replaced it with ${VAR}). A task is cancelled when its copy closes (Herdr quits, another layout, the window
+// closed): then its finally never runs, so close() blanks it too, and the next start blanks one left over.
+export const PASTE_LABELS = ["看設定", "建立"];   // the actions (the lock's label) that use the paste file
+export function pastePath() {
+  const sep = isWindows() ? "\\" : "/";
+  return `${String(appHome()).replace(/[\\/]+$/, "")}${sep}kit-tmp${sep}mcp-paste.txt`;
+}
+// Blank the paste file: what is in it now, read again (what was written may not read back the same, e.g. a lone
+// surrogate comes back as U+FFFD), replaced by "". -> null: blank, or not there; else why it couldn't be
+export async function blankPaste(file) {
+  let why = "";
+  for (let i = 0; i < 3; i++) {
+    try {
+      const now = await readTextFile(file);
+      if (!now) return null;
+      await writeTextFile(file, "", now);
+      return null;
+    } catch (e) { why = String(e?.message ?? e); }
+  }
+  return why || "不知道為什麼";
+}
+// Mac / Linux: kit-tmp only its owner can open (0700) and the file only its owner can read (0600), before anything is
+// written in it (writeTextFile keeps a file's permissions when it replaces it). Windows: appHome is in the user's
+// profile (AppData\Roaming), which only that user (and the administrators) can open already: nothing to do.
+async function privatePaste(file) {
+  if (isWindows()) return;
+  const dir = file.slice(0, file.lastIndexOf("/"));
+  const r = await exec("sh", ["-c", 'umask 077 && mkdir -p "$1" && chmod 700 "$1" && touch "$2" && chmod 600 "$2"', "sh", dir, file], { timeout: 10000 });
+  if (r.code !== 0) throw new Error(`${dir} 沒辦法設成只有自己能讀，貼上的設定沒寫進去（${clean(r.stderr || `結束碼 ${r.code}`)}）`);
+}
+// kit's name for one of the paste's servers (kit's mcp.awk norm: lowercase, every run of other characters one -, no -
+// at either end: MCP_DOCKER -> mcp-docker), which kit takes for that server; the name as it is when nothing is left
+export function serverName(s) {
+  const n = String(s).replace(/[A-Z]/g, (c) => c.toLowerCase()).replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  return n || String(s);
+}
 // open a file in this computer's own program for it (explorer: no cmd.exe parsing of & or ^ in the path)
 function openOutside(path) {
   const w = window()?.platform;
@@ -102,6 +140,9 @@ export class Repo {
     }
     this.where = "repo";
     if (this.role === "repo-toggle") return;   // it only shows what the panel loaded (and kit api's answer)
+    // a paste left in its file by a task that never finished (Herdr quit while kit read it): blank it, unless a paste
+    // is under way in another copy
+    if (!PASTE_LABELS.includes(this.busy)) cx.spawn(async (cx) => { await this.blankPasteFile(pastePath()); cx.notify(); });
     this.input = InputState.new({ placeholder: "找：名字、說明、來源" });
     this.input.on("change", (_e, cx) => { this.filter = this.input.value().trim().toLowerCase(); cx.notify(); });
     this.newName = InputState.new({ placeholder: "名字：小寫英文、數字和 -" });
@@ -125,6 +166,12 @@ export class Repo {
   }
 
   async close(_cx) {
+    // a paste kit was given whose task is cancelled with this copy (no finally): blank it, then the lock
+    if (this.pasteFile) {
+      // at quit only exec is sure to run: on Mac / Linux empty it that way first; then (and on Windows) blank it as usual
+      if (!isWindows()) await exec("sh", ["-c", ': > "$1"', "sh", this.pasteFile], { timeout: 5000 }).catch(() => {});
+      await this.blankPasteFile(this.pasteFile);
+    }
     this.endBusy();
     if (this.role === "editor" && this.edit) {
       const ed = { ...(shared(EDITORS) ?? {}) };
@@ -420,22 +467,35 @@ export class Repo {
     if (!this.paste) this.paste = TextareaState.new({ placeholder: "例如 {\"mcpServers\": {\"github\": {\"command\": \"npx\", …}}}，或 claude mcp add …", rows: 7 });
     return this.paste;
   }
-  // The paste goes to kit in a file, never as an argument (kit.cmd on Windows mangles quotes in arguments): one file in
-  // this app's own folder (<appHome>/kit-tmp/mcp-paste.txt), written just before kit runs and blanked as soon as kit has
-  // read it, whatever happened (it may hold a token until kit has replaced it with ${VAR}).
+  // The paste to kit in its file (pastePath(), private first), blanked when kit is done with it, whatever happened;
+  // this.pasteFile says it is in use, so close() blanks it when this task is cancelled
   async withPasteFile(text, fn) {
-    const sep = isWindows() ? "\\" : "/";
-    const file = `${String(appHome()).replace(/[\\/]+$/, "")}${sep}kit-tmp${sep}mcp-paste.txt`;
+    const file = pastePath();
+    await privatePaste(file);
     const before = await readTextFile(file).catch(() => null);
-    await writeTextFile(file, text, before);
-    try { return await fn(file); } finally { await writeTextFile(file, "", text).catch(() => {}); }
+    this.pasteFile = file;
+    try {
+      await writeTextFile(file, text, before);
+      return await fn(file);
+    } finally { await this.blankPasteFile(file); }
+  }
+  // blank the paste file; when that fails, say so (a toast, and this panel's message): it may still hold a token (and
+  // it stays in use: close() tries again)
+  async blankPasteFile(file) {
+    const why = await blankPaste(file);
+    if (why == null) { if (this.pasteFile === file) this.pasteFile = null; return true; }
+    const text = `貼上的設定沒能從 ${file} 清掉（${clean(why)}）：裡面可能有 token，請自己刪掉這個檔案。`;
+    notify({ title: "貼上的設定還在暫存檔裡", body: text, level: "error", timeout: 20000 });
+    this.setMsg({ ok: false, plain: true, label: "貼上設定", text, at: Date.now() });
+    return false;
   }
   pasteArgs(name, file, look) {
     const to = this.making?.source;
     return ["new", "mcp", ...(name ? [name] : []), "--config", file, ...(to ? ["--to", to] : []), ...(look ? ["--look"] : [])];
   }
   // 看看會變成什麼: --look (kit writes nothing; it says the yaml, the variables, the packages). server: a name picked
-  // from the paste's servers (several_servers / not_found), which becomes the name
+  // from the paste's servers (several_servers / not_found; shown as written there, sent as kit's name: serverName),
+  // which becomes the name
   lookPaste(cx, server = null) {
     const m = this.making;
     if (!m) return;
@@ -490,7 +550,7 @@ export class Repo {
     if (p?.err) box.child(v_flex().gap(4).p(8).rounded(6).bg(t.background)
       .child(div().text_size(z - 1.5).text_color(t.ansi1).child(textBlock("paste-err", p.err)))
       .when((p.servers ?? []).length > 0, (el) => el.child(h_flex().gap(4).flex_wrap()
-        .children(p.servers.map((s) => chip(`paste-server-${s}`, s, false, (cx) => this.lookPaste(cx, s)))))));
+        .children(p.servers.map((s) => chip(`paste-server-${s}`, s, false, (cx) => this.lookPaste(cx, serverName(s))))))));
     const x = p?.data;
     if (!x) return box.child(note("先按「看看會變成什麼」：kit 只列出會寫成什麼，還不會放進你的倉。", t.dim));
     const card = v_flex().gap(5).p(8).rounded(6).bg(t.background);

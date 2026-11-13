@@ -21,7 +21,7 @@ const H = (globalThis.__H = {
   store: {}, props: {}, layout: { id: "root", children: [] }, window: { platform: "macos" }, home: "/Users/amy",
   calls: [], answer: () => ({ code: 0, stdout: "", stderr: "" }), overlays: [], runs: [], notes: [], timeouts: [],
   texts: [], strings: [], panes: [], spaces: [], tasks: [], clicks: {}, lastId: null, files: null, writes: [],
-  machines: [], hcAnswer: null, reads: [], clipboard: [], drags: [],
+  machines: [], hcAnswer: null, reads: [], clipboard: [], drags: [], afters: [], writeFail: null,
 });
 const COLOR_METHODS = /(^bg$|color|^border_color$|^text_color$)/;
 const el = new Proxy(function () {}, {
@@ -66,9 +66,18 @@ globalThis.__stubs = {
   run: (name, args) => { H.runs.push([name, args]); }, layout: () => H.layout,
   shared: (k) => H.store[k], setShared: (k, v) => { H.store[k] = v; return null; }, props: () => H.props,
   // files: path -> text a test gives (others read as ""); writes: every [path, text, expected] written
-  // (another machine's files are "<machine>:<path>" in H.files; with H.files, a file not in it is absent: null)
+  // (another machine's files are "<machine>:<path>" in H.files; with H.files, a file not in it is absent: null).
+  // With H.files, as Herdr: a write whose expected isn't what is there is refused, and the text is stored as UTF-8
+  // (a lone surrogate comes back as U+FFFD); H.writeFail(path, text): refuse this one
   readTextFile: async (p, o) => { H.reads.push([p, o?.on ?? null]); const k = o?.on ? `${o.on}:${p}` : p; return H.files ? (k in H.files ? H.files[k] : null) : ""; },
-  writeTextFile: async (p, text, expected) => { H.writes.push([p, text, expected]); if (H.files) H.files[p] = text; },
+  writeTextFile: async (p, text, expected) => {
+    H.writes.push([p, text, expected]);
+    if (H.writeFail?.(p, text)) throw new Error("Permission denied (os error 13)");
+    if (!H.files) return null;
+    if ((p in H.files ? H.files[p] : null) !== expected) throw new Error("The file changed outside Herdr. Reload before saving; your draft is still here.");
+    H.files[p] = text.replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, "\uFFFD");
+    return null;
+  },
   appHome: () => H.appHome ?? "/Users/amy/.config/herdr-app",
   openOverlay: (o) => { H.overlays.push(o); return "o1"; }, closeOverlay: () => {}, notify: (n) => H.notes.push(n),
   panes: () => H.panes, spaces: () => H.spaces, machines: () => H.machines, agents: () => [], focused: () => null,
@@ -88,7 +97,7 @@ async function loadMod() {
   }
   const at = (f) => import(pathToFileURL(join(dir, f)).href);
   const m = { main: await at("main.js"), common: await at("common.js"), layout: await at("layout.js"), context: await at("context.js"), bots: await at("bots.js"),
-    machines: await at("machines.js"), place: await at("place.js") };
+    machines: await at("machines.js"), place: await at("place.js"), repo: await at("repo.js") };
   rmSync(dir, { recursive: true, force: true });
   return m;
 }
@@ -102,14 +111,14 @@ Date.now = () => realNow() + skew;
 const cx = {
   notify() {}, stop_propagation() {}, write_to_clipboard(text) { H.clipboard.push(text); },
   spawn: (f) => { const p = Promise.resolve().then(() => f(cx)); H.tasks.push(p); return p; },
-  timer: { every: (_ms, f) => timers.push(f) },
+  timer: { every: (_ms, f) => timers.push(f), after: (_ms, f) => H.afters.push(f) },   // H.afters: run by a test
   new: (_Class, props) => ({ props, set_props(p) { this.props = p; }, release() { return true; } }),
 };
 async function settle() { for (let i = 0; i < 20 && H.tasks.length; i++) { const t = H.tasks.splice(0); await Promise.all(t); } }
 function fresh() {
   H.store = {}; H.calls = []; H.runs = []; H.overlays = []; H.notes = []; H.texts = []; H.strings = []; H.tasks = []; H.timeouts = []; H.files = null; H.writes = [];
   H.props = {}; H.layout = { id: "root", children: [] }; H.window = { platform: "macos" }; H.panes = []; H.spaces = [];
-  H.machines = []; H.hcAnswer = null; H.reads = []; H.clipboard = []; H.appHome = null; H.drags = [];
+  H.machines = []; H.hcAnswer = null; H.reads = []; H.clipboard = []; H.appHome = null; H.drags = []; H.afters = []; H.writeFail = null;
   delete globalThis.__stubs.nextDrop;   // an older Herdr: no drag API
   timers.length = 0; skew = 0;
 }
@@ -718,6 +727,82 @@ test("agents, an older Herdr (no nextDrop): nothing draggable, no drop loop; 放
   render(v); H.clicks["place-reviewer"]({}, cx); render(v); H.clicks["place-cancel-reviewer"]({}, cx);
   assert.ok(!ids(v).includes("place-reviewer-s1"));
 });
+// a kit place that answers only when the test says (release), or never: the task waits on it as long as it likes
+function slowPlace() {
+  const s = { release: null };
+  placeKit((a) => new Promise((r) => { s.release = () => r(PLACED(a[2])); }));
+  return s;
+}
+const runTimers = async () => { for (const f of [...timers]) f(cx); await new Promise((r) => setTimeout(r, 20)); };
+test("agents: the panel closed while kit place runs (the task cancelled, no finally): its close gives the lock back and says the tab wasn't opened", async (M) => {
+  fresh();
+  H.spaces = [{ id: "s1", name: "web", machine: null, folder: "/Users/amy/web" }];
+  placeKit(() => never());
+  const v = view(M, { role: "agents" }); await settle(); await tick();
+  render(v); H.clicks["place-reviewer"]({}, cx); render(v); H.clicks["place-reviewer-s1"]({}, cx);
+  await cancelTasks();
+  assert.equal(kitCalls("place").length, 1);
+  assert.equal(H.store["kit.busy"].label, "放 reviewer");
+  assert.ok(v.part.mine, "its lock id kept by the copy");
+  await v.close(cx);
+  assert.equal(H.store["kit.busy"] ?? null, null, "not grey for 3 minutes");
+  assert.equal(H.store["kit.agents.msg"].text, M.place.CLOSED_TEXT);
+  assert.equal(H.store["kit.agents.msg"].ok, false);
+  assert.equal(H.notes.at(-1).level, "error"); assert.equal(H.notes.at(-1).body, "視窗關了，分頁沒開：再放一次（kit place 可以重跑）");
+  assert.equal(H.runs.filter((r) => r[0] === "tab.new").length, 0);
+});
+test("agents window: a place is handed to the tab-bar button, so closing the window doesn't cancel it; no button: the window runs it itself; closed before anyone took it: said", async (M) => {
+  fresh();
+  const space = { id: "s1", name: "web", machine: null, folder: "/Users/amy/web" };
+  H.spaces = [space];
+  let s = slowPlace();
+  const button = view(M, { role: "agents-toggle" });
+  const win = view(M, { role: "agents", overlay: "o1" }); await settle(); await tick();
+  render(win); H.clicks["place-reviewer"]({}, cx); render(win); H.clicks["place-reviewer-s1"]({}, cx);
+  assert.equal(kitCalls("place").length, 0, "handed over, not run in the window");
+  assert.equal(H.store["kit.place.ask"].length, 1);
+  await runTimers();   // the button takes it
+  assert.equal(kitCalls("place").length, 1); assert.deepEqual(H.store["kit.place.ask"], []);
+  assert.equal(win.part.mine ?? null, null); assert.ok(button.part.mine, "the button holds the lock");
+  await win.close(cx);
+  assert.equal(H.store["kit.agents.msg"] ?? null, null, "nothing to say: the button has it");
+  assert.equal(H.store["kit.busy"].label, "放 reviewer");
+  s.release(); await settle();
+  assert.deepEqual(H.runs.find((r) => r[0] === "tab.new")[1], { name: "reviewer", space: "s1", folder: "/Users/amy/web/reviewer", argv: ["claude"] });
+  assert.equal(H.store["kit.busy"] ?? null, null);
+  assert.match(H.store["kit.agents.msg"].text, /在 \/Users\/amy\/web\/reviewer 開了 reviewer/);
+  H.afters.splice(0).forEach((f) => f(cx)); await settle();
+  assert.equal(kitCalls("place").length, 1, "the window's fallback finds it taken");
+  // the button closed while it runs it: the same as any copy
+  fresh(); H.spaces = [space]; placeKit(() => never());
+  const b2 = view(M, { role: "agents-toggle" });
+  const w2 = view(M, { role: "agents", overlay: "o1" }); await settle(); await tick();
+  render(w2); H.clicks["place-reviewer"]({}, cx); render(w2); H.clicks["place-reviewer-s1"]({}, cx);
+  await runTimers(); await cancelTasks();
+  await b2.close(cx);
+  assert.equal(H.store["kit.busy"] ?? null, null); assert.equal(H.store["kit.agents.msg"].text, M.place.CLOSED_TEXT);
+  // no button (a layout without it): after ASK_WAIT the window runs it itself
+  fresh(); H.spaces = [space]; placeKit((a) => PLACED(a[2]));
+  const w3 = view(M, { role: "agents", overlay: "o1" }); await settle(); await tick();
+  render(w3); H.clicks["place-reviewer"]({}, cx); render(w3); H.clicks["place-reviewer-s1"]({}, cx);
+  assert.equal(kitCalls("place").length, 0);
+  H.afters.splice(0).forEach((f) => f(cx)); await settle();
+  assert.equal(kitCalls("place").length, 1); assert.equal(H.runs.filter((r) => r[0] === "tab.new").length, 1);
+  assert.deepEqual(H.store["kit.place.ask"], []);
+  // closed before anyone took it: taken back, said
+  fresh(); H.spaces = [space]; placeKit((a) => PLACED(a[2]));
+  const w4 = view(M, { role: "agents", overlay: "o1" }); await settle(); await tick();
+  render(w4); H.clicks["place-reviewer"]({}, cx); render(w4); H.clicks["place-reviewer-s1"]({}, cx);
+  await w4.close(cx);
+  assert.deepEqual(H.store["kit.place.ask"], []); assert.equal(H.store["kit.agents.msg"].text, M.place.CLOSED_TEXT);
+  const late = view(M, { role: "agents-toggle" }); await runTimers();
+  assert.equal(kitCalls("place").length, 0, "nobody runs it later");
+  // an ask too old (Herdr quit before anyone took it) is dropped, never run
+  H.store["kit.place.ask"] = [{ id: "x", agent: "reviewer", space, tool: "claude", label: "放到 space", at: Date.now() - M.place.ASK_OLD - 1 }];
+  await runTimers();
+  assert.equal(kitCalls("place").length, 0); assert.deepEqual(H.store["kit.place.ask"], []);
+  void late;
+});
 test("FEATURES: kit 0.5.0 (api 1.3) adds 貼上 MCP 設定, 各機器的核准和來源, 把 agent 放到 space", ({ machines: X }) => {
   assert.deepEqual(X.FEATURES.filter((f) => f.api === "1.3").map((f) => [f.name, f.kit]),
     [["貼上 MCP 設定", "0.5.0"], ["各機器的核准和來源", "0.5.0"], ["把 agent 放到 space", "0.5.0"]]);
@@ -804,6 +889,106 @@ test("MCP 貼上設定: several servers / a name not in it: pick one (re-looked 
   w.part.pasteCode().set_value(PASTE);
   render(w); H.clicks["paste-look"]({}, cx); await settle();
   assert.equal(asked.at(-1)[asked.at(-1).indexOf("--config") + 1], "C:\\Users\\amy\\AppData\\Roaming\\herdr-app\\kit-tmp\\mcp-paste.txt");
+});
+// a task Herdr cancels (its copy closed): what it awaits never settles, so neither does the rest of it (no finally)
+const never = () => new Promise(() => {});
+const cancelTasks = async () => { H.tasks.splice(0); await new Promise((r) => setTimeout(r, 20)); };
+const shCalls = (re) => H.calls.filter((c) => c.argv[0] === "sh" && re.test(c.argv[2] ?? ""));
+test("MCP 貼上設定: its folder made private first (Mac / Linux: umask 077, 0700, the file 0600); refused, nothing is written", async (M) => {
+  const v = await pastePanel(M, () => ({ code: 0, stdout: `${JSON.stringify(LOOK)}\n`, stderr: "" }));
+  v.part.pasteCode().set_value(PASTE);
+  render(v); H.clicks["paste-look"]({}, cx); await settle();
+  const [mk] = shCalls(/umask 077/);
+  assert.ok(mk, "kit-tmp made by sh");
+  assert.match(mk.argv[2], /umask 077 && mkdir -p "\$1" && chmod 700 "\$1" && touch "\$2" && chmod 600 "\$2"/);
+  assert.deepEqual(mk.argv.slice(3), ["sh", "/Users/amy/.config/herdr-app/kit-tmp", FILE], "paths as arguments, never in the script");
+  assert.ok(H.calls.indexOf(mk) < H.calls.findIndex((c) => c.argv[1] === "new"), "before kit runs");
+  // sh refuses: the paste is not written, and kit isn't run
+  const base = H.answer;
+  H.answer = (argv, on) => (argv[0] === "sh" && /umask/.test(argv[2]) ? { code: 1, stdout: "", stderr: "chmod: Operation not permitted" } : base(argv, on));
+  H.writes = []; const n = kitCalls("new").length;
+  render(v); H.clicks["paste-look"]({}, cx); await settle();
+  assert.deepEqual(H.writes.filter((w) => w[1] === PASTE), [], "not written");
+  assert.equal(kitCalls("new").length, n);
+  assert.match(render(v), /沒辦法設成只有自己能讀，貼上的設定沒寫進去[\s\S]*Operation not permitted/);
+  // Windows: the profile is the user's already: no sh
+  const w = await pastePanel(M, () => ({ code: 0, stdout: `${JSON.stringify(LOOK)}\n`, stderr: "" }));
+  H.window = { platform: "windows" };
+  w.part.pasteCode().set_value(PASTE);
+  render(w); H.clicks["paste-look"]({}, cx); await settle();
+  assert.equal(H.calls.filter((c) => c.argv[0] === "sh").length, 0);
+  assert.ok(H.writes.some((x) => x[1] === PASTE));
+});
+test("MCP 貼上設定: the panel closed while kit reads the paste (the task cancelled, no finally): close() empties it (sh : >), blanks it over what it reads, gives the lock back", async (M) => {
+  const v = await pastePanel(M, () => never());
+  v.part.pasteCode().set_value(PASTE);
+  render(v); H.clicks["paste-look"]({}, cx);
+  await cancelTasks();
+  assert.equal(H.files[FILE], PASTE, "kit has it");
+  assert.equal(H.store["kit.busy"].label, "看設定");
+  await v.close(cx);
+  const [cut] = shCalls(/^: > "\$1"$/);
+  assert.deepEqual(cut?.argv.slice(3), ["sh", FILE], "emptied by exec (at quit only exec is sure to run)");
+  assert.deepEqual(H.writes.at(-1), [FILE, "", PASTE], "and blanked over what was read");
+  assert.equal(H.files[FILE], "");
+  assert.equal(H.store["kit.busy"] ?? null, null, "the lock given back");
+  // 建立 cancelled the same way
+  const w = await pastePanel(M, (a) => (a.includes("--look") ? { code: 0, stdout: `${JSON.stringify(LOOK)}\n`, stderr: "" } : never()));
+  w.part.pasteCode().set_value(PASTE);
+  render(w); H.clicks["paste-look"]({}, cx); await settle();
+  render(w); H.clicks["paste-make"]({}, cx);
+  await cancelTasks();
+  assert.equal(H.files[FILE], PASTE);
+  await w.close(cx);
+  assert.equal(H.files[FILE], ""); assert.equal(H.store["kit.busy"] ?? null, null);
+  // nothing in use: close leaves the file alone
+  const u = await pastePanel(M, () => ({ code: 0, stdout: "{}", stderr: "" }));
+  const n = H.writes.length, cuts = shCalls(/^: >/).length;
+  await u.close(cx);
+  assert.equal(H.writes.length, n); assert.equal(shCalls(/^: >/).length, cuts);
+});
+test("MCP 貼上設定: a paste left from a task that never finished (Herdr quit) is blanked when the panel starts, unless a paste is under way elsewhere", async (M) => {
+  fresh(); fakeKit({ api: "1.3", list: MCP_LIST }); H.files = { [FILE]: PASTE };
+  view(M, { role: "repo" }); await settle();
+  assert.equal(H.files[FILE], ""); assert.deepEqual(H.writes, [[FILE, "", PASTE]]);
+  fresh(); fakeKit({ api: "1.3", list: MCP_LIST }); H.files = { [FILE]: "" };
+  view(M, { role: "repo" }); await settle();
+  assert.deepEqual(H.writes, [], "blank already: nothing written");
+  fresh(); fakeKit({ api: "1.3", list: MCP_LIST }); H.files = { [FILE]: PASTE };
+  H.store["kit.busy"] = { label: "看設定", at: Date.now(), ttl: 120000, id: "other" };
+  view(M, { role: "repo" }); await settle();
+  assert.equal(H.files[FILE], PASTE, "another copy's kit is reading it");
+  fresh(); fakeKit({ api: "1.3", list: MCP_LIST }); H.files = { [FILE]: PASTE };
+  view(M, { role: "repo-toggle" }); view(M, { role: "editor" }); await settle();
+  assert.equal(H.files[FILE], PASTE, "only the panel does it");
+});
+test("MCP 貼上設定: blanked over what the file holds now (a lone surrogate comes back as U+FFFD); a blank that fails is said, never swallowed", async (M) => {
+  const v = await pastePanel(M, () => ({ code: 0, stdout: `${JSON.stringify(LOOK)}\n`, stderr: "" }));
+  v.part.pasteCode().set_value(PASTE + "\uD800");
+  render(v); H.clicks["paste-look"]({}, cx); await settle();
+  assert.equal(H.files[FILE], "", "blank, though it didn't read back as written");
+  assert.deepEqual(H.writes.at(-1), [FILE, "", PASTE + "�"]);
+  assert.ok(!H.notes.some((n) => n.level === "error"));
+  H.writeFail = (p, text) => p === FILE && text === "";
+  render(v); H.clicks["paste-look"]({}, cx); await settle();
+  const n = H.notes.at(-1);
+  assert.equal(n.level, "error"); assert.match(n.body, /沒能從 \/Users\/amy\/\.config\/herdr-app\/kit-tmp\/mcp-paste\.txt 清掉（Permission denied[^）]*）：裡面可能有 token，請自己刪掉這個檔案/);
+  assert.match(H.store["kit.msg.repo"].text, /請自己刪掉這個檔案/);
+  assert.equal(H.store["kit.busy"] ?? null, null);
+});
+test("MCP 貼上設定: a server picked from the paste is shown as written there and sent as kit's name (MCP_DOCKER -> mcp-docker)", async (M) => {
+  const R = M.repo;
+  assert.deepEqual(["MCP_DOCKER", "github", "--My  Server--", "a.b_c", "ÉX", "数"].map(R.serverName), ["mcp-docker", "github", "my-server", "a-b-c", "x", "数"]);
+  let answer = { code: 1, stdout: `${JSON.stringify({ error: { code: "several_servers", message: "m", servers: ["MCP_DOCKER", "notion"] } })}\n`, stderr: "" };
+  const asked = [];
+  const v = await pastePanel(M, (a) => { asked.push(a); return answer; });
+  v.part.pasteCode().set_value(PASTE);
+  render(v); H.clicks["paste-look"]({}, cx); await settle();
+  assert.match(render(v), /MCP_DOCKER/);
+  answer = { code: 0, stdout: `${JSON.stringify({ ...LOOK, name: "mcp-docker" })}\n`, stderr: "" };
+  render(v); H.clicks["paste-server-MCP_DOCKER"]({}, cx); await settle();
+  assert.deepEqual(asked.at(-1).slice(0, 3), ["new", "mcp", "mcp-docker"]);
+  assert.equal(v.part.newName.value(), "mcp-docker");
 });
 test("MCP 貼上設定: an older kit (api 1.2) says kit self-update", async (M) => {
   const v = await pastePanel(M, () => ({ code: 1, stdout: "", stderr: "" }), { api: "1.2" });
@@ -963,7 +1148,7 @@ machinesTest("各機器: what a row lacks is named (no counts), from the api tab
   const rows = [{ state: "ok", kit: "0.4.1", api: "1.2", approvals: { serial: 7, valid: true } }, { state: "ok", kit: "0.4.0", api: "1.1", approvals: { serial: 9, valid: false } },
     { state: "down", kit: "0.9.0", api: "9.0" }];
   const top = X.newest(rows);
-  assert.deepEqual(top, { kit: "0.4.1", api: [1, 2], serial: 7 });
+  assert.deepEqual(top, { kit: "0.4.1", api: [1, 2], serial: 7, serialReported: false });
   assert.deepEqual(X.missing(rows[0], top), { lacks: [], kit: null });
   assert.deepEqual(X.missing(rows[1], top), { lacks: [{ name: "按輪分段", kit: "0.4.1" }], kit: "0.4.1" });
   assert.deepEqual(X.missing({ api: "1.0" }, top).lacks.map((f) => f.name), ["agent-files 清單", "按輪分段"]);
@@ -1044,16 +1229,16 @@ machinesTest("各機器: self-reported accounts (kit-machines.json): read, never
     "box:/var/report.json": JSON.stringify(root), "box:/big.json": " ".repeat(70000) };
   const { open } = await machinesPanel(M);
   const text = await open();
-  assert.deepEqual(H.reads.filter(([p]) => p !== SETTINGS).map(([p, on]) => `${on}:${p}`).sort(), ["box:/big.json", "box:/none.json", "box:/var/report.json"]);
+  assert.deepEqual(H.reads.filter(([p]) => p !== SETTINGS && !p.endsWith("mcp-paste.txt")).map(([p, on]) => `${on}:${p}`).sort(), ["box:/big.json", "box:/none.json", "box:/var/report.json"]);
   assert.ok(!H.calls.some((c) => c.on === "stranger"), "a machine this Herdr doesn't know: nothing asked");
   assert.ok(!H.calls.some((c) => c.argv.join(" ").includes("pwned") || c.argv.includes("sudo")), "nothing from a report is run");
   const r = rowOf("r:0");
   assert.equal(r.state, "ok"); assert.equal(r.user, "root"); assert.deepEqual(r.approvals, { serial: 7, used: 7, valid: true }); assert.equal(r.command, undefined);
   assert.match(rowOf("r:1").why, /不認得 stranger/); assert.match(rowOf("r:2").why, /還沒有回報檔/); assert.match(rowOf("r:3").why, /太大/);
-  assert.match(text, /最新：kit 0\.4\.1 · 核准簽到第 7 號/);
+  assert.match(text, /最新：kit 0\.4\.1 · 核准簽到第 7 號（自報）/, "only a report file has approvals: labelled so");
   assert.match(text, /#7 ✓/); assert.match(text, /12 分鐘前（自己回報）/);
   // this computer's sources against root's approved commits
-  assert.match(text, /核准紀錄：第 7 號（box root root 回報的）/);
+  assert.match(text, /核准紀錄：第 7 號（box root root 回報的）（自報）/);
   assert.match(text, /agentkit[\s\S]*✓ 跟核准的一樣/);
   assert.match(text, /⚠ 跟核准的不一樣（核准的是 ccccccc）/);
 });
@@ -1098,6 +1283,41 @@ test("every mod has a mod.json (JSON) and a main.js; no .ts or jsconfig.json is 
   if (git.status === 0) assert.doesNotMatch(git.stdout, /\.ts$|jsconfig\.json$/m);
 });
 
+machinesTest("各機器: the approvals come from machines asked directly; a self-reported file (anyone who can write it) only when there is none, labelled （自報）", async (M) => {
+  const X = M.machines;
+  const here = { here: true, state: "ok", approvals: null, self: { name: "agentkit", commit: SHA("a"), approved: null }, sources: [] };   // Windows: kit has no approvals
+  const box = { key: "m:box", machine: "box", state: "ok", approvals: { serial: 3, valid: true }, self: { name: "agentkit", approved: SHA("3") } };
+  const fake = { key: "r:0", reported: true, label: "root", state: "ok", approvals: { serial: 99, valid: true }, self: { name: "agentkit", approved: SHA("9") } };
+  assert.deepEqual(X.newest([here, fake, box]).serial, 3);
+  assert.equal(X.newest([here, fake, box]).serialReported, false);
+  assert.equal(X.approvedRef([here, fake, box]).row, box, "the asked row, though the report's serial is higher");
+  assert.equal(X.approvedRef([here, fake, box]).of("agentkit"), SHA("3"));
+  assert.deepEqual([X.newest([here, fake]).serial, X.newest([here, fake]).serialReported], [99, true]);
+  assert.equal(X.approvedRef([here, fake]).row, fake, "no asked row has approvals: the report, labelled");
+  assert.equal(X.approvedRef([here, { ...box, approvals: { serial: 5, valid: false } }, fake]).row, fake, "an asked row with a bad signature doesn't count");
+  // on screen
+  fresh();
+  fleet({ "": { status: STATUS() }, box: { status: STATUS({ approvals: { serial: 3, used: 3, valid: true }, self: { name: "agentkit", commit: SHA("a"), approved: SHA("a") } }) } });
+  H.spaces = [{ machine: "box", tabs: [] }];
+  H.files = { [SETTINGS]: JSON.stringify({ reported: [{ label: "root", machine: "box", file: "/r.json" }] }),
+    "box:/r.json": JSON.stringify(STATUS({ approvals: { serial: 99, used: 99, valid: true }, self: { name: "agentkit", commit: SHA("a"), approved: SHA("e") } })) };
+  const { open } = await machinesPanel(M);
+  const text = await open();
+  assert.match(text, /核准簽到第 3 號/); assert.doesNotMatch(text, /第 99 號|自報）/);
+  assert.match(text, /核准紀錄：第 3 號（box amy 回報的）/);
+  assert.match(text, /agentkit[\s\S]*✓ 跟核准的一樣/);
+});
+machinesTest("各機器: a slow load (hc machine ls, a kit by sh then kit.cmd, an older kit's fallbacks) still counts as loading: the tab doesn't start it again", ({ machines: X }) => {
+  fresh();
+  const worst = 30000 + 2 * 20000 + 2 * 15000;
+  assert.ok(X.LOAD_TTL > worst, `LOAD_TTL ${X.LOAD_TTL} > ${worst}`);
+  H.store["kit.machines.v1"] = { seq: 1, started: Date.now(), done: false, rows: [{ key: "here", state: "loading" }] };
+  skew = worst;
+  assert.equal(X.machinesLoading(), true); assert.equal(X.machinesDue(), false);
+  skew = X.LOAD_TTL + 1;
+  assert.equal(X.machinesLoading(), false, "older than that: it never finished (Herdr quit)"); assert.equal(X.machinesDue(), true);
+  skew = 0;
+});
 // ---------- the real kit (KIT, else the one on PATH) ----------
 async function realKit(M) {
   const win = process.platform === "win32";

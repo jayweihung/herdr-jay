@@ -510,6 +510,40 @@ test("在 nvim 看: nvim's replies, edits and deletes become drafts; a newer pat
   assert.match(page, /只看第 2→3 版改的/); assert.match(page, /nvim 開著/); assert.match(page, /切到 nvim/); assert.match(page, /改成看第 3 版/);
 });
 
+test("在 nvim 看: a suggested edit, older patch sets' threads, your own change fixed by the agent", async (G) => {
+  setConfig({ ...LOGIN, review: { root: "~/rv", search: ["~/src"] } }); const g = freshView(G); g.cfg = await g.readConfig();
+  H.store["gerrit.cfg.v1"] = { url: "https://gerrit.test", auth: true }; H.store["gerrit.data.v1"] = { at: Date.now(), err: null, self: ME, sections: [] };
+  const R = await import(pathToFileURL(join(dirname(MOD), "review.js")).href);
+  const rc = R.reviewComments({ "a.txt": [{ id: "c1", patch_set: 1, line: 9, author: ALICE, message: "old line", unresolved: true }] }, {}, 2, (a) => a?.name ?? "?",
+    { comments: { "a.txt": [{ id: "c1", patch_set: 1, line: 5, author: ALICE, message: "old line", unresolved: true }] }, drafts: {} });
+  assert.deepEqual(rc["a.txt"].map((x) => [x.id, x.line, x.from_ps]), [["c1", 5, 1]], "patch set 1's thread, on the line it is on now");
+  const data = join(H.home, ".config", "herdr-app", "data", "gerrit", "review", "8"); mkdirSync(data, { recursive: true });
+  const wt = `${H.home}/rv/tools-build-8`;
+  g.setReviewEntry({ n: 8, project: "tools/build", subject: "s", ps: 2, base_ps: null, head: "bbb2", base: "0000", wt, data, store: `${H.home}/rv/.repos/tools-build.git`, clone: false, seq: 0, owner: ME._account_id });
+  H.spaces = [{ id: "s1", name: "web" }]; H.focused = { space: "s1" };
+  H.terminals = [{ address: "t9", argv: ["nvim", "--cmd", `let g:nvim_jay_review = '${data}/review.json'`] }, { address: "t5", cwd: "/w" }];
+  H.agents = [{ address: "t5", title: "gerrit", space: "s1" }]; H.store["gerrit.agents.v1"] = ["t5"]; H.opened = [];
+  const revs = { current_revision: "bbb2", revisions: { bbb2: { _number: 2, ref: "refs/changes/08/8/2" } } };
+  gerrit([["PUT", /^\/a\/changes\/8\/revisions\/bbb2\/drafts$/, [201, {}]],
+    ["GET", /^\/a\/changes\/8\/revisions\/bbb2\/ported_comments$/, [200, { "a.txt": [{ id: "o1", patch_set: 1, line: 4, author: ALICE, message: "rename", unresolved: true }] }]],
+    ["GET", /^\/a\/changes\/8\?o=/, [200, change(8, revs)]], ["GET", /^\/a\/changes\/8\//, [200, {}]]]);
+  const F = "`".repeat(3);
+  writeFileSync(join(data, "from-nvim.jsonl"), [{ id: "s1", suggest: { path: "a.txt", start: 3, line: 4, end_char: 7, text: "x = 1\ny = 2", message: "simpler" } },
+    { id: "f1", fix: { path: "a.txt", line: 4, thread: [{ author: "Alice", message: "rename it" }, { author: "Bob", message: "agreed" }] } }]
+    .map((x) => JSON.stringify(x)).join("\n") + "\n");
+  await g.reviewTick(cx);
+  const put = seen.find((r) => r.method === "PUT" && /drafts$/.test(r.path));
+  assert.deepEqual(put.body, { path: "a.txt", line: 4, range: { start_line: 3, start_character: 0, end_line: 4, end_character: 7 },
+    message: `simpler\n\n${F}suggestion\nx = 1\ny = 2\n${F}`, unresolved: true }, "a suggestion: a draft with Gerrit's block over those lines");
+  const sent = H.opened.find((x) => x[0] === "hc" && x[1] === "send");
+  assert.equal(sent?.[2], "t5");
+  for (const want of ["我的 Gerrit change 8", "a.txt 第 4 行", "- Alice：rename it", "- Bob：agreed", `在 ${wt} 裡直接改檔案`, "不要 commit、不要 push"]) assert.ok(sent[3].includes(want), `the request has ${want}`);
+  const rj = JSON.parse(readFileSync(join(data, "review.json"), "utf8"));
+  assert.equal(rj.mine, true, "your own change");
+  assert.deepEqual(rj.comments["a.txt"].map((x) => [x.id, x.line, x.from_ps]), [["o1", 4, 1]], "patch set 1's thread in nvim");
+  assert.ok(R.askText({ n: 8, project: "p", ps: 2, wt }, "u", { path: "a.txt", line: 1 }).includes("suggestion 區塊"), "the agent may suggest edits too");
+});
+
 test("在 nvim 看: the job scripts with a real git (sh; PowerShell when installed): a new store, then the next patch set in the same folder", async () => {
   const { spawnSync } = await import("node:child_process");
   const R = await import(pathToFileURL(join(dirname(MOD), "review.js")).href);

@@ -1764,6 +1764,7 @@ do
       add(("#%s 第 %s 版"):format(tostring(d.change or "?"), tostring(d.ps or "?")), "QtRevHead")
       add(d.base_ps and ("跟第 %s 版比"):format(tostring(d.base_ps)) or "跟上一個 commit 比", "QtRevDim")
       add(tostring(d.subject or ""))
+      if d.mine then add("你的 change：Enter 選單可以請 agent 照留言改", "QtRevDim") end
       local up, latest, ps = d.updating, tonumber(d.latest), tonumber(d.ps)
       if type(up) == "table" and up.to then
         if up.error then add(("⚠ 沒換成第 %s 版：%s"):format(tostring(up.to), tostring(up.error)), "QtRevGone")
@@ -1796,8 +1797,9 @@ do
       add(("看過 %d / %d%s"):format(n_seen, #files, R.order == "tests" and "　先看測試" or ""), "QtRevDim")
       add("在檔案裡按 Enter：這一行能做的事", "QtRevDim")
       add("（留言、回覆、Done、問 agent、換版本…）", "QtRevDim")
-      add("選幾行再按 Enter：問 agent 這幾行", "QtRevDim")
+      add("選幾行再按 Enter：問 agent、建議改法", "QtRevDim")
       add("]f [f 換檔　]c [c 換改動的地方", "QtRevDim")
+      add("]u [u 換未解決的留言", "QtRevDim")
       add("這裡按 Enter 開檔　o 先看測試", "QtRevDim")
       vim.bo[b].modifiable = true
       api.nvim_buf_set_lines(b, 0, -1, false, lines)
@@ -1826,6 +1828,17 @@ do
       end
       return out
     end
+    -- a comment's text as shown: a suggested edit (Gerrit's suggestion block) as the lines it suggests
+    local FENCE = string.char(96):rep(3)
+    local function shown(msg)
+      local out = tostring(msg or ""):gsub(FENCE .. "suggestion\n(.-)\n?" .. FENCE, function(body)
+        local ls = vim.split(body, "\n", { plain = true })
+        for i, l in ipairs(ls) do ls[i] = "  " .. l end
+        return "✏️ 建議改成：\n" .. table.concat(ls, "\n")
+      end)
+      return out
+    end
+    R.shown = shown
     function R.draw(b)
       if not api.nvim_buf_is_valid(b) then return end
       api.nvim_buf_clear_namespace(b, cmt, 0, -1)
@@ -1844,10 +1857,11 @@ do
         if not at_line[k] then at_line[k] = {} order[#order + 1] = k end
         for i, c in ipairs(th.items) do
           local hl = c.draft and "QtRevDraft" or th.open and "QtRevOpen" or "QtRevDone"
-          local head = c.draft and "📝 你的草稿（還沒送出）：" or i == 1 and ("💬 " .. tostring(c.author or "?") .. (th.open and "（未解決）：" or "（已解決）："))
+          local older = i == 1 and tonumber(c.from_ps) and ("，第 " .. c.from_ps .. " 版留的") or ""
+          local head = c.draft and "📝 你的草稿（還沒送出）：" or i == 1 and ("💬 " .. tostring(c.author or "?") .. (th.open and "（未解決" or "（已解決") .. older .. "）：")
             or (tostring(c.author or "?") .. "：")
           local lead = i == 1 and "  ┃ " or "  ┃   ↳ "
-          for j, t in ipairs(wrap(head .. tostring(c.message or ""), width - (i == 1 and 0 or 2))) do
+          for j, t in ipairs(wrap(head .. shown(c.message), width - (i == 1 and 0 or 2))) do
             table.insert(at_line[k], { { (j == 1 and lead or (i == 1 and "  ┃   " or "  ┃       ")) .. t, hl } })
           end
         end
@@ -2111,16 +2125,116 @@ do
         end
       end)
     end
+    -- a suggested edit of lines l1..l2: edit them in a small window, :w saves it as your draft with Gerrit's suggestion
+    -- block (the author applies it with one click on Gerrit's page)
+    local function utf16_len(text)
+      local ok, n = pcall(vim.str_utfindex, text, "utf-16")
+      if ok and type(n) == "number" then return n end
+      return vim.fn.strchars(text)
+    end
+    function R.suggest(l1, l2)
+      local path = api.nvim_get_current_win() == edit_win() and current_path()
+      if not path then return say("先到 change 的檔案那一格", WARN) end
+      local e = entry(path)
+      if not e or e.status == "D" then return say("這個檔不在這個 change 的新版裡", WARN) end
+      l1, l2 = math.min(l1, l2), math.max(l1, l2)
+      local src = api.nvim_get_current_buf()
+      local orig = api.nvim_buf_get_lines(src, l1 - 1, l2, false)
+      local b = api.nvim_create_buf(false, false)
+      vim.bo[b].buftype, vim.bo[b].bufhidden, vim.bo[b].swapfile = "acwrite", "wipe", false
+      api.nvim_buf_set_name(b, ("gerrit-suggest://%s:%d-%d/%d"):format(path, l1, l2, math.random(1, 1e6)))
+      api.nvim_buf_set_lines(b, 0, -1, false, orig)
+      vim.bo[b].filetype = vim.bo[src].filetype
+      vim.bo[b].modified = false
+      vim.cmd("belowright split")
+      local w = api.nvim_get_current_win()
+      api.nvim_win_set_buf(w, b)
+      pcall(api.nvim_win_set_height, w, math.min(math.max(#orig + 2, 5), 20))
+      vim.wo[w].winbar = "✏️ 改成你建議的樣子　:w 存成建議（作者按一下就套用）　:q! 不要"
+      R.suggesting = { b = b, w = w }
+      api.nvim_create_autocmd("BufWriteCmd", { buffer = b, callback = function()
+        local new = api.nvim_buf_get_lines(b, 0, -1, false)
+        if table.concat(new, "\n") == table.concat(orig, "\n") then return say("還沒改：改好再 :w") end
+        vim.ui.input({ prompt = "附一句說明（可留空）：" }, function(msg)
+          if msg == nil then return end -- Esc: keep editing
+          msg = vim.trim(msg)
+          local text = table.concat(new, "\n")
+          if not R.send({ suggest = { path = path, start = l1, line = l2, end_char = utf16_len(orig[#orig] or ""), text = text, message = msg } }) then return end
+          vim.bo[b].modified = false
+          if api.nvim_win_is_valid(w) then api.nvim_win_close(w, true) end
+          R.suggesting = nil
+          if api.nvim_get_current_win() ~= edit_win() then api.nvim_set_current_win(edit_win()) end
+          vim.cmd("redraw") -- the window is gone at once, not at the next key
+          pending(path, { line = l2, unresolved = true, message = (msg ~= "" and (msg .. "\n\n") or "") .. FENCE .. "suggestion\n" .. text .. "\n" .. FENCE })
+          say("建議修改存成草稿了：送出回覆後，作者在 Gerrit 按一下就能套用")
+        end)
+      end })
+    end
+    -- your own change: the Gerrit agent changes the files here as a thread asks (no commit, no push); nvim marks what
+    -- it changed when the file changes on disk
+    function R.fix(path, t)
+      local thread = {}
+      for _, c in ipairs(t.items) do thread[#thread + 1] = { author = c.author, message = c.message, draft = c.draft or nil } end
+      if R.send({ fix = { path = path, line = t.line or 1, thread = thread } }) then
+        say("請 Gerrit agent 改了：它改的地方這裡會標出來")
+      end
+    end
+    -- unresolved threads nobody answered yet (no draft of yours in them), in the list's order
+    local function open_threads()
+      local out = {}
+      for _, e in ipairs(ordered()) do
+        for _, t in ipairs(threads(e.path)) do
+          if t.last and t.open and not t.draft then out[#out + 1] = { e = e, line = t.line or 1 } end
+        end
+      end
+      return out
+    end
+    function R.next_open(dir)
+      local all = open_threads()
+      if #all == 0 then return say("沒有還沒回的未解決留言") end
+      local idx = {}
+      for i, e in ipairs(ordered()) do idx[e.path] = i end
+      local path = api.nvim_get_current_win() == edit_win() and current_path()
+      local cur = path and ((idx[path] or 0) * 1e7 + api.nvim_win_get_cursor(0)[1]) or 0
+      local function key(x) return (idx[x.e.path] or 0) * 1e7 + x.line end
+      local pick
+      if dir > 0 then
+        for _, x in ipairs(all) do if key(x) > cur then pick = x break end end
+        pick = pick or all[1]
+      else
+        for i = #all, 1, -1 do if key(all[i]) < cur then pick = all[i] break end end
+        pick = pick or all[#all]
+      end
+      R.open(pick.e, pick.line)
+      say(("還沒回的未解決留言 %d 則"):format(#all))
+    end
+    -- what was changed in this folder and not pushed yet (the agent's fixes)
+    function R.my_changes()
+      local r = git(R.data.dir, { "diff", "--no-color", "--no-ext-diff" }, { text = true }):wait()
+      if r.code ~= 0 then return say("git diff 沒成功：" .. tostring(r.stderr or ""), WARN) end
+      if vim.trim(r.stdout or "") == "" then return say("這個資料夾還沒有改動") end
+      local b = api.nvim_create_buf(false, true)
+      api.nvim_buf_set_lines(b, 0, -1, false, vim.split(vim.trim(r.stdout), "\n", { plain = true }))
+      vim.bo[b].filetype, vim.bo[b].bufhidden, vim.bo[b].modifiable = "diff", "wipe", false
+      vim.cmd("belowright split")
+      api.nvim_win_set_buf(0, b)
+      vim.wo.winbar = "還沒推的改動：好了就在這個資料夾 commit --amend、push 成新的一版　q 關掉"
+      map("n", "q", function() vim.cmd("close") end, { buffer = b })
+    end
     -- Enter on a line: everything that can be done there, in one menu (only what applies)
     function R.menu()
       local path, ts, line = here()
       if not path then return say("先到 change 的檔案那一格", WARN) end
       local e, items = entry(path), {}
       local function add(label, fn) items[#items + 1] = { label = label, fn = fn } end
-      if e and e.status ~= "D" then add("💬 在這一行留言", R.draft) end
+      if e and e.status ~= "D" then
+        add("💬 在這一行留言", R.draft)
+        add("✏️ 建議改這一行（作者按一下就套用）", function() R.suggest(line, line) end)
+      end
       for _, t in ipairs(ts) do
         if t.last and not t.draft then
           local who = ("%s「%s」"):format(short(t.items[1].author, 8), short(t.items[1].message, 18))
+          if t.open and R.data.mine then add("🛠 請 agent 照這則改 " .. who, function() R.fix(path, t) end) end
           add("↩ 回覆 " .. who, function() R.reply_to(path, t, "reply") end)
           if t.open then
             add("✓ Done（改好了）" .. who, function() R.reply_to(path, t, "done") end)
@@ -2135,9 +2249,23 @@ do
         end
       end
       add("🤖 問 Gerrit agent 這一段", function() R.ask(line, line) end)
+      if #open_threads() > 0 then add("⏭ 下一則還沒回的未解決留言", function() R.next_open(1) end) end
+      if R.data.mine then add("📝 看還沒推的改動", R.my_changes) end
       for _, o in ipairs(versions()) do add(o.label, function() R.switch(o) end) end
       add("📄 看 commit 說明", R.commit_message)
       vim.ui.select(items, { prompt = ("%s:%d 要做什麼？"):format(path, line), format_item = function(x) return x.label end }, function(x)
+        if x then x.fn() end
+      end)
+    end
+    -- Enter on selected lines: ask the agent about them, or suggest how they should read
+    function R.sel_menu(l1, l2)
+      l1, l2 = math.min(l1, l2), math.max(l1, l2)
+      local path = api.nvim_get_current_win() == edit_win() and current_path()
+      if not path then return say("先到 change 的檔案那一格", WARN) end
+      local e = entry(path)
+      local items = { { label = "🤖 問 Gerrit agent 這幾行", fn = function() R.ask(l1, l2) end } }
+      if e and e.status ~= "D" then items[#items + 1] = { label = "✏️ 建議改法（作者在 Gerrit 按一下就套用）", fn = function() R.suggest(l1, l2) end } end
+      vim.ui.select(items, { prompt = ("%s:%d-%d 要做什麼？"):format(path, l1, l2), format_item = function(x) return x.label end }, function(x)
         if x then x.fn() end
       end)
     end
@@ -2221,24 +2349,32 @@ do
     map("n", "<leader>rx", function() first_draft(R.delete_draft) end, { desc = "刪這一行的草稿" })
     map("n", "<leader>ru", R.update, { desc = "換成另一版" })
     map("n", "<leader>ra", function() local l = api.nvim_win_get_cursor(0)[1] R.ask(l, l) end, { desc = "問 Gerrit agent 這一段" })
-    local function ask_sel()
-      local a, z = vim.fn.line("v"), vim.fn.line(".")
-      api.nvim_feedkeys(api.nvim_replace_termcodes("<Esc>", true, false, true), "nx", false)
-      R.ask(a, z)
+    local function on_sel(fn)
+      return function()
+        local a, z = vim.fn.line("v"), vim.fn.line(".")
+        api.nvim_feedkeys(api.nvim_replace_termcodes("<Esc>", true, false, true), "nx", false)
+        fn(a, z)
+      end
     end
+    local ask_sel, sel_menu, suggest_sel = on_sel(R.ask), on_sel(R.sel_menu), on_sel(R.suggest)
     map("x", "<leader>ra", ask_sel, { desc = "問 Gerrit agent 選起來的這幾行" })
+    map("n", "<leader>rs", function() local l = api.nvim_win_get_cursor(0)[1] R.suggest(l, l) end, { desc = "建議改這一行（Gerrit 建議修改）" })
+    map("x", "<leader>rs", suggest_sel, { desc = "建議改這幾行（Gerrit 建議修改）" })
+    map("n", "]u", function() R.next_open(1) end, { desc = "下一則還沒回的未解決留言" })
+    map("n", "[u", function() R.next_open(-1) end, { desc = "上一則還沒回的未解決留言" })
     -- Enter in a file of the change: the menu (selected lines: ask the agent); elsewhere Enter as usual
     local function in_change(b) return vim.b[b].nvim_jay_review_path ~= nil or rel(api.nvim_buf_get_name(b)) ~= nil end
     R.menu_keys = function(b)
       if b == R.list or vim.b[b].nvim_jay_review_keys or not in_change(b) then return end
       vim.b[b].nvim_jay_review_keys = true
       map("n", "<CR>", R.menu, { buffer = b, desc = "這一行能做的事（Gerrit）" })
-      map("x", "<CR>", ask_sel, { buffer = b, desc = "問 Gerrit agent 選起來的這幾行" })
+      map("x", "<CR>", sel_menu, { buffer = b, desc = "選起來的這幾行能做的事（Gerrit）" })
     end
-    JN.review_menu, JN.review_ask_sel = R.menu, ask_sel
+    JN.review_menu, JN.review_ask_sel, JN.review_suggest_sel = R.menu, ask_sel, suggest_sel
     vim.cmd([[
       nnoremenu 1 PopUp.Gerrit：這一行能做的事 <Cmd>lua JN.review_menu()<CR>
       vnoremenu 1 PopUp.Gerrit：問\ agent\ 選起來的行 <Cmd>lua JN.review_ask_sel()<CR>
+      vnoremenu 1 PopUp.Gerrit：建議改法 <Cmd>lua JN.review_suggest_sel()<CR>
       anoremenu 1 PopUp.-gerrit- <Nop>
     ]])
     map("n", "<leader>rl", function()

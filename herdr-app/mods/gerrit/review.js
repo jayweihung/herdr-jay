@@ -21,6 +21,10 @@
 //      edit   { id, message }  /  delete { id }      one of your drafts
 //      update { to, base }                           another patch set into the same folder (base: null = its parent)
 //      ask    { path, line, end, question, diff }    a question to the Gerrit agent about those lines
+//      suggest { path, start, line, end_char, text, message }  a suggested edit of lines start..line -> your draft
+//             with a ```suggestion block (Gerrit's web page shows an Apply button; no server setting needed)
+//      fix    { path, line, thread }                 your own change: the agent changes the files in the folder as
+//             a thread asks (no commit, no push)
 //    Nothing nvim does is published: drafts go out with the panel's 💬 送出回覆.
 // Data folder: <Herdr home>/data/gerrit/review/<change> (review.json, seen.json, from-nvim.jsonl, the job's files).
 
@@ -89,7 +93,9 @@ export function reviewFiles(files) {
 }
 // This patch set's comments (and your drafts on it) by file, as nvim shows them: line, who, text, open or not, its
 // id and thread (the first comment's id: replies follow in_reply_to, like Gerrit's threads).
-export function reviewComments(comments, drafts, ps, who) {
+// ported: Gerrit's ported_comments / ported_drafts for this patch set (older patch sets' unresolved threads, moved to
+// the lines they are on now), shown too with from_ps.
+export function reviewComments(comments, drafts, ps, who, ported = null) {
   const out = {};
   const byId = new Map();
   for (const src of [comments, drafts]) for (const xs of Object.values(src ?? {})) for (const m of xs ?? []) if (m?.id) byId.set(m.id, m);
@@ -107,6 +113,19 @@ export function reviewComments(comments, drafts, ps, who) {
   };
   add(comments, false);
   add(drafts, true);
+  const seen = new Set(Object.values(out).flat().map((m) => m.id).filter(Boolean));
+  for (const [list, draft] of [[ported?.comments, false], [ported?.drafts, true]]) {
+    for (const [path, xs] of Object.entries(list ?? {})) {
+      if (SKIP_FILES.has(path)) continue;
+      for (const m of xs ?? []) {
+        if (!m?.id || seen.has(m.id) || Number(m.patch_set) === Number(ps) || m.side === "PARENT") continue;
+        seen.add(m.id);
+        (out[path] ??= []).push({ id: m.id, thread: rootOf(m).id ?? m.id, ...(m.in_reply_to ? { reply_to: m.in_reply_to } : {}),
+          ...(m.line ? { line: m.line } : {}), author: draft ? "你" : who(m.author), message: String(m.message ?? ""),
+          unresolved: Boolean(m.unresolved), ...(draft ? { draft: true } : {}), at: m.updated ?? "", from_ps: Number(m.patch_set) });
+      }
+    }
+  }
   for (const xs of Object.values(out)) xs.sort((a, b) => (a.line ?? 0) - (b.line ?? 0) || String(a.at).localeCompare(String(b.at)));
   return out;
 }
@@ -122,6 +141,21 @@ export function askText(e, url, a) {
     ...(diff ? ["```diff", diff, "```"] : []),
     `問題：${String(a.question ?? "").trim() || "這段改動在做什麼？有沒有問題？"}`,
     "要對這段留意見的話，用 Gerrit 存成那一行的草稿（不要直接送出），我在 nvim 和 Gerrit 面板都看得到。用繁體中文回答。",
+    "有具體改法的話，草稿可以附建議修改：range 涵蓋要換掉的那幾行（start_character 0，end_line 等於 line，end_character 是最後一行的長度），留言裡放 ˋˋˋsuggestion 區塊（三個反引號 + suggestion，下一行起是改好的那幾行，最後一行三個反引號），作者在 Gerrit 按一下就能套用。",
+  ].join("\n");
+}
+
+// your own change: the agent changes the files in the review folder as a thread asks (you look, then push yourself)
+export function fixText(e, url, f) {
+  const thread = (Array.isArray(f.thread) ? f.thread : []).slice(0, 30)
+    .map((m) => `- ${String(m?.author ?? "?")}${m?.draft ? "（我的草稿）" : ""}：${String(m?.message ?? "").replace(/```/g, "ˋˋˋ").slice(0, 3000)}`);
+  return [
+    `這是我的 Gerrit change ${e.n}（${e.project}，第 ${e.ps} 版）：`,
+    url,
+    `${f.path} 第 ${f.line} 行有這串留言：`,
+    ...thread,
+    `請照留言在 ${e.wt} 裡直接改檔案（這台電腦上的檔案：${e.wt}/${f.path}）。只改檔案：不要 commit、不要 push、不要在 Gerrit 留言或送出。`,
+    "留言講得不清楚、或你覺得不該照改，就先不要改，跟我說為什麼。改完用繁體中文說改了什麼。",
   ].join("\n");
 }
 // the newest patch set's number of a change Gerrit gave (with its current revision)
@@ -412,7 +446,7 @@ export function reviewMethods(h) {
         const pid = Number(out(r).split(/\s+/).pop());
         if (r.code !== 0 || !pid) return say(`下載程式開不起來：${String(r.stderr || r.stdout).trim() || `exit ${r.code}`}`);
         this.setReviewJob(n, { n, state: "running", dir, pid, at: Date.now(), project: c.project, subject: c.subject ?? "", ps: to, base_ps: base,
-          wt, store, data, clone: Boolean(clone) });
+          wt, store, data, clone: Boolean(clone), owner: c.owner?._account_id ?? null });
         this.reviewMsg = null;
       } catch (e) { return say(String(e?.message ?? e)); }
       cx.notify();
@@ -443,6 +477,7 @@ export function reviewMethods(h) {
           if (st.done && st.head && st.base) {
             const e = { n: j.n, project: j.project, subject: j.subject, ps: j.ps, base_ps: j.base_ps, head: st.head, base: st.base,
               wt: j.wt, data: j.data, store: j.store, clone: j.clone, at: Date.now(), seq: this.reviewEntry(j.n)?.seq ?? 0,
+              owner: j.owner ?? this.reviewEntry(j.n)?.owner ?? null,
               ...(this.reviewEntry(j.n)?.latest ? { latest: this.reviewEntry(j.n).latest } : {}) };
             this.setReviewEntry(e);
             this.setReviewJob(j.n, null);
@@ -467,10 +502,13 @@ export function reviewMethods(h) {
       let e = this.reviewEntry(n);
       if (!e) return;
       if (!this.cfg || this.cfg.missing || this.cfg.error) this.cfg = await this.readConfig();
-      const [files, comments, drafts] = await Promise.all([
+      const older = Number(e.ps) > 1; // older patch sets' unresolved threads, where they are now (Gerrit ports them)
+      const [files, comments, drafts, pComments, pDrafts] = await Promise.all([
         this.get(`/changes/${n}/revisions/${e.head}/files${e.base_ps != null ? `?base=${e.base_ps}` : ""}`).catch(() => null),
         this.get(`/changes/${n}/comments`).catch(() => ({})),
         this.cfg.auth ? this.get(`/changes/${n}/drafts`).catch(() => ({})) : {},
+        older ? this.get(`/changes/${n}/revisions/${e.head}/ported_comments`).catch(() => ({})) : {},
+        older && this.cfg.auth ? this.get(`/changes/${n}/revisions/${e.head}/ported_drafts`).catch(() => ({})) : {},
       ]);
       if (jump) { e = { ...e, seq: (e.seq ?? 0) + 1, jump: { path: jump.path, ...(jump.line ? { line: jump.line } : {}) } }; this.setReviewEntry(e); }
       const old = this.reviewSent?.[n];
@@ -480,7 +518,9 @@ export function reviewMethods(h) {
       const body = { v: 1, change: n, ps: e.ps, base_ps: e.base_ps ?? null, latest: Math.max(Number(e.latest) || 0, Number(e.ps) || 0),
         ...(updating ? { updating } : {}), subject: e.subject, project: e.project,
         url: `${String(this.cfg.url ?? "").replace(/\/+$/, "")}/c/${e.project}/+/${n}/${e.ps}`, dir: e.wt, base: e.base, head: e.head,
-        files: files ? reviewFiles(files) : old?.files ?? [], comments: reviewComments(comments, drafts, e.ps, ui.who),
+        files: files ? reviewFiles(files) : old?.files ?? [],
+        comments: reviewComments(comments, drafts, e.ps, ui.who, { comments: pComments, drafts: pDrafts }),
+        mine: e.owner != null && e.owner === this.self?._account_id,
         ...(e.jump ? { jump: { ...e.jump, seq: e.seq } } : {}) };
       const text = JSON.stringify(body, null, 1);
       if (old && old.text === text) return;
@@ -503,6 +543,7 @@ export function reviewMethods(h) {
       let e = this.reviewEntry(c?._number);
       const last = latestPs(c);
       if (e && last && last !== e.latest) { e = { ...e, latest: last }; this.setReviewEntry(e); }
+      if (e && e.owner == null && c?.owner?._account_id != null) { e = { ...e, owner: c.owner._account_id }; this.setReviewEntry(e); }
       if (e && paneOf(e)) this.reviewWrite(e.n).catch(() => {});
     },
     // Once a minute for a review nvim has open: comments and drafts made elsewhere, and a newer patch set (nvim offers to show what it changed).
@@ -584,6 +625,21 @@ export function reviewMethods(h) {
               const base = rec.update.base != null ? Number(rec.update.base) : null;
               if (!(await this.reviewStart(c, cx, true, { base, to: Number(rec.update.to) }))) throw new Error(this.reviewMsg?.error ?? "沒有開始下載");
               await this.reviewWrite(e.n);
+            } else if (rec.suggest?.path && typeof rec.suggest.text === "string") {
+              const g = rec.suggest, l1 = Number(g.start), l2 = Number(g.line);
+              if (!(l1 > 0 && l2 >= l1)) throw new Error("建議修改的行號不對");
+              what = `${g.path}:${l1}${l2 > l1 ? `-${l2}` : ""}`;
+              const msg = String(g.message ?? "").trim();
+              await this.req("PUT", `/changes/${e.n}/revisions/${e.head}/drafts`, { path: g.path, line: l2,
+                range: { start_line: l1, start_character: 0, end_line: l2, end_character: Math.max(0, Number(g.end_char) || 0) },
+                message: `${msg ? `${msg}\n\n` : ""}\`\`\`suggestion\n${g.text}\n\`\`\``, unresolved: true });
+              saved++;
+            } else if (rec.fix?.path) {
+              what = `請 agent 改：${rec.fix.path}:${rec.fix.line}`;
+              const c = await this.get(`/changes/${e.n}?o=CURRENT_REVISION`);
+              const url = `${String(this.cfg.url ?? "").replace(/\/+$/, "")}/c/${e.project}/+/${e.n}/${e.ps}`;
+              await this.askAgent(c, { label: "nvim 請改", filled: fixText(e, url, rec.fix) }, cx);
+              if (this.ask?.error) notify({ title: "沒有問到 Gerrit agent", body: this.ask.error, level: "warning" });
             } else if (rec.ask?.path) {
               what = `問 agent：${rec.ask.path}:${rec.ask.line}`;
               const c = await this.get(`/changes/${e.n}?o=CURRENT_REVISION`);
@@ -596,7 +652,7 @@ export function reviewMethods(h) {
             // drafts are tried again a few times (Gerrit away for a moment); a patch set or a question once
             const tries = ((this.reviewTries ??= {})[rec.id] ?? 0) + 1;
             this.reviewTries[rec.id] = tries;
-            const again = Boolean(rec.draft || rec.reply || rec.edit || rec.delete) && tries < 5;
+            const again = Boolean(rec.draft || rec.reply || rec.edit || rec.delete || rec.suggest) && tries < 5;
             if (again) keep.push(line);
             if (tries === 1 || !again) notify({ title: "nvim 那邊的動作沒做成", body: `${what}：${String(err?.message ?? err).slice(0, 200)}${again ? "（會再試幾次）" : ""}`, level: "warning" });
           }

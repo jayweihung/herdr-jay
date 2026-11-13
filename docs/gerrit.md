@@ -515,12 +515,23 @@ of it; the same folder moves there, with a progress line at the top of nvim's li
 - **Enter on a line**: a menu of what fits there: 💬 a comment; ↩ reply, ✓ Done, 👍 Ack to a thread on that line; ✎ /
   🗑 your draft there; 🗨 ask the Gerrit agent; 🆕 another patch set; 📄 the commit message. Right click has it too
   (Gerrit：這一行能做的事);
-- **select lines, then Enter**: ask the Gerrit agent about them (see below);
+- **select lines, then Enter**: ask the Gerrit agent about them (see below), or **suggest an edit**: they open in a small
+  window, change them, `:w`, an optional note: a draft with Gerrit's suggestion block, so the author applies it with
+  one click on Gerrit's page (works without any server setting);
+- **older patch sets' threads**: on 第 N 版, the threads still open from earlier ones show on the lines they are on now
+  (Gerrit moves them), marked 第 M 版留的; you can reply / Done there as usual;
 - `]f` `[f` next / previous file, `]c` `[c` next / previous change, `o` in the list: tests first.
 
 Comments, replies, Done / Ack and changes to your drafts become **your Gerrit drafts** (the panel saves them; they
 show in the panel's thread, and **💬 送出回覆** publishes them with the rest). nvim never publishes anything.
 在檔案裡按 Enter 就有這一行能做的事；留言、回覆、Done 都先存成草稿，面板按 💬 送出回覆才會送出。
+
+**Your own change**: nvim says so at the top of the list. On an unresolved thread the Enter menu has 🛠 請 agent 照這則改:
+the Gerrit agent gets the thread and changes the files in the review folder (only the files: no commit, no push, no
+comment). nvim marks what it changed as the file changes. 📝 看還沒推的改動 shows the folder's diff; `]u` / `[u` go to
+the next / previous unresolved thread nobody has answered. When it's right, commit --amend and push in that folder
+yourself (a new patch set), and answer the threads Done.
+自己的 change：未解決的留言可以請 agent 照著改（只改檔案，不 commit、不推），改好你自己推新的一版。
 
 **Ask the agent about lines**: select them and press Enter (or 問 Gerrit agent 這一段 in the menu), then a question
 (empty: 這段改動在做什麼？有沒有問題？). It goes to the Gerrit agent (§7) with the change, the file and lines, the folder's

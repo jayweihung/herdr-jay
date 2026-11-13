@@ -267,8 +267,13 @@ comments to an agent); follow is off and there is no tree.
   thread on the line (Done and Ack resolve it), ✎ 改 / 🗑 刪 your draft there, 🗨 問 Gerrit agent, 🆕 換成第 N 版 (only
   what it changed since, or all of it), 📄 commit 說明. The right-click menu has 「Gerrit：這一行能做的事」 too.
   Elsewhere (the list, other files) Enter does what it did.
-- **Select lines, then Enter**: asks the Gerrit agent about them; it asks for the question (empty: what does it do,
-  anything wrong). The panel sends the change, file, lines, this folder's path and the diff of those lines.
+- **Select lines, then Enter**: 🤖 ask the Gerrit agent about them (the question can be empty: what does it do, anything
+  wrong; the panel sends the change, file, lines, this folder's path and the diff of exactly those lines), or ✏️ 建議改法:
+  the lines open in a small window below; change them, `:w`, a note if you like (`:q!`: never mind). It becomes your
+  draft with Gerrit's suggestion block (shown as ✏️ 建議改成：…), and the author applies it with one click.
+- **Older patch sets**: their threads that are still open show on the lines they are on now, 第 M 版留的.
+- **Your own change** (the list says so): 🛠 請 agent 照這則改 on an unresolved thread, 📝 看還沒推的改動 (the folder's
+  diff); `]u` `[u` the next / previous unresolved thread nobody has answered.
 - **Where it goes**: every one of these is a line in `from-nvim.jsonl` beside review.json (`draft`, `reply`, `edit`,
   `delete`, `update`, `ask`); the panel saves drafts on Gerrit (on the thread's patch set; they show at once, marked
   存到 Gerrit 中…), moves the folder, or asks the agent. Drafts are published with the panel's 💬 送出回覆. Nothing is
@@ -287,6 +292,8 @@ comments to an agent); follow is off and there is no tree.
 | `space r r` `space r d` `space r k` | reply / Done / Ack to the thread on this line |
 | `space r e` `space r x` | edit / delete your draft on this line |
 | `space r u` | another patch set |
+| `space r s` | suggest an edit of this line (or the selected ones) |
+| `]u` `[u` | next / previous unresolved thread nobody has answered |
 | `space r a` | ask the Gerrit agent (this line, or the selected ones) |
 | `space r l` | the list of files (back to it, or open it again) |
 | `space r m` | the commit message |

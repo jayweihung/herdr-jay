@@ -189,6 +189,52 @@ test("ask the Gerrit agent about lines", function()
   check("unchanged lines: the lines themselves", rec.ask.path == "new.txt" and rec.ask.diff:find("沒有改動", 1, true) ~= nil and rec.ask.diff:find("same", 1, true) ~= nil, rec)
 end)
 
+test("a suggested edit, threads from an older patch set, your own change", function()
+  local F = string.rep(string.char(96), 3)
+  check("a suggestion block shows as the lines it suggests", R.shown("better:\n\n" .. F .. "suggestion\nx = 1\ny = 2\n" .. F)
+    == "better:\n\n✏️ 建議改成：\n  x = 1\n  y = 2", R.shown("better:\n\n" .. F .. "suggestion\nx = 1\ny = 2\n" .. F))
+  R.data.updating = nil
+  R.open(RV.ordered()[1], 2)
+  local file_win, line2 = api.nvim_get_current_win(), api.nvim_buf_get_lines(0, 1, 2, false)[1]
+  -- selected lines + Enter: the menu has 建議改法; it opens a small window with those lines
+  local seen = with_ui(nil, "建議改法", function() R.sel_menu(2, 2) end)
+  check("selected lines: ask or suggest", table.concat(seen.labels, "|"):find("問 Gerrit agent", 1, true) ~= nil and #seen.labels == 2, seen.labels)
+  local sw = api.nvim_get_current_win()
+  check("a window with the line to edit", sw ~= file_win and api.nvim_buf_get_lines(0, 0, -1, false)[1] == line2, api.nvim_buf_get_lines(0, 0, -1, false))
+  api.nvim_buf_set_lines(0, 0, -1, false, { "two, fixed", "and one more" })
+  with_ui("simpler", nil, function() vim.cmd("write") end)
+  local rec = last_rec()
+  check("saved as a suggestion of line 2", rec.suggest and rec.suggest.path == "a.txt" and rec.suggest.start == 2 and rec.suggest.line == 2
+    and rec.suggest.text == "two, fixed\nand one more" and rec.suggest.message == "simpler" and rec.suggest.end_char == vim.fn.strchars(line2), rec)
+  check("the window closed, back in the file", not api.nvim_win_is_valid(sw) and cur_rel() == "a.txt")
+  -- threads ported from patch set 1, and your own change
+  local d = vim.json.decode(table.concat(vim.fn.readfile(R.file), "\n"))
+  d.jump, d.updating, d.mine = vim.NIL, vim.NIL, true
+  d.comments = { ["a.txt"] = {
+    { id = "p1", thread = "p1", line = 2, author = "Alice", message = "rename it", unresolved = true, at = "1", from_ps = 1 },
+    { id = "p2", thread = "p2", line = 3, author = "Bob", message = "and this", unresolved = true, at = "2" },
+  } }
+  vim.fn.writefile({ vim.json.encode(d) }, R.file)
+  vim.uv.sleep(20) R.stamp = nil R.tick()
+  local texts = {}
+  for _, m in ipairs(api.nvim_buf_get_extmarks(0, cmt, 0, -1, { details = true })) do
+    for _, vl in ipairs(m[4].virt_lines or {}) do for _, chunk in ipairs(vl) do texts[#texts + 1] = chunk[1] end end
+  end
+  check("a thread from patch set 1 says so", table.concat(texts, "\n"):find("第 1 版留的", 1, true) ~= nil, texts)
+  check("your change: the list says the agent can fix", list_text():find("請 agent 照留言改", 1, true) ~= nil, list_text())
+  api.nvim_win_set_cursor(0, { 1, 0 })
+  R.next_open(1)
+  check("]u: the next unresolved thread", api.nvim_win_get_cursor(0)[1] == 2, api.nvim_win_get_cursor(0))
+  R.next_open(1)
+  check("]u again: the one after", api.nvim_win_get_cursor(0)[1] == 3, api.nvim_win_get_cursor(0))
+  api.nvim_win_set_cursor(0, { 2, 0 })
+  seen = with_ui(nil, "請 agent 照這則改", function() R.menu() end)
+  rec = last_rec()
+  check("the menu: ask the agent to fix it", rec.fix and rec.fix.path == "a.txt" and rec.fix.line == 2 and rec.fix.thread[1].message == "rename it", rec)
+  check("the menu has 建議改這一行 and 看還沒推的改動", table.concat(seen.labels, "|"):find("建議改這一行", 1, true) ~= nil
+    and table.concat(seen.labels, "|"):find("看還沒推的改動", 1, true) ~= nil, seen.labels)
+end)
+
 print(("%d review checks, %d failed"):format(n, fails))
 local out = io.open(ROOT .. "/result-review", "w")
 out:write(fails == 0 and "pass" or "fail")

@@ -30,6 +30,11 @@ Needs: **gerrit** and **mods** (nvim-jay too; Windows: copy both again), restart
 - **A newer patch set**: nvim says so; its Enter menu moves the folder there, only what changed since if you like. The
   change's page reloads and offers the same.
 - **Select lines, then Enter**: asks the Gerrit agent about them, with their diff and the folder's path.
+- **Suggest an edit**: select lines, Enter, 建議改法: change them in a small window, `:w`; the author applies it with one
+  click on Gerrit's page.
+- On a newer patch set, older patch sets' unresolved threads show where those lines are now.
+- **Your own change**: ask the Gerrit agent to change the files as a thread asks (no commit, no push; nvim marks what it
+  changed), see what isn't pushed yet, `]u` to the next unresolved thread.
 - Details: [docs/gerrit.md](docs/gerrit.md) §9, [docs/nvim-jay.md](docs/nvim-jay.md) §9.
 在 nvim 看：把這一版拉到這台電腦（有自己的 clone 就用它），背景下載有進度條，開好在 nvim 裡左邊是改過的檔、右邊整個檔案和留言；在 nvim 留言會存成 Gerrit 草稿。在檔案裡按 Enter 就有這一行能做的事（留言、回覆、Done、問 agent、換到新的一版），選幾行按 Enter 就問 agent。
 

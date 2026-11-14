@@ -528,12 +528,13 @@ test("關係 tab: the cards and lines drawn, a click says one card's lines in wo
   assert.equal(pathOps.length, 8, "4 lines, each a stroke and its arrowhead");
   assert.ok(pathOps.some((ops) => ops.some(([k]) => k === "dash_array")), "who started whom: dashed");
   H.clicks["kit-graph-t2"]({ click_count: 1 }, cx);
+  assert.deepEqual(H.runs.at(-1), ["pane.focus", { terminal: "t2" }], "one click: to its pane, like the Agents list");
   out = render(v);
   assert.match(out, /→ 傳給 前端（t1） · 1 次/);
   assert.match(out, /→ 傳給 t9（不在這裡） · 2 次/);
   assert.match(out, /最後一則：好了/);
-  H.clicks["kit-graph-t2"]({ click_count: 2 }, cx);
-  assert.deepEqual(H.runs.at(-1), ["pane.focus", { terminal: "t2" }]);
+  H.clicks["kit-graph"]({}, cx);
+  assert.ok(!/最後一則：好了/.test(render(v)), "a click on the empty part: nothing selected");
   H.clicks["kit-graph-scope-all"]({}, cx);
   assert.ok(render(v).includes("docs"));
   const again = view(M, { role: "agents" }); await settle();

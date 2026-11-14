@@ -262,7 +262,8 @@ const strokeW = (e) => (e.kind === "parent" ? 1.2 : Math.min(4, 1.2 + Math.log2(
 // the drawing: cards on a canvas with the lines under them; sel: the selected card's address
 export function graphView(t, z, g, sel, { onSelect, now = Date.now(), width = 0 } = {}) {
   const { at, w, h, cw, heads } = layoutOf(g.cols, width);
-  const canvas = div().id("kit-graph").relative().w(w).h(h).flex_none();
+  // a click on the empty part: nothing selected any more
+  const canvas = div().id("kit-graph").relative().w(w).h(h).flex_none().on_click((_e, cx) => { if (sel) onSelect?.(null, cx); });
   const recent = (e) => now - e.at < 10 * MIN ? t.accent : now - e.at < HOUR ? t.muted : t.dim;
   const mine = (e) => !sel || e.from === sel || e.to === sel;
   const waitOf = (e) => e.kind === "send" ? g.waits.find((w) => w.from === e.from && w.to === e.to && w.state !== "working") : null;
@@ -310,7 +311,8 @@ function card(t, z, n, p, on, onSelect, mark = null, st = null, now = Date.now()
     .border_color(mark ?? (on ? t.accent : n.focused ? t.muted : t.border)).bg(on ? t.selected : t.raised)
     .when(Boolean(n.down || st?.idle) && !on, (el) => el.opacity(0.5))   // offline, or done long ago: in the background
     .cursor_pointer().hover((s) => s.border_color(t.accent)).on_mouse_down("left", stop)
-    .on_click((e, cx) => { if (e.click_count >= 2) run("pane.focus", { terminal: n.address }); else onSelect?.(on ? null : n.address, cx); })
+    // like a row of the Agents list: a click goes to its pane; here its lines stand out too
+    .on_click((_e, cx) => { cx.stop_propagation(); run("pane.focus", { terminal: n.address }); onSelect?.(n.address, cx); })
     .child(h_flex().gap(5).items_center().min_w(0)
       .child(icon(n.program, 14, t.foreground) ?? div())
       .child(div().flex_1().min_w(0).truncate().font_semibold().text_size(z - 1).child(n.name))
@@ -367,7 +369,7 @@ export function alertsView(t, z, g, now = Date.now(), onSelect = null, { onNudge
   for (const i of items)
     box.child(h_flex().id(`kit-graph-alert-${i.id}`).gap(6).items_center().px(8).py(4).rounded(6).border_1().border_color(i.color)
       .text_size(z - 1.5).cursor_pointer().hover((s) => s.bg(t.hover)).on_mouse_down("left", stop)
-      .on_click((_e, cx) => onSelect?.(i.who, cx))
+      .on_click((_e, cx) => { run("pane.focus", { terminal: i.who }); onSelect?.(i.who, cx); })
       .child(div().size(7).flex_none().rounded(4).bg(i.color)).child(div().flex_1().min_w(0).child(i.text))
       .when(Boolean(i.nudge && onNudge), (el) => {
         const key = `${i.nudge.from}>${i.nudge.to}@${i.nudge.at}`, done = nudged.has(key);
@@ -384,18 +386,16 @@ export function edgeList(t, z, g, sel, now = Date.now()) {
     const sends = g.edges.filter((e) => e.kind === "send").length;
     return box.child(div().text_color(t.dim).child(g.nodes.length
       ? sends || g.edges.length
-        ? "點一張卡片看它跟誰說了什麼；連點兩下跳到它的分頁。線越亮越新、越粗次數越多；虛線是誰開了誰。"
-        : "還沒看到誰用 hc send 傳話給誰（要新版 herdr-core 才會記下）。點一張卡片看它；連點兩下跳到它的分頁。"
+        ? "點一張卡片就切到那個 agent，圖上也標出它的線、下面寫它跟誰說了什麼（點空白處取消）。線越亮越新、越粗次數越多；虛線是誰開了誰。"
+        : "還沒看到誰用 hc send 傳話給誰（要新版 herdr-core 才會記下）。點一張卡片就切到那個 agent。"
       : "這裡沒有在跑的 agent。"));
   }
   const all = [...g.edges, ...g.outside].filter((e) => e.from === sel || e.to === sel).sort((a, b) => b.at - a.at);
   const n = g.nodes.find((x) => x.address === sel);
-  box.child(h_flex().gap(8).items_center()
-    .child(div().flex_1().min_w(0).truncate().font_semibold().child(`${n?.name ?? sel}（${sel}）`))
-    .child(btn(t, z, "kit-graph-go", "到它的分頁", { small: true, on: () => run("pane.focus", { terminal: sel }) })));
+  box.child(div().truncate().font_semibold().child(`${n?.name ?? sel}（${sel}）`));
   if (n?.note) box.child(copyOnRight(div().text_color(t.muted).child(`進度：${n.note}`), n.note));
   const st = n && cardState(g, n, now);
-  if (st?.idle) box.child(div().text_color(t.dim).child(`${st.text}：要關就到它的分頁關（這裡不幫你關）。`));
+  if (st?.idle) box.child(div().text_color(t.dim).child(`${st.text}：要關就在它的分頁關（這裡不幫你關）。`));
   if (n?.down) box.child(div().text_color(t.ansi1).child(`連不到 ${n.machine}（斷線 ${spanText(now - n.down)}）：看到的是斷線前的樣子。`));
   if (!all.length) return box.child(div().text_color(t.dim).child("它還沒跟誰傳過話。"));
   for (const e of all) {

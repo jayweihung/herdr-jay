@@ -104,7 +104,7 @@ async function loadMod() {
   const at = (f) => import(pathToFileURL(join(dir, f)).href);
   const m = { main: await at("main.js"), common: await at("common.js"), layout: await at("layout.js"), context: await at("context.js"), bots: await at("bots.js"),
     machines: await at("machines.js"), place: await at("place.js"), repo: await at("repo.js"), graph: await at("graph.js"),
-    events: await at("events.js"), timeline: await at("timeline.js"), said: await at("said.js"), header: await at("header.js") };
+    events: await at("events.js"), timeline: await at("timeline.js"), said: await at("said.js"), header: await at("header.js"), agents: await at("agents.js") };
   rmSync(dir, { recursive: true, force: true });
   return m;
 }
@@ -780,6 +780,22 @@ test("關係: 等站長同意 finds its agent by the pid kit pending keeps (hc g
   const out = render(v);
   assert.match(out, /等站長同意：升 kit（srv\/t1p · srv，等了 51 分）/);
   assert.match(out, /等站長同意 51 分/, "on its card");
+});
+test("agents.waiting (for Herdr's own Agents list, app patch 0010): who waits for the owner's OK, and who waits for you too long", async (M) => {
+  const MIN = 60000, now = 100 * MIN, { waitingNow } = M.agents;
+  const terms = [{ address: "t1", status: "blocked", status_ms: now - 11 * MIN }, { address: "t2", status: "blocked", status_ms: now - MIN }, { address: "t3", status: "done", status_ms: now - 50 * MIN }];
+  const pending = [{ kind: "owner", who: "t3", since: now - 2 * MIN }, { kind: "owner", who: null, since: 1 }, { kind: "sign", who: "t9" }, { kind: "owner", who: "srv/t1p", since: now - 51 * MIN }];
+  assert.deepEqual(waitingNow(pending, terms, now), { t1: { since: now - 11 * MIN, hot: true }, t3: { since: now - 2 * MIN, hot: false }, "srv/t1p": { since: now - 51 * MIN, hot: true } },
+    "blocked 1 minute: Herdr shows it already; signing has no agent");
+  // the always-running button keeps it current: kit status (each 10 minutes), the agent by its pid, then the shared key
+  fresh(); fakeKit();
+  H.agents = [ag("srv/t1p", "done")]; H.terminals = [{ address: "srv/t1p", status_ms: Date.now() - 52 * MIN, cwd: "/q" }];
+  H.store["kit.machines.v1"] = { done: true, at: Date.now(), rows: [{ key: "m:srv", machine: "srv", state: "ok",
+    pending: [{ kind: "owner", id: "k", what: "要你同意：升 kit", since: Date.now() - 51 * MIN, machine: "q", dir: "/q", pid: 4374 }] }] };
+  H.hcAnswer = (a) => (a[0] === "get" ? { code: 0, stdout: JSON.stringify({ foreground: { pid: 4374 } }), stderr: "" } : null);
+  view(M, { role: "agents-toggle" }); await settle();
+  for (let i = 0; i < 3; i++) { await tick(); await settle(); }
+  assert.equal(H.store["agents.waiting"]?.["srv/t1p"]?.hot, true);
 });
 test("關係: an agent done and not looked at says what it said when it stopped (its card, its own alert line); cards waiting for you are colored", (M) => {
   const { graphData, cardState, alertsView, tint } = M.graph, { parseSaid, saidNow } = M.said;

@@ -355,7 +355,7 @@ export class Repo {
     const hit = (...xs) => !f || xs.some((x) => String(x ?? "").toLowerCase().includes(f));
     const rows = items.filter((i) => i.kind === kind && hit(i.name, i.description, i.source, i.from))
       .sort((a, b) => (b.changed - a.changed) || (b.new - a.new) || a.name.localeCompare(b.name));
-    const body = v_flex().flex_1().min_h(0).overflow_y_scrollbar().px(10).py(8).gap(2);
+    const body = v_flex().id(`kit-repo-body-${kind}`).flex_1().min_h(0).overflow_y_scrollbar().px(10).py(8).gap(2);   // named: a message appearing above must not reset the scroll
     if (!this.plan && (d.dirty ?? []).length) body.child(this.unsent(t, z, d));
     if (this.making) body.child(this.maker(t, z, d, kind));   // in the scroll area: a long one (a skill looked at) can be scrolled
     // your own first; then what kit collect took, one group per URL it came from (closed until clicked; open while

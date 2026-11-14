@@ -28,7 +28,7 @@ import { AGENTS_DATA, AGENTS_LOAD, AGENTS_MSG, CTX, NOTE, NODES, fs, stop, isWin
 import { ANIMALS, COLORS } from "./bot-models.js";
 import { readBot, withBot, pickBot, botIcon, botProblem, LiveBot } from "./bots.js";
 import { canDrag, draggable, dropLoop, requestPlace, takeAsks, placeClosed, placeDir, liveNow } from "./place.js";
-import { graphData, graphView, edgeList, alertsView, legendView, layoutOf, nudgeText } from "./graph.js";
+import { graphData, graphView, edgeList, alertsView, legendView, layoutOf, nudgeText, LONG_WAIT } from "./graph.js";
 import { logTick, eventLog, downMachines } from "./events.js";
 import { SAID, SUBS, BG, STEPS, saidTick } from "./said.js";
 import { timelineView, timelineHeight, SPANS } from "./timeline.js";
@@ -52,6 +52,65 @@ async function loadAgents() {
 // its logo: the one its file names, else the one its name picks
 const botOf = (a) => a.bot ?? pickBot(a.name);
 
+// 等站長同意's agent: kit pending add keeps the agent's pid; the terminal on that machine whose program (Herdr's
+// foreground pid, else its own) is that pid. hc get on that machine's agents, the same folder first; each answer kept
+// WHO_TTL in shared WHO ("host|pid" -> { address, at }; none found too: asked again then)
+const WHO = "kit.who.v1";
+let whoBusy = false;
+export const whoOf = (p) => (p?.pid ? (shared(WHO) ?? {})[`${p.host ?? ""}|${p.pid}`]?.address || null : null);
+function whoTick(cx) {
+  if (whoBusy) return;
+  const known = shared(WHO) ?? {};
+  const want = pendingRows(machinesData()?.rows).filter((p) => p.kind === "owner" && p.pid)
+    .filter((p) => { const w = known[`${p.host ?? ""}|${p.pid}`]; return !w || Date.now() - w.at > WHO_TTL; });
+  if (!want.length) return;
+  whoBusy = true;
+  cx.spawn(async (cx) => {
+    try {
+      const ags = agents(), terms = new Map((terminals() ?? []).map((r) => [r?.address, r]));
+      const got = {};
+      for (const p of want) {
+        const on = ags.filter((x) => (String(x.address).includes("/") ? String(x.address).split("/")[0] : null) === (p.host ?? null));
+        const cwd = (x) => String(terms.get(x.address)?.foreground?.cwd || terms.get(x.address)?.cwd || "");
+        on.sort((x, y) => (cwd(y) === p.dir) - (cwd(x) === p.dir));
+        let found = "";
+        for (const x of on) {
+          const r = await hc(["get", x.address, "--json"]).catch(() => null);
+          let j = {};
+          try { j = JSON.parse(r?.stdout ?? "{}"); } catch {}
+          if (Number(j.foreground?.pid) === p.pid || Number(j.pid) === p.pid) { found = x.address; break; }
+        }
+        got[`${p.host ?? ""}|${p.pid}`] = { address: found, at: Date.now() };
+      }
+      setShared(WHO, { ...(shared(WHO) ?? {}), ...got });
+    } finally { whoBusy = false; cx.notify(); }
+  });
+}
+// For Herdr's own Agents list (app patch 0010): shared "agents.waiting" (address -> { since, hot }): an agent waiting
+// for the owner's OK (kit pending add, its agent found above), and one waiting for you LONG_WAIT or more (hot: red).
+// Written only when it changes.
+export function waitingNow(pending, terms, now = Date.now()) {
+  const out = {};
+  for (const r of terms ?? []) {
+    const st = typeof r?.status === "object" ? r.status?.state ?? r.status?.status : r?.status;
+    const since = Number(r?.status_ms) || 0;
+    if (st === "blocked" && since && now - since >= LONG_WAIT) out[r.address] = { since, hot: true };
+  }
+  for (const p of pending ?? []) {
+    if (p.kind !== "owner" || !p.who) continue;
+    const since = p.since ?? 0, hot = Boolean(since) && now - since >= LONG_WAIT;
+    out[p.who] = { since, hot: hot || Boolean(out[p.who]?.hot) };
+  }
+  return out;
+}
+function publishWaiting() {
+  const pending = pendingRows(machinesData()?.rows).map((p) => ({ ...p, who: whoOf(p) }));
+  const next = waitingNow(pending, terminals());
+  const was = shared("agents.waiting") ?? {};
+  const key = (m) => JSON.stringify(Object.keys(m).sort().map((k) => [k, Boolean(m[k].hot)]));
+  if (key(next) !== key(was)) setShared("agents.waiting", next);
+}
+
 export class Agents {
   constructor(role) { this.role = role; }
 
@@ -67,6 +126,10 @@ export class Agents {
       cx.timer.every(2000, () => { try { logTick(); } catch {} });   // the 關係 timeline's log, while Herdr runs
       // background work of done agents for Herdr's Agents list (agents.busy), and what they said, while Herdr runs
       cx.timer.every(2000, (cx) => { try { saidTick(agents(), terminals(), cx); } catch {} });
+      // who waits for the owner's OK, for Herdr's own Agents list too (agents.waiting): kit status every 10 minutes
+      cx.timer.every(5000, (cx) => {
+        try { if (machinesDue()) loadMachines(cx); whoTick(cx); publishWaiting(); } catch {}
+      });
       return;
     }
     this.open = null;      // the agent shown in detail (its name)
@@ -90,7 +153,7 @@ export class Agents {
       if (this.tab === "rel" && machinesDue()) { try { loadMachines(cx); } catch {} }
       // 做完等你看: what each agent said when it stopped; each one's sub-agents (said.js)
       if (this.tab === "rel") { try { saidTick(agents(), terminals(), cx); } catch {} }
-      if (this.tab === "rel") this.whoTick(cx);
+      if (this.tab === "rel") whoTick(cx);
       const a = apiKnown(null);
       if (!a) return checkApi(null, cx);
       if (a.ok && (this.first || stale()) && !this.busy && !this.loading) this.refresh(cx);
@@ -285,41 +348,11 @@ export class Agents {
     return h_flex().flex_none().px(6).gap(2).border_b(1).border_color(t.border).child(tab("defs", "定義")).child(tab("rel", "關係"));
   }
 
-  // 等站長同意's agent: kit pending add keeps the agent's pid; the terminal on that machine whose program (Herdr's
-  // foreground pid, else its own) is that pid. hc get on that machine's agents, the same folder first; each answer kept
-  // WHO_TTL (none found too: asked again then)
-  whoTick(cx) {
-    if (this.whoBusy) return;
-    this.who ??= {};
-    const want = pendingRows(machinesData()?.rows).filter((p) => p.kind === "owner" && p.pid)
-      .filter((p) => { const w = this.who[`${p.host ?? ""}|${p.pid}`]; return !w || Date.now() - w.at > WHO_TTL; });
-    if (!want.length) return;
-    this.whoBusy = true;
-    cx.spawn(async (cx) => {
-      try {
-        const ags = agents(), terms = new Map((terminals() ?? []).map((r) => [r?.address, r]));
-        for (const p of want) {
-          const on = ags.filter((x) => (String(x.address).includes("/") ? String(x.address).split("/")[0] : null) === (p.host ?? null));
-          const cwd = (x) => String(terms.get(x.address)?.foreground?.cwd || terms.get(x.address)?.cwd || "");
-          on.sort((x, y) => (cwd(y) === p.dir) - (cwd(x) === p.dir));
-          let found = "";
-          for (const x of on) {
-            const r = await hc(["get", x.address, "--json"]).catch(() => null);
-            let j = {};
-            try { j = JSON.parse(r?.stdout ?? "{}"); } catch {}
-            if (Number(j.foreground?.pid) === p.pid || Number(j.pid) === p.pid) { found = x.address; break; }
-          }
-          this.who[`${p.host ?? ""}|${p.pid}`] = { address: found, at: Date.now() };
-        }
-      } finally { this.whoBusy = false; cx.notify(); }
-    });
-  }
-
   // 關係: the agents running in the shown space (or all), who talks to whom (graph.js)
   relations(t, z) {
     const f = focused(), shownSpace = f?.space ?? (spaces() ?? []).find((s) => s.active)?.id ?? null, now = Date.now();
     // waiting for the owner's OK: each pending's agent (its pid's terminal, whoTick), on the card and in the line
-    const pending = pendingRows(machinesData()?.rows).map((p) => ({ ...p, who: p.pid ? this.who?.[`${p.host ?? ""}|${p.pid}`]?.address || null : null }));
+    const pending = pendingRows(machinesData()?.rows).map((p) => ({ ...p, who: whoOf(p) }));
     const owner = {};
     for (const p of pending) if (p.kind === "owner" && p.who) owner[p.who] = { since: p.since, what: p.what };
     const ags = agents(), g = graphData({ agents: ags, terms: terminals(), names: sidebarNames(ags, panes(), spaces()), space: this.scope === "space" ? shownSpace : null, ctx: shared(CTX), notes: shared(NOTE), log: eventLog(), down: downMachines(), said: shared(SAID), subs: shared(SUBS), bg: shared(BG), steps: shared(STEPS), owner, now });

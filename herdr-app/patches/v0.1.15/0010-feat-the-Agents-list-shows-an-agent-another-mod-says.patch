@@ -1,0 +1,52 @@
+From ef68faf304ab78293ca4e220b9d6c591d8968d70 Mon Sep 17 00:00:00 2001
+From: jayweihung <3034830+jayweihung@users.noreply.github.com>
+Date: Sat, 14 Nov 2026 23:11:23 +0800
+Subject: [PATCH] feat: the Agents list shows an agent another mod says waits
+ for you as needing you, red when long
+
+A mod that knows an agent waits for a person outside its own dialog (an OK it
+asked for and stopped on), or has waited long, puts it in shared
+"agents.waiting" (address -> { since, hot }); the list shows it as Needs you,
+in red when hot.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ defaults/mods/agents/main.js | 15 ++++++++++++---
+ 1 file changed, 12 insertions(+), 3 deletions(-)
+
+diff --git a/defaults/mods/agents/main.js b/defaults/mods/agents/main.js
+index f463519..c321029 100644
+--- a/defaults/mods/agents/main.js
++++ b/defaults/mods/agents/main.js
+@@ -232,8 +232,10 @@ export default class Agents extends View {
+   status(t, a, compact = false) {
+     const color = t[a.status] ?? t.dim;
+     if (a.status === "working") return svg("mods/workspace-chrome/spinner.svg").size(12).mx(1).flex_none().text_color(t.working).spin(900);
+-    if (a.status === "blocked" && compact) return div().size(14).flex_none().rounded(4).bg(t.blocked + "26").text_size(10.5).font_bold().text_color(t.blocked).flex().items_center().justify_center().child("!");
+-    if (a.status === "blocked") return div().flex_none().px(6).h(18).rounded(5).bg(t.blocked + "26").text_size(10.5).font_semibold().text_color(t.blocked).flex().items_center().child("Needs you");
++    // Waiting long (another mod says so: a.hot): red, not the blocked color.
++    const need = a.hot ? (t.ansi1 ?? t.blocked) : t.blocked;
++    if (a.status === "blocked" && compact) return div().size(14).flex_none().rounded(4).bg(need + "26").text_size(10.5).font_bold().text_color(need).flex().items_center().justify_center().child("!");
++    if (a.status === "blocked") return div().flex_none().px(6).h(18).rounded(5).bg(need + "26").text_size(10.5).font_semibold().text_color(need).flex().items_center().child("Needs you");
+     // Idle: a ring; done: a dot.
+     if (a.status === "idle") return div().size(7).mx(3).flex_none().rounded(4).border(1.5).border_color(t.idle ?? t.dim);
+     return div().size(7).mx(3).flex_none().rounded(4).bg(a.status === "done" ? color : t.dim + "00");
+@@ -247,7 +249,14 @@ export default class Agents extends View {
+     // An agent whose turn ended while work of its own still runs (a background command, a sub-agent) isn't done
+     // yet: another mod that sees it (the kit mod) puts it in shared "agents.busy" (address -> what runs).
+     const busy = shared("agents.busy") ?? {};
+-    let list = agents().map((a) => (a.status === "done" && busy[a.address] ? { ...a, status: "working" } : a));
++    // An agent waiting for a person outside its own dialog (an OK it asked for and stopped on), or waiting long: another
++    // mod puts it in shared "agents.waiting" (address -> { since, hot }); the list shows it as needing you, red when hot.
++    const waiting = shared("agents.waiting") ?? {};
++    let list = agents().map((a) => {
++      const w = waiting[a.address];
++      if (w && a.status !== "working") return { ...a, status: "blocked", hot: Boolean(w.hot) };
++      return a.status === "done" && busy[a.address] ? { ...a, status: "working" } : a;
++    });
+     this.listed = new Map(list.map((a) => [a.address, a.status]));
+     const all = terminals();
+     this.migratePins(all);
+-- 
+2.54.0
+

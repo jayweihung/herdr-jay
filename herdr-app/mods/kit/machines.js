@@ -247,7 +247,7 @@ export function loadMachines(cx) {
 const COL = { kit: 52, feat: 120, ok: 58, when: 82 };
 export function machinesTab(t, z) {
   const d = machinesData(), rows = d?.rows ?? [], top = newest(rows), loading = machinesLoading();
-  const box = v_flex().flex_1().min_h(0).overflow_y_scrollbar().px(10).py(8).gap(2);
+  const box = v_flex().id("kit-machines-body").flex_1().min_h(0).overflow_y_scrollbar().px(10).py(8).gap(2);
   if (!d?.rows) return box.child(h_flex().gap(6).items_center().text_color(t.muted).child(spin(z - 1, t.muted)).child("讀取中…"));
   const head = [top.kit ? `kit ${top.kit}` : null, top.serial != null ? `核准簽到第 ${top.serial} 號${top.serialReported ? "（自報）" : ""}` : null].filter(Boolean).join(" · ");
   box.child(h_flex().gap(6).items_center().pb(6).font_semibold()

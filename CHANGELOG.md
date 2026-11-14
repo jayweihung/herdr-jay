@@ -11,7 +11,7 @@ which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/key
 
 ## 2026-11-14, 關係: 等站長同意 on the agent that waits
 
-Needs: **mods**.
+Needs: **mods**, **snap hook** (reply hook), **app** (patch 0010).
 
 - 等站長同意 (kit pending add) finds the agent that waits: kit keeps its pid, the panel asks Herdr (hc get) which
   terminal on that machine runs it. The line names it and a click goes to its card; the card is colored like waiting
@@ -21,6 +21,9 @@ Needs: **mods**.
 - Reply hook: a command with several hc send (hc send a … && hc send b …) counted only the first, so an answer sent
   second was reported as not sent; options with a value (--if idle, --timeout 30) are skipped too. Needs **snap hook**
   again: the hook file (~/.config/nvim-jay/reply_hook.lua) on each machine, written by nvim-jay.
+- Herdr's own Agents list (app patch 0010, needs **app**): an agent waiting for the owner's OK shows Needs you, and one
+  waiting for you 10 minutes or more turns red, like the 關係 tab; background work spins there with patch 0009. The
+  kit mod sets shared `agents.waiting` from its always-running button (kit status every 10 minutes).
 
 ## 2026-11-14, 倉庫: collect many skills from one URL at once; skills grouped by where they came from
 

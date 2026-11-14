@@ -425,7 +425,7 @@ export class Header {
     if (this.msg) root.child(this.ctxMessage(t, z));
     const api = apiState(this.target.machine ?? null);
     if (api?.kind && !api.ok) return root.child(apiCard(t, z, api, this.target.machine ?? null, "ctx"));
-    const body = v_flex().flex_1().min_h(0).overflow_y_scrollbar().px(12).py(10).gap(10);
+    const body = v_flex().id("kit-header-body").flex_1().min_h(0).overflow_y_scrollbar().px(12).py(10).gap(10);
     if (!p) body.child(div().text_color(t.dim).child("這個 agent 已經關掉了。"));
     if (this.err) body.child(v_flex().p(8).rounded(6).bg(t.raised).text_size(z - 1).text_color(t.blocked)
       .child(textBlock("ctx-err", d ? `沒更新到（下面是上一次的）：${this.err}` : this.err)));

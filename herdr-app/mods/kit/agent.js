@@ -100,7 +100,7 @@ export class AgentPopup {
     this.folder = f ? { dir: f.dir, why: f.why, has: inDir } : null;
     const mine = (i) => inDir.has(`${i.kind}:${i.name}`);
     const f0 = this.filter, hit = (i) => !f0 || [i.name, i.description, i.source, i.from, i.path].some((x) => String(x ?? "").toLowerCase().includes(f0));
-    const body = v_flex().flex_1().min_h(0).overflow_y_scrollbar().px(10).py(8).gap(8);
+    const body = v_flex().id("kit-agent-body").flex_1().min_h(0).overflow_y_scrollbar().px(10).py(8).gap(8);
     body.child(Input.new(this.input).flex_none().h(28).px(8).rounded(6).border_1().border_color(t.border).bg(t.background).text_size(z - 1).text_color(t.foreground));
     const kindName = { rule: "規則", skill: "Skills", mcp: "MCP" };
     // 1. what kit run started it with: only this agent has it, for this run

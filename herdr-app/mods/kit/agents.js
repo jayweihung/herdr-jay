@@ -30,7 +30,7 @@ import { readBot, withBot, pickBot, botIcon, botProblem, LiveBot } from "./bots.
 import { canDrag, draggable, dropLoop, requestPlace, takeAsks, placeClosed, placeDir, liveNow } from "./place.js";
 import { graphData, graphView, edgeList, alertsView, legendView, layoutOf, nudgeText, LONG_WAIT } from "./graph.js";
 import { logTick, eventLog, downMachines } from "./events.js";
-import { SAID, SUBS, BG, STEPS, saidTick } from "./said.js";
+import { SAID, SUBS, BG, STEPS, saidTick, saidNow, asks } from "./said.js";
 import { timelineView, timelineHeight, SPANS } from "./timeline.js";
 import { sidebarNames } from "./names.js";
 import { loadMachines, machinesDue, machinesData, pendingRows, pendingDue, refreshPending } from "./machines.js";
@@ -87,14 +87,21 @@ function whoTick(cx) {
   });
 }
 // For Herdr's own Agents list (app patch 0010): shared "agents.waiting" (address -> { since, hot }): an agent waiting
-// for the owner's OK (kit pending add, its agent found above), and one waiting for you LONG_WAIT or more (hot: red).
+// for the owner's OK (kit pending add, its agent found above), one done that asks you, and one waiting for you
+// LONG_WAIT or more (hot: red).
 // Written only when it changes.
-export function waitingNow(pending, terms, now = Date.now()) {
+// An agent done whose last words ask you something (said: the reply hook's lines; bg: its own work still running,
+// then it isn't asking yet) waits for you too, orange first.
+export function waitingNow(pending, terms, now = Date.now(), said = {}, bg = {}) {
   const out = {};
   for (const r of terms ?? []) {
     const st = typeof r?.status === "object" ? r.status?.state ?? r.status?.status : r?.status;
     const since = Number(r?.status_ms) || 0;
     if (st === "blocked" && since && now - since >= LONG_WAIT) out[r.address] = { since, hot: true };
+    if (st === "done" && !(bg?.[r.address]?.at >= since && (bg[r.address].jobs ?? []).length)) {
+      const msg = String((r?.report ?? (typeof r?.status === "object" ? r.status : null))?.msg ?? "");
+      if (asks(saidNow(said, r.address, since) || msg)) out[r.address] = { since, hot: Boolean(since) && now - since >= LONG_WAIT };
+    }
   }
   for (const p of pending ?? []) {
     if (p.kind !== "owner" || !p.who) continue;
@@ -105,7 +112,7 @@ export function waitingNow(pending, terms, now = Date.now()) {
 }
 function publishWaiting() {
   const pending = pendingRows(machinesData()?.rows).map((p) => ({ ...p, who: whoOf(p) }));
-  const next = waitingNow(pending, terminals());
+  const next = waitingNow(pending, terminals(), Date.now(), shared(SAID) ?? {}, shared(BG) ?? {});
   const was = shared("agents.waiting") ?? {};
   const key = (m) => JSON.stringify(Object.keys(m).sort().map((k) => [k, Boolean(m[k].hot)]));
   if (key(next) !== key(was)) setShared("agents.waiting", next);

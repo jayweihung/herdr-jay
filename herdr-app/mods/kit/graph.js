@@ -28,7 +28,7 @@ import { run } from "herdr";
 import { stop, icon, spin, btn, copyOnRight, shortDir } from "./common.js";
 import { shortSpan } from "./names.js";
 import { noteView } from "./context.js";
-import { saidNow, subsNow, STEPS } from "./said.js";
+import { saidNow, subsNow, STEPS, asks } from "./said.js";
 
 export const COL_W = 200, COL_W_DEFAULT = COL_W, NODE_H = 86, GAP_X = 100, GAP_Y = 24, PAD = 14, HEAD = 22, LOOP = 44;
 const MIN = 60000, HOUR = 3600000;
@@ -127,13 +127,16 @@ export function graphData({ agents, terms, space, ctx, notes, log = [], down = {
   for (const n of nodes) {
     const r = rec.get(n.address), rep = r?.report ?? (r?.status && typeof r.status === "object" ? r.status : null);
     const msg = String(rep?.msg ?? "").replace(/\s+/g, " ").trim();
-    n.said = n.status === "done" && !n.focused ? saidNow(said, n.address, n.since) || [...msg].slice(0, 200).join("") : "";
+    n.said = n.status === "done" ? saidNow(said, n.address, n.since) || [...msg].slice(0, 200).join("") : "";
     // done, but work of its own still going (a background shell seen after it stopped, a sub-agent): not your turn
     const b = bg?.[n.address], jobs = n.status === "done" && b?.at >= n.since ? b.jobs ?? [] : [];
     const subsRun = n.status === "done" ? (n.subs ?? []).filter((x) => !x.done).length : 0;
     n.background = jobs.length ? jobs[0] : subsRun ? `子 agent ${subsRun} 個` : "";
+    // done and its last words ask you something: it waits for your answer, looked at or not (until it works again)
+    n.ask = n.status === "done" && !n.background && asks(n.said);
   }
-  g.done = nodes.filter((n) => !n.down && n.status === "done" && !n.focused && !n.background).map((n) => ({ address: n.address, for: n.since ? now - n.since : 0, said: n.said }));
+  g.asks = nodes.filter((n) => !n.down && n.ask && !n.owner).map((n) => ({ address: n.address, for: n.since ? now - n.since : 0, said: n.said }));
+  g.done = nodes.filter((n) => !n.down && n.status === "done" && !n.focused && !n.background && !n.ask).map((n) => ({ address: n.address, for: n.since ? now - n.since : 0, said: n.said }));
   g.full = nodes.filter((n) => !n.down && n.pct != null && n.pct >= FULL_PCT).map((n) => ({ address: n.address, pct: n.pct }));
   return g;
 }
@@ -152,6 +155,11 @@ export function cardState(g, n, now = Date.now()) {
   if (n.owner && n.status !== "working") {
     const d = n.owner.since ? now - n.owner.since : 0;
     return { text: `${n.owner.here ? "等你同意" : "等站長同意"}${n.owner.since ? ` ${spanText(d)}` : ""}`, color: d >= LONG_WAIT ? "ansi1" : "blocked", warm: d >= WARN_WAIT, hot: d >= LONG_WAIT, you: true };
+  }
+  // done and asking you (its last words ask): waiting for you, the same colors, even while you look at it
+  if (n.ask) {
+    const d = n.since ? now - n.since : 0;
+    return { text: `問你：${n.said}`, color: d >= LONG_WAIT ? "ansi1" : "blocked", warm: d >= WARN_WAIT, hot: d >= LONG_WAIT, you: true, asks: true };
   }
   const idle = g.idle?.find((x) => x.address === n.address);
   if (idle) return { text: `閒置 ${spanText(idle.for)} · 可以關了`, color: "dim", idle: true };
@@ -458,6 +466,11 @@ export function alertsView(t, z, g, now = Date.now(), onSelect = null, { onNudge
   for (const w of (g.blocked ?? g.longWaits.map((x) => ({ ...x, hot: true }))).filter((x) => !ends.has(x.address)))
     yours.push({ id: `${w.hot ? "long" : "you"}-${w.address}`, color: w.hot ? t.ansi1 : t.blocked, who: w.address,
       text: `${name(w.address)} ${KIND[w.kind] ?? "等你處理"}${w.hot ? "已經 " : " "}${w.for ? spanText(w.for) : ""}${w.ask ? `：「${w.ask}」` : ""}` });
+  for (const x of g.asks ?? []) {
+    const hot = x.for >= LONG_WAIT;
+    yours.push({ id: `ask-${x.address}`, color: hot ? t.ansi1 : t.blocked, who: x.address,
+      text: `${name(x.address)} 問你${x.for ? `（${hot ? "已經 " : ""}${spanText(x.for)}）` : ""}：「${x.said}」` });
+  }
   items.unshift(...yours);
   for (const c of g.clashes)
     items.push({ id: `clash-${c.nodes.join("-")}`, text: `同一個資料夾：${c.nodes.map(name).join("、")} 同時在 ${shortDir(c.dir)} 裡改東西`, color: t.working, who: c.nodes[0] });

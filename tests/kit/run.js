@@ -804,6 +804,10 @@ test("agents.waiting (for Herdr's own Agents list, app patch 0010): who waits fo
   const pending = [{ kind: "owner", who: "t3", since: now - 2 * MIN }, { kind: "owner", who: null, since: 1 }, { kind: "sign", who: "t9" }, { kind: "owner", who: "srv/t1p", since: now - 51 * MIN }];
   assert.deepEqual(waitingNow(pending, terms, now), { t1: { since: now - 11 * MIN, hot: true }, t3: { since: now - 2 * MIN, hot: false }, "srv/t1p": { since: now - 51 * MIN, hot: true } },
     "blocked 1 minute: Herdr shows it already; signing has no agent");
+  const ws = waitingNow([], [{ address: "t5", status: "done", status_ms: now - 2 * MIN }, { address: "t6", status: "done", status_ms: now - 2 * MIN },
+    { address: "t7", status: "done", status_ms: now - 2 * MIN }, { address: "t8", status: "done", status_ms: now - 20 * MIN, report: { msg: "要我推上去嗎？" } }], now,
+    { t5: { at: now - 2 * MIN, text: "要推的話跟我說。" }, t6: { at: now - 2 * MIN, text: "做好了。" }, t7: { at: now - 2 * MIN, text: "要推嗎？" } }, { t7: { at: now - MIN, jobs: ["make"] } });
+  assert.deepEqual(ws, { t5: { since: now - 2 * MIN, hot: false }, t8: { since: now - 20 * MIN, hot: true } }, "asking: in Herdr's list too (not while its own work runs)");
   // the always-running button keeps it current: kit status (each 10 minutes), the agent by its pid, then the shared key
   fresh(); fakeKit();
   H.agents = [ag("srv/t1p", "done")]; H.terminals = [{ address: "srv/t1p", status_ms: Date.now() - 52 * MIN, cwd: "/q" }];
@@ -855,21 +859,33 @@ test("關係: an agent done and not looked at says what it said when it stopped 
   const terms = [{ address: "t5", status_ms: now - 45 * MIN }, { address: "t6", status_ms: now - 45 * MIN }, { address: "t7", status_ms: now - 30000 }, { address: "t8", status_ms: now - MIN }];
   const g = graphData({ agents, terms, space: null, said: { ...said, t8: { at: now, text: "seen" } }, now });
   const st = (a) => cardState(g, g.nodes.find((n) => n.address === a), now);
-  assert.deepEqual([st("t5").text, st("t5").you], ["做完：srv root 要不要升到 0.6.3？", true]);
+  assert.deepEqual([st("t5").text, st("t5").you, st("t5").color, st("t5").hot], ["問你：srv root 要不要升到 0.6.3？", true, "ansi1", true], "it asks you: waiting for you, red after 10 minutes");
   assert.deepEqual([st("t6").text, st("t6").you], ["做完 · 等你看", true]);
   assert.deepEqual([st("t7").text, st("t7").you, st("t7").warm], ["等你 30 秒", true, false], "blocked: colored from the start");
   assert.equal(st("t8"), null, "you're on it: nothing");
   const th = new Proxy({}, { get: (_t, k) => (k === "then" ? undefined : "#334455") });
   H.texts = []; H.strings = []; alertsView(th, 13, g, now);
   const out = [...H.texts, ...H.strings].join("\n");
-  assert.match(out, /t5 做完等你看：「srv root 要不要升到 0\.6\.3？」/);
+  assert.match(out, /t5 問你（已經 45 分）：「srv root 要不要升到 0\.6\.3？」/);
+  assert.ok(!/t5 做完等你看/.test(out), "not said twice");
   assert.match(out, /做完等你看：t6/);
   assert.ok(!/t8/.test(out));
   assert.equal(tint("#000000", "#ffffff", 0.5), "#808080");
   // no hook there: the line the program reported with its status (status.msg in the core's record)
   const gm = graphData({ agents: [ag("box/t9", "done")], terms: [{ address: "box/t9", status_ms: now - MIN, status: "done", report: { state: "done", msg: "要不要升到  0.6.3？" } }], space: null, now });
-  assert.equal(gm.done[0].said, "要不要升到 0.6.3？");
-  assert.equal(cardState(gm, gm.nodes[0], now).text, "做完：要不要升到 0.6.3？");
+  assert.equal(gm.asks[0].said, "要不要升到 0.6.3？");
+  assert.equal(cardState(gm, gm.nodes[0], now).text, "問你：要不要升到 0.6.3？");
+  // asking without a question mark; while you look at it, it still waits for your answer; a plain report stays 做完
+  const { asks } = M.said;
+  assert.deepEqual(["要推的話跟我說。", "要更新就回我「更新」。", "這樣可以嗎", "要不要先跑測試", "做好了。", "測試都過了，已推上去。"].map(asks), [true, true, true, true, false, false]);
+  const gf = graphData({ agents: [ag("t3", "done", { focused: true }), ag("t4", "done")], terms: [{ address: "t3", status_ms: now - 2 * MIN }, { address: "t4", status_ms: now - 2 * MIN }],
+    said: { t3: { at: now - 2 * MIN, text: "三個提交都還在本機，要推的話跟我說。" }, t4: { at: now - 2 * MIN, text: "做好了，測試都過。" } }, space: null, now });
+  const sf = (a) => cardState(gf, gf.nodes.find((n) => n.address === a), now);
+  assert.deepEqual([sf("t3").text, sf("t3").color, sf("t3").you], ["問你：三個提交都還在本機，要推的話跟我說。", "blocked", true], "looked at: still yours (orange) until you answer");
+  assert.equal(sf("t4").text, "做完：做好了，測試都過。");
+  // background work still running: not asking yet
+  const gb = graphData({ agents: [ag("t3", "done")], terms: [{ address: "t3", status_ms: now - MIN }], said: { t3: { at: now, text: "要不要推？" } }, bg: { t3: { at: now, jobs: ["sleep 60"] } }, space: null, now });
+  assert.equal(cardState(gb, gb.nodes[0], now).busy, true);
   assert.equal(tint("rgb(1,2,3)", "#ffffff"), "rgb(1,2,3)", "not #rrggbb: as it is");
 });
 test("關係: omp's and Codex's sub-agents and last words, read from their own files (no hook): parsed, and Codex's script run for real", async (M) => {

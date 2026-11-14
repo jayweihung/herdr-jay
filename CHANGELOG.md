@@ -9,6 +9,12 @@ says which) · **kit** = update kit itself on every machine where agents run (`k
 **snap hook** = a line in Claude Code's `settings.json` on each machine where you added the hook (the entry says
 which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/keys.md).
 
+## 2026-11-14, 關係: an agent that asks you something waits for you (問你)
+Needs: mods.
+- Done, and its last words ask you (a question mark, or 跟我說 / 回我 / 要不要 / 你決定 / …嗎): its card is colored like
+  waiting for you (orange, red after 10 minutes) and says 問你：…, on top of the alerts, and Herdr's Agents list shows
+  Needs you (app patch 0010). Unlike 做完等你看 it stays while you look at it, until you answer and it works again.
+
 ## 2026-11-14, 關係: 等你同意 colors and clears in seconds
 Needs: mods.
 - What waits for a person is asked again every 5 s on this computer and every 15 s elsewhere (was every minute), so

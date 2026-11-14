@@ -344,6 +344,10 @@ export function busyOf(ags, terms, bg, subs, now = Date.now()) {
 }
 
 // address -> what it said, when it said it at this stop (not long before its status became done)
+// a line that asks you something, so its agent waits for your answer: a question mark, or the usual ways of asking
+// without one (要推的話跟我說。 / 要不要… / …嗎。 / 回我「更新」)
+const ASK = /[？?]|跟我說|告訴我|回我|要不要|你決定|你選|請(你)?(確認|決定|選)|嗎[。！!.]?\s*$/;
+export const asks = (line) => ASK.test(String(line ?? ""));
 export function saidNow(all, address, since) {
   const e = (all ?? {})[address];
   return e?.text && (!since || e.at >= since - 120000) ? e.text : "";

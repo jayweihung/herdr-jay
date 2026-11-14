@@ -332,10 +332,16 @@ export class Agents {
     const who = g.nodes.find((n) => n.address === w.to)?.name ?? w.to;
     // hc send, not run(): run() takes the app's commands only. No HC_TERMINAL_ID here, so herdr-core neither tags it
     // as an agent's message nor counts it as a line in the graph.
-    const fail = (why) => { this.nudged.delete(key); setShared(AGENTS_MSG, { ok: false, label: "提醒", text: `提醒沒送出（${who} 可能又在忙了）：${why}`, at: Date.now() }); cx.notify(); };
-    Promise.resolve(hc(["send", "--if", "idle", "--json", w.to, nudgeText(g, w)]))
-      .then((r) => (r && r.code !== 0 ? fail(String(r.stderr || r.stdout || r.code).trim()) : setShared(AGENTS_MSG, { ok: true, label: "提醒", text: `已提醒 ${who} 回覆，等它回`, at: Date.now() })))
-      .catch((e) => fail(e?.message ?? e));
+    // the answer comes later: only the cx that cx.spawn hands over may be used then
+    const fail = (why) => { this.nudged.delete(key); setShared(AGENTS_MSG, { ok: false, label: "提醒", text: `提醒沒送出（${who} 可能又在忙了）：${why}`, at: Date.now() }); };
+    cx.spawn(async (cx) => {
+      try {
+        const r = await hc(["send", "--if", "idle", "--json", w.to, nudgeText(g, w)]);
+        if (r && r.code !== 0) fail(String(r.stderr || r.stdout || r.code).trim());
+        else setShared(AGENTS_MSG, { ok: true, label: "提醒", text: `已提醒 ${who} 回覆，等它回`, at: Date.now() });
+      } catch (e) { fail(e?.message ?? e); }
+      cx.notify();
+    });
     cx.notify();
   }
 

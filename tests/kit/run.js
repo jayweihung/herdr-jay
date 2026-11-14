@@ -735,6 +735,13 @@ test("關係 colors: colored all over only where it is your turn; 停了沒回 h
   for (const x of ["bl", "dn", "a", "b", "old"]) assert.ok(!H.colors[`kit-graph-busy-${x}`], `no breathing frame on ${x}`);
   assert.deepEqual([M.graph.isBusy({ status: "done", background: "make test" }), M.graph.isBusy({ status: "working", down: 5 }), M.graph.isBusy({ status: "idle" })], [true, false, false]);
   assert.equal(stuckColor({ ansi1: "#ff0000" }), "#ff0000", "a theme without ansi5: red");
+  // the mouse over a card: brighter in its own color, the frame's color unchanged (no hover border color at all)
+  const { bgOf } = M.graph;
+  assert.equal(bgOf(th, th.ansi1, true, false), tint(th.raised, th.ansi1));
+  assert.equal(bgOf(th, th.ansi1, true, false, true), tint(tint(th.raised, th.ansi1), th.ansi1, 0.12));
+  assert.equal(bgOf(th, null, true, false, true), tint(th.raised, th.foreground, 0.06));
+  assert.equal(bgOf(th, th.ansi1, true, true), tint(th.raised, th.ansi1, 0.26), "selected: still its color, stronger");
+  assert.doesNotMatch(readFileSync(join(MOD, "graph.js"), "utf8"), /hover\(\(s\) => s\.border_color/, "hover never changes a frame's color");
   H.strings = [];
   legendView(th, 13);
   assert.deepEqual(H.strings.filter((x) => x !== "整張上色＝輪到你："), ["等你處理", "等太久", "做完等你看", "停了沒回／互等"]);

@@ -16,6 +16,8 @@ Needs: **mods**.
 - 等站長同意 (kit pending add) finds the agent that waits: kit keeps its pid, the panel asks Herdr (hc get) which
   terminal on that machine runs it. The line names it and a click goes to its card; the card is colored like waiting
   for you (orange, red after 10 minutes) and says 等站長同意 51 分, not plain blue 做完.
+- The mouse over a card no longer turns its frame blue (it hid the status color and could read as a new state): the
+  frame keeps its color and the card gets a little brighter in it. Selected: its color, stronger. Mac and Windows alike.
 
 ## 2026-11-14, 倉庫: collect many skills from one URL at once; skills grouped by where they came from
 

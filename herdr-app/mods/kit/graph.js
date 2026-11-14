@@ -389,14 +389,21 @@ export const subLine = (x, now = Date.now()) => `${x.desc || x.type || x.id}${x.
   ? `做完 · ${agoText(x.last, now)}` : `在跑 · 開始 ${agoText(x.start, now)}${x.step ? ` · 正在：${x.step}` : ""}`}`;
 export const subsText = (n, now = Date.now()) => (n?.subs ?? []).map((x) => subLine(x, now)).join("\n");
 
+// a card's background: its color washed in where it is your turn (stronger when selected); the mouse over it (hover):
+// a little brighter, the same color. Color says how it stands; brightness, where the mouse or the selection is.
+export function bgOf(t, mark, wash, on, hover = false) {
+  const base = mark && wash ? tint(t.raised, mark, on ? 0.26 : 0.16) : on ? t.selected : t.raised;
+  return hover ? tint(base, mark && wash ? mark : t.foreground, mark && wash ? 0.12 : 0.06) : base;
+}
 // mark: a color for a card in trouble (a stuck chain; two in one folder) or waiting for you, else null: a thick
 // border; wash: a tint of it all over too (only where it is your turn)
 function card(t, z, n, p, on, onSelect, mark = null, st = null, now = Date.now(), wash = true) {
   return v_flex().id(`kit-graph-${n.address}`).absolute().left(p.x).top(p.y).w(p.w ?? COL_W).h(NODE_H).px(8).py(6).gap(1)
     .rounded(8).when(Boolean(mark), (el) => el.border_2()).when(!mark, (el) => el.border_1())
-    .border_color(mark ?? (on ? t.accent : n.focused ? t.muted : t.border)).bg(on ? t.selected : mark && wash ? tint(t.raised, mark) : t.raised)
+    .border_color(mark ?? (on ? t.accent : n.focused ? t.muted : t.border)).bg(bgOf(t, mark, wash, on))
     .when(Boolean(n.down || st?.idle) && !on, (el) => el.opacity(0.5))   // offline, or done long ago: in the background
-    .cursor_pointer().hover((s) => s.border_color(t.accent)).on_mouse_down("left", stop)
+    // the mouse over it: brighter, never another color (the frame's color says how it stands, and stays)
+    .cursor_pointer().hover((s) => s.bg(bgOf(t, mark, wash, on, true))).on_mouse_down("left", stop)
     // like a row of the Agents list: a click goes to its pane; here its lines stand out too
     .on_click((_e, cx) => { cx.stop_propagation(); run("pane.focus", { terminal: n.address }); onSelect?.(n.address, cx); })
     // at work (or its own work still running after it stopped): a frame that breathes, drawn natively (no timer),

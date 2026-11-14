@@ -28,7 +28,7 @@ import { run } from "herdr";
 import { stop, icon, spin, btn, copyOnRight, shortDir } from "./common.js";
 import { shortSpan } from "./names.js";
 import { noteView } from "./context.js";
-import { saidNow, subsNow } from "./said.js";
+import { saidNow, subsNow, STEPS } from "./said.js";
 
 export const COL_W = 200, COL_W_DEFAULT = COL_W, NODE_H = 86, GAP_X = 100, GAP_Y = 24, PAD = 14, HEAD = 22, LOOP = 44;
 const MIN = 60000, HOUR = 3600000;
@@ -60,7 +60,8 @@ const byTerminal = (obj, addr) => Object.entries(obj ?? {}).find(([k]) => k.ends
 // names: address -> name as the Agents list shows it (names.js sidebarNames)
 // said: what each agent said when it stopped (said.js SAID); subs: its sub-agents (said.js SUBS); bg: its background
 // shells (said.js BG)
-export function graphData({ agents, terms, space, ctx, notes, log = [], down = {}, names = {}, said = {}, subs = {}, bg = {}, now = Date.now() }) {
+// steps: what each running sub-agent does now (said.js STEPS)
+export function graphData({ agents, terms, space, ctx, notes, log = [], down = {}, names = {}, said = {}, subs = {}, bg = {}, steps = {}, now = Date.now() }) {
   const shown = (agents ?? []).filter((a) => !space || a.space === space);
   const rec = new Map((terms ?? []).map((r) => [r?.address, r]));
   const began = {};
@@ -72,7 +73,7 @@ export function graphData({ agents, terms, space, ctx, notes, log = [], down = {
       program: a.program, space: a.space_name, spaceId: a.space, focused: Boolean(a.focused),
       since: Math.max(Number(r?.status_ms) || 0, began[a.address] ?? 0), cwd: String(r?.foreground?.cwd || r?.cwd || ""),
       kind: String((r?.report ?? r?.status)?.kind ?? ""), down: down?.[machineOf(a.address)] ?? null,
-      subs: subsNow(subs, a.address, now, a.status === "working") };
+      subs: subsNow(subs, a.address, now, a.status === "working").map((x) => ({ ...x, step: x.done ? "" : steps?.[`${a.address}|${x.id}`]?.text ?? "" })) };
   });
   // one column per space, in the list's order (agents() keeps a space's agents next to each other)
   const cols = [];
@@ -335,6 +336,10 @@ function glyph(t, s) {
 }
 
 export const runningSubs = (n) => (n?.subs ?? []).filter((x) => !x.done).length;
+// one line per sub-agent: what it was asked, its kind, running (since when, its latest step) or done (when)
+export const subLine = (x, now = Date.now()) => `${x.desc || x.type || x.id}${x.type && x.desc ? `（${x.type}）` : ""} · ${x.done
+  ? `做完 · ${agoText(x.last, now)}` : `在跑 · 開始 ${agoText(x.start, now)}${x.step ? ` · 正在：${x.step}` : ""}`}`;
+export const subsText = (n, now = Date.now()) => (n?.subs ?? []).map((x) => subLine(x, now)).join("\n");
 
 // mark: a color for a card in trouble (a stuck chain; two in one folder) or waiting for you, else null: a thick
 // border and a tint of it all over
@@ -351,7 +356,7 @@ function card(t, z, n, p, on, onSelect, mark = null, st = null, now = Date.now()
       .child(div().flex_1().min_w(0).truncate().font_semibold().text_size(z - 1).child(n.name))
       // its own sub-agents (Claude Code's, through the reply hook): how many run now
       .when(runningSubs(n) > 0, (el) => el.child(div().id(`kit-graph-subs-${n.address}`).flex_none().px(4).rounded(3).bg(t.surface)
-        .text_size(z - 4).text_color(t.working).child(`子 ${runningSubs(n)}`)))
+        .text_size(z - 4).text_color(t.working).tooltip(subsText(n, now)).child(`子 ${runningSubs(n)}`)))
       .when(Boolean(n.where), (el) => el.child(div().flex_none().text_size(z - 4).text_color(t.dim).child(n.where)))
       .when(Boolean(n.since), (el) => el.child(div().flex_none().text_size(z - 3).text_color(t.dim).child(shortSpan(now - n.since))))
       .child(n.down ? div().size(7).mx(3).flex_none().rounded(4).bg(t.unknown) : glyph(t, n.background ? "working" : n.status)))
@@ -441,10 +446,7 @@ export function edgeList(t, z, g, sel, now = Date.now()) {
   box.child(div().truncate().font_semibold().child(`${n?.name ?? sel}（${sel}）`));
   if (n?.note) box.child(copyOnRight(div().text_color(t.muted).child(`進度：${n.note}`), n.note));
   if (n?.said) box.child(copyOnRight(div().text_color(t.done).child(`停下來時說：${n.said}`), n.said));
-  for (const x of n?.subs ?? []) {
-    const d = x.desc || x.type || x.id, when = x.done ? `做完 · ${agoText(x.last, now)}` : `在跑 · 開始 ${agoText(x.start, now)}`;
-    box.child(div().text_color(x.done ? t.dim : t.working).child(`子 agent：${d}${x.type && x.desc ? `（${x.type}）` : ""} · ${when}`));
-  }
+  for (const x of n?.subs ?? []) box.child(div().text_color(x.done ? t.dim : t.working).child(`子 agent：${subLine(x, now)}`));
   const st = n && cardState(g, n, now);
   if (st?.idle) box.child(div().text_color(t.dim).child(`${st.text}：要關就在它的分頁關（這裡不幫你關）。`));
   if (n?.down) box.child(div().text_color(t.ansi1).child(`連不到 ${n.machine}（斷線 ${spanText(now - n.down)}）：看到的是斷線前的樣子。`));

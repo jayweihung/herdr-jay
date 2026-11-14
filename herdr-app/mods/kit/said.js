@@ -20,6 +20,9 @@ export const BG = "kit.bg.v1";       // address -> { at, jobs: [label], asked, b
 // For Herdr's own Agents list (herdr-jay app patch 0009): address -> what still runs, for each done agent whose work
 // goes on; the list shows those as working.
 export const BUSY = "agents.busy";
+// What each running sub-agent is doing now: the last step in its own transcript (the subs file says where), read
+// every SUBS_MS (its last 64 KB, through sh on its machine; not on Windows). "<address>|<sub id>" -> { at, text }
+export const STEPS = "kit.steps.v1";
 const BG_MS = 15000;
 const RETRY = 60000, MAX = 200, SUBS_MS = 15000, SUBS_MAX = 12;
 
@@ -44,7 +47,8 @@ export function parseSubs(s) {
   if (!Number.isFinite(at) || at <= 0 || !Array.isArray(j?.list)) return null;
   const num = (v) => (Number.isFinite(Number(v)) && Number(v) > 0 ? Number(v) : 0);
   const list = j.list.filter((x) => x && typeof x === "object" && typeof x.id === "string").slice(0, SUBS_MAX)
-    .map((x) => ({ id: cut(x.id, 40), type: cut(x.type, 40), desc: cut(x.desc, 120), done: x.done === true, start: num(x.start), last: num(x.last) }));
+    .map((x) => ({ id: cut(x.id, 40), type: cut(x.type, 40), desc: cut(x.desc, 120), done: x.done === true, start: num(x.start), last: num(x.last),
+      path: typeof x.path === "string" && /\/subagents\/agent-[\w-]+\.jsonl$/.test(x.path) ? x.path : "" }));
   return { at, list };
 }
 
@@ -66,6 +70,28 @@ async function readBg(addr) {
   if (!pid) return null;
   const r = await exec("sh", ["-c", 'ps -A -ww -o ppid=,command= | awk -v p="$1" \'$1 == p\'', "sh", String(pid)], { timeout: 15000, on: machineOf(addr) }).catch(() => null);
   return r ? { at: Date.now(), jobs: bgJobs(r.stdout, pid) } : null;
+}
+
+// a transcript's tail (Claude Code JSONL; the first line may be cut) -> its last step, in a few words:
+// "Bash：ls ~/x", "Read：src/a.rs", or the first line of what it last wrote
+export function lastStep(tail) {
+  let step = "";
+  for (const line of String(tail ?? "").split("\n")) {
+    let r = null;
+    try { r = JSON.parse(line); } catch { continue; }
+    const c = r?.type === "assistant" && Array.isArray(r.message?.content) ? r.message.content : [];
+    for (const b of c) {
+      if (b?.type === "tool_use") {
+        const i = b.input ?? {}, arg = [i.command, i.file_path, i.path, i.pattern, i.url, i.query, i.description, i.prompt].find((v) => typeof v === "string" && v.trim());
+        step = `${cut(b.name, 30)}${arg ? `：${cut(String(arg).split("\n")[0], 70)}` : ""}`;
+      } else if (b?.type === "text" && typeof b.text === "string" && b.text.trim()) step = cut(b.text.trim().split("\n")[0], 80);
+    }
+  }
+  return step;
+}
+async function readStep(addr, path) {
+  const r = await exec("sh", ["-c", 'tail -c 65536 "$1" 2>/dev/null', "sh", path], { timeout: 15000, on: machineOf(addr) }).catch(() => null);
+  return r ? { at: Date.now(), text: lastStep(r.stdout) } : null;
 }
 
 async function readCache(addr, kind) {
@@ -124,6 +150,20 @@ export function saidTick(ags, terms, cx) {
     if (!s?.busy && (!s || s.for !== stop || ((a.status === "working" || a.status === "done") && now - s.asked >= SUBS_MS)))
       ask(SUBS, a, stop, "subs", parseSubs, cx);
   }
+  // the latest step of each running sub-agent (only while its agent is listed)
+  const steps = shared(STEPS) ?? {};
+  for (const a of ags ?? []) for (const x of subsNow(shared(SUBS), a.address, now, a.status === "working")) {
+    const k = `${a.address}|${x.id}`, e = steps[k];
+    if (x.done || !x.path || e?.busy || (e && now - e.asked < SUBS_MS)) continue;
+    setShared(STEPS, { ...(shared(STEPS) ?? {}), [k]: { ...(e ?? {}), asked: now, busy: true } });
+    cx.spawn(async (cx) => {
+      const d = await readStep(a.address, x.path).catch(() => null);
+      setShared(STEPS, { ...(shared(STEPS) ?? {}), [k]: { ...((shared(STEPS) ?? {})[k] ?? {}), ...(d ?? {}), asked: Date.now(), busy: false } });
+      cx.notify();
+    });
+  }
+  const keep = Object.fromEntries(Object.entries(shared(STEPS) ?? {}).filter(([k]) => live.has(k.slice(0, k.lastIndexOf("|")))));
+  if (Object.keys(keep).length !== Object.keys(shared(STEPS) ?? {}).length) setShared(STEPS, keep);
   const busy = busyOf(ags, terms, shared(BG), shared(SUBS), now);
   if (JSON.stringify(busy) !== JSON.stringify(shared(BUSY) ?? {})) setShared(BUSY, busy);
 }

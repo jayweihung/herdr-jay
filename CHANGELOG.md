@@ -29,7 +29,8 @@ command also under `"SubagentStart"` and `"SubagentStop"` in Claude Code's `sett
 - A card says 子 N when the agent's own sub-agents (Claude Code's Agent tool) are running; selecting it lists each
   one (description, type, running since / done when). The reply hook writes them on SubagentStart / SubagentStop
   and every stop (`~/.cache/nvim-jay/subs/<terminal>`); the panel reads them every 15 s while the agent works.
-  Codex and omp sub-agents are not shown yet.
+  Each running one also says its latest step (正在：Read：src/a.rs), read from its own transcript every 15 s; hovering
+  子 N shows the list. Codex and omp sub-agents are not shown yet.
 
 ## 2026-11-14, 關係: what a done agent asked you; cards waiting for you are colored
 

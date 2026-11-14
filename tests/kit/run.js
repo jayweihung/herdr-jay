@@ -713,6 +713,18 @@ test("關係: an agent's own sub-agents (the reply hook's subs file): 子 N on i
   const out = [...H.texts, ...H.strings].join("\n");
   assert.match(out, /子 agent：find the parser（Explore） · 在跑 · 開始 2 分前/);
   assert.match(out, /子 agent：review（general-purpose） · 做完 · 3 分前/);
+  // its latest step: the last tool call (or words) in its own transcript's tail
+  const { lastStep } = M.said;
+  const rec = (c) => JSON.stringify({ type: "assistant", message: { content: c } });
+  const tail = ["half a line", rec([{ type: "text", text: "Let me look.\nmore" }]), JSON.stringify({ type: "user", message: { content: "x" } }),
+    rec([{ type: "tool_use", name: "Bash", input: { command: "ls ~/.codex/sessions\nsecond line", description: "list" } }])].join("\n");
+  assert.equal(lastStep(tail), "Bash：ls ~/.codex/sessions");
+  assert.equal(lastStep(rec([{ type: "tool_use", name: "Read", input: { file_path: "/w/a.rs" } }])), "Read：/w/a.rs");
+  assert.equal(lastStep("garbage"), "");
+  const gs = graphData({ agents: [ag("t1", "working")], terms: [], space: null, subs: all, steps: { "t1|a1": { at: now, text: "Read：/w/a.rs" } }, now });
+  assert.equal(M.graph.subLine(gs.nodes[0].subs[0], now), "find the parser（Explore） · 在跑 · 開始 2 分前 · 正在：Read：/w/a.rs");
+  assert.equal(M.graph.subsText(gs.nodes[0], now).split("\n").length, 2, "the hover: one line each");
+  assert.equal(parseSubs(JSON.stringify({ at: 1, list: [{ id: "a", path: "/etc/passwd" }] })).list[0].path, "", "only a sub-agent transcript path is kept");
 });
 test("關係: done but its own work still runs (a background shell, a sub-agent): 背景工作中 (as working), not 做完等你看", (M) => {
   const { graphData, cardState } = M.graph, { bgJobs } = M.said;

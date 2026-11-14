@@ -542,7 +542,8 @@ Agents 面板上方有兩個分頁：「定義」是上面那些做好的 agent�
 - **放大**：右上「放大」開一個大視窗（螢幕的九成），整張圖一次看得到；範圍跟著面板目前選的。
 - **點一張卡片**：跟左邊 Agents 清單一樣，切到那個 agent 的格子；同時圖上它的線變明顯，其他的變淡，下面一條一條寫出
   它傳給誰、收到誰的，幾次、多久前、最後一則的第一行（右鍵複製）。不在圖上的（別的 space、不是 agent 的 terminal）
-  也列在這裡。點圖上空白的地方取消。它自己開的子 agent 也列在這裡：「子 agent：find the parser（Explore） · 在跑 · 開始 2 分前」。
+  也列在這裡。點圖上空白的地方取消。它自己開的子 agent 也列在這裡：「子 agent：find the parser（Explore） · 在跑 · 開始 2 分前 ·
+  正在：Read：src/parser.rs」（正在做的那一步，每 15 秒從子 agent 自己的對話紀錄最後一段讀）。滑鼠移到卡片上的「子 2」也會跳出同一份清單。
   子 agent 目前只有 Claude Code 的，要在 settings.json 加 reply hook 的 SubagentStart／SubagentStop 兩段
   （[nvim-jay.md §7a](nvim-jay.md#7a-the-reply-hook-answer-the-agents-that-asked-optional--回覆檢查選用)）。
 - **範圍**：「這個 space」只畫目前的 space；「全部 space」畫全部。選的分頁和範圍會記住。

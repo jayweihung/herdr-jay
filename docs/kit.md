@@ -591,6 +591,8 @@ Agents 面板上方有兩個分頁：「定義」是上面那些做好的 agent�
     「等站長同意」會找出是哪個 agent 在等：`kit pending add` 記下 agent 的程式（pid），面板到那台問 Herdr 哪個終端機在跑它，
     那行就寫它的名字「等站長同意：升 kit（Claude Code · box，等了 51 分）」，點一下跳到它的卡片；
     它的卡片也整張上色（跟等你處理一樣：一開始橘、10 分鐘後紅），寫「等站長同意 51 分」，不會再是一般的做完藍色。
+    在這台電腦上 `kit pending add` 的（要你自己同意或動手的事，例如自己 build）寫「等你同意」，不寫「等站長同意」；
+    就算你正在看那個終端機，卡片也照樣上色。
   - **做完等你看**：做完了、你還沒去看過的（Herdr 的「做完」，你點進去看過就變成閒著），列成一行，卡片寫「做完 · 等你看」。
     有裝 reply hook（[nvim-jay.md §7a](nvim-jay.md#7a-the-reply-hook-answer-the-agents-that-asked-optional--回覆檢查選用)）的
     Claude Code agent，會寫出它停下來時最後說的話：最後一段裡最後一句問句（有「？」），沒有問句就是最後一行。

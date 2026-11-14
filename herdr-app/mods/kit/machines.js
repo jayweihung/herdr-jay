@@ -94,7 +94,7 @@ export function pendingOf(list) {
 // what waits for a person on every machine and account the 各機器 load asked (rows), each with where it was read and
 // the Herdr machine it is on (host: null is this computer), for finding the agent that waits (its pid)
 export const pendingRows = (rows) => (rows ?? []).filter((r) => r.state === "ok")
-  .flatMap((r) => (r.pending ?? []).map((p) => ({ ...p, where: rowLabel(r), host: r.here ? null : r.machine ?? null })));
+  .flatMap((r) => (r.pending ?? []).map((p) => ({ ...p, where: rowLabel(r), host: r.here ? null : r.machine ?? null, here: Boolean(r.here) })));
 // a report file's text -> { status } or { why }
 export function readReport(text, file) {
   if (text == null) return { why: `還沒有回報檔 ${file}` };

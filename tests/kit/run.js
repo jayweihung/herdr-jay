@@ -768,6 +768,12 @@ test("關係: 等站長同意 finds its agent by the pid kit pending keeps (hc g
   assert.match([...H.texts, ...H.strings].join("\n"), /等站長同意：升 kit（srv\/t1p · srv，等了 51 分）/);
   assert.equal(H.colors["kit-graph-alert-pending-0"]?.border_color ?? th.ansi1, th.ansi1);
   H.clicks["kit-graph-alert-pending-0"]({}, cx); assert.equal(went, "srv/t1p", "a click goes to its card");
+  // this computer's own kit pending: it waits for you, not a box's owner (card and line)
+  const gh = graphData({ agents, terms, space: null, owner: { t9: { since: now - 2 * MIN, what: "要你同意：build", here: true } }, now });
+  assert.deepEqual([cardState(gh, gh.nodes.find((n) => n.address === "t9"), now).text, cardState(gh, gh.nodes.find((n) => n.address === "t9"), now).color], ["等你同意 2 分", "blocked"]);
+  H.texts = []; H.strings = [];
+  alertsView(th, 13, gh, now, () => {}, { pending: [{ kind: "owner", what: "要你同意：build", since: now - 2 * MIN, where: "這台電腦", who: "t9", here: true }] });
+  assert.match([...H.texts, ...H.strings].join("\n"), /等你同意：build（t9 · 這台電腦，等了 2 分）/);
   // the panel: kit status's pending (pid 4374 on srv) -> hc get on srv's agents -> the one whose program is 4374
   fresh(); fakeKit();
   H.spaces = [{ id: "s1", name: "web", active: true, tabs: [] }];
@@ -1747,7 +1753,7 @@ test("MCP 貼上設定: a paste left from a task that never finished (Herdr quit
   view(M, { role: "repo" }); await settle();
   assert.deepEqual(H.writes, [], "blank already: nothing written");
   fresh(); fakeKit({ api: "1.3", list: MCP_LIST }); H.files = { [FILE]: PASTE };
-  H.store["kit.busy"] = { label: "看設定", at: Date.now(), ttl: 120000, id: "other" };
+  H.store["kit.busy"] = { label: "看設定", at: Date.now(), ttl: 120000, id: "other", build: M.common.BUILD };
   view(M, { role: "repo" }); await settle();
   assert.equal(H.files[FILE], PASTE, "another copy's kit is reading it");
   fresh(); fakeKit({ api: "1.3", list: MCP_LIST }); H.files = { [FILE]: PASTE };
@@ -1931,6 +1937,7 @@ machinesTest("各機器: plain values — api and kit versions compared, kit sta
   const rows = [{ here: true, state: "ok", pending: [] }, { reported: true, label: "srv root", state: "ok", pending: pend }, { machine: "x", state: "down", pending: pend }];
   const pr = X.pendingRows(rows);
   assert.deepEqual(pr.map((p) => p.where), ["srv root", "srv root"], "only rows that answered");
+  assert.deepEqual(X.pendingRows([{ here: true, state: "ok", pending: pend.slice(1) }]).map((p) => p.here), [true], "this computer's rows say so");
   {
     const th = new Proxy({}, { get: (_t, k) => (k === "then" ? undefined : "#334455") });
     const g0 = M.graph.graphData({ agents: [], terms: [], space: null, now: 5e11 + 7200000 });

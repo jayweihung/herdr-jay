@@ -8,7 +8,7 @@ import { exec, home, notify, settings, shared, setShared, theme, window, readTex
 // ---------- shared state (every copy sees it; it survives a restart, so nothing in it may stay "busy" forever) ----------
 export const DATA = "kit.data.v2";             // the repository's data ({ at: 0 } = out of date: the panel loads it again)
 export const LOAD = "kit.load";                // { seq, at, done } the repository's load in progress; only the newest is kept
-export const BUSY = "kit.busy";                // { label, at, ttl, id } one kit action at a time; older than its ttl = finished
+export const BUSY = "kit.busy";                // { label, at, ttl, id, build } one kit action at a time; older than its ttl or another build's = finished
 export const EDITORS = "kit.editors";          // path -> { dirty, at } the files open in big windows
 export const MSG = (where) => `kit.msg.${where}`;   // kit's words after an action, per place (repo, agent:<key>, editor:<path>)
 // per agent pane (key = "<machine>|<folder>|<terminal>", machine empty for this computer); the pane header asks kit
@@ -136,17 +136,22 @@ export function liveEditors() {
 }
 
 // ---------- one kit action at a time (every part, every copy) ----------
-export function busyNow() { const b = shared(BUSY); return b && typeof b === "object" && Date.now() - (b.at ?? 0) < (b.ttl ?? 0) ? b.label : null; }
-// an action whose window closed (or the app quit) before it ended must not keep every button grey
+// This build of the mod (every copy of every part runs in it). A reload (an edit to the mod) or a restart ends every task
+// of the build before it, so a lock that build took is let go at once: collecting 39 skills takes one for 88 minutes,
+// and an edit mid-run had left every button grey that long.
+export const BUILD = `${Date.now()}-${Math.random()}`;
+const live = (b) => Boolean(b) && typeof b === "object" && b.build === BUILD && Date.now() - (b.at ?? 0) < (b.ttl ?? 0);
+export function busyNow() { const b = shared(BUSY); return live(b) ? b.label : null; }
+// an action whose window closed (or the app quit, or the mod was reloaded) before it ended must not keep every button grey
 export function dropStaleBusy() {
   const b = shared(BUSY);
-  if (b && (typeof b !== "object" || Date.now() - (b.at ?? 0) > (b.ttl ?? 0))) setShared(BUSY, null);
+  if (b && !live(b)) setShared(BUSY, null);
 }
 // take the lock: its id, or null when another action holds it; only the copy that took it gives it back
 export function takeBusy(label, ttl) {
   if (busyNow()) return null;
   const id = `${Date.now()}-${Math.random()}`;
-  setShared(BUSY, { label, at: Date.now(), ttl, id });
+  setShared(BUSY, { label, at: Date.now(), ttl, id, build: BUILD });
   return id;
 }
 export function giveBusy(id) { if (id && shared(BUSY)?.id === id) setShared(BUSY, null); }

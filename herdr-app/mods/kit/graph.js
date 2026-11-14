@@ -61,7 +61,7 @@ const byTerminal = (obj, addr) => Object.entries(obj ?? {}).find(([k]) => k.ends
 // said: what each agent said when it stopped (said.js SAID); subs: its sub-agents (said.js SUBS); bg: its background
 // shells (said.js BG)
 // steps: what each running sub-agent does now (said.js STEPS)
-// owner: { address: { since, what } } agents waiting for the owner's OK (kit pending add, matched to their terminal)
+// owner: { address: { since, what, here } } (here: this computer's, so it waits for you, not the box's owner) agents waiting for the owner's OK (kit pending add, matched to their terminal)
 export function graphData({ agents, terms, space, ctx, notes, log = [], down = {}, names = {}, said = {}, subs = {}, bg = {}, steps = {}, owner = {}, now = Date.now() }) {
   const shown = (agents ?? []).filter((a) => !space || a.space === space);
   const rec = new Map((terms ?? []).map((r) => [r?.address, r]));
@@ -151,7 +151,7 @@ export function cardState(g, n, now = Date.now()) {
   // waiting for the owner's OK (kit pending add): your turn too, the same colors as waiting for you
   if (n.owner && n.status !== "working") {
     const d = n.owner.since ? now - n.owner.since : 0;
-    return { text: `等站長同意${n.owner.since ? ` ${spanText(d)}` : ""}`, color: d >= LONG_WAIT ? "ansi1" : "blocked", warm: d >= WARN_WAIT, hot: d >= LONG_WAIT, you: true };
+    return { text: `${n.owner.here ? "等你同意" : "等站長同意"}${n.owner.since ? ` ${spanText(d)}` : ""}`, color: d >= LONG_WAIT ? "ansi1" : "blocked", warm: d >= WARN_WAIT, hot: d >= LONG_WAIT, you: true };
   }
   const idle = g.idle?.find((x) => x.address === n.address);
   if (idle) return { text: `閒置 ${spanText(idle.for)} · 可以關了`, color: "dim", idle: true };
@@ -464,7 +464,7 @@ export function alertsView(t, z, g, now = Date.now(), onSelect = null, { onNudge
   for (const [i, p] of pending.entries()) {
     const long = p.since ? `，等了 ${spanText(now - p.since)}` : "";
     const text = p.kind === "sign" ? `等你簽：${p.what ?? `${p.name} 有 ${p.commits ?? "新的"} 個 commit 等核准`}（${p.where}${long}）。簽章在 Mac 親手做`
-      : p.kind === "owner" ? `等站長同意：${String(p.what ?? "").replace(/^要你同意[：:]\s*/, "")}（${p.who ? `${name(p.who)} · ` : ""}${p.where}${long}）`
+      : p.kind === "owner" ? `${p.here ? "等你同意" : "等站長同意"}：${String(p.what ?? "").replace(/^要你同意[：:]\s*/, "")}（${p.who ? `${name(p.who)} · ` : ""}${p.where}${long}）`
       : `${p.what}（${p.where}${long}）`;
     // the agent that waits (found by its pid): a click goes to its card, red past LONG_WAIT like waiting for you
     const hot = p.kind === "owner" && p.since && now - p.since >= LONG_WAIT;

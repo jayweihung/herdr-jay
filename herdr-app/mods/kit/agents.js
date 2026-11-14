@@ -354,7 +354,7 @@ export class Agents {
     // waiting for the owner's OK: each pending's agent (its pid's terminal, whoTick), on the card and in the line
     const pending = pendingRows(machinesData()?.rows).map((p) => ({ ...p, who: whoOf(p) }));
     const owner = {};
-    for (const p of pending) if (p.kind === "owner" && p.who) owner[p.who] = { since: p.since, what: p.what };
+    for (const p of pending) if (p.kind === "owner" && p.who) owner[p.who] = { since: p.since, what: p.what, here: Boolean(p.here) };
     const ags = agents(), g = graphData({ agents: ags, terms: terminals(), names: sidebarNames(ags, panes(), spaces()), space: this.scope === "space" ? shownSpace : null, ctx: shared(CTX), notes: shared(NOTE), log: eventLog(), down: downMachines(), said: shared(SAID), subs: shared(SUBS), bg: shared(BG), steps: shared(STEPS), owner, now });
     if (this.sel && !g.nodes.some((n) => n.address === this.sel)) this.sel = null;
     const scope = (id, label) => btn(t, z, `kit-graph-scope-${id}`, label, { tiny: true, kind: this.scope === id ? "primary" : undefined,

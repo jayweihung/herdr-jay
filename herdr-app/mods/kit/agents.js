@@ -17,15 +17,17 @@
 // Each agent has a logo (bots.js): a cute animal-robot head, `bot: <animal>` or `bot: <animal> <color>` in its file's
 // frontmatter (written here, not by kit; kit keeps the line and kit push sends it), or one its name picks. In the list
 // a still picture; in its page drawn live (it says hello).
+// Two tabs: 定義 (the above) and 關係 (graph.js): the agents running now and who talks to whom.
 import { div } from "gpui-kit";
 import { v_flex, h_flex, Editor } from "gpui-base";
-import { theme, run, shared, setShared, readTextFile, writeTextFile, closeOverlay, openOverlay, props, spaces, focused, layout } from "herdr";
-import { AGENTS_DATA, AGENTS_LOAD, AGENTS_MSG, NODES, fs, stop, isWindows, shortDir, spin, waiting, find, textBlock, copyOnRight, btn,
+import { theme, run, shared, setShared, readTextFile, writeTextFile, closeOverlay, openOverlay, props, spaces, focused, layout, agents, terminals } from "herdr";
+import { AGENTS_DATA, AGENTS_LOAD, AGENTS_MSG, CTX, NOTE, NODES, fs, stop, isWindows, shortDir, spin, waiting, find, textBlock, copyOnRight, btn,
   busyNow, dropStaleBusy, giveBusy, markRepoStale, kit, kitJson, localKit, apiState, apiKnown, checkApi, apiCard, messageBox, problemCard, newEditor,
   localGet, localSet, kitAction, loadNewest, loadingNow } from "./common.js";
 import { ANIMALS, COLORS } from "./bot-models.js";
 import { readBot, withBot, pickBot, botIcon, botProblem, LiveBot } from "./bots.js";
 import { canDrag, draggable, dropLoop, requestPlace, takeAsks, placeClosed, placeDir, liveNow } from "./place.js";
+import { graphData, graphView, edgeList } from "./graph.js";
 
 const PANEL = NODES.agents;
 const SHORT = 120000, STALE = 50000;
@@ -62,11 +64,15 @@ export class Agents {
     this.adding = {};      // kind -> the "加上…" list is unfolded
     this.edit = null;      // { path, orig, dirty, err } while its file is open; this.code is the editor
     this.tool = localGet("kit.agents.tool") || "claude";
+    this.tab = localGet("kit.agents.tab") === "rel" ? "rel" : "defs";   // 定義 | 關係
+    this.scope = localGet("kit.agents.scope") === "all" ? "all" : "space";   // 關係: the shown space, or every space
+    this.sel = null;       // 關係: the selected card (an address)
     this.mine = null;      // the id of the action this window started in kit.busy (shared with Kit: one kit action at a time)
     dropStaleBusy();
     // first whether kit is new enough (kit api), then kit agents --json; again when it is older than STALE
     const stale = () => !this.data || Date.now() - (this.data.at ?? 0) > STALE;
     const tick = (cx) => {
+      if (this.tab === "rel") cx.notify();   // its "3 分前" move on
       const a = apiKnown(null);
       if (!a) return checkApi(null, cx);
       if (a.ok && (this.first || stale()) && !this.busy && !this.loading) this.refresh(cx);
@@ -222,6 +228,8 @@ export class Agents {
     const root = v_flex().id("kit-agents-root").size_full().bg(t.surface).text_size(z).text_color(t.foreground);
     const a = this.open && (d?.agents ?? []).find((x) => x.name === this.open);
     root.child(this.header(t, z, d, a));
+    if (!a && !this.edit) root.child(this.tabs(t, z));
+    if (!a && !this.edit && this.tab === "rel") return root.child(this.relations(t, z));
     const api = apiState(null);
     if (api?.kind && !api.ok) return root.child(apiCard(t, z, api, null, "agents"));
     if (msg) root.child(this.message(t, z, msg));
@@ -246,6 +254,31 @@ export class Agents {
       .child(btn(t, z, "reload", this.loading ? spin(z - 2, t.dim) : "⟳", { small: true, off: Boolean(this.loading), on: (cx) => this.refresh(cx) }))
       .when(Boolean(overlay), (el) => el.child(btn(t, z, "close", "✕", { small: true, on: () => closeOverlay(overlay) })))
       .when(!overlay && Boolean(find(layout(), PANEL)), (el) => el.child(btn(t, z, "hide", "✕", { small: true, on: () => run("layout.hide", { id: PANEL }) })));
+  }
+
+  tabs(t, z) {
+    const tab = (id, label) => div().id(`kit-agents-tab-${id}`).px(10).py(5).text_size(z - 1).cursor_pointer()
+      .border_b_2().border_color(this.tab === id ? t.accent : t.surface).text_color(this.tab === id ? t.foreground : t.muted)
+      .hover((s) => s.text_color(t.foreground)).on_mouse_down("left", stop)
+      .on_click((_e, cx) => { this.tab = id; localSet("kit.agents.tab", id); cx.notify(); }).child(label);
+    return h_flex().flex_none().px(6).gap(2).border_b(1).border_color(t.border).child(tab("defs", "定義")).child(tab("rel", "關係"));
+  }
+
+  // 關係: the agents running in the shown space (or all), who talks to whom (graph.js)
+  relations(t, z) {
+    const f = focused(), shownSpace = f?.space ?? (spaces() ?? []).find((s) => s.active)?.id ?? null, now = Date.now();
+    const g = graphData({ agents: agents(), terms: terminals(), space: this.scope === "space" ? shownSpace : null, ctx: shared(CTX), notes: shared(NOTE), now });
+    if (this.sel && !g.nodes.some((n) => n.address === this.sel)) this.sel = null;
+    const scope = (id, label) => btn(t, z, `kit-graph-scope-${id}`, label, { tiny: true, kind: this.scope === id ? "primary" : undefined,
+      on: (cx) => { this.scope = id; localSet("kit.agents.scope", id); cx.notify(); } });
+    const spName = (spaces() ?? []).find((s) => s.id === shownSpace)?.name;
+    return v_flex().id("kit-graph-body").flex_1().min_h(0).overflow_y_scrollbar()
+      .child(h_flex().px(10).py(6).gap(6).items_center()
+        .child(scope("space", spName ? `這個 space（${spName}）` : "這個 space")).child(scope("all", "全部 space"))
+        .child(div().flex_1()).child(div().text_size(z - 2.5).text_color(t.dim).child(`${g.nodes.length} 個 agent`)))
+      .child(div().id("kit-graph-scroll").w_full().overflow_x_scrollbar()
+        .child(graphView(t, z, g, this.sel, { now, onSelect: (a, cx) => { this.sel = a; cx.notify(); } })))
+      .child(edgeList(t, z, g, this.sel, now));
   }
 
   message(t, z, msg) { return messageBox(t, z, "agents", msg, () => setShared(AGENTS_MSG, null)); }

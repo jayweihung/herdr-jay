@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: jayweihung <3034830+jayweihung@users.noreply.github.com>
 Date: Fri, 13 Nov 2026 14:56:40 +0800
-Subject: [PATCH 2/7] fix: keep mod drags from moving windows, and from
+Subject: [PATCH 2/8] fix: keep mod drags from moving windows, and from
  reaching the wrong mod
 
 A drag started in a window overlay or a window_drag area never moves the

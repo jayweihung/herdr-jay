@@ -16,7 +16,7 @@ A tag that needs no patches still gets a folder holding only README.md, so the u
 
 | Repo / tag | Patch | Why |
 |---|---|---|
-| herdr-core v0.1.21 | none (folder with README.md only) | checked 2026-11-13 |
+| herdr-core v0.1.21 | `0001-feat-a-terminal-s-record-keeps-whom-it-sent-messages…` | `hc send` from inside a terminal adds `sent: [{to, count, last_ms, text}]` to the sender's record (one entry per receiver, the latest last, at most 32; `text`: the last message's first line, 120 characters) and a `sent` event; a receiver on another machine is kept by this core's name for it, and a machine's records read the same way here. The Kit panel's 關係 tab draws who talks to whom from it ([kit.md](kit.md) §3). Nothing else changes: the message is typed in as before. Without it the tab shows the agents but no lines. Plain Rust, nothing per OS. |
 | herdr-core v0.1.20 | none (folder with README.md only) | the v0.1.19 patch is in the official source since v0.1.20 (#182) |
 | herdr-core v0.1.19 | `0001-build-skip-Ghostty-s-xcframework…` | lets core build on a Mac with only the Command Line Tools (herdr-app already does this); harmless on Windows |
 | herdr-app v0.1.15 | `0001-feat-drag-from-a-mod-onto-a-space…`, `0002-fix-keep-mod-drags-from-moving-windows…` | a mod can make what it draws draggable (`.on_drag`) and learn when it is dropped on a space in the sidebar Agents / Spaces panels (`nextDrop`): the Kit panel drags an agent onto a space ([kit.md](kit.md)). Mods can't add this themselves; the two built-in panels (agents, spaces) are changed by one import line and a few lines each. Without the patches the Kit panel shows a 「放到 space…」 button instead. |
@@ -25,12 +25,13 @@ A tag that needs no patches still gets a folder holding only README.md, so the u
 | herdr-app v0.1.15 | `0005-feat-drop-at-a-place-in-a-space-s-group-reorder-age…` | in the agents panel grouped by space, every agent row under a space's header takes a mod's drag too, a line showing where it lands (the header: first; a row: right after its tab); `dropOnSpace(drop, space, index)` and `nextDrop()`'s `index` (before that tab position, 1 = first; null on the spaces panel). A row also drags to another place in its own group (`tab.move`; other spaces refuse it). The Kit panel moves the new tab to the place it was dropped. Without it only the header takes the drop and the tab opens last. |
 | herdr-app v0.1.15 | `0006-feat-tab.new-shell-false…` | `tab.new {argv, shell: false}` runs argv by itself instead of in your shell that stays after it, so the tab closes when the program exits. A Gerrit review opened in nvim (在 nvim 看) uses it: quitting nvim closes its tab. Without it the tab keeps a shell after nvim quits (the Gerrit panel no longer takes that shell for nvim). |
 | herdr-app v0.1.15 | `0007-feat-edits-in-a-linked-mod-layout-or-settings-file-r…` | a mod, layout, theme or settings file that is a link into another folder (macOS: the herdr-jay mods linked into `~/.config/herdr-app`) reloads when edited there: the OS watcher doesn't follow links, so their targets are watched too (links read at start; a new link counts after a restart). Without it an edit in the repo shows only after the link is made again (`rm` + `ln -s`) or Herdr restarts. |
+| herdr-app v0.1.15 | `0008-feat-keep-a-terminal-s-sent-list-current…` | applies the core's `sent` event (core `0001`) to the terminal list mods get (`terminals()`), so the 關係 tab's lines appear as messages are sent. One line; without it they appear only when the list is read again. Harmless with a core without the event. |
 
 ## Apply / 套用
 
 Step by step with checks: [macos.md](macos.md), [windows.md](windows.md).
 
-**Today (core v0.1.21, app v0.1.15): core has nothing to apply; the app has the patches in the table above.** Set the tag from
+**Today (core v0.1.21, app v0.1.15): core has one patch (`0001`), the app the ones in the table above.** Set the tag from
 the README versions table; never apply one tag's patches on another tag.
 現在 core 沒有補丁；app v0.1.15 有上表那幾個。只套那個 tag 自己資料夾裡的。
 

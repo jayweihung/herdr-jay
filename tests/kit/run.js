@@ -43,7 +43,12 @@ const el = new Proxy(function () {}, {
 });
 const inputState = () => { let v = ""; return { value: () => v, set_value: (x) => { v = x; }, focus() {}, on() {}, release() {} }; };
 const unescape = (md) => md.replace(/\\\n/g, "\n").replace(/\\(.)/g, "$1").replace(/\u00a0/g, " ");
+// a path: every builder call chains, build() gives a token; window.paint_path (a global, as in Herdr) records it
+const pathOps = [];
+const pathB = () => { const ops = []; const b = new Proxy({}, { get: (_t, k) => (k === "then" ? undefined : (...a) => { ops.push([k, ...a]); return k === "build" ? { ops } : b; }) }); return b; };
+globalThis.window = { paint_path: (p, color) => { if (color == null) throw new Error("paint_path: no color"); pathOps.push(p.ops); return el; } };
 globalThis.__stubs = {
+  PathBuilder: { fill: () => pathB(), stroke: (w) => { const b = pathB(); b.width(w); return b; } },
   View: class {}, div: () => el, svg: () => el, image: () => el, v_flex: () => el, h_flex: () => el,
   InputState: { new: inputState }, Input: { new: () => el }, Editor: { new: () => el }, EditorState: { new: inputState },
   TextareaState: { new: inputState }, Textarea: { new: () => el },
@@ -97,7 +102,7 @@ async function loadMod() {
   }
   const at = (f) => import(pathToFileURL(join(dir, f)).href);
   const m = { main: await at("main.js"), common: await at("common.js"), layout: await at("layout.js"), context: await at("context.js"), bots: await at("bots.js"),
-    machines: await at("machines.js"), place: await at("place.js"), repo: await at("repo.js") };
+    machines: await at("machines.js"), place: await at("place.js"), repo: await at("repo.js"), graph: await at("graph.js") };
   rmSync(dir, { recursive: true, force: true });
   return m;
 }
@@ -439,6 +444,75 @@ test("agents: kit api first; ok: kit agents --json; too old: the card, no kit ag
   v = view(M, { role: "agents" }); await settle(); await tick();
   assert.equal(kitCalls("agents").length, 0);
   assert.match(render(v), /kit self-update/);
+});
+// the 關係 tab (graph.js): agents running now and who talks to whom
+const AGS = [
+  { address: "t1", space: "s1", space_name: "web", tab_name: "前端", app: "claude-code", status: "working", program: { key: "claude" } },
+  { address: "t2", space: "s1", space_name: "web", tab_name: "review", app: "omp", status: "idle", program: { key: "omp" } },
+  { address: "box/t7", space: "s1", space_name: "web", tab_name: "server", app: "codex", status: "blocked", program: { key: "codex" } },
+  { address: "t9", space: "s2", space_name: "other", tab_name: "docs", app: null, status: "idle", program: { key: "agent" } },
+];
+const TERMS = [
+  { address: "t1", sent: [{ to: "t2", count: 4, last_ms: 1000, text: "看一下 parser" }, { to: "box/t7", count: 1, last_ms: 500, text: "deploy?" }] },
+  { address: "t2", sent: [{ to: "t1", count: 1, last_ms: 2000, text: "好了" }, { to: "t9", count: 2, last_ms: 900, text: "docs" }] },
+  { address: "box/t7", parent: "t1", created_ms: 100 },
+  { address: "t3", sent: [{ to: "t1", count: 1, last_ms: 1, text: "a shell" }] },
+];
+test("關係: cards per machine (this computer first), lines between shown agents, the rest listed; CLI and model from the header's ask", (M) => {
+  const { graphData, modelOf, cliOf, agoText } = M.graph;
+  const ctx = { "|/w|t1": { model: "claude-opus-5-5" }, "|/w|t2": { model: "anthropic/claude-sonnet-5-5" }, "box|/srv|box/t7": { model: "gpt-5.5-codex" } };
+  const notes = { "|/w|t1": { text: "改 parser；下一步跑測試\n第二行", at: 2000 } };
+  const g = graphData({ agents: AGS, terms: TERMS, space: "s1", ctx, notes, now: 2001000 });
+  assert.deepEqual(g.cols.map((c) => [c.machine, c.nodes.map((n) => n.address)]), [["", ["t1", "t2"]], ["box", ["box/t7"]]]);
+  const n1 = g.nodes[0];
+  assert.deepEqual([n1.name, n1.cli, n1.model, n1.note], ["前端", "claude", "Opus 5.5", "改 parser；下一步跑測試"]);
+  assert.deepEqual(g.nodes.map((n) => [n.cli, n.model]), [["claude", "Opus 5.5"], ["omp", "Sonnet 5.5"], ["codex", "gpt-5.5-codex"]]);
+  const e = (x) => `${x.from}>${x.to}:${x.kind}${x.both ? ":both" : ""}`;
+  assert.deepEqual(g.edges.map(e), ["t1>t2:send:both", "t1>box/t7:send", "t2>t1:send:both", "t1>box/t7:parent"]);
+  assert.deepEqual(g.outside.map(e), ["t2>t9:send", "t3>t1:send"], "the other space's agent, a terminal that isn't an agent");
+  assert.equal(graphData({ agents: AGS, terms: TERMS, space: null }).nodes.length, 4, "every space");
+  assert.equal(cliOf(null, "agent"), "?");
+  assert.equal(modelOf("claude-haiku-5-5-20261001"), "Haiku 5.5");
+  assert.deepEqual([agoText(1000, 1000), agoText(0, 5 * 60000), agoText(0, 3 * 3600000)], ["剛剛", "5 分前", "3 小時前"]);
+});
+test("關係: lines leave the facing side, loop out on the right in one column, arrowheads point at the receiver", (M) => {
+  const { curveOf, arrowOf, layoutOf, COL_W } = M.graph;
+  const { at, w } = layoutOf([{ nodes: [{ address: "a" }, { address: "b" }] }, { nodes: [{ address: "c" }] }]);
+  const ac = curveOf(at.a, at.c), ca = curveOf(at.c, at.a), ab = curveOf(at.a, at.b);
+  assert.equal(ac.a[0], at.a.x + COL_W, "to the right: from a's right side");
+  assert.equal(ac.b[0], at.c.x, "into c's left side");
+  assert.equal(ca.b[0], at.a.x + COL_W, "back: into a's right side");
+  assert.ok(ab.c1[0] > at.a.x + COL_W && ab.mid[0] < w, "one column: out on the right, inside the drawing");
+  assert.notEqual(curveOf(at.a, at.c, true).a[1], ac.a[1], "both ways: apart");
+  const [tip, l, r] = arrowOf([0, 0], [10, 0]);
+  assert.deepEqual(tip, [10, 0]);
+  assert.ok(l[0] < 10 && r[0] < 10 && l[1] * r[1] < 0, "behind the tip, one on each side");
+});
+test("關係 tab: the cards and lines drawn, a click says one card's lines in words, the scope and the tab remembered", async (M) => {
+  fresh(); fakeKit();
+  H.spaces = [{ id: "s1", name: "web", active: true, tabs: [] }, { id: "s2", name: "other", tabs: [] }];
+  H.agents = AGS; H.terminals = TERMS;
+  const v = view(M, { role: "agents" }); await settle();
+  render(v); H.clicks["kit-agents-tab-rel"]({}, cx);
+  pathOps.length = 0;
+  let out = render(v);
+  assert.match(out, /這個 space（web）/);
+  for (const s of ["前端", "review", "server", "box", "這台電腦", "claude", "4 次"]) assert.ok(out.includes(s), s);
+  assert.ok(!out.includes("docs"), "another space's agent: not drawn");
+  assert.equal(pathOps.length, 8, "4 lines, each a stroke and its arrowhead");
+  assert.ok(pathOps.some((ops) => ops.some(([k]) => k === "dash_array")), "who started whom: dashed");
+  H.clicks["kit-graph-t2"]({ click_count: 1 }, cx);
+  out = render(v);
+  assert.match(out, /→ 傳給 前端（t1） · 1 次/);
+  assert.match(out, /→ 傳給 t9（不在這裡） · 2 次/);
+  assert.match(out, /最後一則：好了/);
+  H.clicks["kit-graph-t2"]({ click_count: 2 }, cx);
+  assert.deepEqual(H.runs.at(-1), ["pane.focus", { terminal: "t2" }]);
+  H.clicks["kit-graph-scope-all"]({}, cx);
+  assert.ok(render(v).includes("docs"));
+  const again = view(M, { role: "agents" }); await settle();
+  assert.ok(render(again).includes("docs"), "the tab and the scope kept");
+  localStorage.removeItem("kit.agents.tab"); localStorage.removeItem("kit.agents.scope");
 });
 test("agent logo: bot: in the frontmatter is read, set after description, replaced, taken out; line ends and the prompt kept", (M) => {
   const { readBot, withBot } = M.bots;

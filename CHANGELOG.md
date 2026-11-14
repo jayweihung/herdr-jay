@@ -9,6 +9,15 @@ says which) · **kit** = update kit itself on every machine where agents run (`k
 **snap hook** = a line in Claude Code's `settings.json` on each machine where you added the hook (the entry says
 which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/keys.md).
 
+## 2026-11-14, Agents panel: 關係, who talks to whom
+
+Needs: **core**, **app**, **mods** (and the core on each Linux server, so its agents' messages count too).
+
+The Agents panel has two tabs now: 定義 (as before) and 關係: the agents running now in this space (or all), one card
+each (status, tab, which CLI and model, its kit note), one column per machine, and a line for every `hc send` between
+them (how many, how long ago; dashed: who started whom). Click a card for its lines in words, double-click to go to it.
+herdr-core `0001` keeps who each terminal sent to; herdr-app `0008` keeps the list current. [docs/kit.md](docs/kit.md) §3.
+
 ## 2026-11-14, Herdr app: linked mods reload when edited
 
 Needs: **app** (rebuild with herdr-app patch 0007).

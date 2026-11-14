@@ -75,14 +75,14 @@ git submodule update --init --recursive
 `git rev-parse` must print `1b0393f` (README versions table). An older clone: `git fetch --tags --force` before
 `git checkout`.
 
-**jay's patches** — none for core v0.1.21 (nor v0.1.20): the one v0.1.19 needed (skip Ghostty's Xcode framework, so core builds
-with only the Command Line Tools) is in the official source since v0.1.20 (#182).
+**jay's patches** — one for core v0.1.21: `0001`, the record of who sent messages to whom (the Kit panel's 關係 tab;
+[patches.md](patches.md)). The one v0.1.19 needed (skip Ghostty's Xcode framework) is in the official source since v0.1.20 (#182).
 
 ```sh
 ls ~/src/herdr-jay/herdr-core/patches/v0.1.21/
 ```
 
-It shows only `README.md` today; if that folder ever has `.patch` files, apply them before `just install`:
+It shows `0001-….patch` today; apply the folder's `.patch` files before `just install`:
 `git -c user.name=me -c user.email=me@local am -3 ~/src/herdr-jay/herdr-core/patches/v0.1.21/*.patch`
 
 ```sh

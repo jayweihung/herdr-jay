@@ -1,0 +1,333 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: jayweihung <3034830+jayweihung@users.noreply.github.com>
+Date: Sat, 14 Nov 2026 17:27:39 +0800
+Subject: [PATCH] feat: a terminal's record keeps whom it sent messages to
+
+hc send from inside a terminal adds { to, count, last_ms, text } to the
+sender's record (one entry per receiver, the latest last, at most 32; text
+is the last message's first line), with a sent event. Receivers on another
+machine are kept by this core's name for it, and records mirrored from a
+machine read the same way here, so a panel can draw who talks to whom.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ crates/herdr-core/src/notes.rs     | 25 ++++++++++++++
+ crates/herdr-core/src/remote.rs    |  3 +-
+ crates/herdr-core/src/server.rs    |  4 +++
+ crates/herdr-core/src/terminals.rs | 53 ++++++++++++++++++++++++++++++
+ crates/herdr-core/tests/m7.rs      | 29 ++++++++++++++++
+ crates/herdr-core/tests/remote.rs  | 20 +++++++++++
+ schema/README.md                   |  1 +
+ schema/hc.openrpc.json             | 46 ++++++++++++++++++++++++++
+ 8 files changed, 180 insertions(+), 1 deletion(-)
+
+diff --git a/crates/herdr-core/src/notes.rs b/crates/herdr-core/src/notes.rs
+index 1e389fc..2256885 100644
+--- a/crates/herdr-core/src/notes.rs
++++ b/crates/herdr-core/src/notes.rs
+@@ -140,6 +140,31 @@ impl Core {
+     /// Text from the agent `from` (a caller address) to the agent `to`, wrapped in
+     /// a tag that says who sent it. As is when either isn't an agent: a person,
+     /// a shell, a dialog. `reach`: also say how to answer (a worker's first message).
++    /// A send from a terminal here went in (here or on another machine): its
++    /// record keeps whom it talks to. `params` as the caller sent them.
++    pub fn sent(&self, params: &serde_json::Value) {
++        let (Some(from), Some(to)) = (params["caller"].as_str().and_then(parse_id), params["terminal"].as_str()) else {
++            return;
++        };
++        let mut st = self.lock();
++        let here = |local: &str| st.reg.resolve(local).map_or_else(|_| local.to_string(), crate::terminals::address);
++        let to = match to.split_once('/') {
++            Some((m, local)) if m != self.info.id && m != self.info.name => {
++                let machine = st.machines.iter().find(|x| x.id == m || x.name == m).map(|x| x.name.as_str());
++                let peer = st.peers.iter().find(|(id, p)| *id == m || p.name == m).map(|(_, p)| p.name.as_str());
++                format!("{}/{local}", machine.or(peer).unwrap_or(m))
++            }
++            Some((_, local)) => here(local),
++            None => here(to),
++        };
++        let text = params["text"].as_str().unwrap_or_default();
++        let Some(t) = st.reg.terminals.get_mut(&from).filter(|t| t.address != to) else { return };
++        t.note_sent(&to, text, now_ms());
++        let sent = serde_json::to_value(&t.sent).unwrap_or_default();
++        self.save(&st);
++        self.emit(&mut st, "sent", from, serde_json::json!({ "sent": sent }));
++    }
++
+     pub fn tagged(&self, from: Option<&str>, to: u32, text: &str, reach: bool) -> String {
+         // `notes = false`: nothing hc adds on its own, tags included.
+         if !self.notes_on() {
+diff --git a/crates/herdr-core/src/remote.rs b/crates/herdr-core/src/remote.rs
+index 0a1d369..8ffb32e 100644
+--- a/crates/herdr-core/src/remote.rs
++++ b/crates/herdr-core/src/remote.rs
+@@ -581,6 +581,7 @@ fn apply(record: &mut Value, kind: &str, data: &Value) {
+         "keep" => set(record, &["keep"]),
+         "size" => set(record, &["cols", "rows"]),
+         "foreground" => record["foreground"] = data.clone(),
++        "sent" => set(record, &["sent"]),
+         _ => {}
+     }
+ }
+@@ -1085,7 +1086,7 @@ fn map_addresses(v: &mut Value, map: &dyn Fn(&str) -> String) {
+         Value::Object(o) => {
+             for (k, v) in o.iter_mut() {
+                 match v {
+-                    Value::String(s) if ["address", "parent", "terminal", "from", "removed"].contains(&k.as_str()) => {
++                    Value::String(s) if ["address", "parent", "terminal", "from", "removed", "to"].contains(&k.as_str()) => {
+                         *s = map(s)
+                     }
+                     _ => map_addresses(v, map),
+diff --git a/crates/herdr-core/src/server.rs b/crates/herdr-core/src/server.rs
+index dabda23..57d9fd5 100644
+--- a/crates/herdr-core/src/server.rs
++++ b/crates/herdr-core/src/server.rs
+@@ -491,6 +491,7 @@ async fn handle(
+     };
+     let call = api::Call { core, conn, plain };
+     let params = crate::remote::from_peer(core, conn, request["params"].clone());
++    let send = (method == "terminal.send").then(|| params.clone());
+     let result = match crate::remote::route(core, method, &params) {
+         _ if method == "$/orphaned" => crate::remote::orphaned(core, conn, &params).await,
+         Ok(Some((crate::remote::To::Machine(machine), params))) if method == "terminal.attach" => match conn {
+@@ -506,6 +507,9 @@ async fn handle(
+         Err(e) => Err(e),
+     };
+     let ok = result.is_ok();
++    if let Some(params) = send.filter(|_| ok) {
++        core.sent(&params);
++    }
+     let framed = ok && method == "hello" && result.as_ref().is_ok_and(|r| r["framed"] == true);
+     let stop = ok && (method == "server.stop" || method == "server.restart");
+     // Requests without an id are notifications: no reply.
+diff --git a/crates/herdr-core/src/terminals.rs b/crates/herdr-core/src/terminals.rs
+index 503e4f4..6eb3f4e 100644
+--- a/crates/herdr-core/src/terminals.rs
++++ b/crates/herdr-core/src/terminals.rs
+@@ -138,9 +138,41 @@ pub struct Terminal {
+     /// Machines (core ids) it started work on: they may call back to it.
+     #[serde(default, skip_serializing_if = "std::collections::BTreeSet::is_empty")]
+     pub afar: std::collections::BTreeSet<String>,
++    /// Who its program sent messages to (`hc send` from inside it), the latest
++    /// last: one entry per receiver, so a panel can draw who talks to whom.
++    #[serde(default, skip_serializing_if = "Vec::is_empty")]
++    pub sent: Vec<Sent>,
++}
++
++/// Receivers a terminal remembers sending to; the oldest goes first.
++pub const MAX_SENT: usize = 32;
++/// How much of the last message it keeps.
++const SENT_TEXT: usize = 120;
++
++/// Messages from one terminal to one receiver.
++#[derive(Serialize, Deserialize, JsonSchema, Clone, Debug, PartialEq)]
++pub struct Sent {
++    /// The receiver as this core names it: `t7`, or `box/t7` on another machine.
++    pub to: String,
++    /// How many messages.
++    pub count: u64,
++    /// When the last one went in.
++    pub last_ms: u64,
++    /// The last one's first line, cut at 120 characters.
++    pub text: String,
+ }
+ 
+ impl Terminal {
++    /// One more message from it to `to`.
++    pub fn note_sent(&mut self, to: &str, text: &str, now_ms: u64) {
++        let line = text.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or_default();
++        let count = self.sent.iter().position(|s| s.to == to).map_or(0, |i| self.sent.remove(i).count);
++        self.sent.push(Sent { to: to.into(), count: count + 1, last_ms: now_ms, text: line.chars().take(SENT_TEXT).collect() });
++        if self.sent.len() > MAX_SENT {
++            self.sent.remove(0);
++        }
++    }
++
+     pub fn id(&self) -> u32 {
+         parse_id(&self.address).expect("addresses are t<number>")
+     }
+@@ -308,6 +340,7 @@ impl Registry {
+                 paste_gap_ms: new.template.as_ref().and_then(|t| t.paste_gap_ms),
+                 foreground: None,
+                 afar: Default::default(),
++                sent: Vec::new(),
+                 template: new.template.map(|t| t.name),
+                 first_message: None,
+                 holder: None,
+@@ -484,6 +517,26 @@ mod tests {
+         NewTerminal { name: name.map(Into::into), argv: vec!["true".into()], cwd: "/".into(), ..Default::default() }
+     }
+ 
++    #[test]
++    fn sends_count_per_receiver_keep_the_last_first_line_and_drop_the_oldest() {
++        let mut r = Registry::default();
++        let id = r.create(new(None), 0).unwrap();
++        let t = r.terminals.get_mut(&id).unwrap();
++        t.note_sent("t2", "\r\n  hi there  \r\nmore", 5);
++        t.note_sent("t3", "x", 6);
++        t.note_sent("t2", &"é".repeat(300), 7);
++        assert_eq!(t.sent.iter().map(|s| s.to.as_str()).collect::<Vec<_>>(), ["t3", "t2"], "latest last");
++        assert_eq!((t.sent[1].count, t.sent[1].last_ms), (2, 7));
++        assert_eq!(t.sent[1].text.chars().count(), 120);
++        t.note_sent("t3", "\r\n  hi there  \r\nmore", 8);
++        assert_eq!(t.sent[1].text, "hi there", "Windows line ends too");
++        for n in 0..MAX_SENT {
++            t.note_sent(&format!("box/t{n}"), "x", 9);
++        }
++        assert_eq!(t.sent.len(), MAX_SENT);
++        assert!(t.sent.iter().all(|s| s.to.starts_with("box/")), "the oldest receivers went first");
++    }
++
+     #[test]
+     fn keep_preserves_losses_without_retention_or_rm_but_exit_and_kill_are_final() {
+         for reason in
+diff --git a/crates/herdr-core/tests/m7.rs b/crates/herdr-core/tests/m7.rs
+index 5eaaab1..a3ac315 100644
+--- a/crates/herdr-core/tests/m7.rs
++++ b/crates/herdr-core/tests/m7.rs
+@@ -436,3 +436,32 @@ fn a_template_can_override_how_messages_are_submitted() {
+     assert_eq!((code, err["error"]["kind"].as_str()), (1, Some("spawn_failed")));
+     let _: Value = s.json(&["templates"]);
+ }
++
++#[test]
++fn a_send_from_a_terminal_is_kept_on_its_record_with_whom_and_what() {
++    let s = session();
++    let a = run(&s, &["sh", "-c", "sleep 100"]);
++    let b = run(&s, &["--name", "reviewer", "cat"]);
++    let mut events = s.connect();
++    events.call(1, "events.subscribe", serde_json::json!({}));
++    let send = |text: &str, to: &str| {
++        let out = s.cmd().env("HC_TERMINAL_ID", &a).args(["--json", "send", to, text]).output().unwrap();
++        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
++    };
++    send("\n  look at x.rs  \nsecond line", &b);
++    let event = next_event(&mut events, |m| m["params"]["type"] == "sent");
++    assert_eq!(event["params"]["terminal"], a.as_str());
++    assert_eq!(event["params"]["data"]["sent"][0]["to"], b.as_str());
++    send("again", "reviewer"); // by name: kept under its address
++    let sent = &get(&s, &a)["sent"];
++    assert_eq!(sent.as_array().unwrap().len(), 1, "{sent}");
++    assert_eq!(sent[0]["count"], 2);
++    assert_eq!(sent[0]["text"], "again");
++    assert!(sent[0]["last_ms"].as_u64().unwrap() > 0);
++    assert!(get(&s, &b).get("sent").is_none(), "the receiver's record says nothing");
++
++    // Without a caller (a shell outside hc) nothing is kept; the record survives a restart.
++    s.json(&["send", &b, "from outside"]);
++    s.hc(&["server", "restart"]);
++    assert_eq!(get(&s, &a)["sent"][0]["count"], 2);
++}
+diff --git a/crates/herdr-core/tests/remote.rs b/crates/herdr-core/tests/remote.rs
+index 1d34e8e..a4263cb 100644
+--- a/crates/herdr-core/tests/remote.rs
++++ b/crates/herdr-core/tests/remote.rs
+@@ -745,3 +745,23 @@ fn a_machine_that_drops_off_is_shown_not_waited_on_and_comes_back() {
+     wait_until("rohan back", || s.json(&["machine", "ls"])["machines"][0]["state"] == "connected");
+     assert_eq!(addresses(&s.json(&["ls"])), ["rohan/t1"]);
+ }
++
++#[test]
++fn whom_a_terminal_sent_to_reads_right_from_either_machine() {
++    let (rohan, s) = with_rohan();
++    let here = run(&s, &["sh", "-c", "sleep 100"]);
++    let there = run(&s, &["--on", "rohan", "cat"]);
++    let send = |s: &Session, from: &str, to: &str| {
++        let out = s.cmd().env("HC_TERMINAL_ID", from).args(["send", to, "hi"]).output().unwrap();
++        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
++    };
++    send(&s, &here, &there);
++    assert_eq!(get(&s, &here)["sent"][0]["to"], there.as_str(), "kept by this machine's name for it");
++
++    // Two terminals over there talking: seen from here under rohan's name.
++    let local = there.split_once('/').unwrap().1;
++    let other = run(&rohan, &["sh", "-c", "sleep 100"]);
++    send(&rohan, &other, local);
++    let seen = format!("rohan/{other}");
++    wait_until("the record here", || get(&s, &seen)["sent"][0]["to"] == there.as_str());
++}
+diff --git a/schema/README.md b/schema/README.md
+index 64b85c2..3cd6d32 100644
+--- a/schema/README.md
++++ b/schema/README.md
+@@ -138,6 +138,7 @@ Each event's `data`, and how to apply it to a snapshot:
+ | `labels` | `{labels}`: all labels now; plus `record` (the whole `Terminal`) when it newly matches your filter | replace `labels`; with `record`, add it; with a label filter, a terminal that no longer matches leaves your view (you still get this event) |
+ | `size` | `{cols, rows}` | set both |
+ | `foreground` | `{pid, name, argv, cwd}`, or null: what runs in it now (the foreground process group's leader) and its folder; read about twice a second | set `foreground` |
++| `sent` | `{sent}`: every receiver its program sent to with `hc send` from inside it, `{to, count, last_ms, text}` each (`text`: the last message's first line), the latest last, at most 32 | replace `sent` |
+ 
+ Terminals on machines this core added are in the same stream, addressed as
+ seen from here (`rohan/t7`), in the same order and filters (`terminal`,
+diff --git a/schema/hc.openrpc.json b/schema/hc.openrpc.json
+index 2048664..70d247b 100644
+--- a/schema/hc.openrpc.json
++++ b/schema/hc.openrpc.json
+@@ -900,6 +900,13 @@
+             "description": "\"exact\", or \"inexact\" after a core crash (older history may be missing).",
+             "type": "string"
+           },
++          "sent": {
++            "description": "Who its program sent messages to (`hc send` from inside it), the latest\nlast: one entry per receiver, so a panel can draw who talks to whom.",
++            "items": {
++              "$ref": "#/components/schemas/Sent"
++            },
++            "type": "array"
++          },
+           "signal": {
+             "format": "int32",
+             "type": [
+@@ -1029,6 +1036,38 @@
+         ],
+         "type": "object"
+       },
++      "Sent": {
++        "description": "Messages from one terminal to one receiver.",
++        "properties": {
++          "count": {
++            "description": "How many messages.",
++            "format": "uint64",
++            "minimum": 0,
++            "type": "integer"
++          },
++          "last_ms": {
++            "description": "When the last one went in.",
++            "format": "uint64",
++            "minimum": 0,
++            "type": "integer"
++          },
++          "text": {
++            "description": "The last one's first line, cut at 120 characters.",
++            "type": "string"
++          },
++          "to": {
++            "description": "The receiver as this core names it: `t7`, or `box/t7` on another machine.",
++            "type": "string"
++          }
++        },
++        "required": [
++          "to",
++          "count",
++          "last_ms",
++          "text"
++        ],
++        "type": "object"
++      },
+       "Status": {
+         "description": "One 7501 record. Words are the program's own; nothing is translated.",
+         "properties": {
+@@ -1381,6 +1420,13 @@
+             "description": "\"exact\", or \"inexact\" after a core crash (older history may be missing).",
+             "type": "string"
+           },
++          "sent": {
++            "description": "Who its program sent messages to (`hc send` from inside it), the latest\nlast: one entry per receiver, so a panel can draw who talks to whom.",
++            "items": {
++              "$ref": "#/components/schemas/Sent"
++            },
++            "type": "array"
++          },
+           "signal": {
+             "format": "int32",
+             "type": [
+
+base-commit: 1b0393f80c35b1dae34f37934d33d0144a8fc8d7

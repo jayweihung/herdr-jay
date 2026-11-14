@@ -1,0 +1,38 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: jayweihung <3034830+jayweihung@users.noreply.github.com>
+Date: Sat, 14 Nov 2026 17:27:39 +0800
+Subject: [PATCH 8/8] feat: keep a terminal's sent list current from the core's
+ sent event
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/hc.rs | 8 ++++++--
+ 1 file changed, 6 insertions(+), 2 deletions(-)
+
+diff --git a/src/hc.rs b/src/hc.rs
+index 41668be..7ecc8ca 100644
+--- a/src/hc.rs
++++ b/src/hc.rs
+@@ -187,6 +187,7 @@ impl EventLines {
+             "keep" => set(&["keep"]),
+             "size" => set(&["cols", "rows"]),
+             "foreground" => t["foreground"] = data.clone(),
++            "sent" => set(&["sent"]),
+             _ => return false,
+         }
+         true
+@@ -612,9 +613,12 @@ mod tests {
+         lines.push(event(9, "foreground", "t2", json!({"pid": 7, "name": "vim", "argv": ["vim"], "cwd": "/src"})).as_bytes());
+         assert_eq!(lines.live()["terminals"][1]["status"]["state"], "working");
+         assert_eq!(lines.live()["terminals"][1]["foreground"]["cwd"], "/src");
+-        lines.push(event(10, "finished", "t1", json!({"reason": "exited", "exit_code": 0, "signal": null, "finished_ms": 1})).as_bytes());
++        let sent = json!([{"to": "t1", "count": 2, "last_ms": 9, "text": "hi"}]);
++        assert!(lines.push(event(10, "sent", "t2", json!({"sent": sent})).as_bytes()).terminals);
++        assert_eq!(lines.live()["terminals"][1]["sent"], sent, "whom it talks to");
++        lines.push(event(11, "finished", "t1", json!({"reason": "exited", "exit_code": 0, "signal": null, "finished_ms": 1})).as_bytes());
+         assert_eq!(addresses(&lines), ["t2"], "finished: no longer live");
+-        lines.push(event(11, "removed", "t2", json!({})).as_bytes());
++        lines.push(event(12, "removed", "t2", json!({})).as_bytes());
+         assert!(addresses(&lines).is_empty());
+         let missed = format!("{}\n", json!({"method": "missed", "params": {"seq": 20, "terminals": [rec("t9")]}}));
+         let got = lines.push(missed.as_bytes());

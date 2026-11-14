@@ -161,14 +161,14 @@ git submodule update --init --recursive
 A fresh clone gets the right commit. An older clone: run `git fetch --tags --force` before `git checkout`.
 舊的 clone 要先 `git fetch --tags --force`。
 
-**jay's patches / jay 的修改** — none for core v0.1.21 (the folder holds only README.md; v0.1.19's one patch is in
-the official source since v0.1.20). The block below still checks, so it stays the same when a patch comes back.
+**jay's patches / jay 的修改** — one for core v0.1.21: `0001`, the record of who sent messages to whom (the Kit panel's
+關係 tab draws it; [patches.md](patches.md)). The block below applies whatever the folder holds.
 `$j` = the herdr-jay folder from step 0:
 
 ```powershell
 Set-Location "$env:USERPROFILE\src\herdr-core"
 $j = "$env:USERPROFILE\src\herdr-jay"
-$pd = "$j\herdr-core\patches\v0.1.21"                # none today
+$pd = "$j\herdr-core\patches\v0.1.21"                # 0001 today
 $ps = @(Get-ChildItem "$pd\*.patch" -ErrorAction SilentlyContinue | Sort-Object Name).FullName
 if ($ps) { git -c user.name=me -c user.email=me@local am -3 $ps } else { "no patches" }
 ```
@@ -497,7 +497,8 @@ Windows 欄沒有日期的 tag 不要切過去，留在 `main`。 ZIP: delete th
 ### 8.2 Core and app on the PC
 
 Only if the README table lists a newer version, **or the same version with different patches** (e.g. 2026-11-13: app v0.1.15 got two patches for dragging an agent onto a space, then three more for a terminal's own icon, refused drop targets and a place in a space; 2026-11-14: two more, 0006 a
-Gerrit review tab that closes with nvim and 0007 linked mods that reload: run the **app** blocks only). Order: **core** checkout block → its build block → [8.3](#83-core-on-the-linux-server)
+Gerrit review tab that closes with nvim and 0007 linked mods that reload: run the **app** blocks only; later that day core
+v0.1.21 got its `0001` (who sent to whom) and the app `0008` (its event): run **all** the blocks, core, server and app). Order: **core** checkout block → its build block → [8.3](#83-core-on-the-linux-server)
 (server) → **app** checkout block (`$repo = "herdr-app"`, the app version) → its build block.
 In the first line replace `<version from the README table>` with that version (e.g. `v0.1.21`).
 Paste each block with **Ctrl+V as one block** (not right-click, not line by line).

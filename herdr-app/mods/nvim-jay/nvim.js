@@ -302,8 +302,18 @@ pcall(function()
         end
       end
       for _, cmd in ipairs(commands(rec)) do
-        for rest in cmd:gmatch("hc send%s+([^\n]+)") do
-          rest = rest:gsub("^%-%-?%w[%w%-]*%s+", "")
+        -- every hc send in it (one line may hold several: hc send a … && hc send b …), past its options
+        local pos = 1
+        while true do
+          local _, e = cmd:find("hc send%s+", pos)
+          if not e then break end
+          pos = e + 1
+          local rest = cmd:sub(e + 1)
+          for _ = 1, 6 do
+            local nxt = rest:gsub("^%-%-if[%s=]+%S+%s+", "", 1):gsub("^%-%-timeout[%s=]+%S+%s+", "", 1):gsub("^%-%-?%w[%w%-]*%s+", "", 1)
+            if nxt == rest then break end
+            rest = nxt
+          end
           local target = rest:match('^["\']?([^%s"\']+)') or ""
           local tid = target:match("([^/]+)$") or ""
           for id, m in pairs(wants) do

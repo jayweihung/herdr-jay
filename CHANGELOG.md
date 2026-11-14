@@ -18,6 +18,9 @@ Needs: **mods**.
   for you (orange, red after 10 minutes) and says 等站長同意 51 分, not plain blue 做完.
 - The mouse over a card no longer turns its frame blue (it hid the status color and could read as a new state): the
   frame keeps its color and the card gets a little brighter in it. Selected: its color, stronger. Mac and Windows alike.
+- Reply hook: a command with several hc send (hc send a … && hc send b …) counted only the first, so an answer sent
+  second was reported as not sent; options with a value (--if idle, --timeout 30) are skipped too. Needs **snap hook**
+  again: the hook file (~/.config/nvim-jay/reply_hook.lua) on each machine, written by nvim-jay.
 
 ## 2026-11-14, 倉庫: collect many skills from one URL at once; skills grouped by where they came from
 

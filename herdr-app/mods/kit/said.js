@@ -77,7 +77,9 @@ export function saidTick(ags, terms, cx) {
   for (const a of ags ?? []) {
     const stop = Number(rec.get(a.address)?.status_ms) || 0;
     const e = said[a.address];
-    if (a.status === "done" && !a.focused && !e?.busy && !(e && e.for === stop && (e.text || now - e.asked < RETRY)))
+    // a file from an earlier stop (the hook may still be writing this one) doesn't count as found
+    const found = e?.text && (!stop || e.at >= stop - 120000);
+    if (a.status === "done" && !a.focused && !e?.busy && !(e && e.for === stop && (found || now - e.asked < RETRY)))
       ask(SAID, a, stop, "said", parseSaid, cx);
     const s = subs[a.address];
     if (!s?.busy && (!s || s.for !== stop || (a.status === "working" && now - s.asked >= SUBS_MS)))

@@ -512,7 +512,7 @@ mod 只用這些欄位，每個都先檢查：`kit`（版本）、`api`（`major
   工具是 agent 詳細頁選的（Claude、Codex、omp；沒選是 Claude）。
 - kit 做好後，在那個 space 開一個新分頁，在那個資料夾跑 kit 給的指令（就是 `claude`、`codex` 或 `omp`；Herdr 的
   `tab.new`，帶 `space`、`folder`、`argv`）。Codex 會補上 `--no-daemon`（kit 給的只有 `codex`）：Herdr 裡的 Codex 要這樣開，
-  不然它的指令在 Codex 共用的背景服務裡跑，不在 Herdr 的終端機裡。進度和結果用通知說；kit 的提醒（例如 Codex 不能只開某些工具）也會列出來。
+  不然它的指令在 Codex 共用的背景服務裡跑，不在 Herdr 的終端機裡。進度和結果用通知說；kit 的提醒（例如 Codex 擋不到的工具限制）也會列出來。
 - **它自己的 logo**：那一格在 Herdr 的清單（左邊 Agents 欄等）顯示這個 agent 的機器人頭像，不是 Claude／Codex 的圖示
   （`tab.new` 多帶 `icon`，圖檔是 Kit 寫在 Herdr 資料夾裡的 `data/kit/bots/…svg`）。要有 icon 修改的 Herdr
   （herdr-app 的 `0003` patch）；舊的 Herdr 不認得 `icon`，分頁照開，只是用程式的圖示。

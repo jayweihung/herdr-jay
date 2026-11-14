@@ -159,6 +159,7 @@ export const noReply = (text) => /不[用必]再?回|\[fyi\]/i.test(String(text 
 export function waitsOf(g, now = Date.now()) {
   const node = new Map(g.nodes.map((n) => [n.address, n]));
   const last = (a, b) => g.edges.find((e) => e.kind === "send" && e.from === a && e.to === b);
+  const firstStop = (b, at) => { let t = null; for (const x of g.log ?? []) if (x.k === "status" && x.a === b && x.v !== "working" && x.at > at && (t === null || x.at < t)) t = x.at; return t; };
   const workedAfter = (a, at) => (g.log ?? []).some((x) => x.k === "status" && x.a === a && x.v === "working" && x.at > at);
   const sentAfter = (a, at) => [...g.edges, ...(g.outside ?? [])].some((e) => e.kind === "send" && e.from === a && e.at > at);
   const out = [];
@@ -170,7 +171,9 @@ export function waitsOf(g, now = Date.now()) {
       : b.since > e.at + SETTLE ? "silent" : "working";   // stopped before the message settled in: still on it
     // A moved on after B stopped (began working again, or messaged anyone): it got what it needed some other way
     // (read B's screen, was told), it isn't sitting there waiting. A merely finishing the turn it sent in is not that.
-    if (state === "silent" && (workedAfter(e.from, b.since + SETTLE) || sentAfter(e.from, b.since + SETTLE))) continue;
+    // (B's first stop after the message is the one that counts: it may have worked on other things since)
+    const stopped = state === "silent" ? firstStop(e.to, e.at + SETTLE) ?? b.since : 0;
+    if (state === "silent" && (workedAfter(e.from, stopped + SETTLE) || sentAfter(e.from, stopped + SETTLE))) continue;
     out.push({ from: e.from, to: e.to, at: e.at, text: e.text, state, since: state === "working" ? 0 : b.since, waited: now - e.at });
   }
   return out;
@@ -299,14 +302,14 @@ export function graphView(t, z, g, sel, { onSelect, now = Date.now(), width = 0 
   const recent = (e) => now - e.at < 10 * MIN ? t.accent : now - e.at < HOUR ? t.muted : t.dim;
   const mine = (e) => !sel || e.from === sel || e.to === sel;
   const waitOf = (e) => e.kind === "send" ? g.waits.find((w) => w.from === e.from && w.to === e.to && w.state !== "working") : null;
-  const stuck = new Set(g.chains.flatMap((c) => c.path)), clash = new Set(g.clashes.flatMap((c) => c.nodes));
+  const stuck = new Map(g.chains.flatMap((c) => c.path.map((a) => [a, c.why === "blocked" ? t.blocked : stuckColor(t)]))), clash = new Set(g.clashes.flatMap((c) => c.nodes));
   // the selected card's lines last, so they lie on top
   const edges = [...g.edges].sort((x, y) => Number(mine(x)) - Number(mine(y)));
   for (const e of edges) {
     const p = at[e.from], q = at[e.to];
     if (!p || !q) continue;
     const wt = waitOf(e);
-    const k = curveOf(p, q, e.both), color = !mine(e) ? t.border : wt ? t.blocked : e.kind === "parent" ? t.done : recent(e);
+    const k = curveOf(p, q, e.both), color = !mine(e) ? t.border : wt ? (wt.state === "blocked" ? t.blocked : stuckColor(t)) : e.kind === "parent" ? t.done : recent(e);
     let path = PathBuilder.stroke(mine(e) && sel ? strokeW(e) + 0.8 : strokeW(e)).move_to(...k.a);
     if (k.via) { for (const v of k.via) path = path.line_to(...v); path = path.line_to(...k.b); }
     else path = path.cubic_bezier_to(...k.b, ...k.c1, ...k.c2);
@@ -322,11 +325,29 @@ export function graphView(t, z, g, sel, { onSelect, now = Date.now(), width = 0 
     .child([c.space || "", c.down ? `${c.machine} 斷線 ${spanText(now - c.down)}` : c.machine].filter(Boolean).join(" · "))));
   for (const n of g.nodes) {
     const st = cardState(g, n, now);
+    // colored all over: your turn (waiting for you, done for you to look, a stuck chain); two in one folder: a
+    // border only (a heads-up, not your turn)
+    const you = stuck.has(n.address) || Boolean(st?.you);
     canvas.child(card(t, z, n, at[n.address], sel === n.address, onSelect,
-      stuck.has(n.address) || st?.hot ? t.ansi1 : st?.warm ? t.blocked : clash.has(n.address) ? t.working : st?.you ? t[st.color] : null, st, now));
+      st?.hot ? t.ansi1 : st?.warm ? t.blocked : stuck.get(n.address) ?? (st?.you ? t[st.color] : clash.has(n.address) ? t.working : null), st, now, you));
   }
   return canvas;
 }
+
+// what the colors say, in one line above the drawing: the colored-all-over cards are your turn
+export function legendView(t, z) {
+  const dot = (c, label, frame = false) => h_flex().gap(3).items_center()
+    .child(div().size(9).rounded(2).when(frame, (el) => el.border_2().border_color(c)).when(!frame, (el) => el.bg(c)))
+    .child(div().child(label));
+  return h_flex().id("kit-graph-legend").flex_wrap().px(12).pb(4).gap(10).text_size(z - 3.5).text_color(t.dim)
+    .child(div().child("整張上色＝輪到你："))
+    .child(dot(t.blocked, "等你處理")).child(dot(t.ansi1, "等太久")).child(dot(t.done, "做完等你看")).child(dot(stuckColor(t), "停了沒回／互等"))
+    .child(dot(t.working, "同一個資料夾（只有框）", true));
+}
+
+// agents not answering each other (停了沒回, 互等: a nudge may do): their own color, apart from waiting for you
+// (blocked) and waiting too long (ansi1); the theme's magenta
+export const stuckColor = (t) => t.ansi5 || t.ansi1;
 
 // c over base, a little of it (both "#rrggbb"; anything else: base as it is)
 export function tint(base, c, amount = 0.16) {
@@ -351,11 +372,11 @@ export const subLine = (x, now = Date.now()) => `${x.desc || x.type || x.id}${x.
 export const subsText = (n, now = Date.now()) => (n?.subs ?? []).map((x) => subLine(x, now)).join("\n");
 
 // mark: a color for a card in trouble (a stuck chain; two in one folder) or waiting for you, else null: a thick
-// border and a tint of it all over
-function card(t, z, n, p, on, onSelect, mark = null, st = null, now = Date.now()) {
+// border; wash: a tint of it all over too (only where it is your turn)
+function card(t, z, n, p, on, onSelect, mark = null, st = null, now = Date.now(), wash = true) {
   return v_flex().id(`kit-graph-${n.address}`).absolute().left(p.x).top(p.y).w(p.w ?? COL_W).h(NODE_H).px(8).py(6).gap(1)
     .rounded(8).when(Boolean(mark), (el) => el.border_2()).when(!mark, (el) => el.border_1())
-    .border_color(mark ?? (on ? t.accent : n.focused ? t.muted : t.border)).bg(on ? t.selected : mark ? tint(t.raised, mark) : t.raised)
+    .border_color(mark ?? (on ? t.accent : n.focused ? t.muted : t.border)).bg(on ? t.selected : mark && wash ? tint(t.raised, mark) : t.raised)
     .when(Boolean(n.down || st?.idle) && !on, (el) => el.opacity(0.5))   // offline, or done long ago: in the background
     .cursor_pointer().hover((s) => s.border_color(t.accent)).on_mouse_down("left", stop)
     // like a row of the Agents list: a click goes to its pane; here its lines stand out too
@@ -397,11 +418,11 @@ export function alertsView(t, z, g, now = Date.now(), onSelect = null, { onNudge
     const text = c.why === "loop" ? `互等：${path}`
       : c.why === "blocked" ? `卡住：${path}，${name(c.end)} 在等你處理`
       : `卡住：${path}，${name(c.end)} 停了但沒回`;
-    items.push({ id: `chain-${c.path.join("-")}`, text, color: t.blocked, who: c.why === "loop" ? c.path[0] : c.end,
+    items.push({ id: `chain-${c.path.join("-")}`, text, color: c.why === "blocked" ? t.blocked : stuckColor(t), who: c.why === "loop" ? c.path[0] : c.end,
       nudge: c.why === "silent" ? waitOn(c.path.at(-2), c.end) : null });
   }
   for (const w of g.waits.filter((x) => x.state === "silent" && !g.chains.some((c) => c.path.includes(x.from) && c.path.includes(x.to))))
-    items.push({ id: `wait-${w.from}-${w.to}`, text: `${name(w.to)} 還沒回 ${name(w.from)}（${agoText(w.since, now).replace("前", "")}）`, color: t.blocked, who: w.to, nudge: w });
+    items.push({ id: `wait-${w.from}-${w.to}`, text: `${name(w.to)} 還沒回 ${name(w.from)}（${agoText(w.since, now).replace("前", "")}）`, color: stuckColor(t), who: w.to, nudge: w });
   const ends = new Set(g.chains.map((c) => c.end));
   for (const w of (g.longWaits ?? []).filter((x) => !ends.has(x.address)))
     items.push({ id: `long-${w.address}`, text: `${name(w.address)} ${KIND[w.kind] ?? "等你處理"}已經 ${spanText(w.for)}`, color: t.ansi1, who: w.address });
@@ -468,7 +489,7 @@ export function edgeList(t, z, g, sel, now = Date.now()) {
     const wait = !wt ? "" : wt.state === "working" ? (out ? "（它在處理）" : "（你在處理）")
       : wt.state === "blocked" ? (out ? "（它在等人處理，還沒回）" : "") : out ? "（還沒回）" : "（還沒回它）";
     box.child(v_flex().gap(0).px(8).py(4).rounded(6).bg(t.raised)
-      .child(div().truncate().text_color(wt && wt.state !== "working" ? t.blocked : t.foreground).child(head + wait))
+      .child(div().truncate().text_color(wt && wt.state !== "working" ? (wt.state === "blocked" ? t.blocked : stuckColor(t)) : t.foreground).child(head + wait))
       .when(Boolean(e.text), (el) => el.child(copyOnRight(div().truncate().text_size(z - 2.5).text_color(t.muted).child(`最後一則：${e.text}`), e.text))));
   }
   return box;

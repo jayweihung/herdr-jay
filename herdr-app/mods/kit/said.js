@@ -4,7 +4,8 @@
 //   ~/.cache/nvim-jay/subs/<terminal id>  { at, list }   its sub-agents (SubagentStart / SubagentStop and every stop):
 //                                                         [{ id, type, desc, done, start, last }], running or done in
 //                                                         the last 30 minutes, newest first
-// This computer's files are read directly, another machine's through `sh` there (cat). said: once per stop, only for
+// This computer's files are read directly, another machine's through `sh` there (cat). omp and Codex have no hook:
+// their sub-agents are read from their own files (OMP_SH, CODEX_SH below). said: once per stop, only for
 // agents done and not looked at; subs: every SUBS_MS while an agent works, once more when it stops. Nothing is
 // guessed: a said file older than the stop says nothing (no hook there, or not Claude Code).
 import { exec, hc, home, readTextFile, shared, setShared } from "herdr";
@@ -72,22 +73,161 @@ async function readBg(addr) {
   return r ? { at: Date.now(), jobs: bgJobs(r.stdout, pid) } : null;
 }
 
-// a transcript's tail (Claude Code JSONL; the first line may be cut) -> its last step, in a few words:
-// "Bash：ls ~/x", "Read：src/a.rs", or the first line of what it last wrote
+// one tool call in a few words: "Bash：ls ~/x", "Read：src/a.rs" (its first telling argument)
+const toolText = (name, i) => {
+  const o = i && typeof i === "object" ? i : {};
+  const arg = [o.command, o.cmd, o.file_path, o.path, o.pattern, o.url, o.query, o.description, o.prompt].find((v) => typeof v === "string" && v.trim());
+  return `${cut(name, 30)}${arg ? `：${cut(String(arg).split("\n")[0], 70)}` : ""}`;
+};
+const firstLine = (t) => cut(String(t).trim().split("\n")[0], 80);
+// a transcript's tail (the first line may be cut) -> its last step, in a few words: a tool call, or the first line of
+// what it last wrote. Claude Code (assistant: tool_use / text), omp (message, assistant: toolCall / text) and Codex
+// (response_item: function_call / custom_tool_call / assistant message) each write their own JSONL.
 export function lastStep(tail) {
   let step = "";
   for (const line of String(tail ?? "").split("\n")) {
     let r = null;
     try { r = JSON.parse(line); } catch { continue; }
-    const c = r?.type === "assistant" && Array.isArray(r.message?.content) ? r.message.content : [];
-    for (const b of c) {
-      if (b?.type === "tool_use") {
-        const i = b.input ?? {}, arg = [i.command, i.file_path, i.path, i.pattern, i.url, i.query, i.description, i.prompt].find((v) => typeof v === "string" && v.trim());
-        step = `${cut(b.name, 30)}${arg ? `：${cut(String(arg).split("\n")[0], 70)}` : ""}`;
-      } else if (b?.type === "text" && typeof b.text === "string" && b.text.trim()) step = cut(b.text.trim().split("\n")[0], 80);
+    if (r?.type === "response_item") {   // Codex
+      const p = r.payload ?? {};
+      if (p.type === "function_call") { let a = {}; try { a = JSON.parse(p.arguments); } catch {} step = toolText(p.name, a); }
+      else if (p.type === "custom_tool_call") {
+        // its code mode: the command is inside the script, cmd:"…"
+        const m = /\bcmd:\s*"((?:[^"\\]|\\.)*)"/.exec(String(p.input ?? ""));
+        let c = "";
+        if (m) try { c = JSON.parse(`"${m[1]}"`); } catch { c = m[1]; }
+        step = toolText(p.name, { command: c || String(p.input ?? "") });
+      } else if (p.type === "message" && p.role === "assistant" && Array.isArray(p.content)) {
+        const t = p.content.filter((b) => typeof b?.text === "string").map((b) => b.text).join("\n");
+        if (t.trim()) step = firstLine(t);
+      }
+      continue;
+    }
+    const m = r?.message, mine = r?.type === "assistant" || (r?.type === "message" && m?.role === "assistant");
+    for (const b of mine && Array.isArray(m?.content) ? m.content : []) {
+      if (b?.type === "tool_use") step = toolText(b.name, b.input);
+      else if (b?.type === "toolCall") step = toolText(b.name, b.arguments);
+      else if (b?.type === "text" && typeof b.text === "string" && b.text.trim()) step = firstLine(b.text);
     }
   }
   return step;
+}
+
+// omp and Codex have no hook here: the panel reads their own files, on the agent's machine (sh there; not on
+// Windows), every SUBS_MS while the agent works or is done, from its process (Herdr's foreground pid).
+//   omp: ~/.omp/agent/terminal-sessions/<its tty, / as -> says its session file (line 2); its sub-agents are
+//        <session>/<name>.jsonl (session_init: task, agent; done: session_exit at the end, <name>.md written after
+//        it, or <name>.tombstone)
+//   Codex: the rollout files its process holds open; one without parent_thread_id is the agent's own thread, and its
+//        sub-agents are the rollouts of the last 30 minutes whose parent_thread_id leads to it (done: task_complete
+//        or turn_aborted after the last task_started)
+// Last, "@@kit-said@@" and the end of the agent's own transcript (for what it said when it stopped: saidOf).
+// Each sub-agent comes out as "@@kit-sub@@ TAB name TAB mtime (s) TAB done (0, 1, or empty: from its tail)", lines of
+// "key":"value, then "@@kit-tail@@" and its last bytes; Codex's own threads as "@@kit-root@@ TAB id".
+export const OMP_SH = String.raw`t=$(ps -o tty= -p "$1" 2>/dev/null | tr -d ' ' | tr / -)
+case "$t" in ''|'?'|'??') exit 0;; esac
+s=$(sed -n 2p "$HOME/.omp/agent/terminal-sessions/$t" 2>/dev/null)
+case "$s" in /*.jsonl) ;; *) exit 0;; esac
+d=$(printf '%s' "$s" | sed 's/\.jsonl$//')
+[ -d "$d" ] || exit 0
+find "$d" -maxdepth 1 -name '*.jsonl' -mmin -30 2>/dev/null | head -n 20 | while IFS= read -r x; do
+  n=$(basename "$x" .jsonl); e=0
+  if [ -e "$d/$n.tombstone" ] || tail -c 4096 "$x" | grep -q '"customType":"session_exit"' || { [ -e "$d/$n.md" ] && ! [ "$x" -nt "$d/$n.md" ]; }; then e=1; fi
+  printf '\n@@kit-sub@@\t%s\t%s\t%s\n' "$n" "$(date -r "$x" +%s 2>/dev/null)" "$e"
+  head -c 4096 "$x" | grep -m1 '"type":"session"' | grep -oE '"timestamp":"[^"]*' | head -n 1
+  grep -m1 '"type":"session_init"' "$x" | grep -oE '"(task|agent)":"([^"\\]|\\.){0,250}' | head -n 2
+  [ "$e" = 1 ] || { printf '@@kit-tail@@\n'; tail -c 32768 "$x"; }
+done
+printf '\n@@kit-said@@\n'; tail -c 65536 "$s"`;
+export const CODEX_SH = String.raw`own=$( { ls -l "/proc/$1/fd" 2>/dev/null; lsof -p "$1" -Fn 2>/dev/null; } | grep -oE '/[^ ]*/rollout-[^ /]*\.jsonl' | sort -u)
+[ -n "$own" ] || exit 0
+printf '%s\n' "$own" | while IFS= read -r x; do
+  head -n 1 "$x" | grep -q '"parent_thread_id"' || printf '\n@@kit-root@@\t%s\n' "$(head -n 1 "$x" | grep -oE '"id":"[^"]*' | head -n 1 | cut -d'"' -f4)"
+done
+r=$(dirname "$(dirname "$(dirname "$(dirname "$(printf '%s\n' "$own" | head -n 1)")")")")
+find "$r" -mindepth 3 -maxdepth 3 -type d -mtime -2 2>/dev/null | while IFS= read -r dd; do find "$dd" -name 'rollout-*.jsonl' -mmin -30 2>/dev/null; done | head -n 40 | while IFS= read -r x; do
+  h=$(head -n 1 "$x" | grep -oE '"(id|parent_thread_id|agent_nickname|agent_path|timestamp)":"[^"]*' | head -n 12)
+  case "$h" in *parent_thread_id*) ;; *) continue;; esac
+  printf '\n@@kit-sub@@\t%s\t%s\t\n%s\n@@kit-tail@@\n' "$(basename "$x")" "$(date -r "$x" +%s 2>/dev/null)" "$h"
+  tail -c 16384 "$x"
+done
+printf '%s\n' "$own" | while IFS= read -r x; do head -n 1 "$x" | grep -q '"parent_thread_id"' || { printf '\n@@kit-said@@\n'; tail -c 65536 "$x"; }; done`;
+// "key":"value (maybe cut short) in a block of such lines -> the value
+const field = (head, k) => {
+  const m = new RegExp(`"${k}":"((?:[^"\\\\\\n]|\\\\.)*)`).exec(String(head ?? ""));
+  if (!m) return "";
+  try { return JSON.parse(`"${m[1].replace(/\\[^"]{0,5}$/, "")}"`); } catch { return m[1]; }
+};
+// an omp task (its assignment, in sections) -> one line: what it is to change, else its first line
+export function ompDesc(task) {
+  const lines = String(task ?? "").split("\n").map((l) => l.trim()).filter((l) => l && !/^complete assignment/i.test(l));
+  const h = lines.findIndex((l) => /^#+\s*(change|goal|task|objective|目標|任務)/i.test(l));
+  const pick = (h >= 0 ? lines.slice(h + 1) : lines).find((l) => !/^#/.test(l)) ?? "";
+  return cut(pick.replace(/^[-*]\s+/, ""), 120);
+}
+// OMP_SH / CODEX_SH's output -> { at, list: [{ id, type, desc, done, start, last, path: "" }], steps: { id: step } }
+export function parseOwnSubs(out, kind, now = Date.now()) {
+  const all = String(out ?? ""), si = all.indexOf("\n@@kit-said@@\n");
+  const text = si < 0 ? all : all.slice(0, si), said = saidOf(si < 0 ? "" : all.slice(si + 14)), steps = {}, subs = [];
+  const roots = new Set([...text.matchAll(/\n@@kit-root@@\t([\w-]+)/g)].map((m) => m[1]));
+  for (const block of text.split("\n@@kit-sub@@\t").slice(1)) {
+    const nl = block.indexOf("\n"), [name, mt, dn] = block.slice(0, nl < 0 ? block.length : nl).split("\t");
+    const rest = nl < 0 ? "" : block.slice(nl + 1), ti = rest.indexOf("@@kit-tail@@\n");
+    const head = ti < 0 ? rest : rest.slice(0, ti), tail = ti < 0 ? "" : rest.slice(ti + 13);
+    const last = Number(mt) * 1000 || 0, start = Date.parse(field(head, "timestamp")) || last;
+    if (kind === "omp") {
+      subs.push({ id: cut(name, 40), parent: "", type: cut(field(head, "agent") || "task", 40), desc: ompDesc(field(head, "task")), done: dn === "1", start, last, tail });
+    } else {
+      const s = tail.lastIndexOf('"type":"task_started"'), e = Math.max(tail.lastIndexOf('"type":"task_complete"'), tail.lastIndexOf('"type":"turn_aborted"'));
+      const path = field(head, "agent_path"), nick = field(head, "agent_nickname");
+      subs.push({ id: cut(field(head, "id") || name, 40), parent: field(head, "parent_thread_id"), type: cut(nick || "agent", 40),
+        desc: cut((path.split("/").pop() || "").replace(/_/g, " "), 120), done: e > s || (s < 0 && now - last > 10 * 60000), start, last, tail });
+    }
+  }
+  // Codex: only the agent's own threads' sub-agents (and theirs)
+  let mine = subs;
+  if (kind === "codex") {
+    const ok = new Set(roots);
+    for (let grew = true; grew;) { grew = false; for (const x of subs) if (!ok.has(x.id) && ok.has(x.parent)) { ok.add(x.id); grew = true; } }
+    mine = subs.filter((x) => ok.has(x.id) && !roots.has(x.id));
+  }
+  const list = mine.filter((x) => !x.done || now - x.last < 30 * 60000).sort((a, b) => b.start - a.start).slice(0, SUBS_MAX).map((x) => {
+    if (!x.done && x.tail) steps[x.id] = lastStep(x.tail);
+    return { id: x.id, type: x.type, desc: x.desc, done: x.done, start: x.start, last: x.last, path: "" };
+  });
+  return { at: now, list, steps, said };
+}
+// what it last wrote (a transcript's tail: omp's message / Codex's task_complete or assistant message / Claude
+// Code's) -> the line the reply hook would keep: the last one that asks something (？ or ?), else the last one
+export function saidOf(tail) {
+  let last = "";
+  for (const line of String(tail ?? "").split("\n")) {
+    let r = null;
+    try { r = JSON.parse(line); } catch { continue; }
+    const p = r?.payload, m = r?.message;
+    if (r?.type === "event_msg" && p?.type === "task_complete" && typeof p.last_agent_message === "string") last = p.last_agent_message;
+    else if (r?.type === "response_item" && p?.type === "message" && p.role === "assistant" && Array.isArray(p.content)) last = p.content.map((b) => (typeof b?.text === "string" ? b.text : "")).join("\n") || last;
+    else if ((r?.type === "assistant" || (r?.type === "message" && m?.role === "assistant")) && Array.isArray(m?.content)) last = m.content.map((b) => (b?.type === "text" && typeof b.text === "string" ? b.text : "")).join("\n") || last;
+  }
+  let pick = "", ask = "";
+  for (let l of last.split("\n")) {
+    l = l.replace(/\*\*/g, "").replace(/`/g, "").replace(/^\s*[#>*-]+\s*/, "").replace(/^\s*\d+[.)]\s+/, "").trim();
+    if (!l || l.startsWith("|")) continue;
+    pick = l;
+    if (/[？?]/.test(l)) ask = l;
+  }
+  return cut(ask || pick, MAX);
+}
+const OWN = { omp: OMP_SH, codex: CODEX_SH };
+// the programs whose sub-agents the panel reads itself (agents(): app, else program.key) -> "omp" | "codex" | null
+export const ownKind = (a) => { const k = String(a?.app || a?.program?.key || ""); return k === "omp" || k === "codex" ? k : null; };
+async function readOwn(addr, kind) {
+  const g = await hc(["get", addr, "--json"]).catch(() => null);
+  let pid = null;
+  try { pid = JSON.parse(g?.stdout ?? "{}").foreground?.pid ?? null; } catch {}
+  if (!pid) return null;
+  const r = await exec("sh", ["-c", OWN[kind], "sh", String(pid)], { timeout: 15000, on: machineOf(addr) }).catch(() => null);
+  return r && r.code === 0 ? parseOwnSubs(r.stdout, kind) : null;
 }
 // its last step, and its description from the meta file next to it (the subs file may not have it yet: the hook ran
 // before Claude Code wrote it)
@@ -143,7 +283,7 @@ export function saidTick(ags, terms, cx) {
     const e = said[a.address];
     // a file from an earlier stop (the hook may still be writing this one) doesn't count as found
     const found = e?.text && (!stop || e.at >= stop - 120000);
-    if (a.status === "done" && !a.focused && !e?.busy && !(e && e.for === stop && (found || now - e.asked < RETRY)))
+    if (!ownKind(a) && a.status === "done" && !a.focused && !e?.busy && !(e && e.for === stop && (found || now - e.asked < RETRY)))
       ask(SAID, a, stop, "said", parseSaid, cx);
     const b = (shared(BG) ?? {})[a.address];
     if (a.status === "done" && !a.focused && !b?.busy && (!b || now - b.asked >= BG_MS)) {
@@ -154,9 +294,23 @@ export function saidTick(ags, terms, cx) {
         cx.notify();
       });
     }
-    const s = subs[a.address];
-    if (!s?.busy && (!s || s.for !== stop || ((a.status === "working" || a.status === "done") && now - s.asked >= SUBS_MS)))
-      ask(SUBS, a, stop, "subs", parseSubs, cx);
+    const s = subs[a.address], kind = ownKind(a);
+    if (!s?.busy && (!s || s.for !== stop || ((a.status === "working" || a.status === "done") && now - s.asked >= SUBS_MS))) {
+      if (!kind) ask(SUBS, a, stop, "subs", parseSubs, cx);
+      else if (!isWindows() || machineOf(a.address)) {
+        setShared(SUBS, { ...(shared(SUBS) ?? {}), [a.address]: { ...(s?.for === stop ? s : {}), for: stop, asked: now, busy: true } });
+        cx.spawn(async (cx) => {
+          const d = await readOwn(a.address, kind).catch(() => null);
+          const cur = shared(SUBS) ?? {};
+          setShared(SUBS, { ...cur, [a.address]: { ...(cur[a.address] ?? {}), ...(d ? { at: d.at, list: d.list } : {}), for: stop, asked: Date.now(), busy: false } });
+          // what each running one does now comes in the same read (STEPS, as Claude Code's do)
+          // done: what it said, from the same read (omp and Codex have no reply hook to write it)
+          if (d?.said && a.status === "done") setShared(SAID, { ...(shared(SAID) ?? {}), [a.address]: { at: d.at, text: d.said, for: stop, asked: d.at, busy: false } });
+          if (d) setShared(STEPS, { ...(shared(STEPS) ?? {}), ...Object.fromEntries(Object.entries(d.steps).map(([id, text]) => [`${a.address}|${id}`, { at: d.at, text, asked: d.at, busy: false }])) });
+          cx.notify();
+        });
+      }
+    }
   }
   // the latest step of each running sub-agent (only while its agent is listed)
   const steps = shared(STEPS) ?? {};

@@ -21,7 +21,7 @@ const H = (globalThis.__H = {
   store: {}, props: {}, layout: { id: "root", children: [] }, window: { platform: "macos" }, home: "/Users/amy",
   calls: [], answer: () => ({ code: 0, stdout: "", stderr: "" }), overlays: [], runs: [], notes: [], timeouts: [],
   texts: [], strings: [], panes: [], spaces: [], tasks: [], clicks: {}, lastId: null, files: null, writes: [],
-  machines: [], hcAnswer: null, reads: [], clipboard: [], drags: [], afters: [], writeFail: null,
+  machines: [], hcAnswer: null, reads: [], clipboard: [], drags: [], afters: [], writeFail: null, colors: {},
 });
 const COLOR_METHODS = /(^bg$|color|^border_color$|^text_color$)/;
 const el = new Proxy(function () {}, {
@@ -35,6 +35,7 @@ const el = new Proxy(function () {}, {
       if (String(k) === "on_mouse_down" && typeof args[1] !== "function") throw new Error("on_mouse_down(button, handler) expects a handler");
       if (String(k) === "id") { H.lastId = args[0]; H.ids?.push(args[0]); }
       if (String(k) === "on_click") H.clicks[H.lastId] = args[0];   // to press a button by its id
+      if ((String(k) === "border_color" || String(k) === "bg") && H.lastId) (H.colors[H.lastId] ??= {})[String(k)] ??= args[0];   // an element's own colors, by its id (children without one come later)
       if (String(k) === "on_drag") H.drags.push([H.lastId, ...args]);   // a newer Herdr: what the element carries when dragged
       return el;
     };
@@ -635,6 +636,11 @@ test("關係: who waits for whom: still on it, no answer, needs you; chains to t
     assert.equal(graphData({ agents, terms: finished, space: null, now: 60000 }).waits.find((x) => x.from === "a" && x.to === "b")?.state, "silent", "only finished the turn it sent in, after b stopped: still waits");
     const told = terms.map((r) => (r.address === "a" ? { ...r, sent: [msg("b", 1000), msg("zz", 12000)] } : r));
     assert.equal(graphData({ agents, terms: told, space: null, now: 60000 }).waits.some((x) => x.from === "a" && x.to === "b"), false, "messaged someone (even off this list) after b stopped");
+    // b worked on other things later (stopped again at 30000): what counts is its first stop after a's message
+    const later = terms.map((r) => (r.address === "b" ? { ...r, status_ms: 30000 } : r.address === "a" ? { ...r, sent: [msg("b", 1000), msg("zz", 12000)] } : r));
+    const blog = [{ at: 9000, k: "status", a: "b", v: "idle" }, { at: 20000, k: "status", a: "b", v: "working" }, { at: 30000, k: "status", a: "b", v: "idle" }];
+    assert.equal(graphData({ agents, terms: later, log: blog, space: null, now: 60000 }).waits.some((x) => x.from === "a" && x.to === "b"), false, "moved on after b's first stop");
+    assert.equal(graphData({ agents, terms: later.map((r) => (r.address === "a" ? { ...r, sent: [msg("b", 1000)] } : r)), log: blog, space: null, now: 60000 }).waits.find((x) => x.from === "a" && x.to === "b")?.state, "silent", "didn't move on: still waits");
     const early = terms.map((r) => (r.address === "a" ? { ...r, status_ms: 9000 } : r));
     assert.equal(graphData({ agents, terms: early, space: null, now: 60000 }).waits.find((x) => x.from === "a" && x.to === "b")?.state, "silent", "stopped the same moment as b: still waits");
   }
@@ -695,6 +701,29 @@ test("關係: waiting for you warms up then goes red (with what it waits for); s
   assert.deepEqual([g2.cols[0].machine, g2.cols[0].down], ["box", now - 3 * MIN], "a space on an offline machine");
   assert.deepEqual([spanText(30000), spanText(90 * MIN), spanText(50 * 3600000)], ["30 秒", "1 小時", "2 天"]);
 });
+test("關係 colors: colored all over only where it is your turn; 停了沒回 has its own color; one folder is a frame only; the legend says so", (M) => {
+  const { graphData, graphView, legendView, tint, stuckColor } = M.graph;
+  const th = { raised: "#101010", selected: "#202020", border: "#303030", accent: "#0000aa", muted: "#404040", dim: "#505050", foreground: "#eeeeee",
+    surface: "#111111", blocked: "#ff8800", done: "#3366ff", working: "#dddd00", ansi1: "#ff0000", ansi5: "#cc00cc", unknown: "#666666", hover: "#121212" };
+  const now = 3600000;
+  const agents = [ag("bl", "blocked"), ag("dn", "done"), ag("w1", "working"), ag("w2", "working"), ag("a", "idle"), ag("b", "idle"), ag("old", "blocked")];
+  const terms = [{ address: "bl", status_ms: now - 30000 }, { address: "dn", status_ms: now - 5000 }, { address: "w1", cwd: "/p/x" }, { address: "w2", cwd: "/p/x" },
+    { address: "a", sent: [{ to: "b", count: 1, last_ms: 1000, text: "x" }], status_ms: 1200 }, { address: "b", status_ms: 9000 }, { address: "old", status_ms: now - 11 * 60000 }];
+  const g = graphData({ agents, terms, space: null, now });
+  H.colors = {};
+  graphView(th, 13, g, null, { now, width: 900 });
+  const c = (a) => H.colors[`kit-graph-${a}`] ?? {};
+  assert.deepEqual([c("bl").border_color, c("bl").bg], [th.blocked, tint(th.raised, th.blocked)], "waiting for you: orange all over");
+  assert.deepEqual([c("old").border_color, c("old").bg], [th.ansi1, tint(th.raised, th.ansi1)], "waiting too long: red all over");
+  assert.deepEqual([c("dn").border_color, c("dn").bg], [th.done, tint(th.raised, th.done)], "done for you to look: blue all over");
+  assert.equal(stuckColor(th), th.ansi5);
+  for (const x of ["a", "b"]) assert.deepEqual([c(x).border_color, c(x).bg], [th.ansi5, tint(th.raised, th.ansi5)], `停了沒回: magenta all over (${x})`);
+  for (const x of ["w1", "w2"]) assert.deepEqual([c(x).border_color, c(x).bg], [th.working, th.raised], `one folder: a frame, no wash (${x})`);
+  assert.equal(stuckColor({ ansi1: "#ff0000" }), "#ff0000", "a theme without ansi5: red");
+  H.strings = [];
+  legendView(th, 13);
+  assert.deepEqual(H.strings.filter((x) => x !== "整張上色＝輪到你："), ["等你處理", "等太久", "做完等你看", "停了沒回／互等", "同一個資料夾（只有框）"]);
+});
 test("關係: an agent done and not looked at says what it said when it stopped (its card, its own alert line); cards waiting for you are colored", (M) => {
   const { graphData, cardState, alertsView, tint } = M.graph, { parseSaid, saidNow } = M.said;
   const MIN = 60000, now = 100 * MIN;
@@ -724,6 +753,75 @@ test("關係: an agent done and not looked at says what it said when it stopped 
   assert.equal(gm.done[0].said, "要不要升到 0.6.3？");
   assert.equal(cardState(gm, gm.nodes[0], now).text, "做完：要不要升到 0.6.3？");
   assert.equal(tint("rgb(1,2,3)", "#ffffff"), "rgb(1,2,3)", "not #rrggbb: as it is");
+});
+test("關係: omp's and Codex's sub-agents and last words, read from their own files (no hook): parsed, and Codex's script run for real", async (M) => {
+  const { parseOwnSubs, saidOf, lastStep, ompDesc, ownKind, CODEX_SH } = M.said;
+  const now = Date.parse("2026-11-14T12:40:00Z");
+  const j = (o) => JSON.stringify(o);
+  // omp: one running (its tail), one done; the main session's tail says what it said
+  const ompTask = "Complete assignment thoroughly:\n\n# Target\nShell only.\n\n# Change\n- 在 shell 執行：sleep 60\n\n# Acceptance\nReport it.";
+  const ompOut = [
+    "", `@@kit-sub@@\tRulingAnglerfish\t${(now - 20000) / 1000}\t0`, `"timestamp":"2026-11-14T12:39:24.358Z`, `"task":"${JSON.stringify(ompTask).slice(1, -1)}`, `"agent":"task`,
+    "@@kit-tail@@", `{"cut line`, j({ type: "message", message: { role: "assistant", content: [{ type: "toolCall", name: "bash", arguments: { command: "sleep 60 && echo hi" } }] } }),
+    `@@kit-sub@@\tOldWhale\t${(now - 60000) / 1000}\t1`, `"timestamp":"2026-11-14T12:30:00.000Z`, `"task":"Fix the build`, `"agent":"task`,
+    `@@kit-sub@@\tAncient\t${(now - 40 * 60000) / 1000}\t1`, `"task":"long ago`,
+    "@@kit-said@@", j({ type: "message", message: { role: "assistant", content: [{ type: "text", text: "做好了。\n\n要我也**更新文件**嗎？\n- 好" }] } }),
+  ].join("\n");
+  const o = parseOwnSubs(ompOut, "omp", now);
+  assert.deepEqual(o.list.map((x) => [x.id, x.type, x.desc, x.done]), [["RulingAnglerfish", "task", "在 shell 執行：sleep 60", false], ["OldWhale", "task", "Fix the build", true]], "newest first; done over 30 min ago left out");
+  assert.equal(o.list[0].start, Date.parse("2026-11-14T12:39:24.358Z"));
+  assert.deepEqual(o.steps, { RulingAnglerfish: "bash：sleep 60 && echo hi" }, "the running one's step");
+  assert.equal(o.said, "要我也更新文件嗎？", "the last line that asks, marks gone");
+  assert.equal(o.list[0].path, "", "no path: the Claude Code step reader leaves it alone");
+  // Codex: only the sub-agents (and theirs) of the agent's own thread; done from task_complete / turn_aborted
+  const sub = (id, parent, path, nick, tail, mt) => [`@@kit-sub@@\trollout-${id}.jsonl\t${mt / 1000}\t`, `"timestamp":"2026-11-14T12:35:54.575Z`, `"id":"${id}`, `"parent_thread_id":"${parent}`, `"agent_nickname":"${nick}`, `"agent_path":"${path}`, "@@kit-tail@@", tail].join("\n");
+  const started = j({ type: "event_msg", payload: { type: "task_started" } }), complete = j({ type: "event_msg", payload: { type: "task_complete", last_agent_message: "hi" } });
+  const call = j({ type: "response_item", payload: { type: "custom_tool_call", name: "exec", input: 'const r = await tools.exec_command({cmd:"sleep 60 && echo \\"hi\\"", yield_time_ms:30000});' } });
+  const cxOut = ["", "@@kit-root@@\tROOT",
+    sub("S1", "ROOT", "/main/run_sleep", "Godel", [started, call].join("\n"), now - 5000),
+    sub("S2", "S1", "/main/run_sleep/inner_check", "Ada", [started, complete].join("\n"), now - 3000),
+    sub("X1", "OTHER", "/main/not_mine", "Boyle", started, now - 1000),
+    sub("S3", "ROOT", "/main/stopped", "Curie", [started, j({ type: "event_msg", payload: { type: "turn_aborted" } })].join("\n"), now - 9000),
+    "@@kit-said@@", [j({ type: "response_item", payload: { type: "message", role: "assistant", content: [{ type: "output_text", text: "還在想" }] } }),
+      j({ type: "event_msg", payload: { type: "task_complete", last_agent_message: "子 agent 回報的輸出是：hi。" } })].join("\n"),
+  ].join("\n");
+  const c = parseOwnSubs(cxOut, "codex", now);
+  assert.deepEqual(c.list.map((x) => [x.id, x.type, x.desc, x.done]).sort(), [["S1", "Godel", "run sleep", false], ["S2", "Ada", "inner check", true], ["S3", "Curie", "stopped", true]], "another thread's sub-agent left out; a sub-agent's own one kept");
+  assert.deepEqual(c.steps, { S1: 'exec：sleep 60 && echo "hi"' }, "Codex's code mode: the command inside");
+  assert.equal(c.said, "子 agent 回報的輸出是：hi。");
+  assert.deepEqual(parseOwnSubs("", "codex", now), { at: now, list: [], steps: {}, said: "" }, "nothing there");
+  assert.deepEqual(parseOwnSubs("@@kit-sub@@\tx", "omp", now).list, [], "a block cut short: nothing made up");
+  // Codex's function calls; Claude Code's steps as before
+  assert.equal(lastStep(j({ type: "response_item", payload: { type: "function_call", name: "exec_command", arguments: j({ cmd: "ls -la" }) } })), "exec_command：ls -la");
+  assert.equal(lastStep(j({ type: "assistant", message: { content: [{ type: "tool_use", name: "Read", input: { file_path: "src/a.rs" } }] } })), "Read：src/a.rs");
+  assert.equal(saidOf(j({ type: "assistant", message: { content: [{ type: "text", text: "1. 第一\n| 表 | 格 |\n最後一行" }] } })), "最後一行", "no question: the last line; table rows skipped");
+  assert.equal(ompDesc("# Goal\n\nmake it fast"), "make it fast");
+  assert.equal(ompDesc("just do it\nmore"), "just do it");
+  assert.deepEqual([ownKind({ app: "omp" }), ownKind({ app: "codex" }), ownKind({ app: "claude-code" }), ownKind({ program: { key: "codex" } }), ownKind({})], ["omp", "codex", null, "codex", null]);
+  // CODEX_SH for real: this process holds a root rollout open; a sub-agent's rollout sits in the same day's folder
+  const lsof = spawnSync("sh", ["-c", "command -v lsof || ls /proc/self/fd"], { encoding: "utf8" });
+  if (lsof.status !== 0) return;
+  const { openSync, closeSync } = await import("node:fs");
+  const base = mkdtempSync(join(tmpdir(), "kit-codex-")), day = join(base, "sessions", "2026", "11", "14");
+  mkdirSync(day, { recursive: true });
+  const meta = (id, parent) => j({ timestamp: "2026-11-14T12:35:54.575Z", type: "session_meta", payload: { id, ...(parent ? { parent_thread_id: parent } : {}), agent_nickname: "Godel", agent_path: "/main/run_sleep", base_instructions: "x".repeat(5000) } });
+  const rootFile = join(day, "rollout-2026-11-14T20-35-42-ROOT.jsonl");
+  writeFileSync(rootFile, [meta("ROOT"), complete].join("\n") + "\n");
+  writeFileSync(join(day, "rollout-2026-11-14T20-35-54-S1.jsonl"), [meta("S1", "ROOT"), started, call].join("\n") + "\n");
+  writeFileSync(join(day, "rollout-2026-11-14T20-36-00-X1.jsonl"), [meta("X1", "OTHER"), started].join("\n") + "\n");
+  const fd = openSync(rootFile, "r");
+  try {
+    const r = spawnSync("sh", ["-c", CODEX_SH, "sh", String(process.pid)], { encoding: "utf8" });
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(r.stderr, "", "no complaints from sh, grep, find");
+    const got = parseOwnSubs(r.stdout, "codex", Date.now());
+    assert.deepEqual(got.list.map((x) => [x.id, x.type, x.desc, x.done]), [["S1", "Godel", "run sleep", false]]);
+    assert.equal(got.steps.S1, 'exec：sleep 60 && echo "hi"');
+    assert.equal(got.said, "hi");
+  } finally { closeSync(fd); rmSync(base, { recursive: true, force: true }); }
+  // a process holding no rollout: nothing, quietly
+  const none = spawnSync("sh", ["-c", CODEX_SH, "sh", "1"], { encoding: "utf8" });
+  assert.deepEqual([none.status, parseOwnSubs(none.stdout, "codex").list], [0, []]);
 });
 test("關係: an agent's own sub-agents (the reply hook's subs file): 子 N on its card, each one when it is selected", (M) => {
   const { graphData, runningSubs, edgeList } = M.graph, { parseSubs, subsNow } = M.said;

@@ -9,6 +9,20 @@ says which) · **kit** = update kit itself on every machine where agents run (`k
 **snap hook** = a line in Claude Code's `settings.json` on each machine where you added the hook (the entry says
 which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/keys.md).
 
+## 2026-11-14, 關係: omp's and Codex's sub-agents and last words; colors that say whose turn
+
+Needs: **mods**.
+
+- omp and Codex: 子 N on the card, each sub-agent with what it is doing now, and 做完等你看 with what the agent
+  last said, like Claude Code. Nothing to install: the panel reads their own files on the agent's machine every 15 s
+  (omp: `~/.omp/agent/terminal-sessions`, its session folder; Codex: the rollout files its process holds open, found
+  with `lsof` or `/proc`). Not on a local Windows yet.
+- Colored all over now means your turn only: waiting for you, 等太久, done for you to look, and a stuck chain.
+  停了沒回／互等 has its own color (the theme's magenta, ansi5), on the cards, the line and the alert, apart from
+  waiting for you. 同一個資料夾 is a frame only. A one-line legend above the drawing says what each color means.
+- 還沒回 counts from the other's first stop after the message: when it worked on other things later, the asker
+  having moved on in between still ends the wait.
+
 ## 2026-11-14, 關係: no 卡住 when the asker already moved on
 
 Needs: **mods**.

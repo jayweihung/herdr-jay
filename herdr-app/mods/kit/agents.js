@@ -28,7 +28,7 @@ import { AGENTS_DATA, AGENTS_LOAD, AGENTS_MSG, CTX, NOTE, NODES, fs, stop, isWin
 import { ANIMALS, COLORS } from "./bot-models.js";
 import { readBot, withBot, pickBot, botIcon, botProblem, LiveBot } from "./bots.js";
 import { canDrag, draggable, dropLoop, requestPlace, takeAsks, placeClosed, placeDir, liveNow } from "./place.js";
-import { graphData, graphView, edgeList, alertsView, layoutOf, nudgeText } from "./graph.js";
+import { graphData, graphView, edgeList, alertsView, legendView, layoutOf, nudgeText } from "./graph.js";
 import { logTick, eventLog, downMachines } from "./events.js";
 import { SAID, SUBS, BG, STEPS, saidTick } from "./said.js";
 import { timelineView, timelineHeight, SPANS } from "./timeline.js";
@@ -317,6 +317,7 @@ export class Agents {
           .child("色條是狀態（工作中、等你、做完、閒著），箭頭是一次傳話，白點是寫了進度（游標停上去看）。只有 Herdr 開著時記得到，留一天。"));
     }
     return body
+      .child(legendView(t, z))
       .child(div().id("kit-graph-scroll").flex_none().w_full().h(layoutOf(g.cols, this.width ?? 0).h + 12).overflow_x_scrollbar()
         .child(graphView(t, z, g, this.sel, { now, width: this.width ?? 0, onSelect: (a, cx) => { this.sel = a; cx.notify(); } })))
       .child(edgeList(t, z, g, this.sel, now));

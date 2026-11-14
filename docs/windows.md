@@ -391,6 +391,9 @@ nvim-jay 開過一次後，在 Claude Code 設定加這個 hook（一次就好�
 
    The same command under `"SubagentStart"` and `"SubagentStop"` too lets the 關係 tab show the agent's own
    sub-agents (子 N on its card). 同一行也放在 `"SubagentStart"`、`"SubagentStop"` 底下，關係圖就看得到子 agent。
+   omp and Codex agents need no hook, but their sub-agents are read with `sh`, so on this Windows computer itself
+   they don't show yet (on a Linux or macOS machine Herdr reaches, they do). omp、Codex 的子 agent 要用 `sh` 讀，
+   Windows 本機上的還看不到；連過去的 Linux／macOS 機器上的看得到。
 
 ---
 

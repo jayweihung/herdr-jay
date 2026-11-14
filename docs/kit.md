@@ -544,8 +544,12 @@ Agents 面板上方有兩個分頁：「定義」是上面那些做好的 agent�
   它傳給誰、收到誰的，幾次、多久前、最後一則的第一行（右鍵複製）。不在圖上的（別的 space、不是 agent 的 terminal）
   也列在這裡。點圖上空白的地方取消。它自己開的子 agent 也列在這裡：「子 agent：find the parser（Explore） · 在跑 · 開始 2 分前 ·
   正在：Read：src/parser.rs」（正在做的那一步，每 15 秒從子 agent 自己的對話紀錄最後一段讀）。滑鼠移到卡片上的「子 2」也會跳出同一份清單。
-  子 agent 目前只有 Claude Code 的，要在 settings.json 加 reply hook 的 SubagentStart／SubagentStop 兩段
+  Claude Code 的子 agent 要在 settings.json 加 reply hook 的 SubagentStart／SubagentStop 兩段
   （[nvim-jay.md §7a](nvim-jay.md#7a-the-reply-hook-answer-the-agents-that-asked-optional--回覆檢查選用)）。
+  **omp 和 Codex** 不用裝東西：面板每 15 秒在那台機器上用 `sh` 讀它們自己的檔案（Windows 本機還沒有）。
+  omp 從 `~/.omp/agent/terminal-sessions/<終端機>` 找到它的對話檔，子 agent 是旁邊同名資料夾裡的 `<名字>.jsonl`
+  （任務、做完沒、正在做的那一步）；Codex 用 `lsof`（Linux 用 `/proc`）看它開著的 rollout 檔，子 agent 是最近 30 分鐘、
+  `parent_thread_id` 接到它的那些 rollout（名字是 Codex 給的暱稱，說明是 `agent_path` 的最後一段）。
 - **範圍**：「這個 space」只畫目前的 space；「全部 space」畫全部。選的分頁和範圍會記住。
 - **上面的提醒**（有才出現，點一下切到它說的那個 agent）：
   - **還沒回**：A 傳給 B 的次數比 B 傳給 A 多（一問一答剛好打平：回覆的那一方不算在等），A 最後那句之後，B 已經停下來
@@ -559,8 +563,11 @@ Agents 面板上方有兩個分頁：「定義」是上面那些做好的 agent�
     Claude Code 的 agent 可以裝 reply hook（[nvim-jay.md §7a](nvim-jay.md#7a-the-reply-hook-answer-the-agents-that-asked-optional--回覆檢查選用)），
     在它要停之前就先提醒它回，大多不用等到這裡。
   - **卡住**：一串 agent 一個等一個（傳了話、停下來等），一路追到最後一個：它在等你處理（例如等你按允許）或停了沒回，
-    整串卡片框成紅色，寫「卡住：前端 → review → server，server 在等你處理」。繞回自己就是 **互等**。
-  - **同一個資料夾**：兩個 agent 同時在工作，又在同一個資料夾（或一個在另一個裡面），框成黃色。各自在自己的 worktree、
+    寫「卡住：前端 → review → server，server 在等你處理」。繞回自己就是 **互等**。整串卡片上色：最後一個在等你處理是
+    等你的顏色；停了沒回或互等是另一個顏色（主題的洋紅 ansi5，Herdr 預設主題看起來是淡紫），按「提醒它回」可能就解開。
+    還沒回的那條線也是這個顏色。
+  - **同一個資料夾**：兩個 agent 同時在工作，又在同一個資料夾（或一個在另一個裡面），框成黃色（只有框，不整張上色：
+    不是輪到你，只是提醒可能互相改到）。各自在自己的 worktree、
     在不同機器、或只是在家目錄的不算；停下來就消失。
   - **等你太久**：agent 在等你（要你允許、在問你、要登入）時，卡片一開始就上黃色、第四行寫「等你允許 3 分」；超過 10 分鐘
     變紅，上面也多一行「server 等你允許已經 12 分」。
@@ -573,13 +580,15 @@ Agents 面板上方有兩個分頁：「定義」是上面那些做好的 agent�
     有裝 reply hook（[nvim-jay.md §7a](nvim-jay.md#7a-the-reply-hook-answer-the-agents-that-asked-optional--回覆檢查選用)）的
     Claude Code agent，會寫出它停下來時最後說的話：最後一段裡最後一句問句（有「？」），沒有問句就是最後一行。
     沒有 reply hook 的，用 Claude Code 自己跟狀態一起回報的那一句摘要（herdr-core 紀錄裡的 `status.msg`）。
+    omp 和 Codex 一樣挑法，從它們自己的對話檔最後一段讀（跟讀子 agent 同一次）。
     卡片第四行寫「做完：srv root 要不要升到 0.6.3？」，上面也單獨一行「t63 做完等你看：「…」」，點卡片下面的說明也有整句。
     不判斷它是不是真的在問你，只是把它的話帶過來，你一眼知道要不要先去回它。
     這一輪結束了、但它自己的工作還在跑（Claude Code 在背景跑的指令，例如測試；或它開的子 agent），就不算輪到你：
     卡片右上轉圈、第四行寫「背景工作中：pwsh tests/run.ps1」，不列在這裡。背景跑完、它真的停下來，才變成做完等你看。
     （背景指令是每 15 秒在那台機器上用 `ps` 看那個 agent 底下的 shell；Windows 還看不到，只看子 agent。）
   - **要你處理的卡片會上色**：在等你（等你允許、在問你、要登入，一開始就算）或做完等你看的卡片，框加粗、整張帶一點
-    那個顏色（等你是黃，做完是做完的顏色；等超過 10 分鐘變紅）。
+    那個顏色（等你是等你的顏色，做完是做完的顏色；等超過 10 分鐘變紅；卡住的一串見上面）。**整張上色＝輪到你**，
+    其他的（同一個資料夾）只有框。圖上面有一行小圖例寫每個顏色的意思。
   - **context 快滿**：context 用到 80% 以上，一個一行「X 的 context 用了 85%，快滿了：先請它寫 HANDOFF.md，再開新的接手」
     （90% 起變紅）。
   - **可以關了**：閒著超過 30 分（做完但你還沒看的不算）、沒有人在等它、不是它開出來的 agent 的上層、也不是你正在看的，卡片變淡、

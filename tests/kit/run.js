@@ -726,10 +726,14 @@ test("關係 colors: colored all over only where it is your turn; 停了沒回 h
   assert.equal(stuckColor(th), th.ansi5);
   for (const x of ["a", "b"]) assert.deepEqual([c(x).border_color, c(x).bg], [th.ansi5, tint(th.raised, th.ansi5)], `停了沒回: magenta all over (${x})`);
   for (const x of ["w1", "w2"]) assert.deepEqual([c(x).border_color, c(x).bg], [th.working, th.raised], `one folder: a frame, no wash (${x})`);
+  // at work: a breathing frame of its own (not on cards that are your turn, not on idle ones)
+  assert.equal(H.colors["kit-graph-busy-w1"]?.border_color, th.working, "working: the breathing frame");
+  for (const x of ["bl", "dn", "a", "b", "old"]) assert.ok(!H.colors[`kit-graph-busy-${x}`], `no breathing frame on ${x}`);
+  assert.deepEqual([M.graph.isBusy({ status: "done", background: "make test" }), M.graph.isBusy({ status: "working", down: 5 }), M.graph.isBusy({ status: "idle" })], [true, false, false]);
   assert.equal(stuckColor({ ansi1: "#ff0000" }), "#ff0000", "a theme without ansi5: red");
   H.strings = [];
   legendView(th, 13);
-  assert.deepEqual(H.strings.filter((x) => x !== "整張上色＝輪到你："), ["等你處理", "等太久", "做完等你看", "停了沒回／互等", "同一個資料夾（只有框）"]);
+  assert.deepEqual(H.strings.filter((x) => x !== "整張上色＝輪到你："), ["等你處理", "等太久", "做完等你看", "停了沒回／互等", "框一亮一暗＝工作中", "同一個資料夾（不動的框）"]);
 });
 test("關係: an agent done and not looked at says what it said when it stopped (its card, its own alert line); cards waiting for you are colored", (M) => {
   const { graphData, cardState, alertsView, tint } = M.graph, { parseSaid, saidNow } = M.said;

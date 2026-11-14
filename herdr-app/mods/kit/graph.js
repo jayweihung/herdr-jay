@@ -352,7 +352,9 @@ export function legendView(t, z) {
   return h_flex().id("kit-graph-legend").flex_wrap().px(12).pb(4).gap(10).text_size(z - 3.5).text_color(t.dim)
     .child(div().child("整張上色＝輪到你："))
     .child(dot(t.blocked, "等你處理")).child(dot(t.ansi1, "等太久")).child(dot(t.done, "做完等你看")).child(dot(stuckColor(t), "停了沒回／互等"))
-    .child(dot(t.working, "同一個資料夾（只有框）", true));
+    .child(h_flex().gap(3).items_center().child(div().size(9).rounded(2).border_2().border_color(t.working).loop("opacity", { from: 0.12, to: 0.85, period: BREATHE }))
+      .child(div().child("框一亮一暗＝工作中")))
+    .child(dot(t.working, "同一個資料夾（不動的框）", true));
 }
 
 // agents not answering each other (停了沒回, 互等: a nudge may do): their own color, apart from waiting for you
@@ -375,6 +377,9 @@ function glyph(t, s) {
   return div().size(7).mx(3).flex_none().rounded(4).bg(s === "done" ? t.done : t.dim + "00");
 }
 
+// at work: working, or done with its own work still going (背景工作中); not offline
+export const isBusy = (n) => !n?.down && (n?.status === "working" || Boolean(n?.status === "done" && n?.background));
+const BREATHE = 1800;
 export const runningSubs = (n) => (n?.subs ?? []).filter((x) => !x.done).length;
 // one line per sub-agent: what it was asked, its kind, running (since when, its latest step) or done (when)
 export const subLine = (x, now = Date.now()) => `${x.desc || x.type || x.id}${x.type && x.desc ? `（${x.type}）` : ""} · ${x.done
@@ -391,6 +396,10 @@ function card(t, z, n, p, on, onSelect, mark = null, st = null, now = Date.now()
     .cursor_pointer().hover((s) => s.border_color(t.accent)).on_mouse_down("left", stop)
     // like a row of the Agents list: a click goes to its pane; here its lines stand out too
     .on_click((_e, cx) => { cx.stop_propagation(); run("pane.focus", { terminal: n.address }); onSelect?.(n.address, cx); })
+    // at work (or its own work still running after it stopped): a frame that breathes, drawn natively (no timer),
+    // under what the card says; not your turn, so no wash
+    .when(isBusy(n) && !wash, (el) => el.child(div().id(`kit-graph-busy-${n.address}`).absolute().top(0).left(0).size_full().rounded(7)
+      .border_2().border_color(t.working).loop("opacity", { from: 0.12, to: 0.85, period: BREATHE })))
     .child(h_flex().gap(5).items_center().min_w(0)
       .child(icon(n.program, 14, t.foreground) ?? div())
       .child(div().flex_1().min_w(0).truncate().font_semibold().text_size(z - 1).child(n.name))

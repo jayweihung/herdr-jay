@@ -20,6 +20,8 @@ Needs: **mods**.
 - Colored all over now means your turn only: waiting for you, 等太久, done for you to look, and a stuck chain.
   停了沒回／互等 has its own color (the theme's magenta, ansi5), on the cards, the line and the alert, apart from
   waiting for you. 同一個資料夾 is a frame only. A one-line legend above the drawing says what each color means.
+- A card at work (or with its own work still running) has a frame that breathes, dim to bright, drawn by Herdr
+  itself (no timer); the legend says so.
 - An agent waiting for you is on top of the list from the start (not only after 10 minutes), with what it asks:
   「server 在問你 50 秒：「要選 A 還是 B？ (A · B)」」; red past 10 minutes.
 - An asker still working when the other stopped, and going on for over a minute, isn't waiting either (it read the

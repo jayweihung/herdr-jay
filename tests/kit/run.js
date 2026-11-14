@@ -1334,6 +1334,30 @@ test("context popup: kit context --detail only once kit api says ok there; too o
   await tick();
   const c = kitCalls("context");
   assert.equal(c.length, 1); assert.ok(c[0].argv.includes("--detail"));
+  // opened: what is known shows at once (the header's number), the parts when kit answers; opened again: the last
+  // answer at once, marked as such, while kit is asked anew
+  fresh(); fakeKit();
+  const plain = H.answer, detail = { tool: "claude", used: 243000, window: 400000, pct: 61, exact: true, categories: [{ id: "msgs", name: "對話訊息", tokens: 200000 }], groups: [] };
+  H.answer = (argv, on) => (argv.includes("--detail") ? { code: 0, stdout: JSON.stringify(detail), stderr: "" } : plain(argv, on));
+  H.panes = [{ pane: "p2", terminal: "t2", tab: "tab1", cwd: "/y", status: "idle", program: { agent: true, name: "Claude Code" }, app: "claude-code" }];
+  const tg2 = { key: "|/y|t2", pane: "p2", term: "t2", machine: null, cwd: "/y", tool: "claude", title: "Claude Code" };
+  H.store["kit.ctx.v1"] = { [tg2.key]: { pct: 61, used: 243000, window: 400000 } };
+  const v1 = view(M, { role: "context", target: tg2 });
+  let out = render(v1);
+  assert.match(out, /已使用 61%/, "the number known already, before kit answers");
+  assert.match(out, /正在問 Claude Code各部分用了多少/);
+  await settle(); await tick();
+  out = render(v1);
+  assert.match(out, /對話訊息/, "kit answered: the parts");
+  assert.doesNotMatch(out, /的數字，正在問/);
+  const before = kitCalls("context").length;
+  const v2 = view(M, { role: "context", target: tg2 });
+  out = render(v2);
+  assert.match(out, /對話訊息/, "opened again: the last answer at once");
+  assert.match(out, /的數字，正在問 Claude Code最新的/);
+  await settle(); await tick();
+  assert.equal(kitCalls("context").length, before + 1, "and asked anew once");
+  assert.doesNotMatch(render(v2), /的數字，正在問/);
 });
 
 // kit's JSON (kit 0.3.0: list --json changed, push --json, error codes)

@@ -186,6 +186,9 @@ the mod doesn't know shows a card 「不認得的 role」 naming it: check the s
 
 Kit 按鈕右邊的 `[context 35% 139k/400k]` 是這個 agent 的 context 用了多少（`kit context`，滑鼠停上去有提示，70% 以上變黃、90% 以上變紅，最多寫 100%）。agent 在工作時每 15 秒問一次，閒置時每分鐘一次。問不到（kit 正忙、那台連不上）時，先留著上一次的數字；還沒問到、或還沒有數字（剛 /compact、/clear 完或剛開的 agent，到它下一次回話前都是 0）時寫「讀取中」（一亮一暗，不寫 0%），問不到數字時寫「—」。那台的 kit 不能用（上面的表）時不顯示這格。右鍵複製這些數字。
 
+**打開 context 視窗**：各部分用了多少要 kit 去問 Claude Code、再讀對話紀錄檔的尾巴，長的對話要幾秒。這段時間視窗先顯示已經知道的：
+上面那格的數字和方案用量；同一個 agent 再打開時，先顯示上一次的細項（寫「下面是 N 分前的數字，正在問 Claude Code最新的…」），問到了就換掉。
+
 **用量上限**（kit 0.6.5 以上）：Claude 撞到方案的用量上限停下來（5 小時或每週），context 那格變成紅色的 `[上限 00:10 恢復]`，滑鼠停上去寫是哪一種上限。額度恢復後一分鐘，Herdr 替它打「繼續」（只打一次，只在它停著時打：閒置或做完，在工作或在問你時不打），格子先變黃 `[上限 已恢復，馬上繼續]`，打完就回到 context %，右上角跳一個通知。按那一格打開的 context 視窗最上面有「方案用量」：這個帳號 5 小時、每週用了幾 %、幾點重置（`kit usage`；Claude 的要 kit 的狀態列，Codex 的從它的對話檔讀；所有 agent 一起算），和「額度恢復後自動打繼續」的開關（這台電腦，預設開）。Codex、omp 撞到上限還認不出來，只顯示用量。
 
 **進度**（kit 0.6.0 以上）：agent 用 `kit note "剛做了什麼；下一步"` 寫了進度的話，資料夾後面會多一格 `[進度 改好 parser；下一步跑測試]`，顯示第一行；滑鼠停上去看全部和多久以前寫的，右鍵複製，超過兩小時變灰。跟 context 一起問（工作時每 15 秒，閒置時每分鐘），所以寫完最多等這麼久才出現。沒寫過就不顯示這格。Claude、omp 用 kit 0.6.0 就可以；Codex 在沙箱裡要 kit 0.6.1（kit 會在 Codex 的 config.toml 開放 `~/.config/agentkit/notes` 給它寫，開著的 Codex 要重開）。要 agent 自己寫，給它 rule `progress-note`（agentkit-library 有，`kit add rule progress-note`）。

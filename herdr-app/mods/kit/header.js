@@ -104,6 +104,9 @@ async function loadContext(machine, cwd, term, tool, withNote) {
 const catColor = (t, id) => t[catColorKey(id)] ?? t.dim;
 const levelColor = (t, pct) => ({ full: t.blocked, high: t.working })[level(pct)] ?? t.foreground;
 
+// the context window's last answer per pane (key -> { d, at }): shown at once when the window opens again, while
+// kit context --detail asks anew (Claude Code's own count plus a read of the transcript's tail: seconds on a long one)
+const LAST_DETAIL = new Map();
 export class Header {
   constructor(role) { this.role = role; }
 
@@ -339,7 +342,10 @@ export class Header {
   initContext(cx) {
     this.role = "context";
     this.target = props()?.target ?? {};
-    this.d = null;          // kit context --detail's answer
+    const last = LAST_DETAIL.get(props()?.target?.key);
+    this.d = last?.d ?? null;          // kit context --detail's answer (the last one first, while it is asked anew)
+    this.dAt = last?.at ?? null;       // when this.d was read, while it is the last window's
+    this.asked = false;                // asked once when it opens; ⟳ asks again
     this.err = null;        // why the last ask failed (an older answer stays)
     this.loading = false;
     this.open = { msgs: true };   // which lists are open (group id, "group|name")
@@ -355,7 +361,7 @@ export class Header {
     const tick = (cx) => {
       const api = apiKnown(m);
       if (!api) checkApi(m, cx);
-      else if (api.ok && !this.d && !this.err && !this.loading) this.loadDetail(false, cx);
+      else if (api.ok && !this.asked && !this.loading) { this.asked = true; this.loadDetail(false, cx); }
       if (api?.ok && apiAtLeast(m, 7) && this.usage === undefined) this.loadUsage(cx);
       cx.notify();   // the agent's status (which buttons work) and "n 秒前"
     };
@@ -403,7 +409,10 @@ export class Header {
           }
         }
       } catch (e) { err = String(e?.message ?? e); }
-      if (seq === this.seq) { if (d) this.d = d; this.err = err; this.loading = false; }
+      if (seq === this.seq) {
+        if (d) { this.d = d; this.dAt = null; LAST_DETAIL.set(tg.key, { d, at: Date.now() }); }
+        this.err = err; this.loading = false;
+      }
       cx.notify();
     });
   }
@@ -491,10 +500,18 @@ export class Header {
     if (!p) body.child(div().text_color(t.dim).child("這個 agent 已經關掉了。"));
     if (this.err) body.child(v_flex().p(8).rounded(6).bg(t.raised).text_size(z - 1).text_color(t.blocked)
       .child(textBlock("ctx-err", d ? `沒更新到（下面是上一次的）：${this.err}` : this.err)));
+    const asking = this.target.tool === "claude" ? "正在問 Claude Code" : "讀取中";
     if (!d) {
-      if (!this.err) body.child(waiting(t, z, this.target.tool === "claude" ? "正在問 Claude Code（最多 30 秒）…" : "讀取中…", t.dim));
+      // what is known already: the pane header's number and the plan's use; the parts come when kit answers
+      const c = (shared(CTX) ?? {})[this.target.key], q = chipNumbers(c);
+      if (q.has) body.child(div().font_semibold().child(`已使用 ${q.pct != null ? `${Math.round(q.pct)}% · ` : ""}${q.nums}`));
+      const use0 = this.ctxUsage(t, z);
+      if (use0) body.child(use0);
+      if (!this.err) body.child(waiting(t, z, `${asking}各部分用了多少（長的對話要幾秒）…`, t.dim));
       return root.child(body);
     }
+    if (this.dAt && this.loading) body.child(h_flex().gap(6).items_center().text_size(z - 2).text_color(t.dim)
+      .child(spin(z - 3, t.dim)).child(`下面是 ${ago(Math.floor(this.dAt / 1000))}的數字，${asking}最新的…`));
     body.child(this.ctxTop(t, z, d));
     const use = this.ctxUsage(t, z);
     if (use) body.child(use);

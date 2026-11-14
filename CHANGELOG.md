@@ -16,6 +16,12 @@ Needs: mods, kit (0.6.5).
 - The context window (click the chip) shows the plan's usage: how much of the 5 hours and the week this account
   used and when each resets (`kit usage`), and a switch for typing 繼續 (on by default).
 
+## 2026-11-15, context window: what is known shows at once
+Needs: mods.
+- kit context --detail takes seconds on a long conversation (Claude Code's own count, then the transcript's tail),
+  and the window showed only a spinner meanwhile. It now shows the header's number and the plan's use at once; opened
+  again for the same agent, the last parts at once (marked as such) while kit is asked anew.
+
 ## 2026-11-15, 關係: an agent at its usage limit says until when
 Needs: mods; kit 0.6.5 (api 1.7) on the agent's machine.
 - A Claude stopped at its plan's usage limit (kit context's limit): its card and a line say 撞到 5 小時上限，00:10 恢復

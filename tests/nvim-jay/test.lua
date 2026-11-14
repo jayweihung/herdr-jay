@@ -363,6 +363,12 @@ test("reply hook", function()
   f = assert(io.open(tr, "ab")) f:write(vim.json.encode({ type = "attachment", attachment = { type = "queued_command", prompt = '<hc from="t4 ops">deploy?</hc>' } }) .. "\n") f:close()
   code, out = run("s1")
   check("a message queued while it worked: reminded", type(out) == "table" and out.reason:find("t4 ops", 1, true), out)
+  -- one agent writing again after each answer: said once, with its newest message
+  f = assert(io.open(tr, "ab")) f:write(msg('<hc from="t2 ops">', "one") .. send("hc send t2 ok") .. msg('<hc from="t2 ops">', "two")
+    .. send("hc send t2 ok") .. msg('<hc from="t2 ops">', "three")) f:close()
+  code, out = run("s1")
+  local _, times = (type(out) == "table" and out.reason or ""):gsub("t2 ops", "")
+  check("written again after each answer: once, the newest", times == 1 and out.reason:find("three", 1, true) ~= nil, out)
   check("bad input / no transcript: quiet, exit 0", select(1, run("", false)) == 0)
 end)
 

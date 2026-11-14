@@ -217,9 +217,10 @@ pcall(function()
     end
   end
   if not next(wants) then return end
-  local left = {}
+  local left, said = {}, {}
   for _, id in ipairs(order) do
-    local m = wants[id]
+    local m = not said[id] and wants[id] -- an agent that wrote again after an answer is in order twice: once here
+    said[id] = true
     if m then
       local first = vim.fn.strcharpart(m.first, 0, 60)
       left[#left + 1] = m.addr .. (m.name and (" " .. m.name) or "") .. (first ~= "" and ("（開頭：「" .. first .. "」）") or "")

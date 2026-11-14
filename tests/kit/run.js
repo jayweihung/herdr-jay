@@ -625,7 +625,22 @@ test("關係: waiting for you warms up then goes red (with what it waits for); s
   assert.deepEqual([st("t2").text, st("t2").warm, st("t2").hot], ["在問你 5 分", true, false]);
   assert.deepEqual([st("t3").text, st("t3").hot], ["等你 15 分", true]);
   assert.deepEqual(g.longWaits.map((x) => x.address), ["t3"]);
-  assert.deepEqual(g.idle.map((x) => x.address), ["t4", "t5", "t7"], "t6: someone waits for it (t7 asked); t8: offline; t9: you're on it");
+  assert.deepEqual(g.idle.map((x) => x.address), ["t4", "t7"], "t5: done, not looked at yet (news, not 可以關了); t6: someone waits for it (t7 asked); t8: offline; t9: you're on it");
+  assert.deepEqual(g.done.map((x) => x.address), ["t5"]);
+  assert.equal(st("t5").text, "做完 · 等你看");
+  // context: from the pane header's kit context; 80 % or more: said
+  const ctx = { "|/w|t1": { pct: 54 }, "|/w|t2": { pct: 85 }, "|/w|t3": { pct: 97.4 } };
+  const gc = graphData({ agents, terms, space: null, ctx, now });
+  assert.deepEqual(gc.full, [{ address: "t2", pct: 85 }, { address: "t3", pct: 97 }]);
+  assert.equal(gc.nodes[0].pct, 54);
+  {
+    const th = new Proxy({}, { get: (_t, k) => (k === "then" ? undefined : "#334455") });
+    H.texts = []; H.strings = []; M.graph.alertsView(th, 13, gc, now);
+    const out = [...H.texts, ...H.strings].join("\n");
+    assert.match(out, /做完等你看：t5/);
+    assert.match(out, /t3 的 context 用了 97%，快滿了：先請它寫 HANDOFF\.md/);
+    assert.ok(!/t1 的 context/.test(out), "54 %: nothing");
+  }
   assert.equal(st("t4").text, "閒置 40 分 · 可以關了");
   assert.equal(st("box/t8").text, "連不到");
   assert.equal(g.nodes.find((n) => n.address === "box/t8").down, now - 3 * MIN);

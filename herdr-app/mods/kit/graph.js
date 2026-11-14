@@ -13,7 +13,9 @@
 //              (blocked) or didn't answer; a chain that comes back to itself: 互等
 //   同一個資料夾  two agents working at once in one folder (or one inside the other), not each in its own worktree
 //   等你太久    an agent waiting for you (blocked) for over LONG_WAIT; its card warms up from WARN_WAIT on
-//   可以關了    agents stopped for over IDLE_CLOSE that nobody waits for: only said, never closed
+//   可以關了    agents idle for over IDLE_CLOSE that nobody waits for: only said, never closed
+//   做完等你看  agents done whose pane you haven't looked at since (Herdr's done: looking turns it idle)
+//   context 快滿 an agent's context FULL_PCT % full or more (its pane header's kit context): time for HANDOFF.md
 // A machine that is offline (Herdr can't reach its core): its column grey, how long in its title.
 // graphData and the geometry are plain functions (tests/kit/run.js); graphView draws them.
 import { div, PathBuilder } from "gpui-kit";
@@ -25,7 +27,7 @@ import { noteView } from "./context.js";
 
 export const COL_W = 200, COL_W_DEFAULT = COL_W, NODE_H = 86, GAP_X = 100, GAP_Y = 24, PAD = 14, HEAD = 22, LOOP = 44;
 const MIN = 60000, HOUR = 3600000;
-export const WARN_WAIT = 2 * MIN, LONG_WAIT = 10 * MIN, IDLE_CLOSE = 30 * MIN;
+export const WARN_WAIT = 2 * MIN, LONG_WAIT = 10 * MIN, IDLE_CLOSE = 30 * MIN, FULL_PCT = 80;
 // what a blocked agent waits for (the status kind it reported)
 const KIND = { permission: "等你允許", question: "在問你", auth: "要登入" };
 
@@ -59,7 +61,7 @@ export function graphData({ agents, terms, space, ctx, notes, log = [], down = {
   const nodes = shown.map((a) => {
     const c = byTerminal(ctx, a.address), n = noteView(byTerminal(notes, a.address), now), r = rec.get(a.address);
     return { address: a.address, machine: machineOf(a.address), name: names?.[a.address] || a.tab_name || a.title || a.address, status: a.status,
-      cli: cliOf(a.app, a.program?.key), model: modelOf(c?.model), note: n?.line ?? "", noteOld: Boolean(n?.old),
+      cli: cliOf(a.app, a.program?.key), model: modelOf(c?.model), pct: c?.pct != null ? Math.min(100, Math.round(Number(c.pct))) : null, note: n?.line ?? "", noteOld: Boolean(n?.old),
       program: a.program, space: a.space_name, spaceId: a.space, focused: Boolean(a.focused),
       since: Math.max(Number(r?.status_ms) || 0, began[a.address] ?? 0), cwd: String(r?.foreground?.cwd || r?.cwd || ""),
       kind: String((r?.report ?? r?.status)?.kind ?? ""), down: down?.[machineOf(a.address)] ?? null };
@@ -96,8 +98,11 @@ export function graphData({ agents, terms, space, ctx, notes, log = [], down = {
   const live = nodes.filter((n) => !n.down && n.since);
   g.longWaits = live.filter((n) => n.status === "blocked" && now - n.since >= LONG_WAIT).map((n) => ({ address: n.address, for: now - n.since, kind: n.kind }));
   const waited = new Set(g.waits.map((w) => w.to)), parents = new Set(g.edges.filter((e) => e.kind === "parent").map((e) => e.from));
-  g.idle = live.filter((n) => (n.status === "idle" || n.status === "done") && now - n.since >= IDLE_CLOSE && !waited.has(n.address)
+  // done (not looked at yet) is news for you, never 可以關了
+  g.idle = live.filter((n) => n.status === "idle" && now - n.since >= IDLE_CLOSE && !waited.has(n.address)
     && !parents.has(n.address) && !n.focused).map((n) => ({ address: n.address, for: now - n.since }));
+  g.done = nodes.filter((n) => !n.down && n.status === "done" && !n.focused).map((n) => ({ address: n.address, for: n.since ? now - n.since : 0 }));
+  g.full = nodes.filter((n) => !n.down && n.pct != null && n.pct >= FULL_PCT).map((n) => ({ address: n.address, pct: n.pct }));
   return g;
 }
 
@@ -112,6 +117,7 @@ export function cardState(g, n, now = Date.now()) {
   }
   const idle = g.idle?.find((x) => x.address === n.address);
   if (idle) return { text: `閒置 ${spanText(idle.for)} · 可以關了`, color: "dim", idle: true };
+  if (n.status === "done" && !n.focused) return { text: "做完 · 等你看", color: "done" };
   return null;
 }
 
@@ -311,7 +317,9 @@ function card(t, z, n, p, on, onSelect, mark = null, st = null, now = Date.now()
       .when(Boolean(n.where), (el) => el.child(div().flex_none().text_size(z - 4).text_color(t.dim).child(n.where)))
       .when(Boolean(n.since), (el) => el.child(div().flex_none().text_size(z - 3).text_color(t.dim).child(shortSpan(now - n.since))))
       .child(n.down ? div().size(7).mx(3).flex_none().rounded(4).bg(t.unknown) : glyph(t, n.status)))
-    .child(div().truncate().text_size(z - 2.5).text_color(t.muted).child([n.cli, n.model].filter(Boolean).join(" · ") || " "))
+    .child(h_flex().min_w(0).gap(4).text_size(z - 2.5)
+      .child(div().flex_shrink_1().min_w(0).truncate().text_color(t.muted).child([n.cli, n.model].filter(Boolean).join(" · ") || " "))
+      .when(n.pct != null, (el) => el.child(div().flex_none().text_color(n.pct >= 90 ? t.ansi1 : n.pct >= FULL_PCT ? t.blocked : t.dim).child(`· ${n.pct}%`))))
     .child(div().truncate().text_size(z - 2.5).text_color(n.noteOld ? t.dim : t.foreground).child(n.note || " "))
     .child(div().truncate().text_size(z - 3).font_semibold().text_color(st ? t[st.color] ?? t.dim : t.dim).child(st?.text || " "));
 }
@@ -346,6 +354,11 @@ export function alertsView(t, z, g, now = Date.now(), onSelect = null, { onNudge
     items.push({ id: `long-${w.address}`, text: `${name(w.address)} ${KIND[w.kind] ?? "等你處理"}已經 ${spanText(w.for)}`, color: t.ansi1, who: w.address });
   for (const c of g.clashes)
     items.push({ id: `clash-${c.nodes.join("-")}`, text: `同一個資料夾：${c.nodes.map(name).join("、")} 同時在 ${shortDir(c.dir)} 裡改東西`, color: t.working, who: c.nodes[0] });
+  const done = g.done ?? [];
+  if (done.length) items.push({ id: "done", text: `做完等你看：${done.map((x) => name(x.address)).join("、")}`, color: t.done, who: done[0].address });
+  for (const f of g.full ?? [])
+    items.push({ id: `full-${f.address}`, text: `${name(f.address)} 的 context 用了 ${f.pct}%，快滿了：先請它寫 HANDOFF.md，再開新的接手`,
+      color: f.pct >= 90 ? t.ansi1 : t.blocked, who: f.address });
   const idle = g.idle ?? [];
   if (idle.length) items.push({ id: "idle", text: `閒置超過 ${spanText(IDLE_CLOSE)}、沒人在等：${idle.map((x) => name(x.address)).join("、")}，可以關了（不會自動關）`,
     color: t.dim, who: idle[0].address });

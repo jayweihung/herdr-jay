@@ -1780,10 +1780,10 @@ machinesTest("各機器: plain values — api and kit versions compared, kit sta
   // kit api 1.6's pending: each field checked; root's report too; 關係 says them, where they were read
   const pend = X.readStatus({ ...STATUS(), pending: [
     { kind: "sign", name: "agentkit", what: "agentkit 有 3 個新 commit 等核准", commits: 3, head: SHA("e"), since: 5e11, machine: "srv", run: "x" },
-    { kind: "owner", id: "deploy", what: "要上線 web", since: "soon", machine: "srv", pid: 9 }, { kind: "sign" }, "x"] }).pending;
+    { kind: "owner", id: "deploy", what: "要你同意：要上線 web", since: "soon", machine: "srv", pid: 9 }, { kind: "sign" }, "x"] }).pending;
   assert.deepEqual(pend, [
     { kind: "sign", what: "agentkit 有 3 個新 commit 等核准", name: "agentkit", commits: 3, since: 5e11, machine: "srv", id: null },
-    { kind: "owner", what: "要上線 web", name: null, commits: null, since: null, machine: "srv", id: "deploy" }]);
+    { kind: "owner", what: "要你同意：要上線 web", name: null, commits: null, since: null, machine: "srv", id: "deploy" }]);
   const rows = [{ here: true, state: "ok", pending: [] }, { reported: true, label: "srv root", state: "ok", pending: pend }, { machine: "x", state: "down", pending: pend }];
   const pr = X.pendingRows(rows);
   assert.deepEqual(pr.map((p) => p.where), ["srv root", "srv root"], "only rows that answered");
@@ -1793,7 +1793,7 @@ machinesTest("各機器: plain values — api and kit versions compared, kit sta
     H.texts = []; H.strings = []; H.clicks = {}; M.graph.alertsView(th, 13, g0, 5e11 + 7200000, () => assert.fail("no agent to go to"), { pending: pr });
     const out = [...H.texts, ...H.strings].join("\n");
     assert.match(out, /等你簽：agentkit 有 3 個新 commit 等核准（srv root，等了 2 小時）。簽章在 Mac 親手做/);
-    assert.match(out, /等站長同意：要上線 web（srv root）/);
+    assert.match(out, /等站長同意：要上線 web（srv root）/, "kit pending's own 要你同意： not said twice");
     H.clicks["kit-graph-alert-pending-0"]({}, cx);
   }
   for (const bad of [null, [], "x", { kit: "0.4.1" }, { kit: "0.4.1", api: "one" }, { api: "1.2" }]) assert.equal(X.readStatus(bad), null, JSON.stringify(bad));

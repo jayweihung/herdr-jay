@@ -451,7 +451,7 @@ export function alertsView(t, z, g, now = Date.now(), onSelect = null, { onNudge
   for (const [i, p] of pending.entries()) {
     const long = p.since ? `，等了 ${spanText(now - p.since)}` : "";
     const text = p.kind === "sign" ? `等你簽：${p.what ?? `${p.name} 有 ${p.commits ?? "新的"} 個 commit 等核准`}（${p.where}${long}）。簽章在 Mac 親手做`
-      : p.kind === "owner" ? `等站長同意：${p.what}（${p.where}${long}）`
+      : p.kind === "owner" ? `等站長同意：${String(p.what ?? "").replace(/^要你同意[：:]\s*/, "")}（${p.where}${long}）`
       : `${p.what}（${p.where}${long}）`;
     items.push({ id: `pending-${i}`, text, color: t.blocked, who: null });
   }

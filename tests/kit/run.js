@@ -641,6 +641,11 @@ test("關係: who waits for whom: still on it, no answer, needs you; chains to t
     const blog = [{ at: 9000, k: "status", a: "b", v: "idle" }, { at: 20000, k: "status", a: "b", v: "working" }, { at: 30000, k: "status", a: "b", v: "idle" }];
     assert.equal(graphData({ agents, terms: later, log: blog, space: null, now: 60000 }).waits.some((x) => x.from === "a" && x.to === "b"), false, "moved on after b's first stop");
     assert.equal(graphData({ agents, terms: later.map((r) => (r.address === "a" ? { ...r, sent: [msg("b", 1000)] } : r)), log: blog, space: null, now: 60000 }).waits.find((x) => x.from === "a" && x.to === "b")?.state, "silent", "didn't move on: still waits");
+    // a was still working when b stopped and went on for minutes: it had b's answer on b's screen
+    const busy = terms.map((r) => (r.address === "a" ? { ...r, status_ms: 9000 + 5 * 60000 } : r));
+    assert.equal(graphData({ agents, terms: busy, space: null, now: 600000 }).waits.some((x) => x.from === "a" && x.to === "b"), false, "kept working past b's stop");
+    const brief = terms.map((r) => (r.address === "a" ? { ...r, status_ms: 9000 + 20000 } : r));
+    assert.equal(graphData({ agents, terms: brief, space: null, now: 600000 }).waits.find((x) => x.from === "a" && x.to === "b")?.state, "silent", "stopped 20 s after b: still waits");
     const early = terms.map((r) => (r.address === "a" ? { ...r, status_ms: 9000 } : r));
     assert.equal(graphData({ agents, terms: early, space: null, now: 60000 }).waits.find((x) => x.from === "a" && x.to === "b")?.state, "silent", "stopped the same moment as b: still waits");
   }

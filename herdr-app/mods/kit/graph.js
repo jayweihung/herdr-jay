@@ -156,6 +156,8 @@ export function cardState(g, n, now = Date.now()) {
 
 // how long after a message the receiver must have stopped for it to count as not answering (its turn on the message)
 const SETTLE = 1500;
+// an asker that went on working this long after the other stopped had the answer in reach (its screen): not waiting
+const MOVED_ON = 60000;
 // A waits for B: A messaged B more times than B messaged A (an answer evens them out: whoever answered isn't
 // waiting for an answer to it), the last one after B's last, and A has stopped (it isn't working on something else,
 // and hasn't moved on since B stopped). How B stands: working (on it), blocked (needs you), or silent (stopped after it, no answer).
@@ -180,7 +182,8 @@ export function waitsOf(g, now = Date.now()) {
     // (read B's screen, was told), it isn't sitting there waiting. A merely finishing the turn it sent in is not that.
     // (B's first stop after the message is the one that counts: it may have worked on other things since)
     const stopped = state === "silent" ? firstStop(e.to, e.at + SETTLE) ?? b.since : 0;
-    if (state === "silent" && (workedAfter(e.from, stopped + SETTLE) || sentAfter(e.from, stopped + SETTLE))) continue;
+    // ...or it kept working well past B's stop (over MOVED_ON; just ending the turn it sent in takes seconds)
+    if (state === "silent" && (workedAfter(e.from, stopped + SETTLE) || sentAfter(e.from, stopped + SETTLE) || a.since > stopped + MOVED_ON)) continue;
     out.push({ from: e.from, to: e.to, at: e.at, text: e.text, state, since: state === "working" ? 0 : b.since, waited: now - e.at });
   }
   return out;

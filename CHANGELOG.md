@@ -22,6 +22,8 @@ Needs: **mods**.
   waiting for you. 同一個資料夾 is a frame only. A one-line legend above the drawing says what each color means.
 - An agent waiting for you is on top of the list from the start (not only after 10 minutes), with what it asks:
   「server 在問你 50 秒：「要選 A 還是 B？ (A · B)」」; red past 10 minutes.
+- An asker still working when the other stopped, and going on for over a minute, isn't waiting either (it read the
+  answer off the other's screen).
 - 還沒回 counts from the other's first stop after the message: when it worked on other things later, the asker
   having moved on in between still ends the wait.
 

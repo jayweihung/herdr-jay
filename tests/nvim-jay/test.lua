@@ -353,7 +353,16 @@ test("reply hook", function()
   f = assert(io.open(tr, "ab")) f:write(msg('<hc from="t5 me">', "self") .. msg('<hc from="t9">', "[FYI] deploy done")) f:close()
   code, out = run("s1")
   check("from itself, or [FYI]: quiet", out == vim.NIL or out == nil, out)
-  code, out = run("s2", false)
+  -- the tag only in a tool's output, in the agent's own command or text, or in the middle of jay's prompt: not a message
+  local res = vim.json.encode({ type = "user", message = { content = { { type = "tool_result", content = '<hc from="t8 x">read me</hc>' } } } }) .. "\n"
+  local own = send("cat <<EOF\n<hc from=\"t8 x\">y</hc>\nEOF") .. vim.json.encode({ type = "assistant", message = { content = { { type = "text", text = '<hc from="t8 x">z</hc>' } } } }) .. "\n"
+  f = assert(io.open(tr, "ab")) f:write(res .. own .. msg("look at this: ", '<hc from="t8 x">q')) f:close()
+  code, out = run("s1")
+  check("a tag in a tool result, a command, the agent's text, mid-prompt: quiet", out == vim.NIL or out == nil, out)
+  -- queued while it worked (an attachment) counts
+  f = assert(io.open(tr, "ab")) f:write(vim.json.encode({ type = "attachment", attachment = { type = "queued_command", prompt = '<hc from="t4 ops">deploy?</hc>' } }) .. "\n") f:close()
+  code, out = run("s1")
+  check("a message queued while it worked: reminded", type(out) == "table" and out.reason:find("t4 ops", 1, true), out)
   check("bad input / no transcript: quiet, exit 0", select(1, run("", false)) == 0)
 end)
 

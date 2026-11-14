@@ -152,42 +152,71 @@ pcall(function()
     return l:find("不用回", 1, true) or l:find("不用再回", 1, true) or l:find("不必回", 1, true) or l:find("不必再回", 1, true)
       or l:find("[fyi]", 1, true)
   end
-  -- messages: who (the tag's first word: t7, or machine/t7), where, the first line, a reach="hc send ..." if any
-  local wants, order = {}, {}
-  local pos = 1
-  while true do
-    local s, e, attrs = text:find('<hc from=\\?"([^>]-)\\?">', pos)
-    if not s then break end
-    pos = e + 1
-    local who = attrs:match('^([^"\\]+)') or ""
-    local addr = who:match("^(%S+)") or ""
-    local id = addr:match("([^/]+)$")
-    local name = who:match("^%S+%s+(.+)$")
-    local reach = attrs:match('reach=\\?"(hc send %S+)')
-    local first = (text:sub(e + 1, e + 400):match("^(.-)\\n") or text:sub(e + 1, e + 400)):gsub("</hc>.*$", "")
-    if id and id ~= "" and id ~= vim.env.HC_TERMINAL_ID then
-      if no_reply(first) then
-        wants[id] = nil
-      else
-        if not wants[id] then order[#order + 1] = id end
-        wants[id] = { at = e, addr = addr, name = name, first = first, reach = reach }
+  -- Only what really came in: a prompt that starts with the tag (typed in by herdr-core, or queued while the agent
+  -- worked); never the tag inside a tool's output or the agent's own code. Answers: hc send in a command it ran.
+  -- Each transcript line is one JSON record; the first one may be cut off (it then doesn't decode and is skipped).
+  local wants, order, n = {}, {}, 0
+  local function incoming(rec)
+    if rec.type == "attachment" and type(rec.attachment) == "table" and rec.attachment.type == "queued_command" then
+      return { rec.attachment.prompt }
+    end
+    if rec.type ~= "user" or type(rec.message) ~= "table" then return {} end
+    local c = rec.message.content
+    if type(c) == "string" then return { c } end
+    local out = {}
+    for _, b in ipairs(type(c) == "table" and c or {}) do
+      if type(b) == "table" and b.type == "text" then out[#out + 1] = b.text end
+    end
+    return out
+  end
+  local function commands(rec)
+    local out = {}
+    local c = rec.type == "assistant" and type(rec.message) == "table" and rec.message.content
+    for _, b in ipairs(type(c) == "table" and c or {}) do
+      if type(b) == "table" and b.type == "tool_use" and type(b.input) == "table" and type(b.input.command) == "string" then
+        out[#out + 1] = b.input.command
+      end
+    end
+    return out
+  end
+  for line in text:gmatch("[^\n]+") do
+    n = n + 1
+    local okl, rec = pcall(vim.json.decode, line)
+    if okl and type(rec) == "table" then
+      for _, msg in ipairs(incoming(rec)) do
+        if type(msg) == "string" then
+          local attrs, body = msg:match('^%s*<hc from="([^>]-)">(.*)$')
+          if attrs then
+            local who = attrs:match('^([^"]+)') or ""
+            local addr = who:match("^(%S+)") or ""
+            local id = addr:match("([^/]+)$")
+            local name = who:match("^%S+%s+(.+)$")
+            local reach = attrs:match('reach="(hc send %S+)')
+            local first = (body:match("^(.-)\n") or body):gsub("</hc>.*$", "")
+            if id and id ~= "" and id ~= vim.env.HC_TERMINAL_ID then
+              if no_reply(first) then
+                wants[id] = nil
+              else
+                if not wants[id] then order[#order + 1] = id end
+                wants[id] = { at = n, addr = addr, name = name, first = first, reach = reach }
+              end
+            end
+          end
+        end
+      end
+      for _, cmd in ipairs(commands(rec)) do
+        for rest in cmd:gmatch("hc send%s+([^\n]+)") do
+          rest = rest:gsub("^%-%-?%w[%w%-]*%s+", "")
+          local target = rest:match('^["\']?([^%s"\']+)') or ""
+          local tid = target:match("([^/]+)$") or ""
+          for id, m in pairs(wants) do
+            if n > m.at and (tid == id or (m.name and target == m.name)) then wants[id] = nil end
+          end
+        end
       end
     end
   end
   if not next(wants) then return end
-  -- answers: hc send <target> after the message, the target being its address, its id or its name
-  pos = 1
-  while true do
-    local s, e = text:find("hc send%s+", pos)
-    if not s then break end
-    pos = e + 1
-    local rest = text:sub(e + 1, e + 200):gsub("^%-%-?%w[%w%-]*%s+", "")
-    local target = rest:match('^([^%s\\"]+)') or ""
-    local tid = target:match("([^/]+)$") or ""
-    for id, m in pairs(wants) do
-      if s > m.at and (tid == id or (m.name and target == m.name)) then wants[id] = nil end
-    end
-  end
   local left = {}
   for _, id in ipairs(order) do
     local m = wants[id]

@@ -9,6 +9,15 @@ says which) · **kit** = update kit itself on every machine where agents run (`k
 **snap hook** = a line in Claude Code's `settings.json` on each machine where you added the hook (the entry says
 which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/keys.md).
 
+## 2026-11-15, 關係: a line's words stay readable when zoomed in
+
+Needs: **mods**.
+
+The words on 關係's lines (3 次 · 2 小時前) are drawn after every line and arrowhead, so no other line crosses them; two
+that would sit on each other move apart. Zoomed in so far they would not fit between two columns, they show the count
+only (the list under the drawing still says when).
+關係圖線上的字最後才畫，不會再被別的線蓋住；兩個疊在一起會錯開；放大到塞不進兩欄中間時只寫次數（時間看下面的清單）。
+
 ## 2026-11-15, the context window: an omp agent's plan use too
 
 Needs: **mods**, **kit** (0.6.7).

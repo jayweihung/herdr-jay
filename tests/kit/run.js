@@ -541,6 +541,20 @@ test("關係: lines leave the facing side, loop out on the right in one column, 
   const [tip, l, r] = arrowOf([0, 0], [10, 0]);
   assert.deepEqual(tip, [10, 0]);
   assert.ok(l[0] < 10 && r[0] < 10 && l[1] * r[1] < 0, "behind the tip, one on each side");
+  // a line's words: sized for the zoom, never on top of another's; too wide for the gap: the count only
+  const { labelSpots, GAP_X } = M.graph;
+  const two = [{ mid: [300, 100], text: "3 次 · 2 小時前", short: "3 次" }, { mid: [310, 102], text: "26 次 · 5 分前", short: "26 次" }];
+  for (const z of [12, 14, 16, 20, 26]) {
+    const [p, q] = labelSpots(two, z);
+    assert.ok(!(p.x < q.x + q.w && q.x < p.x + p.w && p.y < q.y + q.h && q.y < p.y + p.h), `zoom ${z}: apart`);
+    for (const r of [p, q]) {
+      assert.ok(r.w <= GAP_X - 20 || r.text === two.find((x) => x.mid === r.mid).short, `zoom ${z}: fits the gap or short`);
+      assert.ok(Math.abs(r.x + r.w / 2 - r.mid[0]) < 1, `zoom ${z}: centered on its line`);
+    }
+  }
+  assert.equal(labelSpots(two, 12)[0].text, "3 次 · 2 小時前", "small: the whole words");
+  assert.equal(labelSpots(two, 26)[0].text, "3 次", "big: the count");
+  assert.ok(labelSpots(two, 26)[0].w > labelSpots([{ mid: [0, 0], text: "3 次" }], 12)[0].w, "wider when zoomed in");
 });
 test("關係 tab: the cards and lines drawn, a click says one card's lines in words, the scope and the tab remembered", async (M) => {
   fresh(); fakeKit(); localStorage.removeItem("kit.agent-events");

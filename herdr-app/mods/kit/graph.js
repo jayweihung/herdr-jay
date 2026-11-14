@@ -337,6 +337,22 @@ export function arrowOf(c, b, size = 7) {
   return [b, [b[0] - ux * size - uy * size * 0.55, b[1] - uy * size + ux * size * 0.55], [b[0] - ux * size + uy * size * 0.55, b[1] - uy * size - ux * size * 0.55]];
 }
 
+// where each line's label goes: { x, y, w, h, color, text }, centered on its line's middle, sized for the text at
+// this zoom (wide letters a whole em, a space a third, the rest about half); too wide for the gap between two columns (zoomed in, it
+// would cover the arrowhead): only its short text (the count; the list under the drawing has the time); one that
+// would cover an earlier one moves a row down, up, two down, two up, and stays put if all of those are taken
+export const labelWidth = (text, em) => Math.ceil([...text].reduce((s, c) => s + (c.charCodeAt(0) > 0x2e7f ? 1 : c === " " ? 0.3 : 0.55), 0) * em) + 12;
+export function labelSpots(labels, z) {
+  const em = Math.max(6, z - 3.5), h = Math.ceil(em * 1.45) + 2, out = [];
+  const over = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+  for (const l0 of labels) {
+    const l = l0.short && labelWidth(l0.text, em) > GAP_X - 20 ? { ...l0, text: l0.short } : l0, w = labelWidth(l.text, em);
+    const at = (d) => ({ ...l, x: l.mid[0] - w / 2, y: l.mid[1] - h / 2 + d * (h + 2), w, h });
+    out.push([0, 1, -1, 2, -2].map(at).find((r) => !out.some((o) => over(o, r))) ?? at(0));
+  }
+  return out;
+}
+
 const strokeW = (e) => (e.kind === "parent" ? 1.2 : Math.min(4, 1.2 + Math.log2(e.count)));
 
 // the drawing: cards on a canvas with the lines under them; sel: the selected card's address
@@ -350,6 +366,7 @@ export function graphView(t, z, g, sel, { onSelect, now = Date.now(), width = 0 
   const stuck = new Map(g.chains.flatMap((c) => c.path.map((a) => [a, c.why === "blocked" ? t.blocked : stuckColor(t)]))), clash = new Set(g.clashes.flatMap((c) => c.nodes));
   // the selected card's lines last, so they lie on top
   const edges = [...g.edges].sort((x, y) => Number(mine(x)) - Number(mine(y)));
+  const labels = [];
   for (const e of edges) {
     const p = at[e.from], q = at[e.to];
     if (!p || !q) continue;
@@ -362,8 +379,14 @@ export function graphView(t, z, g, sel, { onSelect, now = Date.now(), width = 0 
     canvas.child(window.paint_path(path.build(), color).absolute().top(0).left(0).size_full());
     canvas.child(window.paint_path(PathBuilder.fill().add_polygon(arrowOf(k.c2, k.b), true).build(), color).absolute().top(0).left(0).size_full());
     if (e.kind === "send" && mine(e))
-      canvas.child(div().absolute().left(k.mid[0] - 34).top(k.mid[1] - 8).w(68).flex().justify_center()
-        .child(div().px(4).rounded(3).bg(t.surface).text_size(z - 3.5).text_color(color).child(wt ? `${wt.state === "blocked" ? "等你處理" : "還沒回"} · ${agoText(wt.since, now).replace("前", "")}` : `${e.count} 次 · ${agoText(e.at, now)}`)));
+      labels.push({ mid: k.mid, color, short: wt ? (wt.state === "blocked" ? "等你處理" : "還沒回") : `${e.count} 次`,
+        text: wt ? `${wt.state === "blocked" ? "等你處理" : "還沒回"} · ${agoText(wt.since, now).replace("前", "")}` : `${e.count} 次 · ${agoText(e.at, now)}` });
+  }
+  // the labels after every line and arrowhead, so no line crosses one (zoomed in they grow past the gap the line
+  // left for them); one that would sit on another goes a row up or down
+  for (const r of labelSpots(labels, z)) {
+    canvas.child(div().absolute().left(r.x).top(r.y).w(r.w).h(r.h).flex().justify_center().items_center()
+      .child(div().px(4).rounded(3).bg(t.surface).text_size(z - 3.5).text_color(r.color).child(r.text)));
   }
   g.cols.forEach((c, ci) => canvas.child(div().absolute().left(heads[ci].x).top(heads[ci].y).w(cw).truncate()
     .text_size(z - 2.5).font_medium().text_color(c.down ? t.ansi1 : t.dim)

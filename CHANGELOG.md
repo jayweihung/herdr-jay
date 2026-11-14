@@ -16,6 +16,10 @@ Needs: **core**, **app**, **mods** (and the core on each Linux server, so its ag
 The Agents panel has two tabs now: 定義 (as before) and 關係: the agents running now in this space (or all), one card
 each (status, tab, which CLI and model, its kit note), one column per machine, and a line for every `hc send` between
 them (how many, how long ago; dashed: who started whom). Click a card for its lines in words, double-click to go to it.
+On top it says what needs a look: an agent that stopped without answering a message (還沒回), a chain of agents each
+waiting for the next that ends at one needing you or not answering (卡住; 互等 when it loops), two agents working at
+once in one folder. 時間軸 shows each agent's status over the last 15 min / 1 h / 6 h with every message as an arrow,
+from a log the Agents button keeps on this computer for a day.
 herdr-core `0001` keeps who each terminal sent to; herdr-app `0008` keeps the list current. [docs/kit.md](docs/kit.md) §3.
 
 ## 2026-11-14, Herdr app: linked mods reload when edited

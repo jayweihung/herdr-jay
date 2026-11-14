@@ -17,17 +17,20 @@
 // Each agent has a logo (bots.js): a cute animal-robot head, `bot: <animal>` or `bot: <animal> <color>` in its file's
 // frontmatter (written here, not by kit; kit keeps the line and kit push sends it), or one its name picks. In the list
 // a still picture; in its page drawn live (it says hello).
-// Two tabs: 定義 (the above) and 關係 (graph.js): the agents running now and who talks to whom.
+// Two tabs: 定義 (the above) and 關係 (graph.js): the agents running now and who talks to whom, as a drawing or a
+// timeline (timeline.js, from the event log events.js that the Agents button keeps while Herdr runs).
 import { div } from "gpui-kit";
 import { v_flex, h_flex, Editor } from "gpui-base";
-import { theme, run, shared, setShared, readTextFile, writeTextFile, closeOverlay, openOverlay, props, spaces, focused, layout, agents, terminals } from "herdr";
+import { theme, run, shared, setShared, readTextFile, writeTextFile, closeOverlay, openOverlay, props, spaces, focused, layout, agents, terminals, settings } from "herdr";
 import { AGENTS_DATA, AGENTS_LOAD, AGENTS_MSG, CTX, NOTE, NODES, fs, stop, isWindows, shortDir, spin, waiting, find, textBlock, copyOnRight, btn,
   busyNow, dropStaleBusy, giveBusy, markRepoStale, kit, kitJson, localKit, apiState, apiKnown, checkApi, apiCard, messageBox, problemCard, newEditor,
   localGet, localSet, kitAction, loadNewest, loadingNow } from "./common.js";
 import { ANIMALS, COLORS } from "./bot-models.js";
 import { readBot, withBot, pickBot, botIcon, botProblem, LiveBot } from "./bots.js";
 import { canDrag, draggable, dropLoop, requestPlace, takeAsks, placeClosed, placeDir, liveNow } from "./place.js";
-import { graphData, graphView, edgeList } from "./graph.js";
+import { graphData, graphView, edgeList, alertsView, layoutOf } from "./graph.js";
+import { logTick, eventLog } from "./events.js";
+import { timelineView, timelineHeight, SPANS } from "./timeline.js";
 
 const PANEL = NODES.agents;
 const SHORT = 120000, STALE = 50000;
@@ -57,6 +60,7 @@ export class Agents {
     dropLoop(this, cx);
     if (this.role === "agents-toggle") {   // the button only reads what the panel loaded, and runs the window's places
       cx.timer.every(400, (cx) => takeAsks(this, cx));
+      cx.timer.every(2000, () => { try { logTick(); } catch {} });   // the 關係 timeline's log, while Herdr runs
       return;
     }
     this.open = null;      // the agent shown in detail (its name)
@@ -67,11 +71,14 @@ export class Agents {
     this.tab = localGet("kit.agents.tab") === "rel" ? "rel" : "defs";   // 定義 | 關係
     this.scope = localGet("kit.agents.scope") === "all" ? "all" : "space";   // 關係: the shown space, or every space
     this.sel = null;       // 關係: the selected card (an address)
+    this.view = localGet("kit.agents.view") === "time" ? "time" : "graph";   // 關係: 圖 | 時間軸
+    this.span = SPANS.some(([k]) => k === localGet("kit.agents.span")) ? localGet("kit.agents.span") : "1h";
     this.mine = null;      // the id of the action this window started in kit.busy (shared with Kit: one kit action at a time)
     dropStaleBusy();
     // first whether kit is new enough (kit api), then kit agents --json; again when it is older than STALE
     const stale = () => !this.data || Date.now() - (this.data.at ?? 0) > STALE;
     const tick = (cx) => {
+      try { logTick(); } catch {}
       if (this.tab === "rel") cx.notify();   // its "3 分前" move on
       const a = apiKnown(null);
       if (!a) return checkApi(null, cx);
@@ -271,13 +278,32 @@ export class Agents {
     if (this.sel && !g.nodes.some((n) => n.address === this.sel)) this.sel = null;
     const scope = (id, label) => btn(t, z, `kit-graph-scope-${id}`, label, { tiny: true, kind: this.scope === id ? "primary" : undefined,
       on: (cx) => { this.scope = id; localSet("kit.agents.scope", id); cx.notify(); } });
+    const pick = (key, field, id, label) => btn(t, z, `kit-graph-${field}-${id}`, label, { tiny: true, kind: this[field] === id ? "primary" : undefined,
+      on: (cx) => { this[field] = id; localSet(key, id); cx.notify(); } });
     const spName = (spaces() ?? []).find((s) => s.id === shownSpace)?.name;
-    return v_flex().id("kit-graph-body").flex_1().min_h(0).overflow_y_scrollbar()
+    const select = (a, cx) => { this.sel = a; this.view = "graph"; localSet("kit.agents.view", "graph"); cx.notify(); };
+    const body = v_flex().id("kit-graph-body").flex_1().min_h(0).overflow_y_scrollbar()
+      .on_size_change((size, cx) => {   // the drawing and the timeline fill the panel's width
+        const w = Math.round(size.width / (Number(settings()?.zoom) || 1));
+        if (w !== this.width) { this.width = w; cx.notify(); }
+      })
       .child(h_flex().px(10).py(6).gap(6).items_center()
         .child(scope("space", spName ? `這個 space（${spName}）` : "這個 space")).child(scope("all", "全部 space"))
-        .child(div().flex_1()).child(div().text_size(z - 2.5).text_color(t.dim).child(`${g.nodes.length} 個 agent`)))
-      .child(div().id("kit-graph-scroll").w_full().overflow_x_scrollbar()
-        .child(graphView(t, z, g, this.sel, { now, onSelect: (a, cx) => { this.sel = a; cx.notify(); } })))
+        .child(div().flex_1())
+        .child(pick("kit.agents.view", "view", "graph", "圖")).child(pick("kit.agents.view", "view", "time", "時間軸")))
+      .child(alertsView(t, z, g, now, select) ?? div());
+    if (this.view === "time") {
+      const span = SPANS.find(([k]) => k === this.span) ?? SPANS[1];
+      return body
+        .child(h_flex().px(10).pb(4).gap(6).items_center().child(div().text_size(z - 2.5).text_color(t.dim).child("最近"))
+          .children(SPANS.map(([k, , label]) => pick("kit.agents.span", "span", k, label))))
+        .child(div().id("kit-timeline-scroll").flex_none().w_full().h(timelineHeight(g.nodes.length) + 12).px(10).overflow_x_scrollbar().child(timelineView(t, z, g.nodes, eventLog(), span[1], now, this.width ?? 0)))
+        .child(div().px(12).py(6).text_size(z - 2.5).text_color(t.dim)
+          .child("色條是狀態（工作中、等你、做完、閒著），箭頭是一次傳話，白點是寫了進度（游標停上去看）。只有 Herdr 開著時記得到，留一天。"));
+    }
+    return body
+      .child(div().id("kit-graph-scroll").flex_none().w_full().h(layoutOf(g.cols, this.width ?? 0).h + 12).overflow_x_scrollbar()
+        .child(graphView(t, z, g, this.sel, { now, width: this.width ?? 0, onSelect: (a, cx) => { this.sel = a; cx.notify(); } })))
       .child(edgeList(t, z, g, this.sel, now));
   }
 

@@ -102,7 +102,8 @@ async function loadMod() {
   }
   const at = (f) => import(pathToFileURL(join(dir, f)).href);
   const m = { main: await at("main.js"), common: await at("common.js"), layout: await at("layout.js"), context: await at("context.js"), bots: await at("bots.js"),
-    machines: await at("machines.js"), place: await at("place.js"), repo: await at("repo.js"), graph: await at("graph.js") };
+    machines: await at("machines.js"), place: await at("place.js"), repo: await at("repo.js"), graph: await at("graph.js"),
+    events: await at("events.js"), timeline: await at("timeline.js") };
   rmSync(dir, { recursive: true, force: true });
   return m;
 }
@@ -513,6 +514,87 @@ test("關係 tab: the cards and lines drawn, a click says one card's lines in wo
   const again = view(M, { role: "agents" }); await settle();
   assert.ok(render(again).includes("docs"), "the tab and the scope kept");
   localStorage.removeItem("kit.agents.tab"); localStorage.removeItem("kit.agents.scope");
+});
+const ag = (address, status, extra = {}) => ({ address, space: "s1", tab_name: address, app: "claude-code", status, program: { key: "claude" }, ...extra });
+test("關係: who waits for whom: still on it, no answer, needs you; chains to the end, loops; a reply ends the wait", (M) => {
+  const { graphData } = M.graph;
+  const msg = (to, at) => ({ to, count: 1, last_ms: at, text: "x" });
+  // a asked b (b stopped after it: no answer); c asked d (d works on it); e asked f, f asked g, g needs you
+  const agents = ["a:idle", "b:idle", "c:idle", "d:working", "e:idle", "f:idle", "g:blocked", "h:idle"].map((x) => ag(...x.split(":")));
+  const terms = [
+    { address: "a", sent: [msg("b", 1000)] }, { address: "b", status_ms: 9000 },
+    { address: "c", sent: [msg("d", 1000)] }, { address: "d", status_ms: 500 },
+    { address: "e", sent: [msg("f", 1000)] }, { address: "f", sent: [msg("g", 2000)], status_ms: 2100 }, { address: "g", status_ms: 5000 },
+    { address: "h", sent: [msg("a", 900)] },   // h asked a before a asked b: h waits for a, a for b
+  ];
+  const g = graphData({ agents, terms, space: null, now: 60000 });
+  const w = (from, to) => g.waits.find((x) => x.from === from && x.to === to)?.state;
+  assert.deepEqual([w("a", "b"), w("c", "d"), w("e", "f"), w("f", "g"), w("h", "a")], ["silent", "working", "working", "blocked", "working"]);
+  assert.deepEqual(g.chains.map((c) => [c.path.join(">"), c.why]), [["h>a>b", "silent"], ["e>f>g", "blocked"]]);
+  // b answers a: no wait any more
+  const answered = graphData({ agents, terms: [...terms.filter((r) => r.address !== "b"), { address: "b", sent: [msg("a", 9500)], status_ms: 9600 }], space: null, now: 60000 });
+  assert.equal(answered.waits.some((x) => x.from === "a" && x.to === "b"), false);
+  // a sent, but works on something else now: not waiting
+  assert.equal(graphData({ agents: agents.map((x) => (x.address === "a" ? { ...x, status: "working" } : x)), terms, space: null }).waits.some((x) => x.from === "a"), false);
+  // x and y wait for each other
+  const loop = graphData({ agents: [ag("x", "idle"), ag("y", "idle")], terms: [{ address: "x", sent: [msg("y", 1000)], status_ms: 3000 }, { address: "y", sent: [msg("x", 1000)], status_ms: 3000 }], space: null });
+  assert.deepEqual(loop.waits.length, 0, "the same moment both ways: each answered the other");
+  const loop2 = graphData({ agents: [ag("x", "idle"), ag("y", "idle"), ag("z", "idle")],
+    terms: [{ address: "x", sent: [msg("y", 1000)], status_ms: 5000 }, { address: "y", sent: [msg("z", 1100)], status_ms: 5000 }, { address: "z", sent: [msg("x", 1200)], status_ms: 5000 }], space: null });
+  assert.deepEqual(loop2.chains.map((c) => c.why), ["loop"], "one loop, shown once");
+});
+test("關係: two agents working at once in one folder (or one inside the other); home folders, worktrees, other machines don't count", (M) => {
+  const { clashesOf } = M.graph;
+  const n = (address, cwd, status = "working", machine = "") => ({ address, cwd, status, machine });
+  assert.deepEqual(clashesOf([n("a", "/w/app"), n("b", "/w/app/src"), n("c", "/w/app-wt"), n("d", "/w/app", "idle")]), [{ nodes: ["a", "b"], dir: "/w/app" }]);
+  assert.deepEqual(clashesOf([n("a", "/Users/amy"), n("b", "/Users/amy"), n("c", "C:\\Users\\amy\\"), n("d", "c:/users/amy")]), [], "home");
+  assert.deepEqual(clashesOf([n("a", "/srv/x"), n("b", "/srv/x", "working", "box")]), [], "another machine");
+  assert.deepEqual(clashesOf([n("a", "C:\\w\\App"), n("b", "c:/w/app/lib")]).map((c) => c.nodes), [["a", "b"]], "Windows paths");
+});
+test("關係 log: status changes, new messages, new notes, agents coming and going; the first look sets where they stand", (M) => {
+  const { diffEvents, notesByAddr } = M.events;
+  const ags = [ag("t1", "idle"), ag("t2", "working")];
+  let { last, events } = diffEvents(null, ags, [{ address: "t1", status_ms: 100, sent: [{ to: "t2", count: 3, last_ms: 90 }] }, { address: "t2", status_ms: 200 }], {}, 1000);
+  assert.deepEqual(events.map((e) => [e.k, e.a, e.v, e.at]), [["status", "t1", "idle", 100], ["status", "t2", "working", 200]], "messages before: not new");
+  ({ last, events } = diffEvents(last, [ag("t1", "working"), ag("t3", "idle")],
+    [{ address: "t1", status_ms: 1500, sent: [{ to: "t2", count: 5, last_ms: 1400, text: "again" }] }, { address: "t3", status_ms: 1200 }],
+    notesByAddr({ "|/w|t1": { text: "改 parser\n細節", at: 1 } }), 2000));
+  assert.deepEqual(events.map((e) => [e.k, e.a, e.at]), [["start", "t3", 1200], ["send", "t1", 1400], ["status", "t1", 1500], ["note", "t1", 2000], ["gone", "t2", 2000]]);
+  assert.equal(events.find((e) => e.k === "send").n, 2);
+  assert.equal(events.find((e) => e.k === "note").text, "改 parser");
+  assert.equal(diffEvents(last, [ag("t1", "working"), ag("t3", "idle")], [{ address: "t1", sent: [{ to: "t2", count: 5 }] }], notesByAddr({ "|/w|t1": { text: "改 parser" } }), 3000).events.length, 0, "nothing new: nothing");
+});
+test("關係 timeline: a lane's stretches from its status events, cut to the span; gone ends it", (M) => {
+  const { stretches } = M.timeline;
+  const log = [{ at: 0, k: "status", a: "t1", v: "idle" }, { at: 50, k: "status", a: "t1", v: "working" }, { at: 80, k: "status", a: "t1", v: "done" },
+    { at: 90, k: "gone", a: "t1" }, { at: 60, k: "status", a: "t2", v: "blocked" }];
+  assert.deepEqual(stretches(log, "t1", 40, 100), [{ x0: 40, x1: 50, v: "idle" }, { x0: 50, x1: 80, v: "working" }, { x0: 80, x1: 90, v: "done" }]);
+  assert.deepEqual(stretches(log, "t2", 40, 100), [{ x0: 60, x1: 100, v: "blocked" }]);
+});
+test("關係 tab: what needs a look on top (stuck, no answer, one folder); the timeline from the log the Agents button keeps", async (M) => {
+  fresh(); fakeKit();
+  H.spaces = [{ id: "s1", name: "web", active: true, tabs: [] }];
+  const now = Date.now();
+  H.agents = [ag("t1", "idle", { tab_name: "前端" }), ag("t2", "idle", { tab_name: "review" }), ag("t4", "working"), ag("t5", "working")];
+  H.terminals = [{ address: "t1", sent: [{ to: "t2", count: 1, last_ms: now - 600000, text: "看一下" }], status_ms: now - 590000 },
+    { address: "t2", status_ms: now - 300000 }, { address: "t4", cwd: "/w/app" }, { address: "t5", cwd: "/w/app/src" }];
+  localStorage.setItem("kit.agents.tab", "rel");
+  const v = view(M, { role: "agents" }); await settle();
+  let out = render(v);
+  assert.match(out, /卡住：前端 → review，review 停了但沒回/);
+  assert.match(out, /同一個資料夾：t4、t5 同時在 \/w\/app 裡改東西/);
+  assert.match(out, /還沒回 · 5 分/);
+  // the Agents button logs; the timeline draws it
+  const btnView = view(M, { role: "agents-toggle" });
+  for (const f of [...timers]) f(cx);
+  assert.ok(H.store["kit.events.v1"]?.log?.length >= 4, "one status per agent");
+  H.clicks["kit-graph-view-time"]({}, cx);
+  pathOps.length = 0;
+  out = render(v);
+  assert.match(out, /色條是狀態/);
+  for (const s of ["前端", "review", "現在"]) assert.ok(out.includes(s), s);
+  localStorage.removeItem("kit.agents.tab"); localStorage.removeItem("kit.agents.view");
+  void btnView;
 });
 test("agent logo: bot: in the frontmatter is read, set after description, replaced, taken out; line ends and the prompt kept", (M) => {
   const { readBot, withBot } = M.bots;

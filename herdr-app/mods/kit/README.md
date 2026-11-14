@@ -10,7 +10,7 @@ What it does, what it needs, install, the roles for your own layout: **[docs/kit
 (online: <https://github.com/jayweihung/herdr-jay/blob/main/docs/kit.md>).
 
 Files: `main.js` (picks the part by `props.role`), `repo.js`, `agent.js`, `agents.js`, `header.js`, `layout.js`,
-`context.js`, `common.js`, `machines.js`, `graph.js` (the Agents panel's 關係 tab), `bots.js`, `bot-models.js`, `bot-paint.js` (each says what it holds at the top); `zdog.js`:
+`context.js`, `common.js`, `machines.js`, `graph.js`, `timeline.js`, `events.js` (the Agents panel's 關係 tab), `bots.js`, `bot-models.js`, `bot-paint.js` (each says what it holds at the top); `zdog.js`:
 Zdog 1.1.3 (MIT), its `js/index.js` bundled as one ES module. Tests: `tests/kit/run.js`, `tests/check-mods.js`.
 
 License: Apache 2.0 (see the repo's LICENSE); Zdog: MIT (Metafizzy, <https://zzz.dog>).

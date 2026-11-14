@@ -3,7 +3,7 @@
 // editors). See main.js for the parts.
 import { div, svg, image } from "gpui-kit";
 import { h_flex, v_flex, TextView, EditorState } from "gpui-base";
-import { exec, home, notify, settings, shared, setShared, theme, window } from "herdr";
+import { exec, home, notify, settings, shared, setShared, theme, window, readTextFile } from "herdr";
 
 // ---------- shared state (every copy sees it; it survives a restart, so nothing in it may stay "busy" forever) ----------
 export const DATA = "kit.data.v2";             // the repository's data ({ at: 0 } = out of date: the panel loads it again)
@@ -352,4 +352,37 @@ export function problemCard(t, z, id, text, code = null) {
 export function versionCard(t, z, id, d) {
   return div().flex_none().mx(10).mt(8).p(8).rounded(6).bg(t.raised).text_size(z - 1).text_color(t.blocked)
     .child(textBlock(`want-${id}`, `團隊要 kit ${d.kit_version_wanted} 以上，你的是 ${d.kit}。請在終端機打  kit self-update`));
+}
+
+// ---------- what kit collect took, and from whom (the repository's Skills list, an agent's 還沒用的) ----------
+// third_party.lock (kit collect: "name TAB url TAB path TAB ref TAB commit TAB license TAB date", # comments) ->
+// { name: "author/repo" } (the URL without scheme, user, host, .git: who it was collected from)
+export function lockFrom(text) {
+  const out = {};
+  for (const line of String(text ?? "").split(/\r?\n/)) {
+    const [name, url] = line.split("\t");
+    if (!name || name.startsWith("#") || !url) continue;
+    out[name] = urlId(url);
+  }
+  return out;
+}
+// a git URL -> "author/repo" (kit's url_id without the host): https://github.com/a/r.git, git@host:a/r -> a/r
+export const urlId = (url) => String(url ?? "").trim().replace(/^[a-z+]+:\/\//, "").replace(/^[^@/]*@/, "").replace(/^([^/:]+):/, "$1/")
+  .replace(/\/+$/, "").replace(/\.git$/, "").split("/").slice(1).join("/") || String(url ?? "");
+// each source's third_party.lock (on the machine kit runs on: null is this computer) -> { source: { name: "author/repo" } }
+export async function collectedFrom(sources, machine = null) {
+  const out = {};
+  for (const s of sources ?? []) {
+    if (!s?.dir) continue;
+    const p = `${String(s.dir).replace(/\\/g, "/").replace(/\/+$/, "")}/third_party.lock`;
+    out[s.name] = lockFrom(await (machine ? readTextFile(p, { on: machine }) : readTextFile(p)).catch(() => null));
+  }
+  return out;
+}
+// the list of one kind: your own first, then what was collected, by whom it was collected from
+//   -> [{ from: "", rows }, { from: "author/repo", rows }, ...]  (groups by name; rows as sorted)
+export function groupRows(rows) {
+  const own = rows.filter((i) => !i.from), by = new Map();
+  for (const i of rows) if (i.from) by.set(i.from, [...(by.get(i.from) ?? []), i]);
+  return [{ from: "", rows: own }, ...[...by.keys()].sort((a, b) => a.localeCompare(b)).map((from) => ({ from, rows: by.get(from) }))];
 }

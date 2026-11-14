@@ -13,7 +13,8 @@ import { v_flex, h_flex, InputState, Input, Editor, TextareaState, Textarea } fr
 import { theme, exec, run, layout, shared, setShared, window, readTextFile, writeTextFile, closeOverlay, openOverlay, appHome, notify, props as blockProps } from "herdr";
 import { DATA, LOAD, EDITORS, NODES, MSG, fs, mono, stop, slash, shortDir, clean, spin, waiting, find, textBlock, copyOnRight, btn,
   busyNow, dropStaleBusy, takeBusy, giveBusy, markChanged, kit, kitJson, apiState, apiKnown, apiAtLeast, checkApi, apiCard, messageBox, problemCard, versionCard,
-  squeeze, newEditor, liveEditors, localGet, localSet, kitAction, loadNewest, loadingNow, isWindows } from "./common.js";
+  squeeze, newEditor, liveEditors, localGet, localSet, kitAction, loadNewest, loadingNow, isWindows, lockFrom, urlId, groupRows, collectedFrom } from "./common.js";
+export { lockFrom, urlId, groupRows };
 import { layoutNeeds, moveIntoBar } from "./layout.js";
 import { machinesTab, loadMachines, machinesDue, machinesLoading } from "./machines.js";
 
@@ -27,9 +28,8 @@ async function loadRepo() {
   const { data: d, error } = kitJson(await kit(["list", "--json"], 60000), "kit list --json"), at = Date.now();
   if (error) return { key: "repo", error: error.message, code: error.code, at };
   const sources = (d.sources ?? []).map((s) => ({ ...s, changed: Array.isArray(s.changed) ? s.changed : [] }));
-  // what kit collect took from whom: each source's third_party.lock (name, url, ...), for the 收來的 groups
-  const locks = {};
-  for (const s of sources) if (s.dir) locks[s.name] = lockFrom(await readTextFile(`${slash(s.dir)}/third_party.lock`).catch(() => null));
+  // what kit collect took from whom (third_party.lock), for the 收來的 groups
+  const locks = await collectedFrom(sources);
   const items = (d.items ?? []).filter((i) => i.kind !== "agent").map((i) => {
     // Windows paths come with \; compared as /. Only for showing where the file is: nothing depends on it
     const s = sources.find((x) => x.name === i.source), dir = s?.dir ? slash(s.dir) + "/" : "", p = slash(i.path);
@@ -41,20 +41,6 @@ async function loadRepo() {
     .filter((x) => x.items + x.agents > 0);
   return { ...d, key: "repo", at, items, sources, dirty };
 }
-// third_party.lock (kit collect: "name TAB url TAB path TAB ref TAB commit TAB license TAB date", # comments) ->
-// { name: "author/repo" } (the URL without scheme, user, host, .git: who it was collected from)
-export function lockFrom(text) {
-  const out = {};
-  for (const line of String(text ?? "").split(/\r?\n/)) {
-    const [name, url] = line.split("\t");
-    if (!name || name.startsWith("#") || !url) continue;
-    out[name] = urlId(url);
-  }
-  return out;
-}
-// a git URL -> "author/repo" (kit's url_id without the host): https://github.com/a/r.git, git@host:a/r -> a/r
-export const urlId = (url) => String(url ?? "").trim().replace(/^[a-z+]+:\/\//, "").replace(/^[^@/]*@/, "").replace(/^([^/:]+):/, "$1/")
-  .replace(/\/+$/, "").replace(/\.git$/, "").split("/").slice(1).join("/") || String(url ?? "");
 // a skill kit collect --look found: why it can't be collected (null: it can), as the card says it
 export function collectBlock(x, lk) {
   if (!x?.license) return "沒有 LICENSE";
@@ -62,13 +48,6 @@ export function collectBlock(x, lk) {
   if (x.exists === "own") return "已經有同名的";
   if (lk && !lk.allowed && !lk.can_allow) return "不在允許清單";
   return null;
-}
-// the list of one kind: your own first, then what was collected, by whom it was collected from
-//   -> [{ from: "", rows }, { from: "author/repo", rows }, ...]  (groups by name; rows as sorted)
-export function groupRows(rows) {
-  const own = rows.filter((i) => !i.from), by = new Map();
-  for (const i of rows) if (i.from) by.set(i.from, [...(by.get(i.from) ?? []), i]);
-  return [{ from: "", rows: own }, ...[...by.keys()].sort((a, b) => a.localeCompare(b)).map((from) => ({ from, rows: by.get(from) }))];
 }
 // kit push --to <source> [--dry-run] --json -> { ok, files (what it sends, as one string to compare), sent, push,
 // text (kit's own words, stderr), code (kit's error code, when it failed) }

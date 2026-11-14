@@ -171,6 +171,9 @@ the mod doesn't know shows a card 「不認得的 role」 naming it: check the s
   - 在家目錄 `~` 開的 agent：只有「加到整個帳號」「從帳號拿掉」（`kit add`／`kit rm`）。這台電腦上你帳號的 Claude Code、Codex、omp（有裝的）和每個 agent、每個資料夾都會有或都沒有。
   - 只想給某一個 agent：請點 `kit run` 開的 agent，用它視窗裡的「加上」「拿掉」。
   - 資料夾的 MCP：Claude Code 不會每次問（kit 在 `.claude/settings.local.json` 允許它）；Codex 只在信任的資料夾讀，kit 會在 `~/.codex/config.toml` 信任這個資料夾；omp 只讀整個帳號的 MCP，不支援資料夾的。Codex 在子資料夾開也讀得到，是因為 kit 在 `~/.codex/config.toml` 最上面加了 `project_root_markers`。
+- **找和分組**：最上面有一個搜尋框（找名字、說明、從哪收的），找的時候每段都會打開。「還沒用的」先列 kit 倉裡自己寫的，
+  再列從網址收來的：同一個網址收了好幾個就收成一組「▸ 收自 mattpocock/skills（39）」，點一下打開（記在這台電腦），
+  只收一個的就是一行，寫「收自 作者/repo」。每個都有自己的「加到這個資料夾」，要哪個加哪個。分組看的是 agent 那台主機上倉裡的 `third_party.lock`。
 - 「這次啟動帶的」：用 `kit run`（或 Agents 的「開啟」）開的 agent 才有，只有這個 agent 有，關掉就沒了。要改，到 Agents 改那個 agent。這時下面的標題會變成「另外也讀到的」。
 - **skill 需要的程式**：skill 要的程式（例如 archify 要 Node.js 18 以上）這台沒有或太舊時，那一項下面會出現「⚠ 需要 Node.js 18 以上（這台沒有）［安裝］」（太舊是［升級］）。按下去先顯示 kit 會執行的指令（例如 `brew install node`），按「確定安裝」才執行（就是 `kit install-tool node --min 18`）；那種裝法失敗，kit 會換配方裡的下一種。kit 沒有這台能用的裝法時，只寫「請自己裝」。怎麼看出來、怎麼加新的程式，看 kit 的說明（「skill 需要的程式」）。
 - **skill 自己的套件**：skill 要先 `npm install` 或 `pip install` 才能跑時，下面會出現「⚠ 需要先裝它自己的 npm 套件［安裝］」或「⚠ 需要先裝它自己的 Python 套件［安裝］」（skill 改過、要重裝時是［更新］）。按下去先顯示要執行的指令，按「確定安裝」才裝（就是 `kit install-deps <skill> npm|pip`）：裝在 kit 自己的資料夾（Python 是自己的 venv），不跑套件自己的安裝程式。kit 不接受的寫法（`requirements.txt` 的某一行、不是 npm registry 上的版本）只寫「kit 不裝：」和原因，沒有［安裝］。

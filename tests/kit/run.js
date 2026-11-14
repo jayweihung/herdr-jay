@@ -104,7 +104,7 @@ async function loadMod() {
   const at = (f) => import(pathToFileURL(join(dir, f)).href);
   const m = { main: await at("main.js"), common: await at("common.js"), layout: await at("layout.js"), context: await at("context.js"), bots: await at("bots.js"),
     machines: await at("machines.js"), place: await at("place.js"), repo: await at("repo.js"), graph: await at("graph.js"),
-    events: await at("events.js"), timeline: await at("timeline.js"), said: await at("said.js") };
+    events: await at("events.js"), timeline: await at("timeline.js"), said: await at("said.js"), header: await at("header.js") };
   rmSync(dir, { recursive: true, force: true });
   return m;
 }
@@ -1069,6 +1069,31 @@ test("agent popup (and its old name pane): shows what the header's kit list said
   const v = view(M, { role: "agent", target: { ...target, machine: "box" } }); await settle();
   assert.match(render(v), /kit 太舊/); assert.match(render(v), /在 box 的終端機/);
   assert.equal(kitCalls("list").length, 0);
+});
+test("agent popup: 還沒用的 grouped by the URL a skill was collected from (third_party.lock there), closed until clicked; 找 over the whole list", async (M) => {
+  fresh(); fakeKit();
+  const target = { key: "|/x|t1", term: "t1", machine: null, cwd: "/x", title: "Claude Code" };
+  const sk = (name, extra = {}) => ({ kind: "skill", name, status: "unused", source: "lib", description: `${name} desc`, ...extra });
+  H.store["kit.agent.data.v1"] = { [target.key]: { items: [sk("pdf", { status: "used" }), sk("calm"), sk("tdd", { from: "mattpocock/skills" }), sk("triage", { from: "mattpocock/skills" }), sk("archify", { from: "tt/archify" })], here: { items: [] } } };
+  H.store["kit.agent.v1"] = { [target.key]: { started: Date.now(), at: Date.now() } };
+  try { localStorage.removeItem("kit.folded"); } catch {}
+  const v = view(M, { role: "agent", target }); await settle();
+  let shown = render(v);
+  assert.match(shown, /還沒用的（4）/); assert.match(shown, /calm/);
+  assert.match(shown, /archify desc · 收自 tt\/archify/, "one from a URL: a plain row");
+  assert.match(shown, /收自 mattpocock\/skills（2）/); assert.doesNotMatch(shown, /tdd desc/, "closed");
+  H.clicks["sec-from-mattpocock/skills"]({}, cx); shown = render(v);
+  assert.match(shown, /tdd desc/); assert.ok("adddir-skill-tdd" in H.clicks || "add-skill-tdd" in H.clicks, "each one its own button");
+  H.clicks["sec-from-mattpocock/skills"]({}, cx); assert.doesNotMatch(render(v), /tdd desc/);
+  v.part.filter = "triage"; shown = render(v);
+  assert.match(shown, /triage desc/, "open while searching"); assert.doesNotMatch(shown, /calm desc/); assert.doesNotMatch(shown, /pdf desc/);
+  v.part.filter = "nothing-like-it"; assert.match(render(v), /還沒用的裡面找不到符合的/);
+  // the header's kit list: from third_party.lock on the agent's machine
+  fresh(); fakeKit({ list: { ...KIT_LIST, sources: [{ name: "lib", dir: "/home/u/lib", push: "direct", changed: [] }], items: [sk("tdd")] } });
+  H.files = { "box:/home/u/lib/third_party.lock": "tdd\thttps://github.com/mattpocock/skills\tskills/tdd\n" };
+  const d = await M.header.loadAgent("box", "/x", null);
+  assert.equal(d.items[0].from, "mattpocock/skills");
+  assert.ok(H.reads.some(([p, on]) => p === "/home/u/lib/third_party.lock" && on === "box"), "read on that machine");
 });
 test("context popup: kit context --detail only once kit api says ok there; too old: the card, no --detail; ⟳ asks kit api again", async (M) => {
   fresh(); fakeKit({ api: null });

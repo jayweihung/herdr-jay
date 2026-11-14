@@ -5,11 +5,11 @@
 // The header is the one that asks kit (kit list --json --dir --pid); this popup shows that answer (AGENT_DATA) and asks
 // the header for a fresh one (AGENT_WANT).
 import { div } from "gpui-kit";
-import { v_flex, h_flex } from "gpui-base";
+import { v_flex, h_flex, InputState, Input } from "gpui-base";
 import { theme, shared, setShared, closeOverlay, props } from "herdr";
 import { AGENT_CACHE, AGENT_DATA, AGENT_WANT, MSG, fs, mono, stop, shortDir, spin, waiting, icon, textBlock, copyOnRight, btn,
   busyNow, dropStaleBusy, giveBusy, apiState, checkApi, apiCard, messageBox, problemCard, versionCard, localGet, localSet,
-  kitAction, squeeze } from "./common.js";
+  kitAction, squeeze, groupRows } from "./common.js";
 import { POPUP_H } from "./header.js";
 
 const LONG = 600000, SHORT = 120000; // how long kit sync and install, and the other actions, may take
@@ -28,6 +28,10 @@ export class AgentPopup {
     const c = (shared(AGENT_CACHE) ?? {})[this.target.key];
     if (!c || Date.now() - (c.started ?? 0) > 10000) this.want();
     this.openedAt = Date.now();
+    // 找: one box over the whole list (name, what it is, where it came from)
+    this.filter = "";
+    this.input = InputState.new({ placeholder: "找：名字、說明、從哪收的" });
+    this.input.on("change", (_e, cx) => { this.filter = this.input.value().trim().toLowerCase(); cx.notify(); });
     checkApi(this.target.machine ?? null, cx);
     cx.timer.every(2000, (cx) => { if (!this.data) cx.notify(); });   // so a load nobody answers shows up (render)
   }
@@ -95,7 +99,9 @@ export class AgentPopup {
     const f = d.here?.folder, inDir = new Set(f?.items ?? []);
     this.folder = f ? { dir: f.dir, why: f.why, has: inDir } : null;
     const mine = (i) => inDir.has(`${i.kind}:${i.name}`);
+    const f0 = this.filter, hit = (i) => !f0 || [i.name, i.description, i.source, i.from, i.path].some((x) => String(x ?? "").toLowerCase().includes(f0));
     const body = v_flex().flex_1().min_h(0).overflow_y_scrollbar().px(10).py(8).gap(8);
+    body.child(Input.new(this.input).flex_none().h(28).px(8).rounded(6).border_1().border_color(t.border).bg(t.background).text_size(z - 1).text_color(t.foreground));
     const kindName = { rule: "規則", skill: "Skills", mcp: "MCP" };
     // 1. what kit run started it with: only this agent has it, for this run
     if (ag) {
@@ -112,10 +118,10 @@ export class AgentPopup {
     // 2. what it reads besides: kit's for the whole account (can be taken off) and its folder's / account's own (look only)
     body.child(div().font_semibold().child(ag ? "另外也讀到的" : "這個 agent 在用的"));
     for (const kind of ["rule", "skill", "mcp"]) {
-      const kitRows = items.filter((i) => i.kind === kind && (i.status === "used" || i.status === "required" || mine(i)));
-      const ownRows = here.filter((i) => i.kind === kind);
+      const kitRows = items.filter((i) => i.kind === kind && (i.status === "used" || i.status === "required" || mine(i)) && hit(i));
+      const ownRows = here.filter((i) => i.kind === kind && hit(i));
       const n = kitRows.length + ownRows.length;
-      const folded = this.folded[`use-${kind}`] ?? n > 8;
+      const folded = !f0 && (this.folded[`use-${kind}`] ?? n > 8);
       body.child(this.secHead(t, z, `use-${kind}`, `${kindName[kind]}（${n}）`, folded, ""));
       if (folded) continue;
       if (!n) { body.child(div().pl(18).text_size(z - 1.5).text_color(t.dim).child("沒有")); continue; }
@@ -123,14 +129,25 @@ export class AgentPopup {
     }
     if (d.here?.error) body.child(div().text_size(z - 1.5).text_color(t.muted).child(textBlock(`here-error-${this.where}`, `${shortDir(d.here.dir)}：${d.here.error}`)));
     // 3. what kit has that the account does not use yet
-    const more = items.filter((i) => i.kind !== "agent" && i.status === "unused" && !mine(i));
+    //    kit's own first, then what kit collect took, one group per URL it came from (closed until clicked; open while
+    //    searching); a URL with one thing is a plain row
+    const more = items.filter((i) => i.kind !== "agent" && i.status === "unused" && !mine(i) && hit(i));
     const news = more.filter((i) => i.new).length;
     if (more.length) {
-      const folded = this.folded.paneMore ?? false;
+      const folded = !f0 && (this.folded.paneMore ?? false);
       body.child(div().mt(6).border_t(1).border_color(t.border));
       body.child(this.secHead(t, z, "paneMore", `還沒用的（${more.length}）`, folded, news ? `${news} 個新的` : ""));
-      if (!folded) body.child(v_flex().gap(2).children(more.map((i) => this.row(t, z, i))));
-    }
+      if (!folded) {
+        const groups = groupRows(more), list = v_flex().gap(2).children(groups[0].rows.map((i) => this.row(t, z, i)));
+        for (const g of groups.slice(1)) {
+          if (g.rows.length === 1) { list.child(this.row(t, z, g.rows[0], true)); continue; }
+          const shut = !f0 && (this.folded[`from-${g.from}`] ?? true);
+          list.child(this.secHead(t, z, `from-${g.from}`, `收自 ${g.from}（${g.rows.length}）`, shut, g.rows.some((i) => i.new) ? "有新的" : ""));
+          if (!shut) list.child(v_flex().pl(14).gap(2).children(g.rows.map((i) => this.row(t, z, i))));
+        }
+        body.child(list);
+      }
+    } else if (f0) body.child(div().text_size(z - 1.5).text_color(t.dim).child("還沒用的裡面找不到符合的。"));
     const where = f ? shortDir(f.dir) : "這個資料夾";
     body.child(v_flex().mt(6).p(8).gap(4).rounded(6).bg(t.raised).text_size(z - 1.5).text_color(t.muted)
       .children(f && !f.why
@@ -166,7 +183,7 @@ export class AgentPopup {
 
   // one of kit's things: for this folder (加到這個資料夾 / 從資料夾拿掉) and for the account (加到整個帳號 / 從帳號拿掉;
   // required ones cannot be taken off)
-  row(t, z, i) {
+  row(t, z, i, from = false) {
     const busy = Boolean(this.busy), f = this.folder, inDir = Boolean(f?.has.has(`${i.kind}:${i.name}`));
     const canDir = Boolean(f && !f.why);
     const badge = (text, color) => div().flex_none().px(5).rounded(4).text_size(z - 2.5).text_color(t.background).bg(color).child(text);
@@ -188,7 +205,7 @@ export class AgentPopup {
     } else if (i.status === "required") action.child(div().text_size(z - 1.5).text_color(t.dim).child("拿不掉"));
     else if (i.status === "used") action.child(btn(t, z, `rm-${i.kind}-${i.name}`, "從帳號拿掉", { small: true, off: busy, on: (cx) => this.act(`從帳號拿掉 ${i.name}`, ["rm", i.kind, i.name], cx, SHORT, `已從整個帳號拿掉 ${i.name}。開新的對話就不會有了。`) }));
     else if (!inDir) action.child(btn(t, z, `add-${i.kind}-${i.name}`, "加到整個帳號", { small: true, kind: "primary", off: busy, on: (cx) => this.act(`加到整個帳號 ${i.name}`, ["add", i.kind, i.name], cx, SHORT, `已加到整個帳號：${i.name}。每個資料夾開新的對話都會讀到。`) }));
-    const sub = [i.description, i.source].filter(Boolean).join(" · ");
+    const sub = [i.description, from && i.from ? `收自 ${i.from}` : "", i.source].filter(Boolean).join(" · ");
     const row = h_flex().gap(8).items_center()
       .child(v_flex().flex_1().min_w(0).gap(1)
         .child(head)

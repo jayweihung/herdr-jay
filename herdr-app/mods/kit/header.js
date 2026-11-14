@@ -25,7 +25,7 @@
 import { div, svg } from "gpui-kit";
 import { h_flex, v_flex, InputState, Input } from "gpui-base";
 import { panes, spaces, agents, props, run, theme, hc, shared, setShared, openOverlay, closeOverlay, notify, settings } from "herdr";
-import { AGENT_CACHE, AGENT_DATA, AGENT_WANT, CTX, NOTE, EDITORS, fs, stop, slash, shortDir, clean, spin, waiting, icon, textBlock,
+import { collectedFrom, AGENT_CACHE, AGENT_DATA, AGENT_WANT, CTX, NOTE, EDITORS, fs, stop, slash, shortDir, clean, spin, waiting, icon, textBlock,
   copyOnRight, btn, busyNow, takeBusy, giveBusy, markChanged, kit, kitJson, apiState, apiKnown, apiAtLeast, checkApi, apiCard, num, kfmt } from "./common.js";
 import { toolOf, ctxArgs, sendText, sendArgs, removal, ctxTips, summaryText, chipNumbers, level, howCounted, ago, catColorKey, barSegments,
   catShare, compactLine, noteArgs, noteView, headerFit, kitChipW, CTX_FULL, CTX_SHORT } from "./context.js";
@@ -50,13 +50,17 @@ function pruned(obj) {
 }
 
 // kit list for one agent; never this computer's list in place of another machine's
-async function loadAgent(machine, cwd, term) {
+export async function loadAgent(machine, cwd, term) {
   const args = ["list", "--json"];
   if (cwd) args.push("--dir", cwd);
   const g = term ? await hc(["get", term, "--json"]).catch(() => null) : null;
   try { const pid = JSON.parse(g?.stdout ?? "{}").pid; if (pid) args.push("--pid", String(pid)); } catch {}
   const { data, error } = kitJson(await kit(args, 60000, machine), "kit list --json"), at = Date.now();
-  return error ? { error: error.message, code: error.code, machine, at } : { ...data, machine, at };
+  if (error) return { error: error.message, code: error.code, machine, at };
+  // the skills kit collect took: from whom (third_party.lock there), for the popup's groups
+  const locks = await collectedFrom(data.sources, machine).catch(() => ({}));
+  const items = (data.items ?? []).map((i) => (i.kind === "skill" && locks[i.source]?.[i.name] ? { ...i, from: locks[i.source][i.name] } : i));
+  return { ...data, items, machine, at };
 }
 // the button's words: how many rules / skills / MCP this agent reads (kit's for the account, its folder's own,
 // and the set kit run started it with), each name counted once

@@ -1612,6 +1612,13 @@ test("送不出去 is said at once: a change kit check would stop (a collect) is
   assert.deepEqual(pushStuck(H.store["kit.data.v2"], H.store["kit.pushCheck.v1"]).map((p) => p.what), ["Kit：team 有改動送不出去（quote：有不該公開的字；security：網址不行），到 Kit 面板改好再送出"]);
   assert.deepEqual(pushStuck({ dirty: [{ name: "team", sig: "other" }] }, H.store["kit.pushCheck.v1"]), [], "other files now: not said");
   assert.deepEqual(pushStuck({ dirty: [] }, H.store["kit.pushCheck.v1"]), [], "sent: not said");
+  // fixed outside the files (the private words): 送出 asks again and its answer is kept; ⟳ forgets them all
+  H.answer = ((base) => (argv) => ((argv[0] === "sh" ? argv[4] : argv[1]) === "push" ? { code: 0, stdout: `${JSON.stringify({ source: "team", push: "pr", dry_run: true, files: ["skills/quote/SKILL.md"], sent: false })}\n`, stderr: "" } : base(argv)))(H.answer);
+  render(v); await H.clicks.push({}, cx); await settle();
+  assert.equal(H.store["kit.pushCheck.v1"].team.ok, true, "送出's dry run kept");
+  assert.doesNotMatch(render(v), /有問題送不出去/);
+  render(v); H.clicks.reload({}, cx); await settle();
+  assert.deepEqual(H.store["kit.pushCheck.v1"], {}, "⟳: every answer forgotten, asked again");
 });
 test("下載看看: kit collect --look's JSON is shown; its error JSON shows kit's words", async (M) => {
   const look = { url: "https://git.example.org/a/r@abc", source: "mine", id: "git.example.org/a", allowed: true, can_allow: false,

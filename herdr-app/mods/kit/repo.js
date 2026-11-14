@@ -252,16 +252,22 @@ export class Repo {
     cx.spawn(async (cx) => {
       let j = null;
       try { j = await pushJson(x.name, true, SHORT); } catch {}
-      const now = { ...(shared(PUSH_CHECK) ?? {}) };
-      // kit busy, or a failure that isn't kit check: no answer (asked again with the next change)
-      const checked = j && (j.ok || j.code === "check_failed");
-      const bad = checked && !j.ok ? checkProblems(j.text) : [];
-      now[x.name] = { sig: x.sig, ok: checked ? j.ok : null, text: checked ? j.text : "", bad, at: Date.now(), busy: false };
-      setShared(PUSH_CHECK, now);
+      const checked = this.keepCheck(x, j, true);
       if (checked && !j.ok && !(before?.ok === false && before.text === j.text))
-        notify({ title: "Kit：有改動送不出去", body: `${checkLine(x.name, bad)}。到 Kit 面板改好（或移掉）再送出。`, level: "error", timeout: 20000 });
+        notify({ title: "Kit：有改動送不出去", body: `${checkLine(x.name, (shared(PUSH_CHECK) ?? {})[x.name]?.bad)}。到 Kit 面板改好（或移掉）再送出。`, level: "error", timeout: 20000 });
       cx.notify();
     });
+  }
+
+  // a dry run's answer kept for the source (送出's step 1 too: what you fixed outside the files, like the private words,
+  // shows at once); kit busy or a failure that isn't kit check: no answer (forced: kept as none, asked with the next
+  // change). -> whether kit check answered
+  keepCheck(x, j, forced = false) {
+    const checked = Boolean(j && (j.ok || j.code === "check_failed"));
+    if (!checked && !forced) return false;
+    const bad = checked && !j.ok ? checkProblems(j.text) : [];
+    setShared(PUSH_CHECK, { ...(shared(PUSH_CHECK) ?? {}), [x.name]: { sig: x.sig, ok: checked ? j.ok : null, text: checked ? j.text : "", bad, at: Date.now(), busy: false } });
+    return checked;
   }
 
   // 送出, step 1: what kit push would send from each changed source (--dry-run), shown for 確定送出
@@ -276,6 +282,7 @@ export class Repo {
         for (const x of dirty) {
           const j = await pushJson(x.name, true, SHORT);
           plan.push({ name: x.name, push: j.push ?? x.push, ok: j.ok, files: j.files, text: j.text });
+          this.keepCheck(x, j);
         }
         this.plan = plan;
       } finally { this.endBusy(); cx.notify(); }
@@ -344,7 +351,7 @@ export class Repo {
         .child(h_flex().gap(5).items_center().min_w(0).when(this.loading, (el) => el.child(spin(z - 3, t.muted)))
           .child(div().truncate().text_size(z - 1.5).text_color(stuck ? t.ansi1 : what ? t.working : t.muted).child(this.loading ? `${sub} · 讀取中…` : sub))))
       .child(btn(t, z, "sync", busy === "同步" ? "同步中…" : "同步", { small: true, off: Boolean(busy), on: (cx) => this.act("同步", ["sync"], cx, LONG) }))
-      .child(btn(t, z, "reload", this.loading ? spin(z - 2, t.dim) : "⟳", { small: true, off: this.loading, on: (cx) => this.refresh(cx) }))
+      .child(btn(t, z, "reload", this.loading ? spin(z - 2, t.dim) : "⟳", { small: true, off: this.loading, on: (cx) => { setShared(PUSH_CHECK, {}); this.refresh(cx); } }))
       .when(inBar, (el) => el.child(btn(t, z, "hide", "✕", { small: true, on: () => run("layout.hide", { id: NODES.repo }) })));
     const v = v_flex().flex_none().border_b(1).border_color(t.border).child(head);
     // each source and what 送出 does with it
@@ -444,7 +451,7 @@ export class Repo {
           .when(checking && !bads.length, (el) => el.child(spin(z - 3, t.muted)).child(div().font_normal().text_size(z - 2).text_color(t.muted).child("檢查能不能送…"))))
         .child(btn(t, z, "push", busy === "檢查" ? "檢查中…" : "送出", { small: true, kind: "primary", off: Boolean(busy), on: (cx) => this.planPush(cx) })))
       .children(lines)
-      .child(div().text_size(z - 1.5).text_color(t.dim).child(bads.length ? "改好（或把那樣移掉）再送；改過的檔案一變就會再檢查一次。" : "按了會先列出要上傳的檔案，再按「確定送出」才真的送。"));
+      .child(div().text_size(z - 1.5).text_color(t.dim).child(bads.length ? "改好（或把那樣移掉）再送；改過的檔案一變就會再檢查一次（改的是別的地方，例如不該公開的字清單：按 ⟳ 或「送出」）。" : "按了會先列出要上傳的檔案，再按「確定送出」才真的送。"));
   }
 
   // + 新增: write a new one from scratch (a name, which source; kit new makes the file and the editor opens it),

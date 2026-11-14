@@ -20,6 +20,8 @@ Needs: **mods**.
 - Colored all over now means your turn only: waiting for you, 等太久, done for you to look, and a stuck chain.
   停了沒回／互等 has its own color (the theme's magenta, ansi5), on the cards, the line and the alert, apart from
   waiting for you. 同一個資料夾 is a frame only. A one-line legend above the drawing says what each color means.
+- An agent waiting for you is on top of the list from the start (not only after 10 minutes), with what it asks:
+  「server 在問你 50 秒：「要選 A 還是 B？ (A · B)」」; red past 10 minutes.
 - 還沒回 counts from the other's first stop after the message: when it worked on other things later, the asker
   having moved on in between still ends the wait.
 

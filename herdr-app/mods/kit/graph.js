@@ -109,6 +109,13 @@ export function graphData({ agents, terms, space, ctx, notes, log = [], down = {
   // on an offline machine nothing is known for sure: no long waits or idle hints there
   const live = nodes.filter((n) => !n.down && n.since);
   g.longWaits = live.filter((n) => n.status === "blocked" && now - n.since >= LONG_WAIT).map((n) => ({ address: n.address, for: now - n.since, kind: n.kind }));
+  // every agent waiting for you, from the start: the most urgent thing on the list, with what it asks (what the program
+  // reported with its status: Claude Code's "answer: 要選 A 還是 B？ (A · B)", a permission's tool)
+  g.blocked = nodes.filter((n) => !n.down && n.status === "blocked").map((n) => {
+    const r = rec.get(n.address), rep = r?.report ?? (r?.status && typeof r.status === "object" ? r.status : null);
+    const ask = String(rep?.msg ?? "").replace(/\s+/g, " ").trim().replace(/^(answer|allow|approve)\s*:\s*/i, "");
+    return { address: n.address, for: n.since ? now - n.since : 0, kind: n.kind, ask: [...ask].slice(0, 160).join(""), hot: Boolean(n.since) && now - n.since >= LONG_WAIT };
+  });
   const waited = new Set(g.waits.map((w) => w.to)), parents = new Set(g.edges.filter((e) => e.kind === "parent").map((e) => e.from));
   // done (not looked at yet) is news for you, never 可以關了
   g.idle = live.filter((n) => n.status === "idle" && now - n.since >= IDLE_CLOSE && !waited.has(n.address)
@@ -424,8 +431,12 @@ export function alertsView(t, z, g, now = Date.now(), onSelect = null, { onNudge
   for (const w of g.waits.filter((x) => x.state === "silent" && !g.chains.some((c) => c.path.includes(x.from) && c.path.includes(x.to))))
     items.push({ id: `wait-${w.from}-${w.to}`, text: `${name(w.to)} 還沒回 ${name(w.from)}（${agoText(w.since, now).replace("前", "")}）`, color: stuckColor(t), who: w.to, nudge: w });
   const ends = new Set(g.chains.map((c) => c.end));
-  for (const w of (g.longWaits ?? []).filter((x) => !ends.has(x.address)))
-    items.push({ id: `long-${w.address}`, text: `${name(w.address)} ${KIND[w.kind] ?? "等你處理"}已經 ${spanText(w.for)}`, color: t.ansi1, who: w.address });
+  // waiting for you: on top, from the start (red past LONG_WAIT); one at the end of a 卡住 chain is said there
+  const yours = [];
+  for (const w of (g.blocked ?? g.longWaits.map((x) => ({ ...x, hot: true }))).filter((x) => !ends.has(x.address)))
+    yours.push({ id: `${w.hot ? "long" : "you"}-${w.address}`, color: w.hot ? t.ansi1 : t.blocked, who: w.address,
+      text: `${name(w.address)} ${KIND[w.kind] ?? "等你處理"}${w.hot ? "已經 " : " "}${w.for ? spanText(w.for) : ""}${w.ask ? `：「${w.ask}」` : ""}` });
+  items.unshift(...yours);
   for (const c of g.clashes)
     items.push({ id: `clash-${c.nodes.join("-")}`, text: `同一個資料夾：${c.nodes.map(name).join("、")} 同時在 ${shortDir(c.dir)} 裡改東西`, color: t.working, who: c.nodes[0] });
   for (const [i, p] of pending.entries()) {

@@ -667,7 +667,7 @@ test("關係: waiting for you warms up then goes red (with what it waits for); s
   const agents = [ag("t1", "blocked"), ag("t2", "blocked"), ag("t3", "blocked"), ag("t4", "idle"), ag("t5", "done"), ag("t6", "idle"),
     ag("t7", "idle"), ag("box/t8", "idle"), ag("t9", "idle", { focused: true })];
   const terms = [
-    { address: "t1", status_ms: now - 1 * MIN, report: { kind: "permission" } }, { address: "t2", status_ms: now - 5 * MIN, report: { kind: "question" } },
+    { address: "t1", status_ms: now - 1 * MIN, report: { kind: "permission" } }, { address: "t2", status_ms: now - 5 * MIN, report: { kind: "question", msg: "answer: 要選 A 還是 B？ (A · B)" } },
     { address: "t3", status_ms: now - 15 * MIN }, { address: "t4", status_ms: now - 40 * MIN }, { address: "t5", status_ms: now - 45 * MIN },
     { address: "t6", status_ms: now - 50 * MIN }, { address: "t7", status_ms: now - 50 * MIN, sent: [{ to: "t6", count: 1, last_ms: now - 60 * MIN }] },
     { address: "box/t8", status_ms: now - 90 * MIN }, { address: "t9", status_ms: now - 90 * MIN },
@@ -691,6 +691,8 @@ test("關係: waiting for you warms up then goes red (with what it waits for); s
     H.texts = []; H.strings = []; M.graph.alertsView(th, 13, gc, now);
     const out = [...H.texts, ...H.strings].join("\n");
     assert.match(out, /做完等你看：t5/);
+    // waiting for you: a line each from the start, on top, with what it asks; red past 10 minutes
+    assert.match(out, /^t1 等你允許 1 分\nt2 在問你 5 分：「要選 A 還是 B？ \(A · B\)」\nt3 等你處理已經 15 分/);
     assert.match(out, /t3 的 context 用了 97%，快滿了：先請它寫 HANDOFF\.md/);
     assert.ok(!/t1 的 context/.test(out), "54 %: nothing");
   }

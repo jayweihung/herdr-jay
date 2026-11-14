@@ -344,17 +344,14 @@ export function graphView(t, z, g, sel, { onSelect, now = Date.now(), width = 0 
   return canvas;
 }
 
-// what the colors say, in one line above the drawing: the colored-all-over cards are your turn
+// what the colors say, in one line above the drawing: the colored-all-over cards are your turn (the frames, a
+// breathing one for working and a still one for one folder, need no words)
 export function legendView(t, z) {
-  const dot = (c, label, frame = false) => h_flex().gap(3).items_center()
-    .child(div().size(9).rounded(2).when(frame, (el) => el.border_2().border_color(c)).when(!frame, (el) => el.bg(c)))
+  const dot = (c, label) => h_flex().gap(3).items_center().child(div().size(9).rounded(2).bg(c))
     .child(div().child(label));
   return h_flex().id("kit-graph-legend").flex_wrap().px(12).pb(4).gap(10).text_size(z - 3.5).text_color(t.dim)
     .child(div().child("整張上色＝輪到你："))
-    .child(dot(t.blocked, "等你處理")).child(dot(t.ansi1, "等太久")).child(dot(t.done, "做完等你看")).child(dot(stuckColor(t), "停了沒回／互等"))
-    .child(h_flex().gap(3).items_center().child(div().size(9).rounded(2).border_2().border_color(t.working).loop("opacity", { from: 0.12, to: 0.85, period: BREATHE }))
-      .child(div().child("框一亮一暗＝工作中")))
-    .child(dot(t.working, "同一個資料夾（不動的框）", true));
+    .child(dot(t.blocked, "等你處理")).child(dot(t.ansi1, "等太久")).child(dot(t.done, "做完等你看")).child(dot(stuckColor(t), "停了沒回／互等"));
 }
 
 // agents not answering each other (停了沒回, 互等: a nudge may do): their own color, apart from waiting for you

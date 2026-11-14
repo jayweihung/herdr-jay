@@ -733,7 +733,7 @@ test("關係 colors: colored all over only where it is your turn; 停了沒回 h
   assert.equal(stuckColor({ ansi1: "#ff0000" }), "#ff0000", "a theme without ansi5: red");
   H.strings = [];
   legendView(th, 13);
-  assert.deepEqual(H.strings.filter((x) => x !== "整張上色＝輪到你："), ["等你處理", "等太久", "做完等你看", "停了沒回／互等", "框一亮一暗＝工作中", "同一個資料夾（不動的框）"]);
+  assert.deepEqual(H.strings.filter((x) => x !== "整張上色＝輪到你："), ["等你處理", "等太久", "做完等你看", "停了沒回／互等"]);
 });
 test("關係: an agent done and not looked at says what it said when it stopped (its card, its own alert line); cards waiting for you are colored", (M) => {
   const { graphData, cardState, alertsView, tint } = M.graph, { parseSaid, saidNow } = M.said;

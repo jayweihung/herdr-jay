@@ -1,6 +1,7 @@
 // The 關係 tab of the Agents panel (agents.js): the agents running now, as cards, and who talks to whom.
 //   a card    one agent (Herdr's agents()): its status, name, which CLI and model (kit context, as its pane header
-//             asked: CTX), what it wrote (kit note: NOTE); one column per machine, in tab order, so cards stay put
+//             asked: CTX), what it wrote (kit note: NOTE); one column per space, named and ordered as Herdr's Agents list (grouped by
+//             space) has them (names.js), so a card is found where its row is
 //   a line    a message: `hc send` from inside one agent's terminal to another (herdr-core keeps `sent` on the
 //             sender's record: to, count, last_ms, text); brighter the newer, thicker the more; dashed: who started whom
 //             (`parent`)
@@ -11,15 +12,22 @@
 //   卡住       a chain of agents each waiting for the next (it messaged it, and stopped), ending at one that needs you
 //              (blocked) or didn't answer; a chain that comes back to itself: 互等
 //   同一個資料夾  two agents working at once in one folder (or one inside the other), not each in its own worktree
+//   等你太久    an agent waiting for you (blocked) for over LONG_WAIT; its card warms up from WARN_WAIT on
+//   可以關了    agents stopped for over IDLE_CLOSE that nobody waits for: only said, never closed
+// A machine that is offline (Herdr can't reach its core): its column grey, how long in its title.
 // graphData and the geometry are plain functions (tests/kit/run.js); graphView draws them.
 import { div, PathBuilder } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { run } from "herdr";
-import { stop, icon, btn, copyOnRight, shortDir } from "./common.js";
+import { stop, icon, spin, btn, copyOnRight, shortDir } from "./common.js";
+import { shortSpan } from "./names.js";
 import { noteView } from "./context.js";
 
-export const COL_W = 200, COL_W_DEFAULT = COL_W, NODE_H = 70, GAP_X = 84, GAP_Y = 24, PAD = 14, HEAD = 22, LOOP = 44;
+export const COL_W = 200, COL_W_DEFAULT = COL_W, NODE_H = 86, GAP_X = 100, GAP_Y = 24, PAD = 14, HEAD = 22, LOOP = 44;
 const MIN = 60000, HOUR = 3600000;
+export const WARN_WAIT = 2 * MIN, LONG_WAIT = 10 * MIN, IDLE_CLOSE = 30 * MIN;
+// what a blocked agent waits for (the status kind it reported)
+const KIND = { permission: "等你允許", question: "在問你", auth: "要登入" };
 
 // "claude-code" -> "claude"; the program's key when the agent never said
 export const cliOf = (app, key) => (app === "claude-code" ? "claude" : app || (key && key !== "agent" ? key : "") || "?");
@@ -41,20 +49,34 @@ const byTerminal = (obj, addr) => Object.entries(obj ?? {}).find(([k]) => k.ends
 // ctx, notes: the pane header's CTX and NOTE. -> { cols: [{ machine, nodes }], nodes, edges, outside }
 //   edges: lines between shown agents; outside: lines with one end on a shown agent, the other not shown
 // log: the event log (events.js), for when each status began (Herdr's list keeps status_ms from its first listing)
-export function graphData({ agents, terms, space, ctx, notes, log = [], now = Date.now() }) {
+// down: machine name -> since when it is offline (events.js downMachines)
+// names: address -> name as the Agents list shows it (names.js sidebarNames)
+export function graphData({ agents, terms, space, ctx, notes, log = [], down = {}, names = {}, now = Date.now() }) {
   const shown = (agents ?? []).filter((a) => !space || a.space === space);
   const rec = new Map((terms ?? []).map((r) => [r?.address, r]));
   const began = {};
   for (const e of log ?? []) if ((e.k === "status" || e.k === "start") && e.at > (began[e.a] ?? 0)) began[e.a] = e.at;
   const nodes = shown.map((a) => {
     const c = byTerminal(ctx, a.address), n = noteView(byTerminal(notes, a.address), now), r = rec.get(a.address);
-    return { address: a.address, machine: machineOf(a.address), name: a.tab_name || a.title || a.address, status: a.status,
+    return { address: a.address, machine: machineOf(a.address), name: names?.[a.address] || a.tab_name || a.title || a.address, status: a.status,
       cli: cliOf(a.app, a.program?.key), model: modelOf(c?.model), note: n?.line ?? "", noteOld: Boolean(n?.old),
-      program: a.program, space: a.space_name, focused: Boolean(a.focused),
-      since: Math.max(Number(r?.status_ms) || 0, began[a.address] ?? 0), cwd: String(r?.foreground?.cwd || r?.cwd || "") };
+      program: a.program, space: a.space_name, spaceId: a.space, focused: Boolean(a.focused),
+      since: Math.max(Number(r?.status_ms) || 0, began[a.address] ?? 0), cwd: String(r?.foreground?.cwd || r?.cwd || ""),
+      kind: String((r?.report ?? r?.status)?.kind ?? ""), down: down?.[machineOf(a.address)] ?? null };
   });
-  const machines = [...new Set(nodes.map((n) => n.machine))].sort((a, b) => (a === "" ? -1 : b === "" ? 1 : a.localeCompare(b)));
-  const cols = machines.map((m) => ({ machine: m, nodes: nodes.filter((n) => n.machine === m) }));
+  // one column per space, in the list's order (agents() keeps a space's agents next to each other)
+  const cols = [];
+  for (const n of nodes) {
+    const c = cols.find((x) => x.id === n.spaceId);
+    if (c) c.nodes.push(n);
+    else cols.push({ id: n.spaceId, space: n.space, nodes: [n] });
+  }
+  // a space on another machine says which (null: this computer, or a mix); offline: since when
+  for (const c of cols) {
+    const ms = new Set(c.nodes.map((n) => n.machine)), m = ms.size === 1 ? [...ms][0] : "";
+    c.machine = m || null; c.down = m ? down?.[m] ?? null : null;
+    for (const n of c.nodes) n.where = m ? "" : n.machine;   // the card says its machine only where the title doesn't
+  }
   const has = new Set(nodes.map((n) => n.address));
   const lines = [];
   for (const r of terms ?? []) {
@@ -70,7 +92,27 @@ export function graphData({ agents, terms, space, ctx, notes, log = [], now = Da
   g.waits = waitsOf(g, now);
   g.chains = chainsOf(g);
   g.clashes = clashesOf(nodes);
+  // on an offline machine nothing is known for sure: no long waits or idle hints there
+  const live = nodes.filter((n) => !n.down && n.since);
+  g.longWaits = live.filter((n) => n.status === "blocked" && now - n.since >= LONG_WAIT).map((n) => ({ address: n.address, for: now - n.since, kind: n.kind }));
+  const waited = new Set(g.waits.map((w) => w.to)), parents = new Set(g.edges.filter((e) => e.kind === "parent").map((e) => e.from));
+  g.idle = live.filter((n) => (n.status === "idle" || n.status === "done") && now - n.since >= IDLE_CLOSE && !waited.has(n.address)
+    && !parents.has(n.address) && !n.focused).map((n) => ({ address: n.address, for: now - n.since }));
   return g;
+}
+
+// how long, in words: "45 秒", "12 分", "3 小時", "2 天"
+export const spanText = (ms) => { const s = Math.max(0, ms) / 1000; return s < 60 ? `${Math.floor(s)} 秒` : s < 3600 ? `${Math.floor(s / 60)} 分` : s < 86400 ? `${Math.floor(s / 3600)} 小時` : `${Math.floor(s / 86400)} 天`; };
+// a card's status words when they say more than its dot: waiting for you (and how long), offline, can be closed
+export function cardState(g, n, now = Date.now()) {
+  if (n.down) return { text: "連不到", color: "dim" };
+  if (n.status === "blocked" && n.since) {
+    const d = now - n.since;
+    return { text: `${KIND[n.kind] ?? "等你"} ${spanText(d)}`, color: d >= LONG_WAIT ? "ansi1" : d >= WARN_WAIT ? "blocked" : "muted", warm: d >= WARN_WAIT, hot: d >= LONG_WAIT };
+  }
+  const idle = g.idle?.find((x) => x.address === n.address);
+  if (idle) return { text: `閒置 ${spanText(idle.for)} · 可以關了`, color: "dim", idle: true };
+  return null;
 }
 
 // how long after a message the receiver must have stopped for it to count as not answering (its turn on the message)
@@ -170,6 +212,18 @@ export function curveOf(p, q, both = false) {
   const a = [right ? p.x + COL_W : p.x, p.y + NODE_H / 2 - off], b = [right ? q.x : q.x + COL_W, q.y + NODE_H / 2 + off];
   const dx = (b[0] - a[0]) * 0.45;
   const c1 = [a[0] + dx, a[1]], c2 = [b[0] - dx, b[1]];
+  // past a column between them: around the cards on the way, not over them: out into the gap beside the sender,
+  // along the space between two rows, into the gap beside the receiver (via: the corners); the label on that stretch
+  if (Math.abs(b[0] - a[0]) > COL_W + GAP_X) {
+    const step = NODE_H + GAP_Y, top = PAD + HEAD, s = right ? 1 : -1;
+    const r = Math.max(1, Math.round(((a[1] + b[1]) / 2 - top + GAP_Y / 2) / step));
+    const y = top + r * step - GAP_Y / 2 + (both ? (right ? -4 : 4) : 0);
+    // a card's right side has its column's loops (out to LOOP + 8): pass them there, keep close on the left side
+    const near = 20, past = LOOP + 30, ay = a[1] + 12;   // past: also past a loop's label (68 wide)
+    const x1 = a[0] + (right ? past + off : -(near + off)), x2 = b[0] + (right ? -(near + off) : past + off);
+    const via = [[x1, ay], [x1, y], [x2, y], [x2, b[1]]];
+    return { a: [a[0], ay], b, via, c1: via[0], c2: via[3], mid: [(x1 + x2) / 2, y] };
+  }
   return { a, c1, c2, b, mid: [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2 - (both ? 7 : 0)] };
 }
 
@@ -180,7 +234,6 @@ export function arrowOf(c, b, size = 7) {
 }
 
 const strokeW = (e) => (e.kind === "parent" ? 1.2 : Math.min(4, 1.2 + Math.log2(e.count)));
-const STATUS = { working: "working", blocked: "blocked", done: "done", idle: "idle" };
 
 // the drawing: cards on a canvas with the lines under them; sel: the selected card's address
 export function graphView(t, z, g, sel, { onSelect, now = Date.now(), width = 0 } = {}) {
@@ -197,7 +250,9 @@ export function graphView(t, z, g, sel, { onSelect, now = Date.now(), width = 0 
     if (!p || !q) continue;
     const wt = waitOf(e);
     const k = curveOf(p, q, e.both), color = !mine(e) ? t.border : wt ? t.blocked : e.kind === "parent" ? t.done : recent(e);
-    let path = PathBuilder.stroke(mine(e) && sel ? strokeW(e) + 0.8 : strokeW(e)).move_to(...k.a).cubic_bezier_to(...k.b, ...k.c1, ...k.c2);
+    let path = PathBuilder.stroke(mine(e) && sel ? strokeW(e) + 0.8 : strokeW(e)).move_to(...k.a);
+    if (k.via) { for (const v of k.via) path = path.line_to(...v); path = path.line_to(...k.b); }
+    else path = path.cubic_bezier_to(...k.b, ...k.c1, ...k.c2);
     if (e.kind === "parent") path = path.dash_array([5, 4]);
     canvas.child(window.paint_path(path.build(), color).absolute().top(0).left(0).size_full());
     canvas.child(window.paint_path(PathBuilder.fill().add_polygon(arrowOf(k.c2, k.b), true).build(), color).absolute().top(0).left(0).size_full());
@@ -206,26 +261,41 @@ export function graphView(t, z, g, sel, { onSelect, now = Date.now(), width = 0 
         .child(div().px(4).rounded(3).bg(t.surface).text_size(z - 3.5).text_color(color).child(wt ? `${wt.state === "blocked" ? "等你處理" : "還沒回"} · ${agoText(wt.since, now).replace("前", "")}` : `${e.count} 次 · ${agoText(e.at, now)}`)));
   }
   g.cols.forEach((c, ci) => canvas.child(div().absolute().left(PAD + ci * (cw + GAP_X)).top(PAD).w(cw).truncate()
-    .text_size(z - 2.5).text_color(t.dim).child(c.machine || "這台電腦")));
-  for (const n of g.nodes) canvas.child(card(t, z, n, at[n.address], sel === n.address, onSelect, stuck.has(n.address) ? t.blocked : clash.has(n.address) ? t.working : null));
+    .text_size(z - 2.5).font_medium().text_color(c.down ? t.ansi1 : t.dim)
+    .child([c.space || "", c.down ? `${c.machine} 斷線 ${spanText(now - c.down)}` : c.machine].filter(Boolean).join(" · "))));
+  for (const n of g.nodes) {
+    const st = cardState(g, n, now);
+    canvas.child(card(t, z, n, at[n.address], sel === n.address, onSelect,
+      stuck.has(n.address) || st?.hot ? t.ansi1 : st?.warm ? t.blocked : clash.has(n.address) ? t.working : null, st, now));
+  }
   return canvas;
 }
 
+// the status mark the Agents list puts at the end of a row: working spins, blocked "!", done a dot, idle a ring
+function glyph(t, s) {
+  if (s === "working") return spin(12, t.working).mx(1);
+  if (s === "blocked") return div().size(14).flex_none().rounded(4).bg(t.blocked + "26").text_size(10.5).font_bold().text_color(t.blocked).flex().items_center().justify_center().child("!");
+  if (s === "idle") return div().size(7).mx(3).flex_none().rounded(4).border(1.5).border_color(t.idle ?? t.dim);
+  return div().size(7).mx(3).flex_none().rounded(4).bg(s === "done" ? t.done : t.dim + "00");
+}
+
 // mark: a color for a card in trouble (a stuck chain; two in one folder), else null
-function card(t, z, n, p, on, onSelect, mark = null) {
-  const dot = t[STATUS[n.status]] ?? t.unknown;
+function card(t, z, n, p, on, onSelect, mark = null, st = null, now = Date.now()) {
   return v_flex().id(`kit-graph-${n.address}`).absolute().left(p.x).top(p.y).w(p.w ?? COL_W).h(NODE_H).px(8).py(6).gap(1)
     .rounded(8).when(Boolean(mark), (el) => el.border_2()).when(!mark, (el) => el.border_1())
     .border_color(mark ?? (on ? t.accent : n.focused ? t.muted : t.border)).bg(on ? t.selected : t.raised)
+    .when(Boolean(n.down || st?.idle) && !on, (el) => el.opacity(0.5))   // offline, or done long ago: in the background
     .cursor_pointer().hover((s) => s.border_color(t.accent)).on_mouse_down("left", stop)
     .on_click((e, cx) => { if (e.click_count >= 2) run("pane.focus", { terminal: n.address }); else onSelect?.(on ? null : n.address, cx); })
     .child(h_flex().gap(5).items_center().min_w(0)
-      .child(div().size(7).flex_none().rounded(4).bg(dot))
-      .child(icon(n.program, 12, t.muted) ?? div())
+      .child(icon(n.program, 14, t.foreground) ?? div())
       .child(div().flex_1().min_w(0).truncate().font_semibold().text_size(z - 1).child(n.name))
-      .child(div().flex_none().text_size(z - 3).text_color(t.dim).child(n.address.split("/").pop())))
-    .child(div().truncate().text_size(z - 2.5).text_color(t.muted).child([n.cli, n.model].filter(Boolean).join(" · ")))
-    .child(div().truncate().text_size(z - 2.5).text_color(n.noteOld ? t.dim : t.foreground).child(n.note || " "));
+      .when(Boolean(n.where), (el) => el.child(div().flex_none().text_size(z - 4).text_color(t.dim).child(n.where)))
+      .when(Boolean(n.since), (el) => el.child(div().flex_none().text_size(z - 3).text_color(t.dim).child(shortSpan(now - n.since))))
+      .child(n.down ? div().size(7).mx(3).flex_none().rounded(4).bg(t.unknown) : glyph(t, n.status)))
+    .child(div().truncate().text_size(z - 2.5).text_color(t.muted).child([n.cli, n.model].filter(Boolean).join(" · ") || " "))
+    .child(div().truncate().text_size(z - 2.5).text_color(n.noteOld ? t.dim : t.foreground).child(n.note || " "))
+    .child(div().truncate().text_size(z - 3).font_semibold().text_color(st ? t[st.color] ?? t.dim : t.dim).child(st?.text || " "));
 }
 
 // above the drawing: what needs a look, each a line; a click selects the agent it is about
@@ -241,8 +311,14 @@ export function alertsView(t, z, g, now = Date.now(), onSelect = null) {
   }
   for (const w of g.waits.filter((x) => x.state === "silent" && !g.chains.some((c) => c.path.includes(x.from) && c.path.includes(x.to))))
     items.push({ id: `wait-${w.from}-${w.to}`, text: `${name(w.to)} 還沒回 ${name(w.from)}（${agoText(w.since, now).replace("前", "")}）`, color: t.blocked, who: w.to });
+  const ends = new Set(g.chains.map((c) => c.end));
+  for (const w of (g.longWaits ?? []).filter((x) => !ends.has(x.address)))
+    items.push({ id: `long-${w.address}`, text: `${name(w.address)} ${KIND[w.kind] ?? "等你處理"}已經 ${spanText(w.for)}`, color: t.ansi1, who: w.address });
   for (const c of g.clashes)
     items.push({ id: `clash-${c.nodes.join("-")}`, text: `同一個資料夾：${c.nodes.map(name).join("、")} 同時在 ${shortDir(c.dir)} 裡改東西`, color: t.working, who: c.nodes[0] });
+  const idle = g.idle ?? [];
+  if (idle.length) items.push({ id: "idle", text: `閒置超過 ${spanText(IDLE_CLOSE)}、沒人在等：${idle.map((x) => name(x.address)).join("、")}，可以關了（不會自動關）`,
+    color: t.dim, who: idle[0].address });
   if (!items.length) return null;
   const box = v_flex().gap(3).px(10).pt(2).pb(4);
   for (const i of items)
@@ -271,6 +347,9 @@ export function edgeList(t, z, g, sel, now = Date.now()) {
     .child(div().flex_1().min_w(0).truncate().font_semibold().child(`${n?.name ?? sel}（${sel}）`))
     .child(btn(t, z, "kit-graph-go", "到它的分頁", { small: true, on: () => run("pane.focus", { terminal: sel }) })));
   if (n?.note) box.child(copyOnRight(div().text_color(t.muted).child(`進度：${n.note}`), n.note));
+  const st = n && cardState(g, n, now);
+  if (st?.idle) box.child(div().text_color(t.dim).child(`${st.text}：要關就到它的分頁關（這裡不幫你關）。`));
+  if (n?.down) box.child(div().text_color(t.ansi1).child(`連不到 ${n.machine}（斷線 ${spanText(now - n.down)}）：看到的是斷線前的樣子。`));
   if (!all.length) return box.child(div().text_color(t.dim).child("它還沒跟誰傳過話。"));
   for (const e of all) {
     const out = e.from === sel, other = out ? e.to : e.from, who = name(other);

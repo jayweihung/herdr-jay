@@ -9,6 +9,17 @@ says which) · **kit** = update kit itself on every machine where agents run (`k
 **snap hook** = a line in Claude Code's `settings.json` on each machine where you added the hook (the entry says
 which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/keys.md).
 
+## 2026-11-14, Agents panel: 關係 matches the Agents list; waits, idle, offline; 放大
+
+Needs: **mods**.
+
+關係 now reads like the Agents list next to it: one column per space (not per machine), in the list's order, each
+card named the way the list names its row, with the list's time and status mark. Lines that pass a column go around
+the cards in the gap between rows, so no label lands on a card. A card waiting for you warms up after 2 min and goes
+red after 10 (and says what it waits for); one stopped for over 30 min that nobody waits for is dimmed with
+「可以關了」 (never closed for you); an offline machine's column turns red with how long. 放大 opens the graph in a big
+window. [docs/kit.md](docs/kit.md) §3.
+
 ## 2026-11-14, Agents panel: 關係, who talks to whom
 
 Needs: **core**, **app**, **mods** (and the core on each Linux server, so its agents' messages count too).

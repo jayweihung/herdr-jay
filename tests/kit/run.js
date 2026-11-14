@@ -459,12 +459,15 @@ const TERMS = [
   { address: "box/t7", parent: "t1", created_ms: 100 },
   { address: "t3", sent: [{ to: "t1", count: 1, last_ms: 1, text: "a shell" }] },
 ];
-test("關係: cards per machine (this computer first), lines between shown agents, the rest listed; CLI and model from the header's ask", (M) => {
+test("關係: a column per space as the Agents list groups them, its names (sidebarNames); lines between shown agents, the rest listed; CLI and model from the header's ask", (M) => {
   const { graphData, modelOf, cliOf, agoText } = M.graph;
   const ctx = { "|/w|t1": { model: "claude-opus-5-5" }, "|/w|t2": { model: "anthropic/claude-sonnet-5-5" }, "box|/srv|box/t7": { model: "gpt-5.5-codex" } };
   const notes = { "|/w|t1": { text: "改 parser；下一步跑測試\n第二行", at: 2000 } };
   const g = graphData({ agents: AGS, terms: TERMS, space: "s1", ctx, notes, now: 2001000 });
-  assert.deepEqual(g.cols.map((c) => [c.machine, c.nodes.map((n) => n.address)]), [["", ["t1", "t2"]], ["box", ["box/t7"]]]);
+  assert.deepEqual(g.cols.map((c) => [c.space, c.machine, c.nodes.map((n) => n.address)]), [["web", null, ["t1", "t2", "box/t7"]]], "a mix of machines: no machine in the title");
+  const all = graphData({ agents: AGS.map((a) => a.address === "box/t7" ? { ...a, space: "s3", space_name: "srv" } : a), terms: TERMS, space: null });
+  assert.deepEqual(all.cols.map((c) => [c.space, c.machine]), [["web", null], ["srv", "box"], ["other", null]], "the list's order");
+  assert.equal(graphData({ agents: AGS, terms: TERMS, space: "s1", names: { t1: "laptop" } }).nodes[0].name, "laptop", "the list's name first");
   const n1 = g.nodes[0];
   assert.deepEqual([n1.name, n1.cli, n1.model, n1.note], ["前端", "claude", "Opus 5.5", "改 parser；下一步跑測試"]);
   assert.deepEqual(g.nodes.map((n) => [n.cli, n.model]), [["claude", "Opus 5.5"], ["omp", "Sonnet 5.5"], ["codex", "gpt-5.5-codex"]]);
@@ -477,7 +480,7 @@ test("關係: cards per machine (this computer first), lines between shown agent
   assert.deepEqual([agoText(1000, 1000), agoText(0, 5 * 60000), agoText(0, 3 * 3600000)], ["剛剛", "5 分前", "3 小時前"]);
 });
 test("關係: lines leave the facing side, loop out on the right in one column, arrowheads point at the receiver", (M) => {
-  const { curveOf, arrowOf, layoutOf, COL_W } = M.graph;
+  const { curveOf, arrowOf, layoutOf, COL_W, NODE_H } = M.graph;
   const { at, w } = layoutOf([{ nodes: [{ address: "a" }, { address: "b" }] }, { nodes: [{ address: "c" }] }]);
   const ac = curveOf(at.a, at.c), ca = curveOf(at.c, at.a), ab = curveOf(at.a, at.b);
   assert.equal(ac.a[0], at.a.x + COL_W, "to the right: from a's right side");
@@ -485,6 +488,16 @@ test("關係: lines leave the facing side, loop out on the right in one column, 
   assert.equal(ca.b[0], at.a.x + COL_W, "back: into a's right side");
   assert.ok(ab.c1[0] > at.a.x + COL_W && ab.mid[0] < w, "one column: out on the right, inside the drawing");
   assert.notEqual(curveOf(at.a, at.c, true).a[1], ac.a[1], "both ways: apart");
+  // past a column: around the card on the way (along the gap between rows), not over it
+  const three = layoutOf([{ nodes: [{ address: "a" }] }, { nodes: [{ address: "m" }] }, { nodes: [{ address: "z" }] }]).at;
+  const far = curveOf(three.a, three.z), m = three.m;
+  assert.ok(far.via && far.via.length === 4, "corners");
+  const hits = [far.a, ...far.via, far.b].slice(1).some((pt, i, all) => {
+    const from = [far.a, ...far.via][i], [x0, x1] = [Math.min(from[0], pt[0]), Math.max(from[0], pt[0])], [y0, y1] = [Math.min(from[1], pt[1]), Math.max(from[1], pt[1])];
+    return x1 > m.x && x0 < m.x + m.w && y1 > m.y && y0 < m.y + NODE_H;
+  });
+  assert.ok(!hits, "no stretch crosses the middle card");
+  assert.ok(far.mid[0] > m.x && far.mid[0] < m.x + m.w && (far.mid[1] > m.y + NODE_H || far.mid[1] < m.y), "the label under or over it");
   const [tip, l, r] = arrowOf([0, 0], [10, 0]);
   assert.deepEqual(tip, [10, 0]);
   assert.ok(l[0] < 10 && r[0] < 10 && l[1] * r[1] < 0, "behind the tip, one on each side");
@@ -498,7 +511,7 @@ test("關係 tab: the cards and lines drawn, a click says one card's lines in wo
   pathOps.length = 0;
   let out = render(v);
   assert.match(out, /這個 space（web）/);
-  for (const s of ["前端", "review", "server", "box", "這台電腦", "claude", "4 次"]) assert.ok(out.includes(s), s);
+  for (const s of ["前端", "review", "server", "box", "web", "claude", "4 次"]) assert.ok(out.includes(s), s);
   assert.ok(!out.includes("docs"), "another space's agent: not drawn");
   assert.equal(pathOps.length, 8, "4 lines, each a stroke and its arrowhead");
   assert.ok(pathOps.some((ops) => ops.some(([k]) => k === "dash_array")), "who started whom: dashed");
@@ -561,6 +574,45 @@ test("關係: two agents working at once in one folder (or one inside the other)
   assert.deepEqual(clashesOf([n("a", "/srv/x"), n("b", "/srv/x", "working", "box")]), [], "another machine");
   assert.deepEqual(clashesOf([n("a", "C:\\w\\App"), n("b", "c:/w/app/lib")]).map((c) => c.nodes), [["a", "b"]], "Windows paths");
 });
+test("關係: waiting for you warms up then goes red (with what it waits for); stopped long ago and nobody waits: 可以關了; an offline machine greys out", (M) => {
+  const { graphData, cardState, spanText } = M.graph;
+  const MIN = 60000, now = 100 * MIN;
+  const agents = [ag("t1", "blocked"), ag("t2", "blocked"), ag("t3", "blocked"), ag("t4", "idle"), ag("t5", "done"), ag("t6", "idle"),
+    ag("t7", "idle"), ag("box/t8", "idle"), ag("t9", "idle", { focused: true })];
+  const terms = [
+    { address: "t1", status_ms: now - 1 * MIN, report: { kind: "permission" } }, { address: "t2", status_ms: now - 5 * MIN, report: { kind: "question" } },
+    { address: "t3", status_ms: now - 15 * MIN }, { address: "t4", status_ms: now - 40 * MIN }, { address: "t5", status_ms: now - 45 * MIN },
+    { address: "t6", status_ms: now - 50 * MIN }, { address: "t7", status_ms: now - 50 * MIN, sent: [{ to: "t6", count: 1, last_ms: now - 60 * MIN }] },
+    { address: "box/t8", status_ms: now - 90 * MIN }, { address: "t9", status_ms: now - 90 * MIN },
+  ];
+  const g = graphData({ agents, terms, space: null, down: { box: now - 3 * MIN }, now });
+  const st = (a) => cardState(g, g.nodes.find((n) => n.address === a), now);
+  assert.deepEqual([st("t1").text, st("t1").warm], ["等你允許 1 分", false]);
+  assert.deepEqual([st("t2").text, st("t2").warm, st("t2").hot], ["在問你 5 分", true, false]);
+  assert.deepEqual([st("t3").text, st("t3").hot], ["等你 15 分", true]);
+  assert.deepEqual(g.longWaits.map((x) => x.address), ["t3"]);
+  assert.deepEqual(g.idle.map((x) => x.address), ["t4", "t5", "t7"], "t6: someone waits for it (t7 asked); t8: offline; t9: you're on it");
+  assert.equal(st("t4").text, "閒置 40 分 · 可以關了");
+  assert.equal(st("box/t8").text, "連不到");
+  assert.equal(g.nodes.find((n) => n.address === "box/t8").down, now - 3 * MIN);
+  const g2 = graphData({ agents: [ag("box/t8", "idle", { space: "s9", space_name: "srv" })], terms, space: null, down: { box: now - 3 * MIN }, now });
+  assert.deepEqual([g2.cols[0].machine, g2.cols[0].down], ["box", now - 3 * MIN], "a space on an offline machine");
+  assert.deepEqual([spanText(30000), spanText(90 * MIN), spanText(50 * 3600000)], ["30 秒", "1 小時", "2 天"]);
+});
+test("關係 log: a machine going offline and back, once each; still loading isn't offline", (M) => {
+  const { diffMachines } = M.events;
+  let r = diffMachines(null, [{ name: null, layout: "ready" }, { name: "box", layout: "loading" }], 10);
+  assert.deepEqual([r.now, r.events], [{}, []]);
+  r = diffMachines(r.now, [{ name: "box", layout: "ready" }], 20);
+  assert.deepEqual([r.now, r.events], [{ box: { down: false, since: 20 } }, []]);
+  r = diffMachines(r.now, [{ name: "box", layout: "unavailable" }], 30);
+  assert.deepEqual([r.now.box, r.events], [{ down: true, since: 30 }, [{ at: 30, k: "down", m: "box" }]]);
+  r = diffMachines(r.now, [{ name: "box", layout: "loading" }], 40);
+  assert.deepEqual([r.now.box, r.events], [{ down: true, since: 30 }, []], "reconnecting: still offline");
+  r = diffMachines(r.now, [{ name: "box", layout: "ready" }], 50);
+  assert.deepEqual([r.now.box, r.events.map((e) => e.k)], [{ down: false, since: 50 }, ["up"]]);
+  assert.deepEqual(diffMachines(null, [{ name: "box", layout: "unavailable" }], 5).events.map((e) => e.k), ["down"], "offline when first seen");
+});
 test("關係 log: status changes, new messages, new notes, agents coming and going; the first look sets where they stand", (M) => {
   const { diffEvents, notesByAddr } = M.events;
   const ags = [ag("t1", "idle"), ag("t2", "working")];
@@ -596,6 +648,14 @@ test("關係 tab: what needs a look on top (stuck, no answer, one folder); the t
   assert.match(out, /卡住：前端 → review，review 停了但沒回/);
   assert.match(out, /同一個資料夾：t4、t5 同時在 \/w\/app 裡改東西/);
   assert.match(out, /還沒回 · 5 分/);
+  // offline: the column says so
+  H.machines = [{ name: null, layout: "ready" }, { name: "box", layout: "unavailable" }];
+  H.agents = [...H.agents, ag("box/t7", "working", { space: "s9", space_name: "srv" })];
+  for (const f of [...timers]) f(cx);
+  // (全部 space: the remote space is another column)
+  H.clicks["kit-graph-scope-all"]({}, cx);
+  assert.match(render(v), /srv · box 斷線 0 秒/);
+  H.machines = [];
   // the Agents button logs; the timeline draws it
   const btnView = view(M, { role: "agents-toggle" });
   for (const f of [...timers]) f(cx);
@@ -605,7 +665,7 @@ test("關係 tab: what needs a look on top (stuck, no answer, one folder); the t
   out = render(v);
   assert.match(out, /色條是狀態/);
   for (const s of ["前端", "review", "現在"]) assert.ok(out.includes(s), s);
-  localStorage.removeItem("kit.agents.tab"); localStorage.removeItem("kit.agents.view"); localStorage.removeItem("kit.agent-events");
+  localStorage.removeItem("kit.agents.tab"); localStorage.removeItem("kit.agents.view"); localStorage.removeItem("kit.agents.scope"); localStorage.removeItem("kit.agent-events");
   void btnView;
 });
 test("agent logo: bot: in the frontmatter is read, set after description, replaced, taken out; line ends and the prompt kept", (M) => {

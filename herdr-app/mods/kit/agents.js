@@ -21,7 +21,7 @@
 // timeline (timeline.js, from the event log events.js that the Agents button keeps while Herdr runs).
 import { div } from "gpui-kit";
 import { v_flex, h_flex, Editor } from "gpui-base";
-import { theme, run, shared, setShared, readTextFile, writeTextFile, closeOverlay, openOverlay, props, spaces, focused, layout, agents, terminals, settings } from "herdr";
+import { theme, run, shared, setShared, readTextFile, writeTextFile, closeOverlay, openOverlay, props, spaces, focused, layout, agents, terminals, settings, panes } from "herdr";
 import { AGENTS_DATA, AGENTS_LOAD, AGENTS_MSG, CTX, NOTE, NODES, fs, stop, isWindows, shortDir, spin, waiting, find, textBlock, copyOnRight, btn,
   busyNow, dropStaleBusy, giveBusy, markRepoStale, kit, kitJson, localKit, apiState, apiKnown, checkApi, apiCard, messageBox, problemCard, newEditor,
   localGet, localSet, kitAction, loadNewest, loadingNow } from "./common.js";
@@ -29,8 +29,9 @@ import { ANIMALS, COLORS } from "./bot-models.js";
 import { readBot, withBot, pickBot, botIcon, botProblem, LiveBot } from "./bots.js";
 import { canDrag, draggable, dropLoop, requestPlace, takeAsks, placeClosed, placeDir, liveNow } from "./place.js";
 import { graphData, graphView, edgeList, alertsView, layoutOf } from "./graph.js";
-import { logTick, eventLog } from "./events.js";
+import { logTick, eventLog, downMachines } from "./events.js";
 import { timelineView, timelineHeight, SPANS } from "./timeline.js";
+import { sidebarNames } from "./names.js";
 
 const PANEL = NODES.agents;
 const SHORT = 120000, STALE = 50000;
@@ -68,8 +69,8 @@ export class Agents {
     this.adding = {};      // kind -> the "加上…" list is unfolded
     this.edit = null;      // { path, orig, dirty, err } while its file is open; this.code is the editor
     this.tool = localGet("kit.agents.tool") || "claude";
-    this.tab = localGet("kit.agents.tab") === "rel" ? "rel" : "defs";   // 定義 | 關係
-    this.scope = localGet("kit.agents.scope") === "all" ? "all" : "space";   // 關係: the shown space, or every space
+    this.tab = props()?.big || localGet("kit.agents.tab") === "rel" ? "rel" : "defs";   // 定義 | 關係
+    this.scope = (props()?.scope ?? localGet("kit.agents.scope")) === "all" ? "all" : "space";   // 關係: the shown space, or every space
     this.sel = null;       // 關係: the selected card (an address)
     this.view = localGet("kit.agents.view") === "time" ? "time" : "graph";   // 關係: 圖 | 時間軸
     this.span = SPANS.some(([k]) => k === localGet("kit.agents.span")) ? localGet("kit.agents.span") : "1h";
@@ -274,7 +275,7 @@ export class Agents {
   // 關係: the agents running in the shown space (or all), who talks to whom (graph.js)
   relations(t, z) {
     const f = focused(), shownSpace = f?.space ?? (spaces() ?? []).find((s) => s.active)?.id ?? null, now = Date.now();
-    const g = graphData({ agents: agents(), terms: terminals(), space: this.scope === "space" ? shownSpace : null, ctx: shared(CTX), notes: shared(NOTE), log: eventLog(), now });
+    const ags = agents(), g = graphData({ agents: ags, terms: terminals(), names: sidebarNames(ags, panes(), spaces()), space: this.scope === "space" ? shownSpace : null, ctx: shared(CTX), notes: shared(NOTE), log: eventLog(), down: downMachines(), now });
     if (this.sel && !g.nodes.some((n) => n.address === this.sel)) this.sel = null;
     const scope = (id, label) => btn(t, z, `kit-graph-scope-${id}`, label, { tiny: true, kind: this.scope === id ? "primary" : undefined,
       on: (cx) => { this.scope = id; localSet("kit.agents.scope", id); cx.notify(); } });
@@ -290,7 +291,10 @@ export class Agents {
       .child(h_flex().px(10).py(6).gap(6).items_center()
         .child(scope("space", spName ? `這個 space（${spName}）` : "這個 space")).child(scope("all", "全部 space"))
         .child(div().flex_1())
-        .child(pick("kit.agents.view", "view", "graph", "圖")).child(pick("kit.agents.view", "view", "time", "時間軸")))
+        .child(pick("kit.agents.view", "view", "graph", "圖")).child(pick("kit.agents.view", "view", "time", "時間軸"))
+        // a bigger look: the same tab in its own window, most of the screen (not from that window itself)
+        .when(!props()?.big, (el) => el.child(btn(t, z, "kit-graph-big", "放大", { tiny: true,
+          on: () => openOverlay({ mod: "kit", props: { role: "agents", big: true, scope: this.scope }, kind: "window", key: "kit-agents-big", width: 0.9, height: 0.85 }) }))))
       .child(alertsView(t, z, g, now, select) ?? div());
     if (this.view === "time") {
       const span = SPANS.find(([k]) => k === this.span) ?? SPANS[1];

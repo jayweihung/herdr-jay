@@ -368,11 +368,13 @@ export function graphView(t, z, g, sel, { onSelect, now = Date.now(), width = 0 
 // what the colors say, in one line above the drawing: the colored-all-over cards are your turn (the frames, a
 // breathing one for working and a still one for one folder, are left out)
 export function legendView(t, z) {
-  const dot = (c, label) => h_flex().gap(3).items_center().child(div().size(9).rounded(2).bg(c))
+  // each square drawn like its cards: 等你處理 a light wash with its frame, 等太久 the deep one
+  const dot = (c, label, deep = null) => h_flex().gap(3).items_center()
+    .child(div().size(9).rounded(2).when(deep != null, (el) => el.border_1().border_color(c)).bg(deep == null ? c : tint(t.raised, c, deep)))
     .child(div().child(label));
   return h_flex().id("kit-graph-legend").flex_wrap().px(12).pb(4).gap(10).text_size(z - 3.5).text_color(t.dim)
     .child(div().child("整張上色＝輪到你："))
-    .child(dot(t.blocked, "等你處理")).child(dot(t.ansi1, "等太久")).child(dot(t.done, "做完等你看")).child(dot(stuckColor(t), "停了沒回／互等"));
+    .child(dot(t.blocked, "等你處理", 0.3)).child(dot(t.ansi1, "等太久", 0.75)).child(dot(t.done, "做完等你看")).child(dot(stuckColor(t), "停了沒回／互等"));
 }
 
 // agents not answering each other (停了沒回, 互等: a nudge may do): their own color, apart from waiting for you
@@ -406,8 +408,10 @@ export const subsText = (n, now = Date.now()) => (n?.subs ?? []).map((x) => subL
 
 // a card's background: its color washed in where it is your turn (stronger when selected); the mouse over it (hover):
 // a little brighter, the same color. Color says how it stands; brightness, where the mouse or the selection is.
-export function bgOf(t, mark, wash, on, hover = false) {
-  const base = mark && wash ? tint(t.raised, mark, on ? 0.26 : 0.16) : on ? t.selected : t.raised;
+// strong (waited too long): a much deeper wash, since many themes (atom-one-dark among them) give 等你處理 (blocked)
+// and 等太久 (ansi1) the very same red: how deep, not which color, tells them apart.
+export function bgOf(t, mark, wash, on, hover = false, strong = false) {
+  const base = mark && wash ? tint(t.raised, mark, strong ? (on ? 0.5 : 0.4) : on ? 0.26 : 0.16) : on ? t.selected : t.raised;
   return hover ? tint(base, mark && wash ? mark : t.foreground, mark && wash ? 0.12 : 0.06) : base;
 }
 // mark: a color for a card in trouble (a stuck chain; two in one folder) or waiting for you, else null: a thick
@@ -415,10 +419,10 @@ export function bgOf(t, mark, wash, on, hover = false) {
 function card(t, z, n, p, on, onSelect, mark = null, st = null, now = Date.now(), wash = true) {
   return v_flex().id(`kit-graph-${n.address}`).absolute().left(p.x).top(p.y).w(p.w ?? COL_W).h(NODE_H).px(8).py(6).gap(1)
     .rounded(8).when(Boolean(mark), (el) => el.border_2()).when(!mark, (el) => el.border_1())
-    .border_color(mark ?? (on ? t.accent : n.focused ? t.muted : t.border)).bg(bgOf(t, mark, wash, on))
+    .border_color(mark ?? (on ? t.accent : n.focused ? t.muted : t.border)).bg(bgOf(t, mark, wash, on, false, Boolean(st?.hot)))
     .when(Boolean(n.down || st?.idle) && !on, (el) => el.opacity(0.5))   // offline, or done long ago: in the background
     // the mouse over it: brighter, never another color (the frame's color says how it stands, and stays)
-    .cursor_pointer().hover((s) => s.bg(bgOf(t, mark, wash, on, true))).on_mouse_down("left", stop)
+    .cursor_pointer().hover((s) => s.bg(bgOf(t, mark, wash, on, true, Boolean(st?.hot)))).on_mouse_down("left", stop)
     // like a row of the Agents list: a click goes to its pane; here its lines stand out too
     .on_click((_e, cx) => { cx.stop_propagation(); run("pane.focus", { terminal: n.address }); onSelect?.(n.address, cx); })
     // at work (or its own work still running after it stopped): a frame that breathes, drawn natively (no timer),
@@ -471,11 +475,11 @@ export function alertsView(t, z, g, now = Date.now(), onSelect = null, { onNudge
   // waiting for you: on top, from the start (red past LONG_WAIT); one at the end of a 卡住 chain is said there
   const yours = [];
   for (const w of (g.blocked ?? g.longWaits.map((x) => ({ ...x, hot: true }))).filter((x) => !ends.has(x.address)))
-    yours.push({ id: `${w.hot ? "long" : "you"}-${w.address}`, color: w.hot ? t.ansi1 : t.blocked, who: w.address,
+    yours.push({ id: `${w.hot ? "long" : "you"}-${w.address}`, color: w.hot ? t.ansi1 : t.blocked, hot: Boolean(w.hot), who: w.address,
       text: `${name(w.address)} ${KIND[w.kind] ?? "等你處理"}${w.hot ? "已經 " : " "}${w.for ? spanText(w.for) : ""}${w.ask ? `：「${w.ask}」` : ""}` });
   for (const x of g.asks ?? []) {
     const hot = x.for >= LONG_WAIT;
-    yours.push({ id: `ask-${x.address}`, color: hot ? t.ansi1 : t.blocked, who: x.address,
+    yours.push({ id: `ask-${x.address}`, color: hot ? t.ansi1 : t.blocked, hot, who: x.address,
       text: `${name(x.address)} 問你${x.for ? `（${hot ? "已經 " : ""}${spanText(x.for)}）` : ""}：「${x.said}」` });
   }
   items.unshift(...yours);
@@ -488,7 +492,7 @@ export function alertsView(t, z, g, now = Date.now(), onSelect = null, { onNudge
       : `${p.what}（${p.where}${long}）`;
     // the agent that waits (found by its pid): a click goes to its card, red past LONG_WAIT like waiting for you
     const hot = p.kind === "owner" && p.since && now - p.since >= LONG_WAIT;
-    items.push({ id: `pending-${i}`, text, color: hot ? t.ansi1 : t.blocked, who: p.who ?? null });
+    items.push({ id: `pending-${i}`, text, color: hot ? t.ansi1 : t.blocked, hot: Boolean(hot), who: p.who ?? null });
   }
   const done = g.done ?? [], quiet = done.filter((x) => !x.said);
   for (const x of done.filter((y) => y.said))
@@ -504,6 +508,7 @@ export function alertsView(t, z, g, now = Date.now(), onSelect = null, { onNudge
   const box = v_flex().gap(3).px(10).pt(2).pb(4);
   for (const i of items)
     box.child(h_flex().id(`kit-graph-alert-${i.id}`).gap(6).items_center().px(8).py(4).rounded(6).border_1().border_color(i.color)
+      .when(Boolean(i.hot), (el) => el.border_2().bg(tint(t.raised, i.color, 0.3)))   // waited too long: deep, like its card
       .text_size(z - 1.5).cursor_pointer().hover((s) => s.bg(t.hover)).on_mouse_down("left", stop)
       .on_click((_e, cx) => { if (!i.who) return; run("pane.focus", { terminal: i.who }); onSelect?.(i.who, cx); })
       .child(div().size(7).flex_none().rounded(4).bg(i.color)).child(div().flex_1().min_w(0).child(i.text))

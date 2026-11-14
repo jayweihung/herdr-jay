@@ -736,7 +736,14 @@ test("關係 colors: colored all over only where it is your turn; 停了沒回 h
   graphView(th, 13, g, null, { now, width: 900 });
   const c = (a) => H.colors[`kit-graph-${a}`] ?? {};
   assert.deepEqual([c("bl").border_color, c("bl").bg], [th.blocked, tint(th.raised, th.blocked)], "waiting for you: orange all over");
-  assert.deepEqual([c("old").border_color, c("old").bg], [th.ansi1, tint(th.raised, th.ansi1)], "waiting too long: red all over");
+  assert.deepEqual([c("old").border_color, c("old").bg], [th.ansi1, tint(th.raised, th.ansi1, 0.4)], "waiting too long: red all over, deep");
+  // a theme where blocked and ansi1 are one red (atom-one-dark): the wash still tells them apart
+  {
+    const same = { ...th, blocked: "#e06c75", ansi1: "#e06c75" };
+    H.colors = {}; graphView(same, 13, g, null, { now, width: 900 });
+    assert.notEqual(H.colors["kit-graph-bl"].bg, H.colors["kit-graph-old"].bg, "one red: 等你處理 light, 等太久 deep");
+    H.colors = {}; graphView(th, 13, g, null, { now, width: 900 });
+  }
   assert.deepEqual([c("dn").border_color, c("dn").bg], [th.done, tint(th.raised, th.done)], "done for you to look: blue all over");
   assert.equal(stuckColor(th), th.ansi5);
   for (const x of ["a", "b"]) assert.deepEqual([c(x).border_color, c(x).bg], [th.ansi5, tint(th.raised, th.ansi5)], `停了沒回: magenta all over (${x})`);
@@ -772,7 +779,7 @@ test("關係: 等站長同意 finds its agent by the pid kit pending keeps (hc g
   const th = { raised: "#101010", selected: "#202020", border: "#303030", accent: "#0000aa", muted: "#404040", dim: "#505050", foreground: "#eeeeee",
     surface: "#111111", blocked: "#ff8800", done: "#3366ff", working: "#dddd00", ansi1: "#ff0000", ansi5: "#cc00cc", unknown: "#666666", hover: "#121212" };
   H.colors = {}; graphView(th, 13, g, null, { now, width: 900 });
-  assert.deepEqual([H.colors["kit-graph-srv/t1p"]?.border_color, H.colors["kit-graph-srv/t1p"]?.bg], [th.ansi1, tint(th.raised, th.ansi1)]);
+  assert.deepEqual([H.colors["kit-graph-srv/t1p"]?.border_color, H.colors["kit-graph-srv/t1p"]?.bg], [th.ansi1, tint(th.raised, th.ansi1, 0.4)]);
   let went = null;
   H.texts = []; H.strings = []; H.clicks = {};
   alertsView(th, 13, g, now, (a) => { went = a; }, { pending: [{ kind: "owner", what: "要你同意：升 kit", since: now - 51 * MIN, where: "srv", who: "srv/t1p" }] });

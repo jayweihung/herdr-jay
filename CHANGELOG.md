@@ -9,6 +9,12 @@ says which) · **kit** = update kit itself on every machine where agents run (`k
 **snap hook** = a line in Claude Code's `settings.json` on each machine where you added the hook (the entry says
 which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/keys.md).
 
+## 2026-11-15, 關係: 等太久 is a deep wash, not only another red
+Needs: mods.
+- Many themes give 等你處理 (blocked) and 等太久 (ansi1) the same red (atom-one-dark: both #e06c75), so a card that
+  waited 10 minutes or more now gets a much deeper wash, and its alert line a thicker frame and a wash; the legend's
+  squares are drawn the same way.
+
 ## 2026-11-14, 關係: a closing offer is not 問你
 Needs: mods.
 - 之後想改再跟我說 / 有需要隨時告訴我 (later, any time, if needed, 再…) no longer counts as asking you; a sentence

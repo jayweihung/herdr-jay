@@ -64,9 +64,9 @@ Needs: mods.
 
 Needs: **mods**.
 
-送出 used to say only 送出中… for minutes. Now: 1/2 再確認一次要送的檔案, 2/2 kit check、commit、推到每個遠端, a bar and the
-seconds so far; 送出's first step (the list) the same.
-送出時分段顯示（1/2、2/2）和已經過幾秒，不再只有轉圈圈。
+送出 used to say only 送出中… for minutes. Now three steps from the start: 1/3 the list and kit check (then you press 確定送出), 2/3 再確認一次要送的檔案, 3/3
+kit check、commit、推到每個遠端, with a bar and the seconds so far.
+送出時分段顯示（1/3、2/3、3/3）和已經過幾秒，不再只有轉圈圈。
 
 ## 2026-11-15, Kit: a change that can't be sent is said at once, not first when you press 送出
 

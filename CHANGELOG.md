@@ -9,6 +9,13 @@ says which) · **kit** = update kit itself on every machine where agents run (`k
 **snap hook** = a line in Claude Code's `settings.json` on each machine where you added the hook (the entry says
 which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/keys.md).
 
+## 2026-11-15, a Claude at its usage limit: until when, and 繼續 once it resets
+Needs: mods, kit (0.6.5).
+- When a Claude stops at its plan's usage limit (5 hours or weekly), its context chip turns into a red
+  `[上限 00:10 恢復]`. A minute after the limit resets, Herdr types 繼續 for it, once, and only while it waits.
+- The context window (click the chip) shows the plan's usage: how much of the 5 hours and the week this account
+  used and when each resets (`kit usage`), and a switch for typing 繼續 (on by default).
+
 ## 2026-11-15, 關係: colors follow what you just did within half a second
 Needs: mods.
 - Herdr doesn't re-render mods when an agent's status or focus changes, so after you looked at a card (or answered)

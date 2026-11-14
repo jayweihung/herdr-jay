@@ -25,10 +25,10 @@
 import { div, svg } from "gpui-kit";
 import { h_flex, v_flex, InputState, Input } from "gpui-base";
 import { panes, spaces, agents, props, run, theme, hc, shared, setShared, openOverlay, closeOverlay, notify, settings } from "herdr";
-import { collectedFrom, AGENT_CACHE, AGENT_DATA, AGENT_WANT, CTX, NOTE, EDITORS, fs, stop, slash, shortDir, clean, spin, waiting, icon, textBlock,
+import { collectedFrom, AGENT_CACHE, AGENT_DATA, AGENT_WANT, CTX, NOTE, LIMIT_SENT, EDITORS, localGet, localSet, fs, stop, slash, shortDir, clean, spin, waiting, icon, textBlock,
   copyOnRight, btn, busyNow, takeBusy, giveBusy, markChanged, kit, kitJson, apiState, apiKnown, apiAtLeast, checkApi, apiCard, num, kfmt } from "./common.js";
 import { toolOf, ctxArgs, sendText, sendArgs, removal, ctxTips, summaryText, chipNumbers, level, howCounted, ago, catColorKey, barSegments,
-  catShare, compactLine, noteArgs, noteView, headerFit, kitChipW, CTX_FULL, CTX_SHORT } from "./context.js";
+  catShare, compactLine, noteArgs, noteView, headerFit, kitChipW, CTX_FULL, CTX_SHORT, limitOf, continueDue, CONTINUE_TEXT, usageLines, whenText } from "./context.js";
 
 const CTX_STALE = 15000, CTX_IDLE = 60000;   // how often to ask how full the context is: working / not
 const STALE = 60000, LOAD_TTL = 90000;   // look again after a minute; a load longer than this is taken as lost
@@ -43,6 +43,8 @@ function placeOf(p) {
   return { machine, space: sp?.id ?? null, key: `${machine ?? ""}|${p.cwd ?? ""}|${p.terminal}` };
 }
 const agentPanes = () => panes().filter((p) => p.terminal && p.program?.agent);
+// 額度恢復後自動打「繼續」: on unless turned off in the context window (this computer)
+const autoContinue = () => localGet("kit.autoContinue") !== "off";
 // only the keys of panes that still exist (each folder change makes a new key)
 function pruned(obj) {
   const live = new Set(agentPanes().map((p) => placeOf(p).key));
@@ -133,6 +135,7 @@ export class Header {
     if (!api) { checkApi(w.machine, cx); return; }
     if (!api.ok) return;
     this.tickContext(p, cx);
+    this.tickLimit(p, cx);
     const c = (shared(AGENT_CACHE) ?? {})[w.key], want = (shared(AGENT_WANT) ?? {})[w.key] ?? 0;
     if (c?.busy && Date.now() - (c.started ?? 0) < LOAD_TTL) return;
     if (c && !c.busy && Date.now() - c.at < STALE && (c.started ?? 0) >= want) return;
@@ -168,11 +171,41 @@ export class Header {
     });
   }
 
+  // a Claude stopped at its plan's usage limit (kit context's limit): once the limit has reset, type 繼續 for it, once
+  // per stop and only while it waits (idle, done). Marked before it is sent, so a second window's header of the same
+  // pane doesn't type it too; a send that fails is unmarked (tried again next tick). The context is asked again after.
+  tickLimit(p, cx) {
+    const w = placeOf(p), c = (shared(CTX) ?? {})[w.key], sent = (shared(LIMIT_SENT) ?? {})[w.key];
+    let a = null; try { a = (agents() ?? []).find((x) => x.pane === p.pane) ?? null; } catch {}
+    const status = a?.status ?? p.status;
+    if (this.continuing || !continueDue(c, status, sent, Date.now(), autoContinue())) return;
+    const args = sendArgs(a?.address ?? p.terminal, status, CONTINUE_TEXT);
+    if (!args) return;
+    const until = c.limit.until;
+    this.continuing = true;
+    setShared(LIMIT_SENT, { ...pruned(shared(LIMIT_SENT)), [w.key]: until });
+    cx.spawn(async (cx) => {
+      let ok = false;
+      try { const r = await hc(args); ok = r?.code === 0; } catch {}
+      const all = { ...(shared(LIMIT_SENT) ?? {}) };
+      if (!ok && all[w.key] === until) { delete all[w.key]; setShared(LIMIT_SENT, all); }
+      if (ok) {
+        const cc = (shared(CTX) ?? {})[w.key];
+        if (cc) setShared(CTX, { ...(shared(CTX) ?? {}), [w.key]: { ...cc, at: 0 } });   // ask again soon: the limit is gone
+        notify?.({ title: "Kit", description: `額度恢復了，已替 ${a?.title || p.title || "agent"} 打「${CONTINUE_TEXT}」`, level: "info" });
+      }
+      this.continuing = false;
+      cx.notify();
+    });
+  }
+
   // [context 35% 139k/400k]: like the Kit chip, one width whatever it says (the header never moves); yellow from
   // 70 %, red from 90 %; a click opens where the tokens go, a right-click copies the numbers
   // short (a narrow header with a note): [context 35%], the numbers in the tooltip
   contextChip(t, p, short) {
-    const { has, pct, nums, copy, loading } = chipNumbers((shared(CTX) ?? {})[placeOf(p).key]);
+    const c = (shared(CTX) ?? {})[placeOf(p).key], lim = limitOf(c);
+    if (lim) return this.limitChip(t, p, short, lim);
+    const { has, pct, nums, copy, loading } = chipNumbers(c);
     const color = pct == null ? t.dim : levelColor(t, pct);
     const chip = h_flex().id(`kit-ctx-${p.pane}`).flex_none().w(short ? CTX_SHORT : CTX_FULL).h(22).pl(2).pr(6).gap(5).items_center().rounded(6)
       .bg(t.surface).border_1().border_color(pct != null && pct >= 90 ? t.blocked : t.border).text_size(11).cursor_pointer()
@@ -186,6 +219,22 @@ export class Header {
         .child(short ? "-" : nums).when(loading, (d) => d.loop("opacity", { from: 0.3, to: 1, period: 1400 }))))
       .when(!short && pct != null, (el) => el.child(div().min_w(0).truncate().text_color(t.dim).child(nums)));
     return has ? copyOnRight(chip, copy) : chip;
+  }
+
+  // [上限 00:10 恢復]: in the context chip's place while the agent is stopped at its plan's usage limit (red); once it
+  // has reset and 繼續 is about to be typed: [上限 已恢復]. A click opens the context window (the usage is there)
+  limitChip(t, p, short, lim) {
+    const when = whenText(lim.until), auto = autoContinue();
+    const text = lim.back ? (auto ? "已恢復，馬上繼續" : "已恢復") : `${when} 恢復`;
+    const tip = lim.back ? `${lim.name}上限已經恢復${auto ? `，會替它打「${CONTINUE_TEXT}」` : `；自動繼續關著，要自己叫它繼續`}`
+      : `撞到${lim.name}上限，${when} 恢復${auto ? `；到時替它打「${CONTINUE_TEXT}」` : ""}。按一下看用量`;
+    return h_flex().id(`kit-ctx-${p.pane}`).flex_none().w(short ? CTX_SHORT : CTX_FULL).h(22).pl(2).pr(6).gap(5).items_center().rounded(6)
+      .bg(t.surface).border_1().border_color(lim.back ? t.working : t.blocked).text_size(11).cursor_pointer()
+      .hover((st) => st.bg(t.hover).border_color(t.accent))
+      .on_mouse_down("left", stop)
+      .on_click((_e, cx) => { cx.stop_propagation(); this.openContext(p); }).tooltip(tip)
+      .child(div().h(16).px(5).flex().flex_none().items_center().rounded(4).bg(lim.back ? t.working : t.blocked).font_semibold().text_color(t.background).child("上限"))
+      .when(!short, (el) => el.child(div().min_w(0).truncate().text_color(lim.back ? t.working : t.blocked).child(text)));
   }
 
   // [進度 改好 parser；下一步跑測試]: the first line of what the agent wrote (kit note), all of it in the tooltip, dim
@@ -307,10 +356,23 @@ export class Header {
       const api = apiKnown(m);
       if (!api) checkApi(m, cx);
       else if (api.ok && !this.d && !this.err && !this.loading) this.loadDetail(false, cx);
+      if (api?.ok && apiAtLeast(m, 7) && this.usage === undefined) this.loadUsage(cx);
       cx.notify();   // the agent's status (which buttons work) and "n 秒前"
     };
     tick(cx);
     cx.timer.every(2000, tick);
+  }
+
+  // kit usage on the agent's machine (kit api 1.7): the plan's 5-hour and weekly use, asked once per window and by ⟳
+  loadUsage(cx) {
+    this.usage = null;
+    const m = this.target.machine ?? null;
+    cx.spawn(async (cx) => {
+      let u = null;
+      try { const r = await kit(["usage"], 30000, m); if (r.code === 0) { const d = JSON.parse(r.out); if (d && typeof d === "object") u = d; } } catch {}
+      this.usage = u;
+      cx.notify();
+    });
   }
 
   paneNow() { return panes().find((p) => p.pane === this.target.pane) ?? null; }
@@ -434,6 +496,8 @@ export class Header {
       return root.child(body);
     }
     body.child(this.ctxTop(t, z, d));
+    const use = this.ctxUsage(t, z);
+    if (use) body.child(use);
     if (d.error) body.child(v_flex().p(8).rounded(6).bg(t.raised).text_size(z - 1.5).text_color(t.working)
       .child(textBlock("ctx-derr", d.categories?.length ? `${d.error}\n所以下面是估算的。` : d.error)));
     if (d.categories?.length) body.child(this.ctxBar(t, d)).child(this.ctxCats(t, z, d));
@@ -458,7 +522,7 @@ export class Header {
         .child(copyOnRight(div().truncate().font_semibold().child(`${tg.title || "agent"} 的 context`), tg.title || "agent"))
         .child(copyOnRight(div().truncate().text_size(z - 1.5).text_color(t.dim).child(where), tg.cwd ?? where)))
       .child(btn(t, z, "ctx-copy", "複製", { tiny: true, off: !this.d, on: (cx) => this.copySummary(cx) }))
-      .child(btn(t, z, "ctx-reload", this.loading ? spin(z - 2, t.dim) : "⟳", { tiny: true, off: this.loading, on: (cx) => this.loadDetail(true, cx) }))
+      .child(btn(t, z, "ctx-reload", this.loading ? spin(z - 2, t.dim) : "⟳", { tiny: true, off: this.loading, on: (cx) => { this.loadDetail(true, cx); if (apiAtLeast(this.target.machine ?? null, 7)) this.loadUsage(cx); } }))
       .child(btn(t, z, "ctx-close", "✕", { tiny: true, on: () => closeOverlay(props()?.overlay) }));
   }
 
@@ -468,6 +532,26 @@ export class Header {
       .child(div().flex_1().min_w(0).text_size(z - 1).text_color(m.ok ? t.foreground : t.blocked).child(textBlock("ctx-msg", m.text)))
       .child(div().id("ctx-msg-x").flex_none().px(4).cursor_pointer().text_color(t.dim).hover((s) => s.text_color(t.foreground))
         .on_mouse_down("left", stop).on_click((_e, cx) => { this.msg = null; cx.notify(); }).child("✕"));
+  }
+
+  // 方案用量: the plan's windows for this agent's tool (kit usage), the limit it stopped at (kit context's limit, as the
+  // header keeps it), and whether 繼續 is typed for it once the limit resets
+  ctxUsage(t, z) {
+    const tool = this.target.tool === "codex" ? "codex" : this.target.tool === "claude" ? "claude" : null;
+    if (!tool) return null;
+    const lines = usageLines(this.usage?.[tool]), lim = limitOf((shared(CTX) ?? {})[this.target.key]), auto = autoContinue();
+    if (!lines.length && !lim) return null;
+    const box = v_flex().gap(4).p(8).rounded(6).bg(t.raised).border_1().border_color(lim && !lim.back ? t.blocked : t.border)
+      .child(div().font_semibold().child(`方案用量（${tool === "claude" ? "Claude" : "Codex"}，這個帳號所有 agent 一起算）`));
+    if (lim) box.child(div().text_size(z - 1).text_color(lim.back ? t.working : t.blocked)
+      .child(lim.back ? `${lim.name}上限已經恢復${auto ? `，會替它打「${CONTINUE_TEXT}」` : "，要自己叫它繼續"}` : `撞到${lim.name}上限停下來了，${whenText(lim.until)} 恢復`));
+    for (const [i, x] of lines.entries()) box.child(h_flex().id(`ctx-use-${i}`).gap(6).items_center().text_size(z - 1.5)
+      .child(div().flex_1().min_w(0).text_color(x.pct != null && x.pct >= 90 ? t.blocked : x.pct != null && x.pct >= 70 ? t.working : t.foreground).child(x.text)));
+    if (this.usage?.[tool]?.at) box.child(div().text_size(z - 2.5).text_color(t.dim).child(`${ago(Math.floor(this.usage[tool].at / 1000))}的數字`));
+    if (tool === "claude") box.child(h_flex().gap(6).items_center().text_size(z - 1.5)
+      .child(div().flex_1().min_w(0).text_color(t.dim).child(`撞到上限停下來的 agent，額度恢復後自動打「${CONTINUE_TEXT}」：${auto ? "開" : "關"}`))
+      .child(btn(t, z, "ctx-auto", auto ? "關掉" : "打開", { tiny: true, on: (cx) => { localSet("kit.autoContinue", auto ? "off" : "on"); cx.notify(); } })));
+    return box;
   }
 
   // 已使用 61% · 243k / 400k, and whose count it is

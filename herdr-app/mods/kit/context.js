@@ -60,6 +60,54 @@ export function chipNumbers(c) {
   const copy = has ? `${pct != null ? `${pct}% ` : ""}${c.used ?? ""}${c.window ? ` / ${c.window}` : ""}` : "";
   return { has, pct, nums, copy, loading };
 }
+// ---------- the plan's usage limits (kit api 1.7: kit context's "limit", kit usage) ----------
+// what a usage window is called: by its kind (Claude) or how long it is (Codex's primary / secondary)
+const KIND_NAMES = { five_hour: "5 小時", seven_day: "每週", seven_day_opus: "每週（Opus）", seven_day_sonnet: "每週（Sonnet）" };
+export function windowName(kind, minutes) {
+  if (KIND_NAMES[kind]) return KIND_NAMES[kind];
+  const m = Number(minutes);
+  if (m === 300) return "5 小時";
+  if (m === 10080) return "每週";
+  if (m >= 40000 && m <= 45000) return "每月";
+  if (m > 0) return m % 1440 === 0 ? `${m / 1440} 天` : m % 60 === 0 ? `${m / 60} 小時` : `${m} 分鐘`;
+  return "用量";
+}
+// a time to come: "00:10" today, "明天 10:00", "11/20 10:00" (this computer's clock)
+export function whenText(ms, now = Date.now()) {
+  const d = new Date(Number(ms)), n = new Date(now);
+  if (!Number.isFinite(d.getTime())) return "";
+  const hm = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  const day = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const diff = Math.round((day(d) - day(n)) / 86400000);
+  return diff === 0 ? hm : diff === 1 ? `明天 ${hm}` : `${d.getMonth() + 1}/${d.getDate()} ${hm}`;
+}
+// an agent stopped at its plan's usage limit (kit context's limit) -> { until, name, back } | null; back: the limit
+// has reset (until passed)
+export function limitOf(c, now = Date.now()) {
+  const until = Number(c?.limit?.until);
+  if (!until) return null;
+  return { until, name: windowName(c.limit.kind), back: now >= until };
+}
+// how long after the reset 繼續 is typed (the server's clock and this one differ a little)
+export const LIMIT_GRACE = 60000;
+export const CONTINUE_TEXT = "繼續";
+// type 繼續 now? Only once per stop (sent: the until it was typed for), only once the limit has reset, only to an agent
+// that waits (idle or done: never one at work or asking you)
+export function continueDue(c, status, sent, now = Date.now(), on = true) {
+  const l = limitOf(c, now);
+  if (!on || !l || sent === l.until || now < l.until + LIMIT_GRACE) return false;
+  return status === "idle" || status === "done";
+}
+// kit usage's answer for one tool -> lines "5 小時：用了 41%，00:10 重置" (a window whose reset has passed: started again)
+export function usageLines(u, now = Date.now()) {
+  if (!u || !Array.isArray(u.windows)) return [];
+  return u.windows.filter((w) => w && w.pct != null).map((w) => {
+    const name = windowName(w.id, w.minutes), r = Number(w.resets_at);
+    if (r && now >= r) return { name, pct: null, text: `${name}：已重新計算（${whenText(r, now)} 重置過）` };
+    return { name, pct: Math.min(100, Number(w.pct)), text: `${name}：用了 ${Math.min(100, Number(w.pct))}%${r ? `，${whenText(r, now)} 重置` : ""}` };
+  });
+}
+
 // how full: "" below 70 %, "high" from 70 %, "full" from 90 %
 export const level = (pct) => (pct == null ? "" : pct >= 90 ? "full" : pct >= 70 ? "high" : "");
 // whose count the total is

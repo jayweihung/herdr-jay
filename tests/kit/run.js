@@ -1181,6 +1181,51 @@ test("header: an agent pane asks kit api, then kit list --dir --pid and kit cont
   assert.equal(kitCalls("list").length + kitCalls("context").length, 0);
   assert.match(render(v), /kit 太舊/);
 });
+test("usage limit (context.js): names, times, the lines of kit usage, when 繼續 is due", ({ context: X }) => {
+  const now = new Date(2026, 10, 15, 9, 0).getTime(), at = (d, h, m) => new Date(2026, 10, d, h, m).getTime();
+  assert.equal(X.whenText(at(15, 23, 5), now), "23:05"); assert.equal(X.whenText(at(16, 0, 10), now), "明天 00:10"); assert.equal(X.whenText(at(20, 10, 0), now), "11/20 10:00");
+  assert.deepEqual(["five_hour", "seven_day", "primary"].map((k, i) => X.windowName(k, [null, null, 43200][i])), ["5 小時", "每週", "每月"]);
+  assert.deepEqual(X.usageLines({ windows: [{ id: "five_hour", pct: 41, minutes: 300, resets_at: at(15, 14, 0) }, { id: "secondary", pct: 62, minutes: 10080, resets_at: at(15, 8, 0) }, { id: "x", pct: null }] }, now).map((x) => x.text),
+    ["5 小時：用了 41%，14:00 重置", "每週：已重新計算（08:00 重置過）"], "a reset that passed: started again; no pct: left out");
+  assert.deepEqual(X.usageLines(null), []);
+  const c = { limit: { until: now - X.LIMIT_GRACE, kind: "five_hour" } };
+  assert.deepEqual(X.limitOf({ limit: { until: now + 1, kind: "seven_day" } }, now), { until: now + 1, name: "每週", back: false });
+  assert.equal(X.limitOf({ pct: 3 }, now), null);
+  assert.equal(X.continueDue(c, "idle", null, now), true); assert.equal(X.continueDue(c, "done", undefined, now), true);
+  assert.equal(X.continueDue(c, "working", null, now), false, "never while it works"); assert.equal(X.continueDue(c, "blocked", null, now), false, "or asks you");
+  assert.equal(X.continueDue(c, "idle", c.limit.until, now), false, "once per stop");
+  assert.equal(X.continueDue({ limit: { until: now - 1000 } }, "idle", null, now), false, "a minute after the reset");
+  assert.equal(X.continueDue(c, "idle", null, now, false), false, "turned off");
+});
+test("usage limit (header): the chip says until when; once it reset, 繼續 is typed once for an agent that waits; turned off: never", async (M) => {
+  let until = Date.now() + 3600000;
+  const setup = () => {
+    fresh(); fakeKit();
+    const base = H.answer;
+    H.answer = (argv, on) => {
+      const a = argv[0] === "sh" ? argv.slice(4) : argv.slice(1);
+      return a[0] === "context" ? { code: 0, stdout: `${JSON.stringify({ tool: "claude", used: 1000, window: 400000, pct: 1, source: "statusline", model: "m", limit: { until, kind: "five_hour" } })}\n`, stderr: "" } : base(argv, on);
+    };
+    H.spaces = [{ id: "s1", tabs: [{ id: "tab1" }] }];
+    H.panes = [{ pane: "p1", terminal: "t1", tab: "tab1", cwd: "/x", status: "done", program: { agent: true, name: "Claude Code", key: "claude" }, app: "claude-code" }];
+  };
+  const sends = () => H.calls.filter((c) => c.argv[0] === "hc" && c.argv[1] === "send").map((c) => c.argv.slice(1));
+  setup();
+  let v = view(M, { role: "header", pane: "p1", terminal: "t1" }); await settle(); await tick(); await settle();
+  assert.match(render(v), /上限[\s\S]*恢復/, "the chip in the context chip's place");
+  assert.deepEqual(sends(), [], "not before the reset");
+  until = Date.now() - 120000;
+  setup(); try { localStorage.removeItem("kit.autoContinue"); } catch {}
+  v = view(M, { role: "header", pane: "p1", terminal: "t1" }); await settle(); await tick(); await settle(); await tick(); await settle();
+  assert.deepEqual(sends(), [["send", "t1", "繼續"]]);
+  await tick(); await settle(); await tick(); await settle();
+  assert.equal(sends().length, 1, "once for this stop, though kit context still says it");
+  setup(); localStorage.setItem("kit.autoContinue", "off");
+  v = view(M, { role: "header", pane: "p1", terminal: "t1" }); await settle(); await tick(); await settle(); await tick(); await settle();
+  assert.deepEqual(sends(), []);
+  assert.match(render(v), /已恢復/);
+  localStorage.removeItem("kit.autoContinue");
+});
 test("header: a pane on another machine asks that machine's kit api", async (M) => {
   fresh(); fakeKit({ api: null });
   H.spaces = [{ id: "s2", machine: "box", tabs: [{ id: "tab2" }] }];

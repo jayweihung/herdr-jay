@@ -120,6 +120,9 @@ const SETTLE = 1500;
 // A waits for B: A messaged B more times than B messaged A (an answer evens them out: whoever answered isn't
 // waiting for an answer to it), the last one after B's last, and A has stopped (it isn't working on something else). How B stands: working (on it), blocked (needs you), or silent (stopped after it, no answer).
 // -> [{ from, to, at, state, since }] (since: when B stopped, for silent and blocked)
+// a message that says it wants no answer (in its first line, the part herdr-core keeps): 「不用回」「不用再回」「不必回」, [FYI]
+export const noReply = (text) => /不[用必]再?回|\[fyi\]/i.test(String(text ?? ""));
+
 export function waitsOf(g, now = Date.now()) {
   const node = new Map(g.nodes.map((n) => [n.address, n]));
   const last = (a, b) => g.edges.find((e) => e.kind === "send" && e.from === a && e.to === b);
@@ -127,10 +130,10 @@ export function waitsOf(g, now = Date.now()) {
   for (const e of g.edges) {
     if (e.kind !== "send") continue;
     const a = node.get(e.from), b = node.get(e.to), back = last(e.to, e.from);
-    if (!a || !b || (back && (back.at >= e.at || back.count >= e.count)) || a.status === "working") continue;
+    if (!a || !b || (back && (back.at >= e.at || back.count >= e.count)) || a.status === "working" || noReply(e.text)) continue;
     const state = b.status === "working" ? "working" : b.status === "blocked" ? "blocked"
       : b.since > e.at + SETTLE ? "silent" : "working";   // stopped before the message settled in: still on it
-    out.push({ from: e.from, to: e.to, at: e.at, state, since: state === "working" ? 0 : b.since, waited: now - e.at });
+    out.push({ from: e.from, to: e.to, at: e.at, text: e.text, state, since: state === "working" ? 0 : b.since, waited: now - e.at });
   }
   return out;
 }
@@ -190,12 +193,25 @@ export function colWidth(n, width) {
   if (!width || !n) return COL_W;
   return Math.max(170, Math.min(260, Math.floor((width - PAD * 2 - LOOP - (n - 1) * GAP_X) / n)));
 }
-// where each card is: address -> { x, y, w }, and the whole drawing's size
+// where each card is: address -> { x, y, w, top (its band's first row), band }, each column's title (heads), and the
+// whole drawing's size. Columns that don't fit the panel's width go on below, as many as fit in each band (like the
+// Agents list, top to bottom), so nothing needs scrolling sideways; not measured yet (0): one band.
 export function layoutOf(cols, width = 0) {
-  const at = {}, cw = colWidth(cols.length, width);
-  cols.forEach((c, ci) => c.nodes.forEach((n, ri) => { at[n.address] = { x: PAD + ci * (cw + GAP_X), y: PAD + HEAD + ri * (NODE_H + GAP_Y), w: cw }; }));
-  const rows = Math.max(1, ...cols.map((c) => c.nodes.length));
-  return { at, cw, w: PAD * 2 + cols.length * cw + Math.max(0, cols.length - 1) * GAP_X + LOOP, h: PAD * 2 + HEAD + rows * NODE_H + (rows - 1) * GAP_Y };
+  const fit = width ? Math.max(1, Math.floor((width - PAD * 2 - LOOP + GAP_X) / (170 + GAP_X))) : cols.length;
+  const per = Math.max(1, Math.min(cols.length, fit)), cw = colWidth(per, width);
+  const at = {}, heads = [];
+  let y = PAD;
+  for (let b = 0; b * per < cols.length; b++) {
+    const band = cols.slice(b * per, (b + 1) * per), top = y + HEAD;
+    band.forEach((c, i) => {
+      const x = PAD + i * (cw + GAP_X);
+      heads.push({ x, y });
+      c.nodes.forEach((n, ri) => { at[n.address] = { x, y: top + ri * (NODE_H + GAP_Y), w: cw, top, band: b }; });
+    });
+    const rows = Math.max(1, ...band.map((c) => c.nodes.length));
+    y = top + rows * NODE_H + (rows - 1) * GAP_Y + GAP_Y + 8;
+  }
+  return { at, cw, heads, w: PAD * 2 + per * cw + (per - 1) * GAP_X + LOOP, h: y - GAP_Y - 8 + PAD };
 }
 
 // a line's curve: from the side of its card that faces the other one; between cards in one column it loops out
@@ -214,10 +230,12 @@ export function curveOf(p, q, both = false) {
   const c1 = [a[0] + dx, a[1]], c2 = [b[0] - dx, b[1]];
   // past a column between them: around the cards on the way, not over them: out into the gap beside the sender,
   // along the space between two rows, into the gap beside the receiver (via: the corners); the label on that stretch
-  if (Math.abs(b[0] - a[0]) > COL_W + GAP_X) {
-    const step = NODE_H + GAP_Y, top = PAD + HEAD, s = right ? 1 : -1;
+  // (also between bands: along the gap under the receiver's row, in its band)
+  const bands = (p.band ?? 0) !== (q.band ?? 0);
+  if (Math.abs(b[0] - a[0]) > COL_W + GAP_X || bands) {
+    const step = NODE_H + GAP_Y, top = p.top ?? PAD + HEAD;
     const r = Math.max(1, Math.round(((a[1] + b[1]) / 2 - top + GAP_Y / 2) / step));
-    const y = top + r * step - GAP_Y / 2 + (both ? (right ? -4 : 4) : 0);
+    const y = (bands ? q.y + NODE_H + GAP_Y / 2 : top + r * step - GAP_Y / 2) + (both ? (right ? -4 : 4) : 0);
     // a card's right side has its column's loops (out to LOOP + 8): pass them there, keep close on the left side
     const near = 20, past = LOOP + 30, ay = a[1] + 12;   // past: also past a loop's label (68 wide)
     const x1 = a[0] + (right ? past + off : -(near + off)), x2 = b[0] + (right ? -(near + off) : past + off);
@@ -237,7 +255,7 @@ const strokeW = (e) => (e.kind === "parent" ? 1.2 : Math.min(4, 1.2 + Math.log2(
 
 // the drawing: cards on a canvas with the lines under them; sel: the selected card's address
 export function graphView(t, z, g, sel, { onSelect, now = Date.now(), width = 0 } = {}) {
-  const { at, w, h, cw } = layoutOf(g.cols, width);
+  const { at, w, h, cw, heads } = layoutOf(g.cols, width);
   const canvas = div().id("kit-graph").relative().w(w).h(h).flex_none();
   const recent = (e) => now - e.at < 10 * MIN ? t.accent : now - e.at < HOUR ? t.muted : t.dim;
   const mine = (e) => !sel || e.from === sel || e.to === sel;
@@ -260,7 +278,7 @@ export function graphView(t, z, g, sel, { onSelect, now = Date.now(), width = 0 
       canvas.child(div().absolute().left(k.mid[0] - 34).top(k.mid[1] - 8).w(68).flex().justify_center()
         .child(div().px(4).rounded(3).bg(t.surface).text_size(z - 3.5).text_color(color).child(wt ? `${wt.state === "blocked" ? "等你處理" : "還沒回"} · ${agoText(wt.since, now).replace("前", "")}` : `${e.count} 次 · ${agoText(e.at, now)}`)));
   }
-  g.cols.forEach((c, ci) => canvas.child(div().absolute().left(PAD + ci * (cw + GAP_X)).top(PAD).w(cw).truncate()
+  g.cols.forEach((c, ci) => canvas.child(div().absolute().left(heads[ci].x).top(heads[ci].y).w(cw).truncate()
     .text_size(z - 2.5).font_medium().text_color(c.down ? t.ansi1 : t.dim)
     .child([c.space || "", c.down ? `${c.machine} 斷線 ${spanText(now - c.down)}` : c.machine].filter(Boolean).join(" · "))));
   for (const n of g.nodes) {
@@ -298,19 +316,31 @@ function card(t, z, n, p, on, onSelect, mark = null, st = null, now = Date.now()
     .child(div().truncate().text_size(z - 3).font_semibold().text_color(st ? t[st.color] ?? t.dim : t.dim).child(st?.text || " "));
 }
 
-// above the drawing: what needs a look, each a line; a click selects the agent it is about
-export function alertsView(t, z, g, now = Date.now(), onSelect = null) {
+// 提醒它回: what is typed into an agent that stopped without answering (w: its wait). No <hc> tag in it, so the
+// agent's reply hook doesn't take it for a message from another agent; the address it answers to is in that message.
+export function nudgeText(g, w) {
+  const name = (a) => g.nodes.find((n) => n.address === a)?.name ?? a;
+  const first = String(w.text ?? "").slice(0, 80);
+  return `[Herdr 提醒] 你還沒回 ${name(w.from)} 傳給你的訊息${first ? `（開頭：「${first}」）` : ""}。` +
+    `要回就用 hc send 回給它（位址在那則訊息開頭的 from 裡）；只是通知、不用回的話，不必理會這則。`;
+}
+
+// above the drawing: what needs a look, each a line; a click selects the agent it is about.
+// onNudge(wait, cx): 提醒它回 on an agent that stopped without answering (nudged: "from>to@at" keys already sent)
+export function alertsView(t, z, g, now = Date.now(), onSelect = null, { onNudge = null, nudged = new Set() } = {}) {
   const name = (a) => g.nodes.find((n) => n.address === a)?.name ?? a;
   const items = [];
+  const waitOn = (from, to) => g.waits.find((w) => w.from === from && w.to === to);
   for (const c of g.chains) {
     const path = c.path.map(name).join(" → ");
     const text = c.why === "loop" ? `互等：${path}`
       : c.why === "blocked" ? `卡住：${path}，${name(c.end)} 在等你處理`
       : `卡住：${path}，${name(c.end)} 停了但沒回`;
-    items.push({ id: `chain-${c.path.join("-")}`, text, color: t.blocked, who: c.why === "loop" ? c.path[0] : c.end });
+    items.push({ id: `chain-${c.path.join("-")}`, text, color: t.blocked, who: c.why === "loop" ? c.path[0] : c.end,
+      nudge: c.why === "silent" ? waitOn(c.path.at(-2), c.end) : null });
   }
   for (const w of g.waits.filter((x) => x.state === "silent" && !g.chains.some((c) => c.path.includes(x.from) && c.path.includes(x.to))))
-    items.push({ id: `wait-${w.from}-${w.to}`, text: `${name(w.to)} 還沒回 ${name(w.from)}（${agoText(w.since, now).replace("前", "")}）`, color: t.blocked, who: w.to });
+    items.push({ id: `wait-${w.from}-${w.to}`, text: `${name(w.to)} 還沒回 ${name(w.from)}（${agoText(w.since, now).replace("前", "")}）`, color: t.blocked, who: w.to, nudge: w });
   const ends = new Set(g.chains.map((c) => c.end));
   for (const w of (g.longWaits ?? []).filter((x) => !ends.has(x.address)))
     items.push({ id: `long-${w.address}`, text: `${name(w.address)} ${KIND[w.kind] ?? "等你處理"}已經 ${spanText(w.for)}`, color: t.ansi1, who: w.address });
@@ -325,7 +355,11 @@ export function alertsView(t, z, g, now = Date.now(), onSelect = null) {
     box.child(h_flex().id(`kit-graph-alert-${i.id}`).gap(6).items_center().px(8).py(4).rounded(6).border_1().border_color(i.color)
       .text_size(z - 1.5).cursor_pointer().hover((s) => s.bg(t.hover)).on_mouse_down("left", stop)
       .on_click((_e, cx) => onSelect?.(i.who, cx))
-      .child(div().size(7).flex_none().rounded(4).bg(i.color)).child(div().flex_1().min_w(0).child(i.text)));
+      .child(div().size(7).flex_none().rounded(4).bg(i.color)).child(div().flex_1().min_w(0).child(i.text))
+      .when(Boolean(i.nudge && onNudge), (el) => {
+        const key = `${i.nudge.from}>${i.nudge.to}@${i.nudge.at}`, done = nudged.has(key);
+        return el.child(btn(t, z, `kit-graph-nudge-${i.id}`, done ? "已提醒" : "提醒它回", { tiny: true, off: done, on: (cx) => onNudge(i.nudge, cx) }));
+      }));
   return box;
 }
 

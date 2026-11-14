@@ -110,6 +110,99 @@ end)
 os.exit(0)
 `;
 
+// The reply hook, a Claude Code Stop hook run with `nvim -l`, written next to the snap hook
+// (~/.config/nvim-jay/reply_hook.lua) on every machine nvim-jay runs on. When an agent is about to stop, it looks at
+// what came in since its last stop: a message from another agent (herdr-core's <hc from="…"> tag) it hasn't answered
+// with `hc send` to that agent, and that doesn't say it wants no answer (不用回, 不用再回, 不必回, [FYI] in its first line).
+// Then it keeps the agent going once, with a reminder: answer, or just stop if it was only a notice. Once per message
+// (it remembers how far it looked, per session); never twice in a row (stop_hook_active).
+const REPLY_HOOK = String.raw`-- nvim-jay's reply hook: written by nvim-jay (herdr-jay mods/nvim-jay/nvim.js); edits here are overwritten.
+-- Claude Code Stop hook, run as: nvim -l <this file>. Before the agent stops: did a message from another agent come in
+-- (herdr-core's <hc from="..."> tag) since its last stop that it didn't answer with hc send to that agent, and that
+-- doesn't say it wants no answer (不用回, 不用再回, 不必回, [FYI] in its first line)? Then keep it going once with a
+-- reminder (answer, or stop if it was only a notice). How far it looked: ~/.cache/nvim-jay/reply/<session>, so each
+-- message is said once. Anything wrong (no transcript, bad input): stays quiet and lets the agent stop.
+pcall(function()
+  local ok, call = pcall(vim.json.decode, io.read("*a") or "")
+  if not ok or type(call) ~= "table" or call.stop_hook_active == true then return end
+  local path, sid = call.transcript_path, tostring(call.session_id or ""):gsub("[^%w%-_]", "")
+  if type(path) ~= "string" or path == "" or sid == "" then return end
+  local st = vim.uv.fs_stat(path)
+  if not st then return end
+  local TAIL = 4 * 1024 * 1024 -- at most this much of the newest transcript is read
+  local dir = vim.uv.os_homedir() .. "/.cache/nvim-jay/reply"
+  local mark = dir .. "/" .. sid
+  local from = math.max(0, st.size - 256 * 1024) -- the first look: only the last bit
+  local fd = vim.uv.fs_open(mark, "r", 0)
+  if fd then
+    local n = tonumber(vim.uv.fs_read(fd, 32, 0) or "")
+    vim.uv.fs_close(fd)
+    if n and n <= st.size then from = math.max(n, st.size - TAIL) end
+  end
+  vim.fn.mkdir(dir, "p", 448) -- 0700
+  local w = vim.uv.fs_open(mark, "w", 384) -- 0600
+  if w then vim.uv.fs_write(w, tostring(st.size), 0) vim.uv.fs_close(w) end
+  if st.size <= from then return end
+  local r = vim.uv.fs_open(path, "r", 0)
+  if not r then return end
+  local text = vim.uv.fs_read(r, st.size - from, from) or ""
+  vim.uv.fs_close(r)
+  local function no_reply(s)
+    local l = s:lower()
+    return l:find("不用回", 1, true) or l:find("不用再回", 1, true) or l:find("不必回", 1, true) or l:find("不必再回", 1, true)
+      or l:find("[fyi]", 1, true)
+  end
+  -- messages: who (the tag's first word: t7, or machine/t7), where, the first line, a reach="hc send ..." if any
+  local wants, order = {}, {}
+  local pos = 1
+  while true do
+    local s, e, attrs = text:find('<hc from=\\?"([^>]-)\\?">', pos)
+    if not s then break end
+    pos = e + 1
+    local who = attrs:match('^([^"\\]+)') or ""
+    local addr = who:match("^(%S+)") or ""
+    local id = addr:match("([^/]+)$")
+    local name = who:match("^%S+%s+(.+)$")
+    local reach = attrs:match('reach=\\?"(hc send %S+)')
+    local first = (text:sub(e + 1, e + 400):match("^(.-)\\n") or text:sub(e + 1, e + 400)):gsub("</hc>.*$", "")
+    if id and id ~= "" and id ~= vim.env.HC_TERMINAL_ID then
+      if no_reply(first) then
+        wants[id] = nil
+      else
+        if not wants[id] then order[#order + 1] = id end
+        wants[id] = { at = e, addr = addr, name = name, first = first, reach = reach }
+      end
+    end
+  end
+  if not next(wants) then return end
+  -- answers: hc send <target> after the message, the target being its address, its id or its name
+  pos = 1
+  while true do
+    local s, e = text:find("hc send%s+", pos)
+    if not s then break end
+    pos = e + 1
+    local rest = text:sub(e + 1, e + 200):gsub("^%-%-?%w[%w%-]*%s+", "")
+    local target = rest:match('^([^%s\\"]+)') or ""
+    local tid = target:match("([^/]+)$") or ""
+    for id, m in pairs(wants) do
+      if s > m.at and (tid == id or (m.name and target == m.name)) then wants[id] = nil end
+    end
+  end
+  local left = {}
+  for _, id in ipairs(order) do
+    local m = wants[id]
+    if m then
+      local first = vim.fn.strcharpart(m.first, 0, 60)
+      left[#left + 1] = m.addr .. (m.name and (" " .. m.name) or "") .. (first ~= "" and ("（開頭：「" .. first .. "」）") or "")
+        .. (m.reach and ("，它要你用 " .. m.reach .. " 回報") or "")
+    end
+  end
+  if #left == 0 then return end
+  io.stdout:write(vim.json.encode({ decision = "block", reason = "[Herdr 回覆檢查] 這段時間有別的 agent 傳訊息給你，你還沒用 hc send 回："
+    .. table.concat(left, "；") .. "。要回就用 hc send <它的位址> 回給它；只是通知或報告、不用回的話，直接結束就好（這個提醒只出現一次）。" }))
+end)
+`;
+
 export const NVIM_INIT = String.raw`if vim.fn.has("nvim-0.11") == 0 then
   vim.api.nvim_echo({ { "nvim-jay needs Neovim 0.11 or newer (this is " .. tostring(vim.version()) .. ")", "ErrorMsg" } }, true, {})
   return
@@ -322,11 +415,12 @@ local HOME, norm = P.home, P.norm
 -- Size caps: nvim opens, diffs and reads these whole.
 local FILE_MAX = 4 * 1024 * 1024 -- a file follow opens or marks against HEAD (larger: skipped; space o still lists it), a root copy
 local LOG_CATCHUP = 8 * 1024 * 1024 -- log bytes read in one tick; more piled up (nvim was busy): only the newest
--- Keep the snap hook file current (see SNAP_HOOK at the top of nvim.js; enabling it is a Claude Code setting).
+-- Keep the hook files current (SNAP_HOOK and REPLY_HOOK at the top of nvim.js; enabling each is a Claude Code setting).
 -- libuv, not io.open: on Windows io.open goes through the ANSI code page (a non-English user name).
-pcall(function()
-  local f, want = HOME .. "/.config/nvim-jay/snap_hook.lua", [=====[
-${SNAP_HOOK}]=====]
+for _, hook in ipairs({ { "snap_hook.lua", [=====[
+${SNAP_HOOK}]=====] }, { "reply_hook.lua", [=====[
+${REPLY_HOOK}]=====] } }) do pcall(function()
+  local f, want = HOME .. "/.config/nvim-jay/" .. hook[1], hook[2]
   local st = vim.uv.fs_stat(f)
   local fd = st and vim.uv.fs_open(f, "r", 0)
   local have = fd and vim.uv.fs_read(fd, st.size, 0)
@@ -340,7 +434,7 @@ ${SNAP_HOOK}]=====]
     if w then vim.uv.fs_close(w) end
     if not (ok and vim.uv.fs_rename(tmp, f)) then vim.uv.fs_unlink(tmp) end
   end
-end)
+end) end
 -- git found on PATH only (nil: rejected or missing, and then every git feature is skipped: a bare "git" could be
 -- looked up in the project folder again on Windows).
 local GIT = P.bin("git")

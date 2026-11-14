@@ -324,6 +324,39 @@ test("snap hook secrets", function()
   check("snap hook: only the ordinary files copied (no ~/.ssh, ~/.aws, ..., nor a link to one)", vim.deep_equal(got, want), got)
 end)
 
+-- the reply hook: a message from another agent not answered with hc send: keep going once, then quiet
+test("reply hook", function()
+  local hook = HOME .. "/.config/nvim-jay/reply_hook.lua"
+  check("reply hook written", vim.uv.fs_stat(hook) ~= nil)
+  local tr = ROOT .. "/reply.jsonl"
+  local function msg(tag, body) return vim.json.encode({ type = "user", message = { content = tag .. body .. "</hc>\nmore" } }) .. "\n" end
+  local function send(cmd) return vim.json.encode({ type = "assistant", message = { content = { { type = "tool_use", name = "Bash", input = { command = cmd } } } } }) .. "\n" end
+  local function run(sid, active)
+    local r = vim.system({ vim.v.progpath, "--clean", "-l", hook }, { env = { HC_TERMINAL_ID = "t5" },
+      stdin = vim.json.encode({ session_id = sid, transcript_path = tr, stop_hook_active = active or false }), text = true }):wait(20000)
+    local ok, out = pcall(vim.json.decode, r.stdout ~= "" and r.stdout or "null")
+    return r.code, ok and out or r.stdout
+  end
+  write(tr, msg('<hc from="t7 review">', "Two bugs in x.rs") .. msg('<hc from="box/t1p">', "收到，不用再回。")
+    .. msg('<hc from="t3 lead" reach="hc send t3 when done or stuck">', "Review y.rs") .. send("hc send t7 \"thanks\""))
+  local code, out = run("s1")
+  check("t3 unanswered (with its reach); t7 answered; the 不用再回 one: nothing", code == 0 and type(out) == "table" and out.decision == "block"
+    and out.reason:find("t3 lead", 1, true) and out.reason:find("hc send t3", 1, true) and not out.reason:find("t7", 1, true)
+    and not out.reason:find("box/t1p", 1, true), out)
+  code, out = run("s1", true)
+  check("kept going once already: quiet", code == 0 and out == vim.NIL or out == nil, out)
+  code, out = run("s1")
+  check("said once: the next stop with nothing new is quiet", out == vim.NIL or out == nil, out)
+  local f = assert(io.open(tr, "ab")) f:write(msg('<hc from=\"far/t1p\">', "升級好了") .. send("hc send far_main/t1p ok")) f:close()
+  code, out = run("s1")
+  check("a remote one answered by its id under another machine name: quiet", out == vim.NIL or out == nil, out)
+  f = assert(io.open(tr, "ab")) f:write(msg('<hc from="t5 me">', "self") .. msg('<hc from="t9">', "[FYI] deploy done")) f:close()
+  code, out = run("s1")
+  check("from itself, or [FYI]: quiet", out == vim.NIL or out == nil, out)
+  code, out = run("s2", false)
+  check("bad input / no transcript: quiet, exit 0", select(1, run("", false)) == 0)
+end)
+
 -- review 2: git budget per round (a hung mount: one 5 s wait, not one per folder) and only the last Bash of a chunk
 test("git budget", function()
   local hung = ROOT .. "/hung"

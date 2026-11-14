@@ -258,6 +258,37 @@ matcher `Bash|PowerShell`; see [windows.md §5a](windows.md#5a-snap-hook-for-cla
 always exits 0; only if nvim itself can't start does the hook fail (`"onFailure": "continue"` keeps that from blocking).
 Check: after the agent runs a Bash command naming a file, `~/.cache/nvim-jay/snap/` has a folder for it.
 
+### 7a. The reply hook: answer the agents that asked (optional) / 回覆檢查（選用）
+
+Agents talk with `hc send`; a message arrives tagged `<hc from="t7 review">…</hc>`. An agent sometimes reads it and
+stops without answering, and the one that asked waits (the Agents panel's 關係 tab shows it as 還沒回 / 卡住). The
+**reply hook** is a Claude Code Stop hook that catches this at the source: when the agent is about to stop, it looks at
+what came in since its last stop, and for each message from another agent that it didn't answer with `hc send` to
+that agent (by its address, its id under any machine name, or its name), it keeps the agent going once with a reminder:
+answer, or just stop if it was only a notice. A message that says in its first line it wants no answer (`不用回`,
+`不用再回`, `不必回`, `[FYI]`) is never reminded; nor is one from the agent itself. Each message is reminded at most
+once (how far it looked: `~/.cache/nvim-jay/reply/<session>`), and never twice in a row (Claude Code's
+`stop_hook_active`). It reads only the newest part of the transcript (at most 4 MB), runs no other program, and
+anything unexpected (no transcript, bad input) lets the agent stop.
+別的 agent 用 hc send 傳來的訊息，agent 要停之前還沒用 hc send 回，就提醒它一次：要回就回，只是通知就直接結束。
+訊息第一行寫了「不用回」「不用再回」「不必回」或 `[FYI]` 的不提醒；同一則只提醒一次。
+
+nvim-jay writes it next to the snap hook, `~/.config/nvim-jay/reply_hook.lua`, on every machine where it runs. To
+turn it on, add a Stop entry to that machine's `~/.claude/settings.json` (same rules as above: back it up, keep the
+rest, add to `"Stop"` if it is there; full `nvim` path if needed; Windows: under `%USERPROFILE%`):
+
+```json
+"hooks": {
+  "Stop": [
+    { "hooks": [{ "type": "command", "command": "nvim -l ~/.config/nvim-jay/reply_hook.lua" }] }
+  ]
+}
+```
+
+Only Claude Code has this hook; omp and codex agents aren't reminded (the 關係 tab still shows them, with its
+提醒它回 button). Sending yourself: put `不用回` (or `[FYI]`) in the first line of a message that needs no answer, so
+neither the hook nor the 關係 tab waits for one.
+
 ## 8. When something goes wrong / 出問題時
 
 OS-specific problems (install, PATH, keys) are in each install guide. These are the same everywhere:

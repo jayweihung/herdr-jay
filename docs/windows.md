@@ -377,6 +377,17 @@ nvim-jay 開過一次後，在 Claude Code 設定加這個 hook（一次就好�
    `"args": ["-l", "<home>/.config/nvim-jay/snap_hook.lua"]`.
 3. Restart Claude Code (or `/hooks` once). **Check**: §6 step 7 — after Claude changes a file outside the repo with
    a shell command, `<home>\.cache\nvim-jay\snap\` has a new folder and nvim shows red / green.
+4. Optional, the **reply hook** ([nvim-jay.md §7a](nvim-jay.md#7a-the-reply-hook-answer-the-agents-that-asked-optional--回覆檢查選用)):
+   reminds an agent, before it stops, to answer a message another agent sent it. Same file, same `nvim` path as
+   step 2, a `"Stop"` list next to `"PreToolUse"`:
+   選用：要 agent 停之前先回別的 agent 的訊息，再加這段：
+
+   ```json
+     "Stop": [
+       { "hooks": [{ "type": "command", "timeout": 15,
+         "command": "nvim -l <home>/.config/nvim-jay/reply_hook.lua" }] }
+     ]
+   ```
 
 ---
 

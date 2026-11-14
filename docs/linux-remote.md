@@ -323,6 +323,17 @@ server 上的 Claude Code 也要加一次 hook（nvim-jay 在 server 開過一�
 
 Restart the agent. **Check**: after it changes a file outside the repo with a shell command naming its full path,
 `~/.cache/nvim-jay/snap/` has a new folder.
+Optional, the **reply hook** (an agent answers the agents that messaged it before it stops,
+[nvim-jay.md §7a](nvim-jay.md#7a-the-reply-hook-answer-the-agents-that-asked-optional--回覆檢查選用)): add a
+`"Stop"` list next to `"PreToolUse"`:
+選用：要 agent 停之前先回別的 agent 的訊息，再加這段：
+
+```json
+  "Stop": [
+    { "hooks": [{ "type": "command", "timeout": 15,
+      "command": "~/.local/bin/nvim -l ~/.config/nvim-jay/reply_hook.lua" }] }
+  ]
+```
 Added before 2026-11-13? Then the line says `~/.config/jay-nvim/snap_hook.lua` (nvim-jay was called jay-nvim): that
 old file is no longer updated, and its copies go where nvim-jay no longer looks. Change `/.config/jay-nvim/` to
 `/.config/nvim-jay/` in the line (after a new nvim-jay pane has opened there once), restart the agent; the old

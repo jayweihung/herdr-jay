@@ -498,6 +498,18 @@ test("關係: lines leave the facing side, loop out on the right in one column, 
   });
   assert.ok(!hits, "no stretch crosses the middle card");
   assert.ok(far.mid[0] > m.x && far.mid[0] < m.x + m.w && (far.mid[1] > m.y + NODE_H || far.mid[1] < m.y), "the label under or over it");
+  // a narrow panel: the columns go on below in bands that fit it (nothing to scroll sideways), lines between bands
+  // go around the cards too
+  const cols3 = [{ nodes: [{ address: "a" }, { address: "b" }] }, { nodes: [{ address: "m" }] }, { nodes: [{ address: "z" }] }];
+  const narrow = layoutOf(cols3, 420);
+  assert.ok(narrow.w <= 420, `fits: ${narrow.w}`);
+  assert.deepEqual(["a", "b", "m", "z"].map((k) => narrow.at[k].band), [0, 0, 1, 2]);
+  assert.ok(narrow.at.m.y > narrow.at.b.y + NODE_H && narrow.heads[1].y > narrow.at.b.y + NODE_H, "the next column's title under the last card");
+  const mid = layoutOf(cols3, 700);
+  assert.deepEqual(["a", "m", "z"].map((k) => mid.at[k].band), [0, 0, 1]);
+  const cross = curveOf(mid.at.m, mid.at.z);
+  assert.ok(cross.via, "between bands: around");
+  assert.equal(layoutOf(cols3, 0).heads.length, 3);
   const [tip, l, r] = arrowOf([0, 0], [10, 0]);
   assert.deepEqual(tip, [10, 0]);
   assert.ok(l[0] < 10 && r[0] < 10 && l[1] * r[1] < 0, "behind the tip, one on each side");
@@ -547,6 +559,28 @@ test("關係: who waits for whom: still on it, no answer, needs you; chains to t
   // b answers a: no wait any more
   const answered = graphData({ agents, terms: [...terms.filter((r) => r.address !== "b"), { address: "b", sent: [msg("a", 9500)], status_ms: 9600 }], space: null, now: 60000 });
   assert.equal(answered.waits.some((x) => x.from === "a" && x.to === "b"), false);
+  // a message that says it wants no answer: nobody waits
+  for (const text of ["收到，不用再回。", "[FYI] deploy done", "報告如下（不必回）"]) {
+    const fyi = terms.map((r) => (r.address === "a" ? { ...r, sent: [{ ...msg("b", 1000), text }] } : r));
+    assert.equal(graphData({ agents, terms: fyi, space: null, now: 60000 }).waits.some((x) => x.from === "a" && x.to === "b"), false, text);
+  }
+  assert.equal(M.graph.noReply("你要回我嗎"), false);
+  // 提醒它回: on a no-answer line, typed into the one that stopped, only while idle, once
+  {
+    fresh();
+    const th = new Proxy({}, { get: (_t, k) => (k === "then" ? undefined : "#334455") });
+    const alerts = (o) => { H.texts = []; H.strings = []; H.clicks = {}; M.graph.alertsView(th, 13, g, 60000, null, o); return [...H.texts, ...H.strings].join("\n"); };
+    const sent = [];
+    let out = alerts({ onNudge: (w) => sent.push(w) });
+    assert.match(out, /提醒它回/);
+    H.clicks["kit-graph-nudge-chain-h-a-b"]({}, cx);
+    assert.deepEqual(sent.map((w) => `${w.from}>${w.to}`), ["a>b"], "the chain's last link");
+    assert.match(M.graph.nudgeText(g, sent[0]), /^\[Herdr 提醒\] 你還沒回 a 傳給你的訊息（開頭：「x」）。要回就用 hc send/);
+    assert.ok(!M.graph.nudgeText(g, sent[0]).includes("<hc"), "no tag: not taken for an agent's message");
+    out = alerts({ onNudge: () => {}, nudged: new Set([`a>b@1000`]) });
+    assert.match(out, /已提醒/);
+    assert.ok(!/提醒它回/.test(alerts({})), "no button without onNudge");
+  }
   // Herdr's list kept b's status_ms from before; the log knows b stopped after the message
   const stale = terms.map((r) => (r.address === "b" ? { ...r, status_ms: 10 } : r));
   assert.equal(graphData({ agents, terms: stale, space: null, now: 60000 }).waits.find((x) => x.from === "a").state, "working", "without the log: can't tell");

@@ -9,6 +9,20 @@ says which) · **kit** = update kit itself on every machine where agents run (`k
 **snap hook** = a line in Claude Code's `settings.json` on each machine where you added the hook (the entry says
 which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/keys.md).
 
+## 2026-11-14, Agents answer each other: 不用回, 提醒它回, the reply hook
+
+Needs: **mods**; for the hook, a Stop entry in Claude Code's `settings.json` on each machine where you want it
+(after nvim-jay has opened there once).
+
+- A message whose first line says it wants no answer (`不用回`, `不用再回`, `不必回`, `[FYI]`) no longer counts as
+  waiting in the 關係 tab.
+- 提醒它回 next to 還沒回 / 卡住: types a reminder into the agent that stopped without answering (only while it is
+  idle; once per message).
+- The reply hook (Claude Code Stop hook, `~/.config/nvim-jay/reply_hook.lua`, written by nvim-jay): before an agent
+  stops, a message from another agent it didn't answer with `hc send` keeps it going once with a reminder.
+  [docs/nvim-jay.md](docs/nvim-jay.md) §7a.
+- 關係 in a narrow panel: columns that don't fit go on below (like the Agents list), nothing to scroll sideways.
+
 ## 2026-11-14, Agents panel: 關係 matches the Agents list; waits, idle, offline; 放大
 
 Needs: **mods**.

@@ -28,7 +28,7 @@ import { AGENTS_DATA, AGENTS_LOAD, AGENTS_MSG, CTX, NOTE, NODES, fs, stop, isWin
 import { ANIMALS, COLORS } from "./bot-models.js";
 import { readBot, withBot, pickBot, botIcon, botProblem, LiveBot } from "./bots.js";
 import { canDrag, draggable, dropLoop, requestPlace, takeAsks, placeClosed, placeDir, liveNow } from "./place.js";
-import { graphData, graphView, edgeList, alertsView, layoutOf } from "./graph.js";
+import { graphData, graphView, edgeList, alertsView, layoutOf, nudgeText } from "./graph.js";
 import { logTick, eventLog, downMachines } from "./events.js";
 import { timelineView, timelineHeight, SPANS } from "./timeline.js";
 import { sidebarNames } from "./names.js";
@@ -295,7 +295,7 @@ export class Agents {
         // a bigger look: the same tab in its own window, most of the screen (not from that window itself)
         .when(!props()?.big, (el) => el.child(btn(t, z, "kit-graph-big", "放大", { tiny: true,
           on: () => openOverlay({ mod: "kit", props: { role: "agents", big: true, scope: this.scope }, kind: "window", key: "kit-agents-big", width: 0.9, height: 0.85 }) }))))
-      .child(alertsView(t, z, g, now, select) ?? div());
+      .child(alertsView(t, z, g, now, select, { nudged: this.nudged, onNudge: (w, cx) => this.nudge(g, w, cx) }) ?? div());
     if (this.view === "time") {
       const span = SPANS.find(([k]) => k === this.span) ?? SPANS[1];
       return body
@@ -309,6 +309,20 @@ export class Agents {
       .child(div().id("kit-graph-scroll").flex_none().w_full().h(layoutOf(g.cols, this.width ?? 0).h + 12).overflow_x_scrollbar()
         .child(graphView(t, z, g, this.sel, { now, width: this.width ?? 0, onSelect: (a, cx) => { this.sel = a; cx.notify(); } })))
       .child(edgeList(t, z, g, this.sel, now));
+  }
+
+  // 提醒它回: typed into the agent that stopped without answering, only while it is idle (never into one at work or
+  // waiting on a dialog); once per message (this.nudged); a failure is said in the panel
+  nudge(g, w, cx) {
+    this.nudged ??= new Set();
+    const key = `${w.from}>${w.to}@${w.at}`;
+    if (this.nudged.has(key)) return;
+    this.nudged.add(key);
+    const who = g.nodes.find((n) => n.address === w.to)?.name ?? w.to;
+    Promise.resolve(run("terminal.send", { terminal: w.to, text: nudgeText(g, w), if: "idle" }))
+      .then(() => setShared(AGENTS_MSG, { ok: true, label: "提醒", text: `提醒 ${who} 回覆了`, at: Date.now() }))
+      .catch((e) => { this.nudged.delete(key); setShared(AGENTS_MSG, { ok: false, label: "提醒", text: `提醒沒送出（${who} 可能又在忙了）：${e?.message ?? e}`, at: Date.now() }); });
+    cx.notify();
   }
 
   message(t, z, msg) { return messageBox(t, z, "agents", msg, () => setShared(AGENTS_MSG, null)); }

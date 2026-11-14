@@ -9,6 +9,12 @@ says which) · **kit** = update kit itself on every machine where agents run (`k
 **snap hook** = a line in Claude Code's `settings.json` on each machine where you added the hook (the entry says
 which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/keys.md).
 
+## 2026-11-14, 關係: a new 等你同意 / 等站長同意 shows within a minute
+Needs: mods.
+- What waits for a person (kit status's pending) is asked again every minute on each machine that answered (and
+  root's report file read again), not only with the 10-minute load: a `kit pending add` colors its card and Herdr's
+  Agents list within about a minute instead of up to 10.
+
 ## 2026-11-14, 關係: this computer's kit pending says 等你同意
 Needs: mods.
 - A `kit pending add` on this computer waits for you, so its card and line say 等你同意 (orange, red after 10

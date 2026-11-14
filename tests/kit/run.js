@@ -813,6 +813,26 @@ test("agents.waiting (for Herdr's own Agents list, app patch 0010): who waits fo
   view(M, { role: "agents-toggle" }); await settle();
   for (let i = 0; i < 3; i++) { await tick(); await settle(); }
   assert.equal(H.store["agents.waiting"]?.["srv/t1p"]?.hot, true);
+  // a kit pending add between the 10-minute loads: its pending alone asked again within a minute, nothing else replaced
+  fresh(); fakeKit();
+  const status = { kit: "0.6.4", api: "1.6", self: { name: "kit", commit: "abcdef1" }, approvals: { serial: 13, used: 13, valid: true }, sources: [],
+    pending: [{ kind: "owner", id: "hook", what: "要你同意：更新 hook", since: Date.now() - 2 * MIN, machine: "q", dir: "/q", pid: 4374 }] };
+  const plain = H.answer;
+  H.answer = (argv, on) => ((argv[0] === "sh" ? argv[4] : argv[1]) === "status" && on === "srv" ? { code: 0, stdout: JSON.stringify(status), stderr: "" } : plain(argv, on));
+  H.agents = [ag("srv/t1p", "done")]; H.terminals = [{ address: "srv/t1p", status_ms: Date.now() - 3 * MIN, cwd: "/q" }];
+  H.store["kit.machines.v1"] = { done: true, seq: 4, at: Date.now() - 2 * MIN, pendAt: Date.now() - 2 * MIN,
+    rows: [{ key: "m:srv", machine: "srv", state: "ok", hasStatus: true, kit: "0.6.3", pending: [] }, { key: "m:off", machine: "off", state: "down", pending: [] }] };
+  H.hcAnswer = (a) => (a[0] === "get" ? { code: 0, stdout: JSON.stringify({ foreground: { pid: 4374 } }), stderr: "" } : null);
+  assert.equal(M.machines.pendingDue(), true, "a minute since: due");
+  view(M, { role: "agents-toggle" }); await settle();
+  for (let i = 0; i < 3; i++) { await tick(); await settle(); }
+  const d = H.store["kit.machines.v1"];
+  assert.deepEqual(d.rows[0].pending.map((p) => p.id), ["hook"], "the new one is there");
+  assert.equal(d.rows[0].kit, "0.6.3", "the rest of the row stays as the 10-minute load had it");
+  assert.equal(d.seq, 4, "not a full load");
+  assert.equal(kitCalls("status").filter((c) => c.on === "off").length, 0, "a machine that is down is not asked");
+  assert.equal(H.store["agents.waiting"]?.["srv/t1p"]?.hot, false, "Herdr's Agents list has it (orange: 2 minutes)");
+  assert.equal(M.machines.pendingDue(), false, "asked just now: not again for a minute");
 });
 test("關係: an agent done and not looked at says what it said when it stopped (its card, its own alert line); cards waiting for you are colored", (M) => {
   const { graphData, cardState, alertsView, tint } = M.graph, { parseSaid, saidNow } = M.said;

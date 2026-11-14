@@ -33,7 +33,7 @@ import { logTick, eventLog, downMachines } from "./events.js";
 import { SAID, SUBS, BG, STEPS, saidTick } from "./said.js";
 import { timelineView, timelineHeight, SPANS } from "./timeline.js";
 import { sidebarNames } from "./names.js";
-import { loadMachines, machinesDue, machinesData, pendingRows } from "./machines.js";
+import { loadMachines, machinesDue, machinesData, pendingRows, pendingDue, refreshPending } from "./machines.js";
 
 const PANEL = NODES.agents;
 const WHO_TTL = 120000;   // how long a pending's agent (found by its pid) is kept
@@ -126,9 +126,9 @@ export class Agents {
       cx.timer.every(2000, () => { try { logTick(); } catch {} });   // the 關係 timeline's log, while Herdr runs
       // background work of done agents for Herdr's Agents list (agents.busy), and what they said, while Herdr runs
       cx.timer.every(2000, (cx) => { try { saidTick(agents(), terminals(), cx); } catch {} });
-      // who waits for the owner's OK, for Herdr's own Agents list too (agents.waiting): kit status every 10 minutes
+      // who waits for the owner's OK, for Herdr's own Agents list too (agents.waiting): kit status every 10 minutes, its pending every minute
       cx.timer.every(5000, (cx) => {
-        try { if (machinesDue()) loadMachines(cx); whoTick(cx); publishWaiting(); } catch {}
+        try { if (machinesDue()) loadMachines(cx); else if (pendingDue()) refreshPending(cx); whoTick(cx); publishWaiting(); } catch {}
       });
       return;
     }

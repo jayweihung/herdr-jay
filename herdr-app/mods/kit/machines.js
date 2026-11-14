@@ -215,6 +215,34 @@ async function askReport(row) {
   return r.status ? { state: "ok", ...r.status, reportedAt: r.status.at, hasStatus: true } : { state: "error", why: r.why };
 }
 
+// what waits for a person changes by the minute (an agent's kit pending add), the rest of a row by the day: between
+// the 10-minute loads, each row that answered is asked again for pending alone every PEND_EVERY (kit status there,
+// 0.1–0.3 s; a report file read again), and only its pending is replaced. One at a time across every copy (pendAt).
+export const PEND_EVERY = 60000;
+let pendBusy = false;
+export function pendingDue() { const d = machinesData(); return Boolean(d?.rows && d.done) && !pendBusy && !machinesLoading() && Date.now() - Math.max(d.pendAt ?? 0, d.at ?? 0) > PEND_EVERY; }
+export function refreshPending(cx) {
+  const d = machinesData();
+  if (!d?.rows || pendBusy) return;
+  pendBusy = true;
+  setShared(MACHINES, { ...d, pendAt: Date.now() });
+  const seq = d.seq;
+  cx.spawn(async (cx) => {
+    try {
+      const got = {};
+      await Promise.all(d.rows.filter((r) => r.state === "ok" && r.hasStatus).map(async (row) => {
+        try {
+          const s = row.reported ? await askReport(row) : await askKit(row.machine);
+          if (s.state === "ok" && s.hasStatus) got[row.key] = s.pending ?? [];
+        } catch {}
+      }));
+      const now = machinesData();
+      if (now?.seq !== seq || !Object.keys(got).length) return;   // a full load started meanwhile: it has newer
+      setShared(MACHINES, { ...now, rows: (now.rows ?? []).map((r) => (r.key in got ? { ...r, pending: got[r.key] } : r)) });
+    } finally { pendBusy = false; cx.notify(); }
+  });
+}
+
 export function loadMachines(cx) {
   const seq = (machinesData()?.seq ?? 0) + 1, started = Date.now();
   setShared(MACHINES, { ...(machinesData() ?? {}), seq, started, done: false });

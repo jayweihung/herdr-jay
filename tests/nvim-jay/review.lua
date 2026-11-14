@@ -21,7 +21,7 @@ local function list_text() return table.concat(api.nvim_buf_get_lines(R.list, 0,
 
 test("start", function()
   check("review mode on, the list on the left", R ~= nil and vim.bo[R.list].filetype == "nvim-jay-review")
-  check("no netrw tree", #vim.tbl_filter(function(w) return vim.bo[api.nvim_win_get_buf(w)].filetype == "netrw" end, api.nvim_tabpage_list_wins(0)) == 0)
+  check("no file tree (the list is on the left instead)", #vim.tbl_filter(function(w) local ft = vim.bo[api.nvim_win_get_buf(w)].filetype return ft == "netrw" or ft == "NvimTree" end, api.nvim_tabpage_list_wins(0)) == 0)
   check("the list names the change and every file", list_text():find("#7 第 2 版", 1, true) and list_text():find("a.txt", 1, true)
     and list_text():find("n.txt 新增", 1, true) and list_text():find("gone.txt 刪除", 1, true), list_text())
   check("opened the first file not seen", cur_rel() == "a.txt", cur_rel())
@@ -45,6 +45,15 @@ test("next file, deleted file, hunks", function()
   R.order = "tests"
   check("o: tests first", RV.ordered()[1].path == "t_test.txt")
   R.order = "gerrit"
+  -- one click on a row of the list opens that file (nvim moved the cursor there first)
+  for _, w in ipairs(api.nvim_tabpage_list_wins(0)) do
+    if api.nvim_win_get_buf(w) == R.list then
+      api.nvim_set_current_win(w)
+      for i, e in pairs(R.rows) do if e.path == "n.txt" then api.nvim_win_set_cursor(w, { i, 0 }) end end
+    end
+  end
+  JN.click_open("list")
+  check("one click on the list opens that file", cur_rel() == "n.txt" and api.nvim_get_current_buf() ~= R.list, cur_rel())
   R.open(RV.ordered()[1])
   api.nvim_win_set_cursor(0, { 1, 0 })
   RV.hunk(1)

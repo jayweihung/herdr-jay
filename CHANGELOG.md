@@ -9,6 +9,22 @@ says which) · **kit** = update kit itself on every machine where agents run (`k
 **snap hook** = a line in Claude Code's `settings.json` on each machine where you added the hook (the entry says
 which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/keys.md).
 
+## 2026-11-14, nvim-jay: a real file tree, one-click lists, a typing box; works on Linux again
+
+Needs: **mods** (Windows: copy nvim-jay again, it now has a `nvim-tree` folder), then open nvim again.
+
+- The file tree is nvim-tree (bundled; the `nvim-jay` mod folder is now GPL-3.0, the rest stays Apache-2.0). One click
+  on a folder opens or closes it, one click on a file opens it; right-click: 新增檔案, 改名, 複製路徑, 重新整理, and the
+  agent's files and follow (moved here from the code menu). Its git runs with nvim-jay's protections.
+- One click opens in every list (errors, comments, a review's files). The errors list shows each place once, with
+  short paths. The middle button no longer pastes.
+- The code menu shows 跳到定義 / 找所有用到的地方 / 改名 only on a name; 看型別 is gone (rest the pointer on the name).
+- Typing a name or a comment: a box under the line (Enter 送出 · Esc 取消, a click outside cancels) instead of the
+  bottom line.
+- Fixed: since the 「在 nvim 看」 entry below, nvim-jay couldn't start on Linux machines (its Lua was over Linux's 131072-byte limit for one
+  argument). The Lua and the tree now go to `~/.cache/nvim-jay` on that machine first, once per version.
+檔案樹換成 nvim-tree（點一下就開）；清單都點一下就開；中鍵不再貼上；打字改在游標下面的小框；Linux 機器上又能開了。
+
 ## 2026-11-14, nvim-jay: one menu on right-click
 
 Needs: **mods** (Windows: copy nvim-jay again), then open nvim again.

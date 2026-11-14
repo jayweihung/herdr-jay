@@ -85,3 +85,7 @@ Keys: only the two nvim-jay keys ([docs/nvim-jay.md](docs/nvim-jay.md#2-keys--�
 ## License
 
 Apache License 2.0 (the same as Herdr). See [LICENSE](LICENSE). Copyright 2026 jayweihung.
+
+Except `herdr-app/mods/nvim-jay/`: GPL-3.0 ([its LICENSE.txt](herdr-app/mods/nvim-jay/LICENSE.txt)), because it bundles
+[nvim-tree](https://github.com/nvim-tree/nvim-tree.lua) (GPL-3.0) for its file tree.
+`herdr-app/mods/nvim-jay/` 這個資料夾是 GPL-3.0（裡面帶了 GPL-3.0 的 nvim-tree），其他照舊 Apache-2.0。

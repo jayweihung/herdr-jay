@@ -14,6 +14,7 @@ Windows `"ctrl-shift-i": "mod.open:nvim-jay"`, `"ctrl-shift-j": "mod.open:agent-
 Needs Neovim 0.11+, git and Herdr's `hc` on the machine where the pane opens.
 
 Files: `main.js` (picks the launcher), `unix.js` (macOS / Linux / other machines), `windows.js` (Windows),
-`mark.js` (argv marker agent-files looks for), `nvim.js` (the Lua; OS differences in its PLATFORM section).
+`mark.js` (argv marker agent-files looks for), `nvim.js` (the Lua; OS differences in its PLATFORM section),
+`ship.js` + `send.js` (put the Lua and the tree on the machine nvim runs on), `nvim-tree/` (the file tree, bundled).
 
-License: Apache 2.0 (see the repo's LICENSE). Comment spans and message shape follow herdr-nvim (MIT, ChmaraX/herdr-nvim).
+License: GPL-3.0 (`LICENSE.txt`), because it bundles nvim-tree (GPL-3.0); the rest of herdr-jay is Apache 2.0. Comment spans and message shape follow herdr-nvim (MIT, ChmaraX/herdr-nvim).

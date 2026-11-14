@@ -3,7 +3,7 @@
 //
 // - reload: an agent edits files beside this pane; nvim only rereads on focus or :checktime,
 //   so a timer checks every second, and each reload is diffed so the changed lines stand out
-// - tree: netrw on the right
+// - tree: nvim-tree on the right (bundled in ./nvim-tree, sent to the machine by ship.js)
 // - agent: <leader>o lists the files the agent beside read or edited; <leader>ac/al/ad/as
 //   comment lines and send the comments to it with hc send
 // - lsp: go to definition, hover and lint errors from whichever servers this machine has (not as root)
@@ -540,75 +540,108 @@ api.nvim_create_autocmd("BufModifiedSet", { group = AUG, callback = function(a)
   end
   warned[a.buf] = others
 end })
-vim.g.netrw_banner, vim.g.netrw_liststyle, vim.g.netrw_browse_split, vim.g.netrw_winsize = 0, 3, 4, 25
--- A narrow side pane: one statusline, wrapped lines that keep their indent, no "~" past the end,
--- and a tree without the .gitignore'd files or the ../ entry
+-- A narrow side pane: one statusline, wrapped lines that keep their indent, no "~" past the end
 vim.o.laststatus, vim.o.signcolumn, vim.o.cursorline = 3, "yes", true
 vim.o.linebreak, vim.o.breakindent, vim.o.display = true, true, "lastline"
 vim.opt.fillchars:append({ eob = " ", lastline = " " })
--- Hide() returns git's error text when git fails (root's nvim in your repo: dubious ownership, two lines = an
--- empty pattern) and "" in a repo with nothing ignored; either way an empty pattern hid every file
-pcall(function()
-  if not GIT then error("no git") end
-  -- netrw runs plain "git ls-files --other --ignored" through the shell (no filters, but core.fsmonitor and a
-  -- fetch): switch those off through the environment, in GIT_CONFIG_PARAMETERS' old 'key=value' form that every git
-  -- reads (GIT_CONFIG_COUNT needs 2.31), added to any value already set; then restore the environment
-  local keep = { vim.env.GIT_CONFIG_PARAMETERS, vim.env.GIT_OPTIONAL_LOCKS, vim.env.GIT_NO_LAZY_FETCH }
-  vim.env.GIT_CONFIG_PARAMETERS = (keep[1] and keep[1] .. " " or "") .. "'core.fsmonitor=false' 'protocol.allow=never'"
-  vim.env.GIT_OPTIONAL_LOCKS, vim.env.GIT_NO_LAZY_FETCH = "0", "1"
-  local ok, h = pcall(vim.fn["netrw_gitignore#Hide"])
-  vim.env.GIT_CONFIG_PARAMETERS, vim.env.GIT_OPTIONAL_LOCKS, vim.env.GIT_NO_LAZY_FETCH = keep[1], keep[2], keep[3]
-  if not ok then error(h) end
-  vim.g.netrw_list_hide = (vim.v.shell_error == 0 and h ~= "" and h .. "," or "") .. [[^\.\.\=/\=$]]
-end)
-local function has_tree()
-  for _, w in ipairs(api.nvim_tabpage_list_wins(0)) do
-    if vim.bo[api.nvim_win_get_buf(w)].filetype == "netrw" then return true end
-  end
-end
--- ! puts the tree on the right; the file window keeps focus. Lexplore toggles: not again on a re-run.
+-- ===================================== TREE =====================================
+-- The file tree on the right is nvim-tree (GPL-3.0), bundled with this mod: g:nvim_jay_tree is its folder (the
+-- launcher sets it and turns netrw off before it loads). Set up here with plain characters (no Nerd Font): ▸ ▾
+-- folders, ✗ changed, + staged, ? new, ● errors; the file on the right is the tree's highlighted line, and a file
+-- outside the tree's folder moves the tree there. .gitignore'd files are hidden. Keys: Enter / o open, R relists;
+-- none of nvim-tree's others (its d deletes). The mouse and the right-click menu: MENU below.
 -- (A Gerrit review has its list of changed files on the left instead: REVIEW below.)
-if not has_tree() and not (type(vim.g.nvim_jay_review) == "string" and vim.g.nvim_jay_review ~= "") then vim.cmd("Lexplore! | wincmd h") end
--- The tree keeps at least 30 columns (25% of a 90-column pane was 16), also after the pane resizes
-local tree_ns = api.nvim_create_namespace("nvim-jay-tree")
-api.nvim_set_hl(0, "QtTreeCur", { bg = "#1f4f7a", bold = true })
+local TREE = {}
+-- nvim-tree's git calls start with this (its one change: nvim-tree/lua/nvim-tree/git/jay.lua): git by its full path
+-- and the same switches as nvim's own git (the repo's fsmonitor, filters and hooks off, no fetch, no submodules);
+-- nil, no git for that repo, when nvim wouldn't run git there either. Read again after 10 s (the tree asks often).
+local tree_guard = {}
+function JN.tree_git(dir)
+  if not GIT or GIT_STUCK.on then return nil end
+  local now, c = vim.uv.now(), tree_guard[dir]
+  if not c or now - c.at > 10000 then
+    c = { at = now, guard = git_guard(dir) }
+    tree_guard[dir] = c
+  end
+  if not c.guard then return nil end
+  return vim.list_extend({ GIT, "-c", "protocol.allow=never", "-c", "core.hooksPath=" .. NO_HOOKS,
+    "-c", "diff.ignoreSubmodules=all" }, c.guard)
+end
 local function tree_wins()
-  return vim.tbl_filter(function(w) return vim.bo[api.nvim_win_get_buf(w)].filetype == "netrw" end,
+  return vim.tbl_filter(function(w) return vim.bo[api.nvim_win_get_buf(w)].filetype == "NvimTree" end,
     api.nvim_tabpage_list_wins(0))
 end
-local function tree_width()
-  for _, w in ipairs(tree_wins()) do
-    api.nvim_win_set_width(w, math.max(30, math.floor(vim.o.columns / 4)))
-    vim.wo[w].winfixwidth = true
+local function tree_width() return math.max(30, math.floor(vim.o.columns / 4)) end -- 25% of a 90-column pane was 16
+do
+  local dir = vim.g.nvim_jay_tree
+  if type(dir) == "string" and dir ~= "" and vim.uv.fs_stat(dir .. "/lua/nvim-tree.lua") then
+    if not vim.tbl_contains(vim.opt.rtp:get(), dir) then vim.opt.rtp:prepend(dir) end
+    TREE.api = select(2, pcall(require, "nvim-tree.api"))
   end
+  if type(TREE.api) ~= "table" then TREE.api = nil end
 end
-tree_width()
-api.nvim_create_autocmd("VimResized", { group = AUG, callback = tree_width })
--- Mark the file shown on the right in the tree. Each "| " is one level below w:netrw_treetop;
--- the full path is matched, not the name, so two __init__.py never get mixed up.
-local function tree_mark(path)
-  for _, w in ipairs(tree_wins()) do
-    local b, top = api.nvim_win_get_buf(w), vim.w[w].netrw_treetop
-    api.nvim_buf_clear_namespace(b, tree_ns, 0, -1)
-    local stack = {}
-    for i, l in ipairs(top and api.nvim_buf_get_lines(b, 0, -1, false) or {}) do
-      local bars = l:match("^[| ]*")
-      local depth = math.floor(#bars / 2)
-      if depth > 0 then
-        stack[depth] = (l:sub(#bars + 1):gsub("[*@=/]$", "")) -- netrw marks executables *, links @
-        if P.key((norm(top):gsub("/$", "")) .. "/" .. table.concat(stack, "/", 1, depth)) == P.key(path) then
-          api.nvim_buf_set_extmark(b, tree_ns, i - 1, 0, { line_hl_group = "QtTreeCur" })
-          api.nvim_win_set_cursor(w, { i, 0 })
-          break
-        end
-      end
-    end
+api.nvim_set_hl(0, "QtTreeCur", { bg = "#1f4f7a", bold = true })
+if TREE.api then
+  local function attach(b)
+    local o, map = { buffer = b, nowait = true, silent = true }, vim.keymap.set
+    map("n", "<CR>", function() TREE.api.node.open.edit() end, vim.tbl_extend("force", o, { desc = "打開／展開" }))
+    map("n", "o", function() TREE.api.node.open.edit() end, vim.tbl_extend("force", o, { desc = "打開／展開" }))
+    map("n", "R", function() TREE.api.tree.reload() end, vim.tbl_extend("force", o, { desc = "重新整理" }))
   end
+  local ok, err = pcall(function()
+    require("nvim-tree").setup({
+      on_attach = attach,
+      disable_netrw = true, hijack_netrw = true, hijack_cursor = true, -- the cursor at the name's start, not inside it
+      view = { side = "right", width = tree_width, preserve_window_proportions = true, signcolumn = "no" },
+      renderer = {
+        root_folder_label = ":~", add_trailing = true, highlight_git = "name",
+        icons = {
+          show = { file = false, folder = false, folder_arrow = true, git = true, modified = false, diagnostics = true, bookmarks = false },
+          diagnostics_placement = "after", padding = { folder_arrow = " " },
+          glyphs = {
+            folder = { arrow_closed = "▸", arrow_open = "▾" },
+            git = { unstaged = "✗", staged = "+", unmerged = "!", renamed = "→", untracked = "?", deleted = "−", ignored = " " },
+          },
+        },
+      },
+      git = { enable = GIT ~= nil, timeout = 2000 },
+      diagnostics = { enable = true, show_on_dirs = true, icons = { error = "●", warning = "●", info = "·", hint = "·" } },
+      filters = { git_ignored = true, dotfiles = false, custom = { "^\\.git$" } },
+      update_focused_file = { enable = true, update_root = { enable = true } },
+      actions = {
+        change_dir = { enable = false },
+        open_file = { resize_window = false, window_picker = { enable = false } },
+      },
+      notify = { threshold = vim.log.levels.WARN },
+    })
+    require("nvim-tree.commands").setup()
+  end)
+  if not ok then vim.notify("檔案樹（nvim-tree）開不起來：" .. tostring(err), vim.log.levels.ERROR) TREE.api = nil end
+  api.nvim_set_hl(0, "NvimTreeCursorLine", { link = "QtTreeCur" })
+  -- the statusline while in the tree: which folder it shows, not its buffer's name (NvimTree_1)
+  function JN.tree_status()
+    local ok, root = pcall(function() return TREE.api.tree.get_nodes().absolute_path end)
+    local path = ok and root and vim.fn.fnamemodify(root, ":~"):gsub("%%", "%%%%") or ""
+    return "  檔案樹　%<" .. path -- a long path is cut, not the label
+  end
+  api.nvim_create_autocmd({ "BufWinEnter", "FileType" }, { group = AUG, callback = function(a)
+    vim.schedule(function() -- after nvim-tree has set its window up
+      if not api.nvim_buf_is_valid(a.buf) or vim.bo[a.buf].filetype ~= "NvimTree" then return end
+      for _, w in ipairs(vim.fn.win_findbuf(a.buf)) do vim.wo[w].statusline = "%!v:lua.JN.tree_status()" end
+    end)
+  end })
 end
-api.nvim_create_autocmd("BufWinEnter", { group = AUG, callback = function(a)
-  if vim.bo[a.buf].buftype ~= "" then return end -- the tree itself is a nofile buffer
-  local path = norm(api.nvim_buf_get_name(a.buf))
-  vim.schedule(function() tree_mark(path) end) -- after netrw finishes moving its own cursor
+pcall(api.nvim_del_augroup_by_name, "FileExplorer") -- netrw, when the launcher couldn't turn it off first
+-- the tree on the right, the file window keeps focus; not again on a re-run
+function JN.tree_open()
+  if not TREE.api or #tree_wins() > 0 then return end
+  local w = api.nvim_get_current_win()
+  TREE.api.tree.open({ find_file = true })
+  if api.nvim_win_is_valid(w) then api.nvim_set_current_win(w) end
+end
+if not (type(vim.g.nvim_jay_review) == "string" and vim.g.nvim_jay_review ~= "") then JN.tree_open() end
+api.nvim_create_autocmd("VimResized", { group = AUG, callback = function()
+  for _, w in ipairs(tree_wins()) do api.nvim_win_set_width(w, tree_width()) end
 end })
 
 -- The agent beside this nvim: the one non-shell terminal in the same Herdr tab (hc ls "where").
@@ -868,8 +901,8 @@ function JN.agent_files(t)
   return paths_in(text, start == 0 and 1 or 2) -- line 1 may start mid-record
 end
 
--- The window that shows files, not the netrw tree (nor a review's list of files).
-local SIDE = { netrw = true, ["nvim-jay-review"] = true }
+-- The window that shows files, not the tree (nor a review's list of files).
+local SIDE = { NvimTree = true, ["nvim-jay-review"] = true }
 local function edit_win()
   local cur = vim.api.nvim_get_current_win()
   if not SIDE[vim.bo[vim.api.nvim_win_get_buf(cur)].filetype] then return cur end
@@ -1172,30 +1205,8 @@ local function follow_tick()
     if not st or st.type ~= "file" or st.size > FILE_MAX then return end
   end
   follow.last = it
-  local dir = norm(vim.fs.dirname(it.path))
-  for _, nw in ipairs(it.root and not vim.uv.fs_access(dir, "X") and {} or tree_wins()) do -- the tree shows the file's folder
-    -- re-root the tree there: under the old root, netrw would only set curdir and leave a deep folder collapsed.
-    -- Checked on the tree itself, not "folder changed": a rebuilt tree (a new :Lexplore) starts back at cwd
-    if P.key((norm(tostring(vim.w[nw].netrw_treetop)):gsub("/$", ""))) ~= P.key(dir) then
-      vim.w[nw].netrw_treetop = nil
-      vim.api.nvim_win_call(nw, function() vim.cmd("silent Explore " .. vim.fn.fnameescape(dir)) end)
-      tree_width()
-    else
-      -- same folder, but a file the agent just made isn't listed yet: list the folder again (once per file,
-      -- so a git-ignored file, which the tree hides, doesn't relist it every time)
-      local name, shown = vim.fs.basename(it.path), false
-      for _, l in ipairs(vim.api.nvim_buf_get_lines(vim.api.nvim_win_get_buf(nw), 0, -1, false)) do
-        if (l:gsub("^[| ]+", ""):gsub("[*@=/]$", "")) == name then shown = true break end
-      end
-      follow.relisted = follow.relisted or {}
-      if not shown and not follow.relisted[P.key(it.path)] then
-        follow.relisted[P.key(it.path)] = true
-        vim.w[nw].netrw_treetop = nil
-        vim.api.nvim_win_call(nw, function() vim.cmd("silent Explore " .. vim.fn.fnameescape(dir)) end)
-        tree_width()
-      end
-    end
-  end
+  -- the tree follows by itself (nvim-tree's update_focused_file): it opens the file's folder, and moves to it when
+  -- the file is outside the tree's folder; it lists a new file when the folder changes
   vim.api.nvim_win_call(w, function()
     local fresh = false -- opened just now (not loaded before): no reload has marked it yet
     if it.root then
@@ -1363,7 +1374,7 @@ function JN.list()
     table.insert(qf, { filename = c.file, lnum = c.l1, end_lnum = c.l2, text = c.n.text })
   end
   if #qf == 0 then return vim.notify("還沒有註解") end
-  vim.fn.setqflist(qf, "r")
+  vim.fn.setqflist({}, " ", { title = "註解", items = qf })
   vim.cmd("copen")
 end
 
@@ -1487,7 +1498,7 @@ function JN.on_list(o)
   local items = o.items or {}
   if #items == 0 then return end
   if #items > 1 then
-    vim.fn.setqflist({}, " ", o)
+    vim.fn.setqflist({}, " ", vim.tbl_extend("force", o, { title = "找到 " .. #items .. " 個地方" }))
     return vim.cmd("botright copen")
   end
   local it = items[1]
@@ -1504,7 +1515,7 @@ function JN.definition() vim.lsp.buf.definition({ on_list = JN.on_list }) end
 -- still opens Herdr's), passes plain moves once nvim turns on mousemoveevent, and never passes the side buttons.
 vim.o.mousemoveevent = true
 if hc_bin() and vim.env.HC_TERMINAL_ID then vim.system({ hc_bin(), "label", vim.env.HC_TERMINAL_ID, "herdr.right-click=program" }) end
-vim.o.mouse = "a" -- also the command line: a click picks from <leader>o's list and the comment-send choice
+vim.o.mouse = "a" -- every mode
 local hov = { timer = new_timer() }
 local function hover_close()
   if hov.win and api.nvim_win_is_valid(hov.win) then api.nvim_win_close(hov.win, true) end
@@ -1567,6 +1578,8 @@ end
 map("n", "<leader>q", JN.toggle_list, { desc = "下面的清單（開／關）" })
 api.nvim_create_autocmd("FileType", { group = AUG, pattern = "qf", callback = function(a)
   map("n", "q", "<Cmd>cclose<CR>", { buffer = a.buf, desc = "關掉清單" })
+  -- its statusline: what the list is and how to use it, not "[Quickfix List]"
+  vim.wo.statusline = "  %{get(w:, 'quickfix_title', '清單')}　%<按一下跳過去 · q 關掉"
 end })
 -- ===================================== MENU =====================================
 -- One menu, drawn like a desktop app's, for the mouse and the keys: right-click opens it at the mouse (Enter in a file
@@ -1786,7 +1799,7 @@ function M.open(items, opts)
   hover_close()
   hov.timer:stop()
   M.opts, M.origin = opts, api.nvim_get_current_win()
-  local okst, st = pcall(api.nvim_eval_statusline, vim.o.statusline ~= "" and vim.o.statusline or "%f", { winid = M.origin })
+  local okst, st = pcall(api.nvim_eval_statusline, vim.wo[M.origin].statusline ~= "" and vim.wo[M.origin].statusline or "%f", { winid = M.origin })
   M.status = okst and st.str:gsub("%%", "%%%%") or nil
   local pos
   if opts.at == "mouse" then
@@ -1804,18 +1817,77 @@ function M.open(items, opts)
   vim.o.guicursor = "a:QtMenuCursor"
   level(rows, pos, opts.title)
 end
+-- a prompt as a title: without the ":" or "：" at its end ("：" is three bytes, not a character class member)
+function JN.bare_prompt(p)
+  p = vim.trim(tostring(p))
+  for _, c in ipairs({ ":", "：" }) do if vim.endswith(p, c) then p = vim.trim(p:sub(1, -#c - 1)) end end
+  return p
+end
 -- every list nvim asks to pick from (which agent, which patch set, a language server's code actions…)
 function M.select(items, opts, cb)
   opts = opts or {}
   local fmt, list = opts.format_item or tostring, {}
   for i, x in ipairs(items) do list[#list + 1] = { label = fmt(x), fn = function() cb(x, i) end } end
-  local title = opts.prompt and vim.trim(tostring(opts.prompt):gsub("[:：]%s*$", "")) or nil
+  local title = opts.prompt and JN.bare_prompt(opts.prompt) or nil
   M.open(list, { title = title ~= "" and title or nil, on_cancel = function() cb(nil, nil) end })
 end
 vim.ui.select = M.select
+-- Typing a line (a comment, a reply, a new name): a box under the cursor's line, titled with what it is for, not the
+-- command line at the bottom. Enter sends it, Esc or a click outside cancels (on_confirm(nil)); it grows as it wraps.
+local IN = {}
+local IN_TITLE = { ["New Name"] = "新的名字", ["Create"] = "新增檔案（名稱後面加 / 是資料夾）", ["Rename to"] = "改名成" }
+function M.input(opts, on_confirm)
+  opts = opts or {}
+  if IN.finish then IN.finish(nil) end
+  M.close(false)
+  hover_close()
+  local title = JN.bare_prompt(opts.prompt or "")
+  title = IN_TITLE[title] or title
+  local origin, b = api.nvim_get_current_win(), api.nvim_create_buf(false, true)
+  vim.bo[b].bufhidden = "wipe"
+  api.nvim_buf_set_lines(b, 0, -1, false, { (tostring(opts.default or ""):gsub("\n", " ")) })
+  local hint = " Enter 送出 · Esc 取消 "
+  local width = math.min(vim.o.columns - 4, math.max(60, vim.fn.strdisplaywidth(title) + 4, vim.fn.strdisplaywidth(hint) + 4))
+  local p = vim.fn.screenpos(0, vim.fn.line("."), vim.fn.col("."))
+  local row = p.row > 0 and p.row or math.floor(vim.o.lines / 2) -- just under the line (0-based rows)
+  if row + 3 > vim.o.lines - 2 then row = math.max(0, row - 4) end -- no room below: above it
+  local col = math.max(0, math.min((p.col > 0 and p.col or 1) - 2, vim.o.columns - width - 2))
+  local w = api.nvim_open_win(b, true, { relative = "editor", row = row, col = col, width = width, height = 1,
+    style = "minimal", border = "rounded", zindex = 260, noautocmd = true,
+    title = title ~= "" and { { " " .. title .. " ", "QtMenu" } } or nil, title_pos = "left",
+    footer = { { hint, "QtMenuHint" } }, footer_pos = "right" })
+  vim.wo[w].wrap, vim.wo[w].linebreak = true, true
+  local okst, st = pcall(api.nvim_eval_statusline, vim.wo[origin].statusline ~= "" and vim.wo[origin].statusline or "%f", { winid = origin })
+  if okst then vim.wo[w].statusline = st.str:gsub("%%", "%%%%") end -- the window it is for, not [Scratch]
+  vim.wo[w].winhighlight = "Normal:QtMenu,FloatBorder:QtMenuBorder"
+  local done = false
+  local function finish(text)
+    if done then return end
+    done, IN.finish = true, nil
+    vim.cmd("stopinsert")
+    pcall(api.nvim_win_close, w, true)
+    if api.nvim_win_is_valid(origin) then api.nvim_set_current_win(origin) end
+    vim.schedule(function() on_confirm(text) end)
+  end
+  IN.finish = finish
+  local function send() finish(table.concat(api.nvim_buf_get_lines(b, 0, -1, false), " ")) end
+  local o = { buffer = b, nowait = true }
+  map({ "i", "n" }, "<CR>", send, o)
+  map({ "i", "n" }, "<Esc>", function() finish(nil) end, o)
+  map({ "i", "n" }, "<C-c>", function() finish(nil) end, o)
+  map("n", "q", function() finish(nil) end, o)
+  map({ "i", "n" }, "<RightMouse>", "<Nop>", o) -- the menu would take the focus away (and so cancel)
+  api.nvim_create_autocmd("WinLeave", { buffer = b, once = true, callback = function() finish(nil) end })
+  api.nvim_create_autocmd({ "TextChanged", "TextChangedI" }, { buffer = b, callback = function()
+    if api.nvim_win_is_valid(w) then api.nvim_win_set_height(w, math.min(8, math.max(1, api.nvim_win_text_height(w, {}).all))) end
+  end })
+  vim.cmd("startinsert!")
+end
+vim.ui.input = M.input
 
--- what it lists. ctx: { buf, win, line, lines = { l1, l2 } when lines are selected }
+-- what it lists. ctx: { buf, win, line, lines = { l1, l2 } when lines are selected, tree = in the file tree }
 function M.items(ctx)
+  if ctx.tree then return M.tree_items(ctx) end
   local out = {}
   for _, s in ipairs(M.sections) do
     local got = s(ctx)
@@ -1827,7 +1899,8 @@ function M.items(ctx)
   return out
 end
 function M.show(at, lines)
-  local ctx = { buf = api.nvim_get_current_buf(), win = api.nvim_get_current_win(), line = vim.fn.line("."), lines = lines }
+  local b = api.nvim_get_current_buf()
+  local ctx = { buf = b, win = api.nvim_get_current_win(), line = vim.fn.line("."), lines = lines, tree = vim.bo[b].filetype == "NvimTree" }
   M.open(M.items(ctx), { at = at, lines = lines })
 end
 -- in a file nobody is reviewing: the language server, errors, comments for the agent, the agent's files, editing
@@ -1840,12 +1913,12 @@ local function note_on(b, l)
   end
 end
 M.sections = {
-  function(ctx) -- the language server
+  function(ctx) -- the language server: on a name (its type shows when the mouse rests on it)
     if ctx.lines then return end
     local out, lsp = {}, vim.lsp.get_clients({ bufnr = ctx.buf })[1] ~= nil
-    if lsp then
+    local ch = api.nvim_get_current_line():sub(vim.fn.col("."), vim.fn.col("."))
+    if lsp and (ch:match("[%w_]") or ch:byte() and ch:byte() >= 128) then
       vim.list_extend(out, {
-        { icon = "💡", label = "看型別", hint = "K", fn = vim.lsp.buf.hover },
         { icon = "🎯", label = "跳到定義", hint = "gd", fn = JN.definition },
         { icon = "🔎", label = "找所有用到的地方", hint = "grr", fn = vim.lsp.buf.references },
         { icon = "🔤", label = "改名", hint = "grn", fn = vim.lsp.buf.rename },
@@ -1860,9 +1933,8 @@ M.sections = {
     for _, w in ipairs(vim.fn.getwininfo()) do
       if w.quickfix == 1 and w.tabnr == vim.fn.tabpagenr() then return { { icon = "📋", label = "關掉下面的清單", hint = "␣q", fn = function() vim.cmd("cclose") end } } end
     end
-    local n = 0
-    for _, c in pairs(vim.diagnostic.count()) do n = n + c end
-    if n > 0 then return { { icon = "🚨", label = ("列出所有錯誤（%d 個）"):format(n), fn = function() vim.diagnostic.setqflist() end } } end
+    local n = #JN.error_items()
+    if n > 0 then return { { icon = "🚨", label = ("列出所有錯誤（%d 個）"):format(n), fn = JN.errors } } end
   end,
   function(ctx) -- comments for the agent (in a Gerrit change: its own comments instead)
     if not file(ctx) or reviewing(ctx) then return end
@@ -1876,13 +1948,6 @@ M.sections = {
       out[#out + 1] = { icon = "📨", label = ("註解送給 agent（%d 條）"):format(n), hint = "␣as", fn = JN.send }
     end
     return out
-  end,
-  function(ctx) -- the agent's files
-    if ctx.lines or reviewing(ctx) then return end
-    return {
-      { icon = "📂", label = "agent 讀過／改過的檔", hint = "␣o", fn = JN.pick },
-      { icon = "👀", label = follow.on and "不要再跟著 agent 開檔" or "跟著 agent 開檔", hint = "␣af", fn = JN.toggle_follow },
-    }
   end,
   function(ctx) -- editing (in a Gerrit change only copying: its files are the patch set's)
     local mod, out = vim.bo[ctx.buf].modifiable and not reviewing(ctx), {}
@@ -1903,6 +1968,73 @@ M.sections = {
     return out
   end,
 }
+-- in the file tree: what to do with the file or folder clicked, then the tree, then the agent's files
+function M.tree_items(ctx)
+  local A, out = TREE.api, {}
+  if not A then return out end
+  local node = A.tree.get_node_under_cursor()
+  if node and ctx.line > 1 then
+    if node.type == "directory" then
+      out[#out + 1] = { icon = node.open and "📁" or "📂", label = node.open and "收起" or "展開", hint = "Enter", fn = function() A.node.open.edit(node) end }
+    else
+      out[#out + 1] = { icon = "📄", label = "打開", hint = "Enter", fn = function() A.node.open.edit(node) end }
+    end
+  else -- the top line: the tree's folder
+    out[#out + 1] = { icon = "⏫", label = "到上一層資料夾", fn = function() A.tree.change_root_to_parent() end }
+  end
+  out[#out + 1] = "-"
+  out[#out + 1] = { icon = "🆕", label = "新增檔案（名稱後面加 / 是資料夾）", fn = function() A.fs.create(node) end }
+  if node and ctx.line > 1 then out[#out + 1] = { icon = "🔤", label = "改名", fn = function() A.fs.rename(node) end } end
+  if node and node.absolute_path then
+    out[#out + 1] = { icon = "📋", label = "複製路徑", fn = function()
+      vim.fn.setreg("+", node.absolute_path)
+      api.nvim_echo({ { "已複製：" .. vim.fn.fnamemodify(node.absolute_path, ":~") } }, false, {})
+    end }
+  end
+  out[#out + 1] = { icon = "🔄", label = "重新整理", hint = "R", fn = function() A.tree.reload() end }
+  out[#out + 1] = "-"
+  out[#out + 1] = { icon = "🕘", label = "agent 讀過／改過的檔", hint = "␣o", fn = JN.pick }
+  out[#out + 1] = { icon = "👀", label = follow.on and "不要再跟著 agent 開檔" or "跟著 agent 開檔", hint = "␣af", fn = JN.toggle_follow }
+  return out
+end
+-- All errors in the list at the bottom: one line per place (two language servers often report the same one), worst first
+function JN.error_items()
+  local seen, items = {}, {}
+  local all = vim.diagnostic.get()
+  table.sort(all, function(x, y)
+    if x.bufnr ~= y.bufnr then return x.bufnr < y.bufnr end
+    if x.lnum ~= y.lnum then return x.lnum < y.lnum end
+    if x.col ~= y.col then return x.col < y.col end
+    return x.severity < y.severity
+  end)
+  for _, d in ipairs(all) do
+    local k = d.bufnr .. ":" .. d.lnum .. ":" .. d.col
+    if not seen[k] then seen[k] = true items[#items + 1] = d end
+  end
+  return items
+end
+function JN.errors()
+  vim.fn.setqflist({}, " ", { title = "錯誤", items = vim.diagnostic.toqflist(JN.error_items()) })
+  vim.cmd("botright copen")
+end
+-- How the list at the bottom shows a line: a short path (from the project folder, or the last two folders), not the
+-- whole one, so each entry stays on one line
+function JN.qftext(info)
+  local what = { id = info.id, items = 0 }
+  local list = (info.quickfix == 1 and vim.fn.getqflist(what) or vim.fn.getloclist(info.winid, what)).items
+  local out = {}
+  for i = info.start_idx, info.end_idx do
+    local e, where = list[i], ""
+    if e.valid == 1 and e.bufnr > 0 then
+      local name = vim.fn.fnamemodify(api.nvim_buf_get_name(e.bufnr), ":~:.")
+      if #name > 40 then name = "…/" .. table.concat(vim.list_slice(vim.split(name, "/"), #vim.split(name, "/") - 1), "/") end
+      where = ("%s:%d  "):format(name, e.lnum)
+    end
+    out[#out + 1] = where .. vim.trim((e.text:gsub("\n", " ")))
+  end
+  return out
+end
+vim.o.quickfixtextfunc = "v:lua.JN.qftext"
 -- right-click: the menu for where the mouse is (on selected lines: for those lines)
 function M.right_click(m)
   m = m or vim.fn.getmousepos()
@@ -1927,6 +2059,39 @@ pcall(api.nvim_del_augroup_by_name, "nvim.popupmenu")
 map({ "n", "x" }, "<RightMouse>", function() M.right_click() end, { desc = "這裡能做的事（選單）" })
 map("i", "<RightMouse>", function() vim.cmd("stopinsert") vim.schedule(function() M.right_click() end) end, { desc = "這裡能做的事（選單）" })
 map({ "n", "x" }, "<RightRelease>", "<Nop>")
+-- One click opens what the tree or a list shows (a folder opens or closes), as in a desktop app's sidebar; a double
+-- click is that same click, not a second one. Elsewhere a click is nvim's own (moves the cursor, starts a selection).
+local function click_kind(m)
+  if m.winid == 0 or m.line == 0 or not api.nvim_win_is_valid(m.winid) then return end
+  local b = api.nvim_win_get_buf(m.winid)
+  if m.line == api.nvim_buf_line_count(b) then -- below the last line is no line (getmousepos gives the last one there too)
+    local top = vim.fn.screenpos(m.winid, m.line, 1).row
+    local h = api.nvim_win_text_height(m.winid, { start_row = m.line - 1, end_row = m.line - 1 }).all
+    if top > 0 and m.screenrow >= top + h then return end
+  end
+  if vim.bo[b].filetype == "NvimTree" then return "tree" end
+  if vim.bo[b].filetype == "qf" then return "qf" end
+  if JN.review and b == JN.review.list then return "list" end
+end
+function JN.click_open(kind)
+  if kind == "tree" and TREE.api then
+    if vim.fn.line(".") > 1 then TREE.api.node.open.edit() end
+  elseif kind == "qf" then
+    local w = vim.fn.getwininfo(api.nvim_get_current_win())[1]
+    vim.cmd((w.loclist == 1 and "ll " or "cc ") .. vim.fn.line("."))
+  elseif kind == "list" and JN.review then
+    JN.review.pick_row()
+  end
+end
+map("n", "<LeftMouse>", function()
+  local kind = click_kind(vim.fn.getmousepos())
+  return kind and ("<LeftMouse><Cmd>lua JN.click_open('" .. kind .. "')<CR>") or "<LeftMouse>"
+end, { expr = true, desc = "按一下（檔案樹、清單：打開）" })
+for _, k in ipairs({ "<2-LeftMouse>", "<3-LeftMouse>", "<4-LeftMouse>" }) do
+  map("n", k, function() return click_kind(vim.fn.getmousepos()) and "" or k end, { expr = true })
+end
+-- the middle button: nothing (nvim pastes where it lands, which a touchpad does by accident); paste is in the menu
+for _, k in ipairs({ "<MiddleMouse>", "<2-MiddleMouse>", "<3-MiddleMouse>", "<4-MiddleMouse>" }) do map({ "n", "x", "i" }, k, "<Nop>") end
 -- ===================================== REVIEW =====================================
 -- A Gerrit change opened from Herdr's Gerrit panel (its 在 nvim 看 button): nvim starts in the change's own folder
 -- (a git worktree at that patch set) with g:nvim_jay_review = the path of review.json, which the panel writes and
@@ -2124,7 +2289,7 @@ do
       add("選幾行再按右鍵：問 agent、直接改", "QtRevDim")
       add("]f [f 換檔　]c [c 換改動的地方", "QtRevDim")
       add("]u [u 換未解決的留言", "QtRevDim")
-      add("這裡按 Enter 開檔　o 先看測試", "QtRevDim")
+      add("按一下就開檔　o 先看測試", "QtRevDim")
       vim.bo[b].modifiable = true
       api.nvim_buf_set_lines(b, 0, -1, false, lines)
       vim.bo[b].modifiable = false
@@ -2674,7 +2839,7 @@ do
       if e then R.open(e) end
     end
     map("n", "<CR>", pick_row, { buffer = R.list, desc = "開這個檔" })
-    map("n", "<2-LeftMouse>", pick_row, { buffer = R.list, desc = "開這個檔" })
+    R.pick_row = pick_row -- also one click on a row (MENU: clicks)
     map("n", "o", function() R.order = R.order == "tests" and "gerrit" or "tests" R.render() end, { buffer = R.list, desc = "先看測試／照 Gerrit 的順序" })
     map("n", "]f", function() step(1) end, { desc = "下一個改過的檔" })
     map("n", "[f", function() step(-1) end, { desc = "上一個改過的檔" })

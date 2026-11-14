@@ -37,9 +37,13 @@ Needs **Neovim 0.11 or newer**, `git`, and `hc` on the machine where the pane op
   against the last commit. At most 50 removed lines show per change, then one line 「…還有 N 行」 (an agent emptying a
   big file doesn't flood nvim).
   agent 改檔時自動重讀，標出改了哪幾行。不在 git repo 裡沒有舊版可比：只有開著時的修改、新寫的檔、和有 snap hook 的 Bash 修改有標記。
-- **File tree** on the right (netrw), without git-ignored files (the ignore list comes from the repo nvim started in);
-  the shown file is highlighted. A file the agent creates appears when nvim follows it there (other new files: `ctrl-l`
-  in the tree).
+- **File tree** on the right ([nvim-tree](https://github.com/nvim-tree/nvim-tree.lua), bundled in the mod, GPL-3.0),
+  without git-ignored files; git's marks (✗ changed, + added, ? new) and error dots beside names; the shown file is
+  highlighted and the tree moves to its folder. One click on a folder opens or closes it, one click on a file opens
+  it (a double click is the same as one). Right-click: 打開／展開／收起, 新增檔案 (a `/` at the end makes a folder),
+  改名, 複製路徑, 重新整理, and the agent's files and follow. Nothing in it deletes. Keys: Enter or `o` opens, `R`
+  reloads; the rest is the menu.
+  檔案樹：點一下資料夾就展開／收起，點一下檔案就打開；右鍵有新增、改名、複製路徑、重新整理。
 - **Comments to the agent**: comment a line or a selection, list, delete, and send them all to the agent with
   `hc send`. Control characters are removed before sending, so file text can't act as keys in the agent's terminal;
   quoted lines are cut at 200 characters. Only known coding agents (Claude Code, Codex, Gemini, opencode, pi, aider,
@@ -47,10 +51,13 @@ Needs **Neovim 0.11 or newer**, `git`, and `hc` on the machine where the pane op
   Comment spans and message shape follow [herdr-nvim](https://github.com/ChmaraX/herdr-nvim) (MIT).
 - **Files the agent touched**: a list of files the agent read or edited, newest first, plus files git shows as changed.
 - **Language servers**: go to definition, hover, errors — see [3](#3-language-servers--語言伺服器).
-- **Mouse**: rest the pointer on a name for its type, on an error to read it.
+- **Mouse**: rest the pointer on a name for its type, on an error to read it. Lists open what you click with one
+  click: the tree, the errors / comments list, a review's file list. The middle button does nothing (it used to paste).
+  滑鼠：清單都是點一下就開；中鍵不做事（以前會貼上）。
 - **One menu (right-click)**: what can be done where you clicked, only what applies, in groups: the language server
-  (看型別, 跳到定義, …), errors, comments for the agent (刪掉 only on a commented line, 列出 / 送給 agent only when there are
-  some), the agent's files, editing (剪下 / 複製 / 貼上 on selected lines; 開網址 on a link). On selected lines it is about
+  (跳到定義, 找所有用到的地方, 改名: only on a name), errors (the list shows each place once, with short paths),
+  comments for the agent (刪掉 only on a commented line, 列出 / 送給 agent only when there are some), editing (剪下 / 複製 /
+  貼上 on selected lines; 開網址 on a link). The agent's files and follow are in the tree's menu. On selected lines it is about
   those lines. Drawn like a desktop app's menu: a border, a line between groups, the key on the right (␣ = space);
   the mouse picks what it is over, a ▸ item opens its menu beside it, moving the mouse never closes it; a click
   outside, Esc or q does (selected lines stay selected). Keys work too: j k ↑ ↓, Enter / l / →, h / ←. Every list nvim
@@ -59,6 +66,8 @@ Needs **Neovim 0.11 or newer**, `git`, and `hc` on the machine where the pane op
   that label. Shift + right-click still opens Herdr's menu.
   一個選單：右鍵就有這裡能做的事（只列用得到的），選幾行再右鍵就是那幾行的；滑鼠移過去就選、▸ 會在旁邊展開，
   點外面或 Esc 關掉。
+- **Typing a name or a comment**: a box opens just under the line (title says what it is for, `Enter 送出 · Esc 取消`
+  at the bottom); Esc, `q` or a click outside cancels. 要打字時（新名字、留言）在游標下面開一個小框，Enter 送出、Esc 或點外面取消。
 - **Two panes on one file**: a heads-up the first time you change a file another nvim also has open.
 - **Bash edits**: when a shell command of the agent ends (also with an error, also one run in the background), nvim
   opens what it changed: the files Claude Code saw it change, else a changed file the command names (`/abs/path`,
@@ -80,7 +89,9 @@ Inside nvim (`space` is the leader), the same everywhere:
 
 | Key | What |
 |---|---|
-| right-click | the menu: what can be done here (on selected lines: with them) |
+| right-click | the menu: what can be done here (on selected lines: with them; in the tree: the file or folder) |
+| one click | in the tree, the errors / comments list or a review's file list: opens that one (a folder: open / close) |
+| middle click | nothing |
 | `space o` | files the agent read / edited (+ git changes) |
 | `space a c` | comment this line (or the selection in visual mode) |
 | `space a l` | list comments |
@@ -107,8 +118,8 @@ opens files without asking, so keep repos you don't trust out of nvim (or open t
 不信任的 repo 不要用這個 nvim 開。
 
 git, the language servers and hc are run by full path; on Windows never from the project folder (Windows would
-otherwise run a `git.exe` or `ruff.exe` sitting in it). netrw's tree runs `git` by name through the shell, and the
-sudo check runs `pgrep`; neither reads the project folder for programs.
+otherwise run a `git.exe` or `ruff.exe` sitting in it). The sudo check runs `pgrep` by name; it doesn't read the
+project folder for programs.
 
 A repo can name programs in its own config that git runs. For every git call nvim makes, these are off:
 `core.fsmonitor`; the repo's clean / smudge filters, set in `.git/config`, a file it includes (`include.path`,
@@ -116,7 +127,8 @@ A repo can name programs in its own config that git runs. For every git call nvi
 off); hooks (`core.hooksPath` points at an empty folder) and index writes; any fetch (`protocol.allow=never`,
 `GIT_NO_LAZY_FETCH`: a partial clone would fetch a missing file with a command the repo names); submodules
 (`git status --ignore-submodules=all`). A repo whose filter name contains `=` (which `-c` can't switch off) gets no
-git at all from nvim. The tree's `git ls-files` gets `core.fsmonitor` and fetching off through the environment.
+git at all from nvim. The tree's git (nvim-tree's `status`, `rev-parse`) gets all of this too: that is the one
+change nvim-jay makes to nvim-tree (`herdr-app/mods/nvim-jay/nvim-tree/README.md`).
 別人的 repo 可以在自己的設定裡指定 git 要跑的程式；nvim 跑的每個 git 都把這些關掉（fsmonitor、filter、hook、抓取、子模組）。
 
 ## 4. macOS vs Windows / 兩個系統的差別
@@ -127,7 +139,7 @@ One `nvim.js` for both; all OS differences sit in its PLATFORM section ([5](#5-h
 |---|---|---|
 | Herdr home | `~/.config/herdr-app` | `%USERPROFILE%\.config\herdr-app` |
 | Keys | `cmd-e`, `cmd-o` | `ctrl-shift-i`, `ctrl-shift-j` |
-| Launcher | `unix.js`: `/bin/sh` finds nvim in `~/.local/bin`, `/opt/homebrew/bin`, `/usr/local/bin`, `/usr/bin`; the Lua goes on the command line | `windows.js`: writes `mods\nvim-jay\.init.lua` (a command line holds at most 32767 characters), nvim `:source`s it; nvim from PATH |
+| Launcher | `unix.js`: `/bin/sh` finds nvim in `~/.local/bin`, `/opt/homebrew/bin`, `/usr/local/bin`, `/usr/bin`; `ship.js` first puts the Lua and the tree in `~/.cache/nvim-jay` on that machine (Linux takes at most 131072 bytes per argument, the Lua is longer), nvim `:source`s it | `windows.js`: writes `mods\nvim-jay\.init.lua` (a command line holds at most 32767 characters), nvim `:source`s it, the tree from `mods\nvim-jay\nvim-tree`; nvim from PATH |
 | Finding the agent's session | the pane's process (`~/.claude/sessions/<pid>.json`, Claude Code up to about 2.1.309), or a process under it; then Claude Code's `~/.claude/daemon/roster.json` (background / remote-control sessions); then the agent's folder (below) | a process under the pane's (agents run inside pwsh); then the roster; then the live session in `sessions/*.json` whose folder is the pane's; then the agent's folder (below) |
 | Paths | as they are | one spelling (`C:/x/y`), case ignored when comparing |
 | Paths in Bash commands | `/abs/path`, `~/x`, `$HOME/x` | `C:\x`, `C:/x`, `/c/x`, `~\x`, `$HOME\x`, `$env:USERPROFILE\x` |
@@ -153,19 +165,24 @@ agent's.
 herdr-app/mods/nvim-jay/
   main.js     picks the launcher: Windows + a pane on this computer → windows.js, otherwise unix.js
   unix.js     macOS / Linux / other machines: /bin/sh finds nvim
+  ship.js     puts the Lua and the tree in ~/.cache/nvim-jay/{init,nvim-tree}-<hash> on that machine, once per version
+  send.js     how (CHECK / PUT / DONE shell scripts over Herdr exec, arguments under 100000 bytes); tested by run.js
   windows.js  Windows: .init.lua + :source
   mark.js     the argv item both launchers pass, so agent-files finds the pane; a review's --cmd and how its tab opens
   nvim.js     the Lua (one string, NVIM_INIT), run by nvim on the machine where the pane opens
                 PLATFORM  every OS difference, in one table P (nothing below tests the OS)
                 then: reload + diff, swap-file heads-up, tree, agent + follow, comments, keys, LSP, mouse,
                 and REVIEW (a Gerrit change, §9)
+  nvim-tree/  the file tree (nvim-tree v1.19.0, GPL-3.0) with one change, files.txt (what ship.js sends), README.md
+  LICENSE.txt GPL-3.0: this mod folder only (it bundles nvim-tree); the rest of herdr-jay is Apache-2.0
 herdr-app/mods/agent-files/      (its own mod: agent-files.md)
   main.js     finds the pane by the argv item `let g:nvim_jay = 1`; opens a file through nvim's server
               (JN.open_hex), or, without kit files, focuses it and sends alt+o (nvim: <M-o>, its own list)
 ```
 
-`nvim.js` stays a single file: the unix launcher puts the whole Lua on one command line, and a root-side copy can be
-pinned by its sha256.
+The Lua no longer rides on nvim's command line: it did until 2026-11-14, and once it grew past 131072 bytes nvim-jay
+couldn't start on Linux machines (`E2BIG`). The folders on the other machine are named by a hash of what is in them, so
+a new version goes there once and two versions side by side don't mix; ones unused for 30 days are removed.
 
 **Tests** (after changing the follow code): `node tests/nvim-jay/run.js` in herdr-jay (Node 18+, Neovim, git;
 macOS / Linux). It runs the Lua in a headless nvim with a temp HOME and a fake `hc`, so nothing of yours is touched;
@@ -267,7 +284,7 @@ you comment on Gerrit.
 不用記鍵：在檔案裡按右鍵（或 Enter）就有這裡能做的事，選幾行再按右鍵就是那幾行的；下面的 space r … 只是捷徑。
 
 - **Left**: the change's files in Gerrit's order: 新增 / 刪除 / 改名, `+N -M`, `💬N（K 未解）`; ✓ on the ones you
-  opened (kept per patch set in `seen.json` beside review.json); 看過 N / M. `Enter` or a double click opens one.
+  opened (kept per patch set in `seen.json` beside review.json); 看過 N / M. `Enter` or one click opens one.
   `o`: tests first / Gerrit's order.
 - **Right**: the whole file. Changed lines are marked against the change's **base** (its parent, or the older patch set
   picked in the panel), not against HEAD; a renamed file against its old name; a deleted file shows what it had, all

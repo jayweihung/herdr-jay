@@ -26,6 +26,12 @@ local function result(id, cwd, res) return { type = "user", cwd = cwd, message =
 local function tool(name, input, id) return { type = "assistant", timestamp = iso(os.time()), message = { content = { { type = "tool_use", id = id or "toolu_x", name = name, input = input } } } } end
 local function sh(cmd) local r = vim.system({ "sh", "-c", cmd }, { text = true }):wait() assert(r.code == 0, cmd .. ": " .. r.stderr) return r.stdout end
 
+check("at start: the tree (nvim-tree) on the right, netrw off, the focus on the file", (function()
+  local ws = vim.api.nvim_tabpage_list_wins(0)
+  local tree = vim.tbl_filter(function(w) return vim.bo[vim.api.nvim_win_get_buf(w)].filetype == "NvimTree" end, ws)
+  return #ws == 2 and #tree == 1 and vim.api.nvim_get_current_win() ~= tree[1] and vim.fn.exists("#FileExplorer") == 0
+end)())
+
 -- 9: ~/x and $HOME/x
 test("abs_paths", function()
   local got = T.abs_paths([[cat ~/a.txt $HOME/b.txt ${HOME}/c.txt "/x y/z" /etc/hosts ~other/q rel/p]])
@@ -469,8 +475,7 @@ test("the menu", function()
     return table.concat(out, "|")
   end
   local l = labels()
-  check("a file: comment, the agent's files, paste, select all (no language server: none of its items)", l:find("^註解這行|%-|agent 讀過／改過的檔|不要再跟著 agent 開檔|")
-    and l:find("|-|貼上|全選$") and not l:find("看型別", 1, true) and not l:find("刪掉這行的註解", 1, true), l)
+  check("a file: comment, paste, select all (no language server: none of its items; the agent's files are the tree's)", l == "註解這行|-|貼上|全選", l)
   check("right-click is the menu; nvim's own is gone", vim.fn.maparg("<RightMouse>", "n") ~= "" and vim.o.mousemodel == "extend" and vim.fn.menu_info("PopUp").submenus == nil or #vim.fn.menu_info("PopUp").submenus == 0, vim.fn.menu_info("PopUp"))
   local ui = vim.ui.input
   vim.ui.input = function(_, cb) cb("why") end
@@ -483,9 +488,15 @@ test("the menu", function()
   check("a link under the cursor: open it", (function() api.nvim_win_set_cursor(0, { 4, 6 }) return labels({ line = 4 }) end)():find("開網址", 1, true))
   local gc = vim.lsp.get_clients
   vim.lsp.get_clients = function() return { { id = 1, supports_method = function() return false end } } end
+  api.nvim_win_set_cursor(0, { 1, 0 })
   l = labels({ line = 1 })
+  api.nvim_buf_set_lines(0, 4, 4, false, { "" })
+  api.nvim_win_set_cursor(0, { 5, 0 })
+  local blank = labels({ line = 5 })
+  api.nvim_buf_set_lines(0, 4, 5, false, {})
   vim.lsp.get_clients = gc
-  check("with a language server: its items first", l:find("^看型別|跳到定義|找所有用到的地方|改名|", 1) ~= nil, l)
+  check("with a language server, on a name: its items first (not 看型別: the mouse shows it)", l:find("^跳到定義|找所有用到的地方|改名|", 1) ~= nil and not l:find("看型別", 1, true), l)
+  check("on an empty line: none of them", not blank:find("跳到定義", 1, true), blank)
   l = labels({ lines = { 1, 2 } })
   check("selected lines: comment them, cut / copy / paste", l == "註解選取的行|-|剪下|複製|貼上（取代選取的行）", l)
   JN.drop_here() -- line 4: nothing there
@@ -533,13 +544,131 @@ test("the menu", function()
   -- vim.ui.select is the menu
   local got = "none"
   vim.ui.select({ "x", "y" }, { prompt = "which：" }, function(c, i) got = tostring(c) .. tostring(i) end)
-  check("vim.ui.select: the menu with the prompt as its title", #M.stack == 1 and vim.inspect(api.nvim_win_get_config(M.stack[1].win).title):find("which", 1, true) ~= nil,
+  check("vim.ui.select: the menu with the prompt as its title (without its \"：\")", #M.stack == 1 and vim.inspect(api.nvim_win_get_config(M.stack[1].win).title):find(" which ", 1, true) ~= nil,
     api.nvim_win_get_config(M.stack[1].win).title)
   M.move(1) M.pick()
   check("vim.ui.select: picked", got == "y2", got)
   vim.ui.select({ "x" }, {}, function(c) got = c == nil and "nil" or c end)
   M.close()
   check("vim.ui.select: closed is nil", got == "nil", got)
+  vim.cmd("silent! %bwipeout!")
+end)
+
+test("the tree's git: full path, nvim-jay's switches", function()
+  local r = ROOT .. "/treegit"
+  write(r .. "/a.txt", "a\n")
+  sh("cd '" .. r .. "' && git init -q && git config filter.evil.clean 'touch pwned' && git config core.fsmonitor 'touch pwned2'")
+  local argv = require("nvim-tree.git.jay").argv(r)
+  local s = table.concat(argv, " ")
+  check("tree git: by full path, hooks/fetch/fsmonitor off, the repo's filter off", argv[1]:sub(1, 1) == "/"
+    and argv[1] ~= "git" and s:find("core.hooksPath=", 1, true) and s:find("protocol.allow=never", 1, true)
+    and s:find("core.fsmonitor=false", 1, true) and s:find("filter.evil.clean=", 1, true), argv)
+  local top = require("nvim-tree.git.utils").get_toplevel(r)
+  check("tree git: still finds the repo", top == vim.uv.fs_realpath(r) or top == r, top)
+  check("tree git: the repo's commands never ran", vim.uv.fs_stat(r .. "/pwned") == nil and vim.uv.fs_stat(r .. "/pwned2") == nil)
+end)
+
+test("the tree, clicks, the list, typing", function()
+  local M, api = JN.menu, vim.api
+  JN.tree_open() -- the tests before wiped every buffer
+  local trees = vim.tbl_filter(function(w) return vim.bo[api.nvim_win_get_buf(w)].filetype == "NvimTree" end, api.nvim_tabpage_list_wins(0))
+  check("JN.tree_open: on the right, the focus stays", #trees == 1
+    and api.nvim_win_get_position(trees[1])[2] > api.nvim_win_get_position(api.nvim_get_current_win())[2]
+    and vim.bo.filetype ~= "NvimTree" and vim.fn.exists("#FileExplorer") == 0, trees)
+  local tw = trees[1]
+  local dir = ROOT .. "/treetest"
+  write(dir .. "/sub/inner.txt", "inner\n")
+  write(dir .. "/top.txt", "top\n")
+  local file_win = api.nvim_get_current_win()
+  vim.cmd("edit " .. dir .. "/top.txt")
+  local function tl() return api.nvim_buf_get_lines(api.nvim_win_get_buf(tw), 0, -1, false) end
+  vim.wait(1000, function() return table.concat(tl(), "|"):find("top.txt", 1, true) ~= nil end)
+  check("a file in the tree's folder: its folder opens; folders ▸ / ▾, plain names", table.concat(tl(), "|"):find("▾ treetest/|  ▸ sub/|    top.txt", 1, true), tl())
+  local out = vim.fn.tempname() .. "-out"
+  write(out .. "/far.txt", "far\n")
+  vim.cmd("edit " .. out .. "/far.txt")
+  vim.wait(1000, function() return tl()[1]:find(vim.fs.basename(out), 1, true) ~= nil end)
+  check("a file outside it: the tree moves to the file's folder", tl()[1]:find(vim.fs.basename(out), 1, true) ~= nil, tl())
+  vim.cmd("edit " .. dir .. "/top.txt")
+  vim.wait(1000, function() return table.concat(tl(), "|"):find("top.txt", 1, true) ~= nil end)
+  local function row(name)
+    for i, x in ipairs(api.nvim_buf_get_lines(api.nvim_win_get_buf(tw), 0, -1, false)) do if x:find(name, 1, true) then return i end end
+  end
+  check("the file on the right is the tree's line", api.nvim_win_get_cursor(tw)[1] == row("top.txt"), { api.nvim_win_get_cursor(tw), row("top.txt") })
+  -- a click: nvim moves there (<LeftMouse>), then the tree acts
+  local function click(r)
+    api.nvim_set_current_win(tw)
+    api.nvim_win_set_cursor(tw, { r, 0 })
+    JN.click_open("tree")
+  end
+  click(row("sub/"))
+  vim.wait(500, function() return row("inner.txt") ~= nil end)
+  check("one click on a folder opens it", row("inner.txt") ~= nil and row("▾ sub/") ~= nil)
+  local labels = {}
+  api.nvim_set_current_win(tw)
+  api.nvim_win_set_cursor(tw, { row("inner.txt"), 0 })
+  for _, it in ipairs(M.clean(M.items({ buf = api.nvim_get_current_buf(), win = tw, line = row("inner.txt"), tree = true }))) do labels[#labels + 1] = it == "-" and "-" or it.label end
+  local tlab = table.concat(labels, "|")
+  check("right-click in the tree: the tree's menu (no delete), then the agent's files", vim.startswith(tlab, "打開|-|新增檔案") and tlab:find("|改名|複製路徑|重新整理|-|agent 讀過／改過的檔|", 1, true)
+    and not tlab:find("刪", 1, true) and not tlab:find("註解", 1, true), tlab)
+  click(row("inner.txt"))
+  check("one click on a file opens it on the left, the focus there", vim.fs.basename(api.nvim_buf_get_name(0)) == "inner.txt" and api.nvim_get_current_win() ~= tw)
+  click(row("sub/"))
+  vim.wait(500, function() return row("inner.txt") == nil end)
+  check("another click on the folder closes it", row("inner.txt") == nil and row("▸ sub/") ~= nil)
+  api.nvim_set_current_win(file_win)
+  check("double clicks and the middle button: the tree's are nothing, the middle button pastes nowhere",
+    vim.fn.maparg("<2-LeftMouse>", "n") ~= "" and vim.fn.maparg("<MiddleMouse>", "n") == "<Nop>" and vim.fn.maparg("<MiddleMouse>", "i") == "<Nop>")
+
+  -- the list of errors: one per place, a short path
+  local b = api.nvim_get_current_buf()
+  local n1, n2 = api.nvim_create_namespace("t-ls1"), api.nvim_create_namespace("t-ls2")
+  vim.diagnostic.set(n1, b, { { lnum = 0, col = 0, message = "first says", severity = 1 } })
+  vim.diagnostic.set(n2, b, { { lnum = 0, col = 0, message = "second says", severity = 2 } })
+  JN.errors()
+  local qf = vim.fn.getqflist()
+  local shown = api.nvim_buf_get_lines(vim.fn.getqflist({ qfbufnr = 0 }).qfbufnr, 0, -1, false)
+  check("errors: the same place once, the worst", #qf == 1 and qf[1].text:find("first says", 1, true), qf)
+  check("errors: a short path, one line", #shown == 1 and vim.startswith(shown[1], "treetest/sub/inner.txt:1  first says"), shown)
+  local long = vim.fn.tempname() .. "/a-folder-with-a-long-name/another-long-folder-name/deep.txt"
+  write(long, "x\n")
+  vim.cmd("edit " .. long)
+  vim.fn.setqflist({ { bufnr = api.nvim_get_current_buf(), lnum = 3, text = "far" } }, "r")
+  vim.cmd("copen")
+  shown = api.nvim_buf_get_lines(0, 0, -1, false)
+  check("a long path: its last folder and name", shown[1] == "…/another-long-folder-name/deep.txt:3  far", shown)
+  vim.cmd("cclose")
+  -- one click on the list goes there (the list now: deep.txt's line)
+  vim.cmd("wincmd p")
+  vim.cmd("edit " .. dir .. "/top.txt")
+  vim.cmd("copen")
+  JN.click_open("qf")
+  check("one click on the list: to that place, in the file window", vim.fs.basename(api.nvim_buf_get_name(0)) == "deep.txt" and vim.bo.buftype == "")
+  vim.cmd("cclose") vim.diagnostic.reset(n1) vim.diagnostic.reset(n2)
+
+  -- typing: a box by the line, Enter sends, Esc cancels
+  local got = "none"
+  vim.ui.input({ prompt = "留言：", default = "hi" }, function(t) got = t end)
+  local w = api.nvim_get_current_win()
+  local cfg = api.nvim_win_get_config(w)
+  check("typing: a box titled with what it is for, the hint below, starts with the default", cfg.relative == "editor"
+    and cfg.title[1][1] == " 留言 " and vim.inspect(cfg.footer):find("Enter 送出", 1, true)
+    and api.nvim_buf_get_lines(0, 0, -1, false)[1] == "hi", cfg)
+  api.nvim_buf_set_lines(0, 0, -1, false, { "hello there" })
+  vim.fn.maparg("<CR>", "i", false, true).callback()
+  vim.wait(500, function() return got ~= "none" end)
+  check("Enter: sends it, the box is gone", got == "hello there" and api.nvim_get_current_win() ~= w and not api.nvim_win_is_valid(w), got)
+  got = "none"
+  vim.ui.input({ prompt = "x" }, function(t) got = t == nil and "nil" or t end)
+  vim.fn.maparg("<Esc>", "i", false, true).callback()
+  vim.wait(500, function() return got ~= "none" end)
+  check("Esc: cancelled (nil)", got == "nil", got)
+  got = "none"
+  vim.ui.input({ prompt = "x" }, function(t) got = t == nil and "nil" or t end)
+  api.nvim_set_current_win(file_win)
+  vim.wait(500, function() return got ~= "none" end)
+  check("leaving it (a click outside): cancelled", got == "nil", got)
+  vim.cmd("stopinsert")
   vim.cmd("silent! %bwipeout!")
 end)
 

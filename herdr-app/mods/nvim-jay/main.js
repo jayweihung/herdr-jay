@@ -10,11 +10,11 @@ import { openWindows } from "./windows.js";
 // machine of the focused pane (or of the focused space). Other machines are macOS or Linux.
 //   unix.js    macOS, Linux, other machines
 //   windows.js Windows, this computer
-function onThisComputer() {
+// The machine the pane will open on: null for this computer
+function machineOf() {
   const f = focused();
-  if (f?.terminal) return !String(f.terminal).includes("/"); // "machine/t3" is a pane on another machine
-  const s = spaces().find((x) => x.id === f?.space);
-  return !s?.machine;
+  if (f?.terminal) { const t = String(f.terminal); return t.includes("/") ? t.slice(0, t.indexOf("/")) : null; } // "machine/t3"
+  return spaces().find((x) => x.id === f?.space)?.machine ?? null;
 }
 
 export default class NvimJay extends View {
@@ -24,19 +24,17 @@ export default class NvimJay extends View {
     const rv = str(review) ? { review, name: str(name), space: str(space) } : {};
     // the focused pane's live folder (the agent's project); terminal.open alone may start in the space's folder
     const cwd = rv.review && typeof folder === "string" ? folder : focused()?.cwd ?? null;
-    if (window()?.platform === "windows" && (rv.review || onThisComputer())) {
-      cx.spawn(async () => {
-        try {
-          await openWindows(cwd, rv);
-        } catch (e) {
-          notify({ title: "nvim-jay 開不起來", body: String(e?.message ?? e), level: "error" });
-        }
-        if (overlay) closeOverlay(overlay);
-      });
-      return;
-    }
-    openUnix(cwd, rv);
-    if (overlay) closeOverlay(overlay);
+    // a review's files are on this computer (its tab opens in a space here)
+    const machine = rv.review ? null : machineOf();
+    cx.spawn(async () => {
+      try {
+        if (window()?.platform === "windows" && !machine) await openWindows(cwd, rv);
+        else await openUnix(cwd, rv, machine);
+      } catch (e) {
+        notify({ title: "nvim-jay 開不起來", body: String(e?.message ?? e), level: "error" });
+      }
+      if (overlay) closeOverlay(overlay);
+    });
   }
 
   render() {

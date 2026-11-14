@@ -294,6 +294,17 @@ test("roles: each part by props.role, the older names too; no role: a header on 
 });
 
 // kit api
+test("one kit action at a time: a lock another build took (the mod reloaded or Herdr restarted mid-action) is let go at once", ({ common: C }) => {
+  fresh();
+  H.store["kit.busy"] = { label: "收", at: Date.now(), ttl: 5280000, id: "old", build: "an earlier build" };
+  assert.equal(C.busyNow(), null, "not grey for the 88 minutes its ttl says");
+  H.store["kit.busy"] = { label: "收", at: Date.now(), ttl: 5280000, id: "old" };
+  assert.equal(C.busyNow(), null, "a lock from before builds were written down");
+  C.dropStaleBusy(); assert.equal(H.store["kit.busy"], null);
+  const id = C.takeBusy("收", 60000); assert.ok(id); assert.equal(C.busyNow(), "收");
+  assert.equal(C.takeBusy("同步", 60000), null, "this build's lock still holds");
+  C.giveBusy(id); assert.equal(C.busyNow(), null);
+});
 test("kit api: 1.x is ok (a plain 1 is 1.0); 2.x: update herdr-jay's kit mod; failing, 0.x or not a number: kit self-update; no kit: install it; no answer: wait", ({ common: C }) => {
   assert.deepEqual(C.KIT_API, { major: 1, minor: 0 });
   for (const out of ["1\n", "1.0\n", "1.3", " 1.12 "]) assert.equal(C.readApi({ code: 0, out }).ok, true, out);

@@ -9,7 +9,7 @@
 // Click a card: its lines stand out and below it says each one (how many, when, the last message's first line);
 // double-click: go to its pane. Lines to agents outside what is shown are listed there too.
 // Above the drawing, what needs a look (waitsOf, clashesOf):
-//   還沒回     A messaged B last, and B stopped after it without messaging A back (and A hasn't moved on since)
+//   還沒回     A messaged B last, and B stopped after it without messaging A back (and A hasn't begun working again or messaged anyone since)
 //   卡住       a chain of agents each waiting for the next (it messaged it, and stopped), ending at one that needs you
 //              (blocked) or didn't answer; a chain that comes back to itself: 互等
 //   同一個資料夾  two agents working at once in one folder (or one inside the other), not each in its own worktree
@@ -102,7 +102,7 @@ export function graphData({ agents, terms, space, ctx, notes, log = [], down = {
   const outside = lines.filter((l) => has.has(l.from) !== has.has(l.to));
   // a pair talking both ways: each line bends to its own side
   for (const e of edges) e.both = edges.some((o) => o !== e && o.kind === e.kind && o.from === e.to && o.to === e.from);
-  const g = { cols, nodes, edges, outside };
+  const g = { cols, nodes, edges, outside, log: log ?? [] };
   g.waits = waitsOf(g, now);
   g.chains = chainsOf(g);
   g.clashes = clashesOf(nodes);
@@ -159,6 +159,7 @@ export const noReply = (text) => /不[用必]再?回|\[fyi\]/i.test(String(text 
 export function waitsOf(g, now = Date.now()) {
   const node = new Map(g.nodes.map((n) => [n.address, n]));
   const last = (a, b) => g.edges.find((e) => e.kind === "send" && e.from === a && e.to === b);
+  const workedAfter = (a, at) => (g.log ?? []).some((x) => x.k === "status" && x.a === a && x.v === "working" && x.at > at);
   const sentAfter = (a, at) => [...g.edges, ...(g.outside ?? [])].some((e) => e.kind === "send" && e.from === a && e.at > at);
   const out = [];
   for (const e of g.edges) {
@@ -167,9 +168,9 @@ export function waitsOf(g, now = Date.now()) {
     if (!a || !b || (back && (back.at >= e.at || back.count >= e.count)) || a.status === "working" || noReply(e.text)) continue;
     const state = b.status === "working" ? "working" : b.status === "blocked" ? "blocked"
       : b.since > e.at + SETTLE ? "silent" : "working";   // stopped before the message settled in: still on it
-    // A moved on after B stopped (it worked again, or messaged anyone): it got what it needed some other way (read
-    // B's screen, was told), it isn't sitting there waiting
-    if (state === "silent" && (a.since > b.since + SETTLE || sentAfter(e.from, b.since + SETTLE))) continue;
+    // A moved on after B stopped (began working again, or messaged anyone): it got what it needed some other way
+    // (read B's screen, was told), it isn't sitting there waiting. A merely finishing the turn it sent in is not that.
+    if (state === "silent" && (workedAfter(e.from, b.since + SETTLE) || sentAfter(e.from, b.since + SETTLE))) continue;
     out.push({ from: e.from, to: e.to, at: e.at, text: e.text, state, since: state === "working" ? 0 : b.since, waited: now - e.at });
   }
   return out;

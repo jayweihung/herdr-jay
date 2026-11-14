@@ -549,6 +549,24 @@ test("關係 tab: the cards and lines drawn, a click says one card's lines in wo
   out = render(v);
   assert.match(out, /已提醒 答 回覆，等它回/);
   assert.match(out, /已提醒/);
+  // done (stopped, not looked at): hc's --if knows idle only, so it is sent again without it; working: not sent
+  {
+    const was = H.hcAnswer;
+    for (const [i, [state, sends, said]] of [["done", 2, /已提醒 答 回覆/], ["working", 1, /提醒沒送出（答 可能又在忙了）：.*is working, not idle/]].entries()) {
+      // a new message each time (提醒它回 goes once per message)
+      H.terminals = [{ address: "t1", sent: [{ to: "t2", count: 1, last_ms: Date.now() - 500000 + i, text: "看一下" }], status_ms: Date.now() - 490000 }, { address: "t2", status_ms: Date.now() - 300000 }];
+      H.hcAnswer = (a) => (a[0] === "send" && a[1] === "--if" ? { code: 1, stdout: `{"error":{"kind":"status_mismatch","message":"t2 is ${state}, not idle"}}`, stderr: "" } : a[0] === "send" ? { code: 0, stdout: "{}", stderr: "" } : null);
+      H.calls = [];
+      render(v);
+      const k = Object.keys(H.clicks).find((x) => x.startsWith("kit-graph-nudge-"));
+      H.clicks[k]({}, cx); await settle();
+      const sends2 = H.calls.filter((c) => c.argv[1] === "send");
+      assert.equal(sends2.length, sends, state);
+      if (sends === 2) assert.deepEqual(sends2[1].argv.slice(0, 4), ["hc", "send", "--json", "t2"]);
+      assert.match(render(v), said, state);
+    }
+    H.hcAnswer = was;
+  }
   H.agents = AGS; H.terminals = TERMS;
   assert.ok(!/最後一則：好了/.test(render(v)), "a click on the empty part: nothing selected");
   H.clicks["kit-graph-scope-all"]({}, cx);
@@ -611,8 +629,10 @@ test("關係: who waits for whom: still on it, no answer, needs you; chains to t
   // a got its answer some other way: it worked again after b stopped (or messaged someone), so it isn't waiting
   // (b answered on its own screen, a read it there and told c)
   {
-    const moved = terms.map((r) => (r.address === "a" ? { ...r, status_ms: 12000 } : r));
-    assert.equal(graphData({ agents, terms: moved, space: null, now: 60000 }).waits.some((x) => x.from === "a" && x.to === "b"), false, "worked after b stopped");
+    const worked = [{ at: 12000, k: "status", a: "a", v: "working" }, { at: 15000, k: "status", a: "a", v: "idle" }];
+    assert.equal(graphData({ agents, terms, log: worked, space: null, now: 60000 }).waits.some((x) => x.from === "a" && x.to === "b"), false, "worked after b stopped");
+    const finished = terms.map((r) => (r.address === "a" ? { ...r, status_ms: 12000 } : r));
+    assert.equal(graphData({ agents, terms: finished, space: null, now: 60000 }).waits.find((x) => x.from === "a" && x.to === "b")?.state, "silent", "only finished the turn it sent in, after b stopped: still waits");
     const told = terms.map((r) => (r.address === "a" ? { ...r, sent: [msg("b", 1000), msg("zz", 12000)] } : r));
     assert.equal(graphData({ agents, terms: told, space: null, now: 60000 }).waits.some((x) => x.from === "a" && x.to === "b"), false, "messaged someone (even off this list) after b stopped");
     const early = terms.map((r) => (r.address === "a" ? { ...r, status_ms: 9000 } : r));

@@ -16,7 +16,10 @@ Needs: **mods**.
 - 還沒回／卡住 no longer shows when A, after B stopped, worked again or messaged anyone: A got its answer some other
   way (read B's screen, was told) and isn't waiting. Before, an agent that answered on its own screen instead of
   with hc send stayed 「停了但沒回」 forever.
-- 提醒它回 no longer fails with "cx is no longer valid"; when the message can't go (B isn't idle) it says why.
+- 提醒它回 no longer fails with "cx is no longer valid", and now also goes to a B that is done (stopped, not looked
+  at: what a silent one usually is); hc's `--if` knows idle only, so it failed with "is done, not idle". Still never
+  while B works or waits on a dialog; when it can't go it says why.
+- 還沒回 stays when A only finished the turn it sent in after B stopped; it ends when A begins working again.
 
 ## 2026-11-14, 關係: background work isn't your turn
 

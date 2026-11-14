@@ -336,8 +336,13 @@ export class Agents {
     const fail = (why) => { this.nudged.delete(key); setShared(AGENTS_MSG, { ok: false, label: "提醒", text: `提醒沒送出（${who} 可能又在忙了）：${why}`, at: Date.now() }); };
     cx.spawn(async (cx) => {
       try {
-        const r = await hc(["send", "--if", "idle", "--json", w.to, nudgeText(g, w)]);
-        if (r && r.code !== 0) fail(String(r.stderr || r.stdout || r.code).trim());
+        // only while it sits stopped: idle, or done (stopped, not looked at yet: what a silent one usually is). hc's
+        // --if takes idle or working only, so done is let through on a second try that names it. Never while it
+        // works (that would queue) or is blocked (hc refuses that anyway).
+        const text = nudgeText(g, w), says = (r) => String(r?.stderr || r?.stdout || r?.code).trim();
+        let r = await hc(["send", "--if", "idle", "--json", w.to, text]);
+        if (r && r.code !== 0 && /status_mismatch/.test(says(r)) && /\bis done\b/.test(says(r))) r = await hc(["send", "--json", w.to, text]);
+        if (r && r.code !== 0) fail(says(r));
         else setShared(AGENTS_MSG, { ok: true, label: "提醒", text: `已提醒 ${who} 回覆，等它回`, at: Date.now() });
       } catch (e) { fail(e?.message ?? e); }
       cx.notify();

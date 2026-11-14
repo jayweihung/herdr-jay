@@ -496,7 +496,8 @@ Windows 欄沒有日期的 tag 不要切過去，留在 `main`。 ZIP: delete th
 
 ### 8.2 Core and app on the PC
 
-Only if the README table lists a newer version, **or the same version with different patches** (e.g. 2026-11-13: app v0.1.15 got two patches for dragging an agent onto a space, then three more for a terminal's own icon, refused drop targets and a place in a space: run the **app** blocks only). Order: **core** checkout block → its build block → [8.3](#83-core-on-the-linux-server)
+Only if the README table lists a newer version, **or the same version with different patches** (e.g. 2026-11-13: app v0.1.15 got two patches for dragging an agent onto a space, then three more for a terminal's own icon, refused drop targets and a place in a space; 2026-11-14: two more, 0006 a
+Gerrit review tab that closes with nvim and 0007 linked mods that reload: run the **app** blocks only). Order: **core** checkout block → its build block → [8.3](#83-core-on-the-linux-server)
 (server) → **app** checkout block (`$repo = "herdr-app"`, the app version) → its build block.
 In the first line replace `<version from the README table>` with that version (e.g. `v0.1.21`).
 Paste each block with **Ctrl+V as one block** (not right-click, not line by line).
@@ -564,10 +565,11 @@ Gerrit panel, only if you installed it ([gerrit.md](gerrit.md)): the same for `m
 (your `gerrit.json` is outside the folder and stays). jay's layout, if you use it: when the CHANGELOG says
 **layout**, copy the layout file again ([layout.md](layout.md#install--安裝) step 3).
 
-Nothing to copy to the server: nvim-jay hands nvim its Lua each time it opens a pane there. Already open nvim panes
-keep the old version until you close and reopen them. If `check` fails, go back to your previous herdr-jay
+Nothing to copy to the server: when nvim-jay opens a pane there, it puts its Lua and the file tree (`nvim-jay\nvim-tree`,
+since 2026-11-14) in `~/.cache/nvim-jay` on the server, once per version. Already open nvim panes keep the old version
+until you close and reopen them. If `check` fails, go back to your previous herdr-jay
 (`git checkout <old tag or commit>`) and copy again.
-server 不用複製：nvim-jay 每次開格子都把程式帶過去；開著的 nvim 要關掉重開才是新版。
+server 不用複製：nvim-jay 開格子時會把程式和檔案樹放到 server 的 `~/.cache/nvim-jay`（每個版本一次）；開著的 nvim 要關掉重開才是新版。
 
 ### 8.5 Neovim
 

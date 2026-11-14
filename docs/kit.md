@@ -170,7 +170,7 @@ the mod doesn't know shows a card 「不認得的 role」 naming it: check the s
   - 在一般資料夾開的 agent：只有「加到這個資料夾」「從資料夾拿掉」（`kit add --dir <資料夾>`）。加的東西只有在這個資料夾（含子資料夾）開的 agent 讀得到，整個帳號、別的資料夾、別的 agent 都不受影響。整個帳號的東西會列出來（標 `Kit · 整個帳號`），但這裡不能改。kit 會在資料夾裡放一個 `.agentkit` 記下加了哪些，再寫進各工具在專案裡會讀的地方（`CLAUDE.md`、`AGENTS.md`、`.claude/skills`、`.agents/skills`、`.mcp.json`、`.codex/config.toml`）。在子資料夾開的 agent 按，會加到上面已經有 `.agentkit` 的那個資料夾。
   - 在家目錄 `~` 開的 agent：只有「加到整個帳號」「從帳號拿掉」（`kit add`／`kit rm`）。這台電腦上你帳號的 Claude Code、Codex、omp（有裝的）和每個 agent、每個資料夾都會有或都沒有。
   - 只想給某一個 agent：請點 `kit run` 開的 agent，用它視窗裡的「加上」「拿掉」。
-  - 資料夾的 MCP：Claude Code 不會每次問（kit 在 `.claude/settings.local.json` 允許它）；Codex 只在信任的資料夾讀，kit 會在 `~/.codex/config.toml` 信任這個資料夾；omp 只讀整個帳號的 MCP，不支援資料夾的。Codex 在子資料夾開也讀得到，是因為 kit 在 `~/.codex/config.toml` 最上面加了 `project_root_markers`。
+  - 資料夾的 MCP：Claude Code 不會每次問（kit 在 `.claude/settings.local.json` 允許它）；Codex 只在信任的資料夾讀，kit 會在 `~/.codex/config.toml` 信任這個資料夾；omp 讀資料夾的 `.mcp.json`，但只在這個資料夾本身開時（子資料夾裡開的讀不到）。Codex 在子資料夾開也讀得到，是因為 kit 在 `~/.codex/config.toml` 最上面加了 `project_root_markers`。
 - **找和分組**：最上面有一個搜尋框（找名字、說明、從哪收的），找的時候每段都會打開。「還沒用的」先列 kit 倉裡自己寫的，
   再列從網址收來的：同一個網址收了好幾個就收成一組「▸ 收自 mattpocock/skills（39）」，點一下打開（記在這台電腦），
   只收一個的就是一行，寫「收自 作者/repo」。每個都有自己的「加到這個資料夾」，要哪個加哪個。分組看的是 agent 那台主機上倉裡的 `third_party.lock`。

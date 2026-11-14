@@ -152,7 +152,7 @@ export class AgentPopup {
     const where = f ? shortDir(f.dir) : "這個資料夾";
     body.child(v_flex().mt(6).p(8).gap(4).rounded(6).bg(t.raised).text_size(z - 1.5).text_color(t.muted)
       .children(f && !f.why
-        ? [`這裡只改 ${where}：加的東西只有在 ${where}（含子資料夾）開的 agent 讀得到，整個帳號和別的資料夾都不受影響。會寫進 ${where} 的 .agentkit、CLAUDE.md、AGENTS.md、.claude/、.agents/ 等檔案。omp 不支援資料夾自己的 MCP。`,
+        ? [`這裡只改 ${where}：加的東西只有在 ${where}（含子資料夾）開的 agent 讀得到，整個帳號和別的資料夾都不受影響。會寫進 ${where} 的 .agentkit、CLAUDE.md、AGENTS.md、.claude/、.agents/ 等檔案。omp 只在這個資料夾本身開時讀得到資料夾的 MCP（子資料夾裡開的讀不到）。`,
            "標「整個帳號」「團隊必備」的是整個帳號的，這裡不能改：要改，請在家目錄（~）開的 agent 改。"]
         : [`這裡改的是整個帳號：${machine} 上你這個帳號的 Claude Code、Codex、omp（有裝的）和每個 agent、每個資料夾都會有或都沒有。`,
            "只想給某個資料夾：請在那個資料夾開的 agent 改。"])

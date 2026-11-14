@@ -9,6 +9,16 @@ says which) · **kit** = update kit itself on every machine where agents run (`k
 **snap hook** = a line in Claude Code's `settings.json` on each machine where you added the hook (the entry says
 which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/keys.md).
 
+## 2026-11-14, 關係: background work isn't your turn
+
+Needs: **mods**.
+
+- An agent whose turn ended while its own work still runs (a command Claude Code runs in the background, or a
+  sub-agent) shows as working, 背景工作中：<the command>, and isn't listed as 做完等你看 until that work is over.
+  Background shells are seen with `ps` on the agent's machine every 15 s (macOS, Linux).
+- 做完等你看 now also finds what the agent said when the hook was still writing it, and Claude Code's own one-line
+  summary (Herdr's `report.msg`) where there is no hook.
+
 ## 2026-11-14, 關係: an agent's own sub-agents
 
 Needs: **mods**; on each machine, nvim-jay opened there once (it rewrites the reply hook) and the reply hook's

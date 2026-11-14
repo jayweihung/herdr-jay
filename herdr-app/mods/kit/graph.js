@@ -15,7 +15,9 @@
 //   同一個資料夾  two agents working at once in one folder (or one inside the other), not each in its own worktree
 //   等你太久    an agent waiting for you (blocked) for over LONG_WAIT; its card warms up from WARN_WAIT on
 //   可以關了    agents idle for over IDLE_CLOSE that nobody waits for: only said, never closed
-//   做完等你看  agents done whose pane you haven't looked at since (Herdr's done: looking turns it idle); one that said
+//   做完等你看  (not when work of its own still runs: a background shell, a sub-agent; its card then reads as working,
+//              背景工作中：<what runs>)
+//              agents done whose pane you haven't looked at since (Herdr's done: looking turns it idle); one that said
 //              something at the stop (said.js: its last question, else its last line) gets its own line with it
 //   context 快滿 an agent's context FULL_PCT % full or more (its pane header's kit context): time for HANDOFF.md
 // A machine that is offline (Herdr can't reach its core): its column grey, how long in its title.
@@ -56,8 +58,9 @@ const byTerminal = (obj, addr) => Object.entries(obj ?? {}).find(([k]) => k.ends
 // log: the event log (events.js), for when each status began (Herdr's list keeps status_ms from its first listing)
 // down: machine name -> since when it is offline (events.js downMachines)
 // names: address -> name as the Agents list shows it (names.js sidebarNames)
-// said: what each agent said when it stopped (said.js SAID); subs: its sub-agents (said.js SUBS)
-export function graphData({ agents, terms, space, ctx, notes, log = [], down = {}, names = {}, said = {}, subs = {}, now = Date.now() }) {
+// said: what each agent said when it stopped (said.js SAID); subs: its sub-agents (said.js SUBS); bg: its background
+// shells (said.js BG)
+export function graphData({ agents, terms, space, ctx, notes, log = [], down = {}, names = {}, said = {}, subs = {}, bg = {}, now = Date.now() }) {
   const shown = (agents ?? []).filter((a) => !space || a.space === space);
   const rec = new Map((terms ?? []).map((r) => [r?.address, r]));
   const began = {};
@@ -113,8 +116,12 @@ export function graphData({ agents, terms, space, ctx, notes, log = [], down = {
     const r = rec.get(n.address), rep = r?.report ?? (r?.status && typeof r.status === "object" ? r.status : null);
     const msg = String(rep?.msg ?? "").replace(/\s+/g, " ").trim();
     n.said = n.status === "done" && !n.focused ? saidNow(said, n.address, n.since) || [...msg].slice(0, 200).join("") : "";
+    // done, but work of its own still going (a background shell seen after it stopped, a sub-agent): not your turn
+    const b = bg?.[n.address], jobs = n.status === "done" && b?.at >= n.since ? b.jobs ?? [] : [];
+    const subsRun = n.status === "done" ? (n.subs ?? []).filter((x) => !x.done).length : 0;
+    n.background = jobs.length ? jobs[0] : subsRun ? `子 agent ${subsRun} 個` : "";
   }
-  g.done = nodes.filter((n) => !n.down && n.status === "done" && !n.focused).map((n) => ({ address: n.address, for: n.since ? now - n.since : 0, said: n.said }));
+  g.done = nodes.filter((n) => !n.down && n.status === "done" && !n.focused && !n.background).map((n) => ({ address: n.address, for: n.since ? now - n.since : 0, said: n.said }));
   g.full = nodes.filter((n) => !n.down && n.pct != null && n.pct >= FULL_PCT).map((n) => ({ address: n.address, pct: n.pct }));
   return g;
 }
@@ -131,6 +138,7 @@ export function cardState(g, n, now = Date.now()) {
   }
   const idle = g.idle?.find((x) => x.address === n.address);
   if (idle) return { text: `閒置 ${spanText(idle.for)} · 可以關了`, color: "dim", idle: true };
+  if (n.status === "done" && n.background) return { text: `背景工作中：${n.background}`, color: "working", busy: true };
   if (n.status === "done" && !n.focused) return { text: n.said ? `做完：${n.said}` : "做完 · 等你看", color: "done", you: true };
   return null;
 }
@@ -346,7 +354,7 @@ function card(t, z, n, p, on, onSelect, mark = null, st = null, now = Date.now()
         .text_size(z - 4).text_color(t.working).child(`子 ${runningSubs(n)}`)))
       .when(Boolean(n.where), (el) => el.child(div().flex_none().text_size(z - 4).text_color(t.dim).child(n.where)))
       .when(Boolean(n.since), (el) => el.child(div().flex_none().text_size(z - 3).text_color(t.dim).child(shortSpan(now - n.since))))
-      .child(n.down ? div().size(7).mx(3).flex_none().rounded(4).bg(t.unknown) : glyph(t, n.status)))
+      .child(n.down ? div().size(7).mx(3).flex_none().rounded(4).bg(t.unknown) : glyph(t, n.background ? "working" : n.status)))
     .child(h_flex().min_w(0).gap(4).text_size(z - 2.5)
       .child(div().flex_shrink_1().min_w(0).truncate().text_color(t.muted).child([n.cli, n.model].filter(Boolean).join(" · ") || " "))
       .when(n.pct != null, (el) => el.child(div().flex_none().text_color(n.pct >= 90 ? t.ansi1 : n.pct >= FULL_PCT ? t.blocked : t.dim).child(`· ${n.pct}%`))))

@@ -7,11 +7,17 @@
 // This computer's files are read directly, another machine's through `sh` there (cat). said: once per stop, only for
 // agents done and not looked at; subs: every SUBS_MS while an agent works, once more when it stops. Nothing is
 // guessed: a said file older than the stop says nothing (no hook there, or not Claude Code).
-import { exec, home, readTextFile, shared, setShared } from "herdr";
+import { exec, hc, home, readTextFile, shared, setShared } from "herdr";
 import { isWindows, slash } from "./common.js";
 
 export const SAID = "kit.said.v1";   // address -> { at, text, asked, for, busy }
 export const SUBS = "kit.subs.v1";   // address -> { at, list, asked, for, busy }
+// A done agent may still have work of its own going: a command Claude Code's Bash tool runs in the background (a
+// `sh -c` child of the agent's process that sources its shell-snapshots; MCP servers and caffeinate aren't shells) or
+// a sub-agent. That isn't your turn: 關係 shows it working, 背景工作中, instead of 做完等你看. Asked every BG_MS (ps on its machine;
+// none on Windows) while it is done and not looked at.
+export const BG = "kit.bg.v1";       // address -> { at, jobs: [label], asked, busy }
+const BG_MS = 15000;
 const RETRY = 60000, MAX = 200, SUBS_MS = 15000, SUBS_MAX = 12;
 
 const idOf = (addr) => String(addr).slice(String(addr).lastIndexOf("/") + 1);
@@ -37,6 +43,26 @@ export function parseSubs(s) {
   const list = j.list.filter((x) => x && typeof x === "object" && typeof x.id === "string").slice(0, SUBS_MAX)
     .map((x) => ({ id: cut(x.id, 40), type: cut(x.type, 40), desc: cut(x.desc, 120), done: x.done === true, start: num(x.start), last: num(x.last) }));
   return { at, list };
+}
+
+// ps lines "<ppid> <command>" -> what the agent's background shells run (the command inside eval '…'), at most 3
+export function bgJobs(out, pid) {
+  const jobs = [];
+  for (const line of String(out ?? "").split("\n")) {
+    const m = /^\s*(\d+)\s+(.*)$/.exec(line);
+    if (!m || Number(m[1]) !== Number(pid) || !/shell-snapshots/.test(m[2]) || !/(^|\/)(z|ba)?sh\s+-c\s/.test(m[2])) continue;
+    const ev = /\beval '([\s\S]*?)' < \/dev\/null/.exec(m[2]);
+    jobs.push(cut((ev ? ev[1].replace(/'"'"'/g, "'") : "shell").split("\n")[0], 60));
+  }
+  return jobs.slice(0, 3);
+}
+async function readBg(addr) {
+  const g = await hc(["get", addr, "--json"]).catch(() => null);
+  let pid = null;
+  try { const j = JSON.parse(g?.stdout ?? "{}"); pid = j.foreground?.pid ?? j.pid ?? null; } catch {}
+  if (!pid) return null;
+  const r = await exec("sh", ["-c", 'ps -A -ww -o ppid=,command= | awk -v p="$1" \'$1 == p\'', "sh", String(pid)], { timeout: 15000, on: machineOf(addr) }).catch(() => null);
+  return r ? { at: Date.now(), jobs: bgJobs(r.stdout, pid) } : null;
 }
 
 async function readCache(addr, kind) {
@@ -74,6 +100,7 @@ export function saidTick(ags, terms, cx) {
   const rec = new Map((terms ?? []).map((r) => [r?.address, r])), now = Date.now();
   const live = new Set((ags ?? []).map((a) => a.address));
   const said = prune(SAID, live), subs = prune(SUBS, live);
+  prune(BG, live);
   for (const a of ags ?? []) {
     const stop = Number(rec.get(a.address)?.status_ms) || 0;
     const e = said[a.address];
@@ -81,6 +108,15 @@ export function saidTick(ags, terms, cx) {
     const found = e?.text && (!stop || e.at >= stop - 120000);
     if (a.status === "done" && !a.focused && !e?.busy && !(e && e.for === stop && (found || now - e.asked < RETRY)))
       ask(SAID, a, stop, "said", parseSaid, cx);
+    const b = (shared(BG) ?? {})[a.address];
+    if (a.status === "done" && !a.focused && !b?.busy && (!b || now - b.asked >= BG_MS)) {
+      setShared(BG, { ...(shared(BG) ?? {}), [a.address]: { ...(b ?? {}), asked: now, busy: true } });
+      cx.spawn(async (cx) => {
+        const d = await readBg(a.address).catch(() => null);
+        setShared(BG, { ...(shared(BG) ?? {}), [a.address]: { ...((shared(BG) ?? {})[a.address] ?? {}), ...(d ?? {}), asked: Date.now(), busy: false } });
+        cx.notify();
+      });
+    }
     const s = subs[a.address];
     if (!s?.busy && (!s || s.for !== stop || (a.status === "working" && now - s.asked >= SUBS_MS)))
       ask(SUBS, a, stop, "subs", parseSubs, cx);

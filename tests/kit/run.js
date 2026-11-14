@@ -714,6 +714,26 @@ test("關係: an agent's own sub-agents (the reply hook's subs file): 子 N on i
   assert.match(out, /子 agent：find the parser（Explore） · 在跑 · 開始 2 分前/);
   assert.match(out, /子 agent：review（general-purpose） · 做完 · 3 分前/);
 });
+test("關係: done but its own work still runs (a background shell, a sub-agent): 背景工作中 (as working), not 做完等你看", (M) => {
+  const { graphData, cardState } = M.graph, { bgJobs } = M.said;
+  const MIN = 60000, now = 100 * MIN;
+  const ps = [
+    `  700 /bin/zsh -c source /Users/amy/.claude/shell-snapshots/snapshot-zsh-1.sh 2>/dev/null || true && eval 'pwsh tests/run.ps1 2>&1 | tail -5' < /dev/null && pwd -P >| /tmp/x`,
+    `  700 /bin/zsh -c source /Users/amy/.claude/shell-snapshots/snapshot-zsh-1.sh && eval 'echo '"'"'hi'"'"'' < /dev/null && pwd -P`,
+    "  700 /opt/homebrew/bin/python3 /Users/amy/tools/mcp.py", "  700 caffeinate -i -t 300", "  701 /bin/zsh -c source x/shell-snapshots/s.sh && eval 'other' < /dev/null",
+  ].join("\n");
+  assert.deepEqual(bgJobs(ps, 700), ["pwsh tests/run.ps1 2>&1 | tail -5", "echo 'hi'"], "only its own shells; not MCP servers, caffeinate, another's");
+  const agents = [ag("t1", "done"), ag("t2", "done"), ag("t3", "done")];
+  const terms = [{ address: "t1", status_ms: now - MIN }, { address: "t2", status_ms: now - MIN }, { address: "t3", status_ms: now - MIN }];
+  const bg = { t1: { at: now - 30000, jobs: ["pwsh tests/run.ps1"] }, t3: { at: now - 2 * MIN, jobs: ["old"] } };
+  const subs = { t2: { at: now - MIN, list: [{ id: "a", type: "Explore", desc: "x", done: false, start: now - 2 * MIN, last: now }] } };
+  const g = graphData({ agents, terms, space: null, bg, subs, now });
+  const st = (a) => cardState(g, g.nodes.find((n) => n.address === a), now);
+  assert.deepEqual([st("t1").text, st("t1").you], ["背景工作中：pwsh tests/run.ps1", undefined]);
+  assert.equal(st("t2").text, "背景工作中：子 agent 1 個");
+  assert.equal(st("t3").text, "做完 · 等你看", "a shell seen before it stopped doesn't count");
+  assert.deepEqual(g.done.map((x) => x.address), ["t3"]);
+});
 test("關係 log: a machine going offline and back, once each; still loading isn't offline", (M) => {
   const { diffMachines } = M.events;
   let r = diffMachines(null, [{ name: null, layout: "ready" }, { name: "box", layout: "loading" }], 10);

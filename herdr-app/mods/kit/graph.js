@@ -73,7 +73,10 @@ export function graphData({ agents, terms, space, ctx, notes, log = [], down = {
       program: a.program, space: a.space_name, spaceId: a.space, focused: Boolean(a.focused),
       since: Math.max(Number(r?.status_ms) || 0, began[a.address] ?? 0), cwd: String(r?.foreground?.cwd || r?.cwd || ""),
       kind: String((r?.report ?? r?.status)?.kind ?? ""), down: down?.[machineOf(a.address)] ?? null,
-      subs: subsNow(subs, a.address, now, a.status === "working").map((x) => ({ ...x, step: x.done ? "" : steps?.[`${a.address}|${x.id}`]?.text ?? "" })) };
+      subs: subsNow(subs, a.address, now, a.status === "working").map((x) => {
+        const s = steps?.[`${a.address}|${x.id}`];
+        return { ...x, desc: x.desc || s?.desc || "", step: x.done ? "" : s?.text ?? "" };
+      }) };
   });
   // one column per space, in the list's order (agents() keeps a space's agents next to each other)
   const cols = [];

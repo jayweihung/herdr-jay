@@ -176,7 +176,8 @@ pcall(function()
   local known = starting == ""
   for _, x in ipairs(list) do known = known or x.id == starting end
   if not known then
-    list[#list + 1] = { id = starting, type = type(call.agent_type) == "string" and call.agent_type or "", desc = "", done = false, start = now, last = now }
+    list[#list + 1] = { id = starting, type = type(call.agent_type) == "string" and call.agent_type or "", desc = "", done = false,
+      start = now, last = now, path = dir .. "/agent-" .. starting .. ".jsonl" }
   end
   table.sort(list, function(a, b) return a.start > b.start end)
   while #list > 12 do table.remove(list) end

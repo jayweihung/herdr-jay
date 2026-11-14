@@ -89,9 +89,17 @@ export function lastStep(tail) {
   }
   return step;
 }
+// its last step, and its description from the meta file next to it (the subs file may not have it yet: the hook ran
+// before Claude Code wrote it)
 async function readStep(addr, path) {
-  const r = await exec("sh", ["-c", 'tail -c 65536 "$1" 2>/dev/null', "sh", path], { timeout: 15000, on: machineOf(addr) }).catch(() => null);
-  return r ? { at: Date.now(), text: lastStep(r.stdout) } : null;
+  const meta = path.replace(/\.jsonl$/, ".meta.json");
+  const r = await exec("sh", ["-c", 'tail -c 65536 "$1" 2>/dev/null; printf "\\n@@kit-meta@@\\n"; head -c 8192 "$2" 2>/dev/null', "sh", path, meta],
+    { timeout: 15000, on: machineOf(addr) }).catch(() => null);
+  if (!r) return null;
+  const [tail, m] = String(r.stdout ?? "").split("\n@@kit-meta@@\n");
+  let desc = "";
+  try { const j = JSON.parse(m ?? ""); desc = typeof j?.description === "string" ? cut(j.description, 120) : ""; } catch {}
+  return { at: Date.now(), text: lastStep(tail), desc };
 }
 
 async function readCache(addr, kind) {

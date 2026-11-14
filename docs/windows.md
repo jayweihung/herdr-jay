@@ -389,6 +389,9 @@ nvim-jay 開過一次後，在 Claude Code 設定加這個 hook（一次就好�
      ]
    ```
 
+   The same command under `"SubagentStart"` and `"SubagentStop"` too lets the 關係 tab show the agent's own
+   sub-agents (子 N on its card). 同一行也放在 `"SubagentStart"`、`"SubagentStop"` 底下，關係圖就看得到子 agent。
+
 ---
 
 ## 6. Test checklist / 實測清單

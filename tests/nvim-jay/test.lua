@@ -387,6 +387,31 @@ test("reply hook", function()
     stdin = vim.json.encode({ session_id = "s1", transcript_path = tr, stop_hook_active = false, last_assistant_message = "好了。\n要不要關掉我？" }) }):wait(20000)
   s = read_said()
   check("said: last_assistant_message over the transcript", s and s.text == "要不要關掉我？", s)
+  -- its sub-agents: <session>/subagents/agent-<id>.meta.json, on SubagentStart / SubagentStop (nothing else then)
+  local sdir = ROOT .. "/reply/subagents"
+  vim.fn.mkdir(sdir, "p")
+  write(sdir .. "/agent-a1.meta.json", vim.json.encode({ agentType = "Explore", description = "find the parser" }))
+  write(sdir .. "/agent-a1.jsonl", "{}\n")
+  write(sdir .. "/agent-a2.meta.json", vim.json.encode({ agentType = "general-purpose", description = "old one", finished = true }))
+  write(sdir .. "/agent-a2.jsonl", "{}\n")
+  vim.uv.fs_utime(sdir .. "/agent-a2.jsonl", os.time() - 7200, os.time() - 7200)
+  vim.uv.fs_utime(sdir .. "/agent-a2.meta.json", os.time() - 7200, os.time() - 7200)
+  write(sdir .. "/agent-a3.meta.json", "{bad")
+  local function hook_ev(ev, extra)
+    local input = vim.tbl_extend("force", { session_id = "s1", transcript_path = tr, hook_event_name = ev }, extra or {})
+    local r = vim.system({ vim.v.progpath, "--clean", "-l", hook }, { env = { HC_TERMINAL_ID = "t5" }, stdin = vim.json.encode(input), text = true }):wait(20000)
+    local h = io.open(HOME .. "/.cache/nvim-jay/subs/t5", "r")
+    local d = h and vim.json.decode(h:read("*a")) if h then h:close() end
+    return r, d
+  end
+  local r, d = hook_ev("SubagentStart", { agent_id = "a1", agent_type = "Explore" })
+  check("subs: the running one, not the one done 2 h ago nor a broken file; says nothing", r.code == 0 and r.stdout == ""
+    and d and #d.list == 1 and d.list[1].id == "a1" and d.list[1].desc == "find the parser" and d.list[1].type == "Explore" and d.list[1].done == false, d)
+  r, d = hook_ev("SubagentStart", { agent_id = "a9", agent_type = "Plan" })
+  local a9 = d and vim.iter(d.list):find(function(x) return x.id == "a9" end)
+  check("subs: a sub-agent whose meta file isn't there yet: listed from the hook's input", d and #d.list == 2 and a9 and a9.type == "Plan" and not a9.done, d)
+  r, d = hook_ev("SubagentStop", { agent_id = "a1", agent_transcript_path = sdir .. "/agent-a1.jsonl", transcript_path = sdir .. "/agent-a1.jsonl", stop_hook_active = false })
+  check("subs: SubagentStop marks it done (its own transcript path too); no block for the sub-agent", r.stdout == "" and d and d.list[1].done == true, { r.stdout, d })
 end)
 
 -- review 2: git budget per round (a hung mount: one 5 s wait, not one per folder) and only the last Bash of a chunk

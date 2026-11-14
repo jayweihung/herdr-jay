@@ -334,6 +334,9 @@ Optional, the **reply hook** (an agent answers the agents that messaged it befor
       "command": "~/.local/bin/nvim -l ~/.config/nvim-jay/reply_hook.lua" }] }
   ]
 ```
+
+The same command under `"SubagentStart"` and `"SubagentStop"` too lets the 關係 tab show the agent's own
+sub-agents (子 N on its card). 同一行也放在 `"SubagentStart"`、`"SubagentStop"` 底下，關係圖就看得到子 agent。
 Added before 2026-11-13? Then the line says `~/.config/jay-nvim/snap_hook.lua` (nvim-jay was called jay-nvim): that
 old file is no longer updated, and its copies go where nvim-jay no longer looks. Change `/.config/jay-nvim/` to
 `/.config/nvim-jay/` in the line (after a new nvim-jay pane has opened there once), restart the agent; the old

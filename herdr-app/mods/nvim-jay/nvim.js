@@ -117,7 +117,8 @@ os.exit(0)
 // Then it keeps the agent going once, with a reminder: answer, or just stop if it was only a notice. Once per message
 // (it remembers how far it looked, per session); never twice in a row (stop_hook_active). Every stop it also writes
 // what the agent said last (its last question, else its last line) to ~/.cache/nvim-jay/said/<terminal id>, for the
-// kit mod's 關係 tab (said.js).
+// kit mod's 關係 tab (said.js). Also set for SubagentStart / SubagentStop (it then only does this), it and every stop
+// write the agent's sub-agents (running, or done in the last 30 minutes) to ~/.cache/nvim-jay/subs/<terminal id>.
 const REPLY_HOOK = String.raw`-- nvim-jay's reply hook: written by nvim-jay (herdr-jay mods/nvim-jay/nvim.js); edits here are overwritten.
 -- Claude Code Stop hook, run as: nvim -l <this file>. Before the agent stops: did a message from another agent come in
 -- (herdr-core's <hc from="..."> tag) since its last stop that it didn't answer with hc send to that agent, and that
@@ -126,6 +127,62 @@ const REPLY_HOOK = String.raw`-- nvim-jay's reply hook: written by nvim-jay (her
 -- message is said once. Anything wrong (no transcript, bad input): stays quiet and lets the agent stop.
 local ok, call = pcall(vim.json.decode, io.read("*a") or "")
 if not ok or type(call) ~= "table" then return end
+-- Its sub-agents, for Herdr's 關係 tab: also run on SubagentStart / SubagentStop (and every Stop), it writes
+-- ~/.cache/nvim-jay/subs/<its terminal id> as { at, list = { { id, type, desc, done, start, last } } }: those
+-- running and those done in the last 30 minutes, newest first, at most 12. Claude Code keeps each sub-agent's
+-- description in <session>/subagents/agent-<id>.meta.json ("finished" once it ended).
+local function write_cache(kind, tid, value)
+  local dir = vim.uv.os_homedir() .. "/.cache/nvim-jay/" .. kind
+  vim.fn.mkdir(dir, "p", 448) -- 0700
+  local tmp = dir .. "/." .. tid .. ".tmp"
+  local w = vim.uv.fs_open(tmp, "w", 384) -- 0600
+  if not w then return end
+  vim.uv.fs_write(w, vim.json.encode(value), 0)
+  vim.uv.fs_close(w)
+  vim.uv.fs_rename(tmp, dir .. "/" .. tid)
+end
+local ev = call.hook_event_name
+pcall(function()
+  local tid = tostring(vim.env.HC_TERMINAL_ID or ""):gsub("[^%w%-_]", "")
+  local path = type(call.transcript_path) == "string" and call.transcript_path or ""
+  if tid == "" or path == "" then return end
+  local dir = (path:match("^(.*)/subagents/") or path:gsub("%.jsonl$", "")) .. "/subagents"
+  local ending = ev == "SubagentStop" and tostring(call.agent_id or "") or ""
+  local function ms(t) return t and (t.sec * 1000 + math.floor((t.nsec or 0) / 1e6)) or 0 end
+  local now, list = ms(vim.uv.clock_gettime("realtime")), {}
+  for name, kind in vim.fs.dir(dir) do
+    local id = kind == "file" and name:match("^agent%-(.+)%.meta%.json$")
+    if id then
+      local mp, lp = dir .. "/" .. name, dir .. "/agent-" .. id .. ".jsonl"
+      local mst, lst = vim.uv.fs_stat(mp), vim.uv.fs_stat(lp)
+      local fd = mst and mst.size < 65536 and vim.uv.fs_open(mp, "r", 0)
+      local raw = fd and vim.uv.fs_read(fd, mst.size, 0)
+      if fd then vim.uv.fs_close(fd) end
+      local okm, meta = pcall(vim.json.decode, raw or "")
+      if okm and type(meta) == "table" then
+        local start = ms(mst.birthtime) > 0 and ms(mst.birthtime) or ms(mst.mtime)
+        local last = math.max(ms(lst and lst.mtime), ms(mst.mtime))
+        local done = meta.finished == true or id == ending or ("agent-" .. id) == ending
+        if now - last < 30 * 60000 then
+          list[#list + 1] = { id = id, type = type(meta.agentType) == "string" and meta.agentType or "",
+            desc = type(meta.description) == "string" and vim.fn.strcharpart(meta.description, 0, 120) or "",
+            done = done, start = start, last = last }
+        end
+      end
+    end
+  end
+  -- SubagentStart may come before Claude Code writes its meta file: listed by what the hook says (no description yet)
+  local starting = ev == "SubagentStart" and tostring(call.agent_id or ""):gsub("^agent%-", "") or ""
+  local known = starting == ""
+  for _, x in ipairs(list) do known = known or x.id == starting end
+  if not known then
+    list[#list + 1] = { id = starting, type = type(call.agent_type) == "string" and call.agent_type or "", desc = "", done = false, start = now, last = now }
+  end
+  table.sort(list, function(a, b) return a.start > b.start end)
+  while #list > 12 do table.remove(list) end
+  write_cache("subs", tid, { at = now, list = list })
+end)
+if ev == "SubagentStart" or ev == "SubagentStop" then return end
 -- What it said last, for Herdr's 關係 tab (做完等你看): in ~/.cache/nvim-jay/said/<its terminal id> as { at, text }, the
 -- last line of its last words that asks something (？ or ?), else their last line. Every stop, a reminded one too.
 -- Its last words: Claude Code's last_assistant_message (the transcript may not have them yet when the hook runs),
@@ -160,14 +217,7 @@ pcall(function()
   end
   local said = vim.fn.strcharpart(ask or pick or "", 0, 200)
   if said == "" then return end
-  local dir = vim.uv.os_homedir() .. "/.cache/nvim-jay/said"
-  vim.fn.mkdir(dir, "p", 448) -- 0700
-  local tmp = dir .. "/." .. tid .. ".tmp"
-  local w = vim.uv.fs_open(tmp, "w", 384) -- 0600
-  if not w then return end
-  vim.uv.fs_write(w, vim.json.encode({ at = os.time() * 1000, text = said }), 0)
-  vim.uv.fs_close(w)
-  vim.uv.fs_rename(tmp, dir .. "/" .. tid)
+  write_cache("said", tid, { at = os.time() * 1000, text = said })
 end)
 if call.stop_hook_active == true then return end
 pcall(function()

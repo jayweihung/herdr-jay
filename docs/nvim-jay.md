@@ -289,9 +289,22 @@ rest, add to `"Stop"` if it is there; full `nvim` path if needed; Windows: under
 "hooks": {
   "Stop": [
     { "hooks": [{ "type": "command", "command": "nvim -l ~/.config/nvim-jay/reply_hook.lua" }] }
+  ],
+  "SubagentStart": [
+    { "hooks": [{ "type": "command", "command": "nvim -l ~/.config/nvim-jay/reply_hook.lua" }] }
+  ],
+  "SubagentStop": [
+    { "hooks": [{ "type": "command", "command": "nvim -l ~/.config/nvim-jay/reply_hook.lua" }] }
   ]
 }
 ```
+
+`SubagentStart` / `SubagentStop` (optional, same file) let the 關係 tab show the agent's own sub-agents: on those
+two events, and on every stop, the hook writes `~/.cache/nvim-jay/subs/<terminal id>` (`{ at, list }`, 0600): the
+sub-agents running, or done in the last 30 minutes, newest first, at most 12, each with its type and description
+from Claude Code's `<session>/subagents/agent-<id>.meta.json`. On those two events it does nothing else and never
+keeps a sub-agent going. 加上 SubagentStart／SubagentStop 兩段，關係圖的卡片會寫「子 2」（它自己開的子 agent 幾個在跑），
+點卡片會列出每一個。
 
 Only Claude Code has this hook; omp and codex agents aren't reminded (the 關係 tab still shows them, with its
 提醒它回 button). Sending yourself: put `不用回` (or `[FYI]`) in the first line of a message that needs no answer, so

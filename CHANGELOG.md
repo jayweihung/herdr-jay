@@ -9,6 +9,17 @@ says which) · **kit** = update kit itself on every machine where agents run (`k
 **snap hook** = a line in Claude Code's `settings.json` on each machine where you added the hook (the entry says
 which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/keys.md).
 
+## 2026-11-14, 關係: an agent's own sub-agents
+
+Needs: **mods**; on each machine, nvim-jay opened there once (it rewrites the reply hook) and the reply hook's
+command also under `"SubagentStart"` and `"SubagentStop"` in Claude Code's `settings.json`
+([docs/nvim-jay.md](docs/nvim-jay.md) §7a).
+
+- A card says 子 N when the agent's own sub-agents (Claude Code's Agent tool) are running; selecting it lists each
+  one (description, type, running since / done when). The reply hook writes them on SubagentStart / SubagentStop
+  and every stop (`~/.cache/nvim-jay/subs/<terminal>`); the panel reads them every 15 s while the agent works.
+  Codex and omp sub-agents are not shown yet.
+
 ## 2026-11-14, 關係: what a done agent asked you; cards waiting for you are colored
 
 Needs: **mods**; on other machines, open nvim-jay there once (it rewrites the reply hook file).

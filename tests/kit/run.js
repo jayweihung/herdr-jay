@@ -695,6 +695,25 @@ test("關係: an agent done and not looked at says what it said when it stopped 
   assert.equal(cardState(gm, gm.nodes[0], now).text, "做完：要不要升到 0.6.3？");
   assert.equal(tint("rgb(1,2,3)", "#ffffff"), "rgb(1,2,3)", "not #rrggbb: as it is");
 });
+test("關係: an agent's own sub-agents (the reply hook's subs file): 子 N on its card, each one when it is selected", (M) => {
+  const { graphData, runningSubs, edgeList } = M.graph, { parseSubs, subsNow } = M.said;
+  const MIN = 60000, now = 100 * MIN;
+  assert.equal(parseSubs("{bad"), null);
+  assert.equal(parseSubs(JSON.stringify({ at: 0, list: [] })), null);
+  const file = parseSubs(JSON.stringify({ at: now - MIN, list: [{ id: "a1", type: "Explore", desc: "find  the parser", done: false, start: now - 2 * MIN, last: now - MIN },
+    { id: "a2", type: "general-purpose", desc: "review", done: true, start: now - 9 * MIN, last: now - 3 * MIN }, { desc: "no id" }, "x"] }));
+  assert.deepEqual(file.list.map((x) => [x.id, x.desc, x.done]), [["a1", "find the parser", false], ["a2", "review", true]]);
+  const all = { t1: file, t2: { ...file, at: now - 40 * MIN } };
+  assert.equal(subsNow(all, "t2", now).length, 0, "an old file of an agent not working: nothing");
+  assert.equal(subsNow(all, "t2", now, true).length, 2, "working: a long sub-agent may write nothing for a while");
+  const g = graphData({ agents: [ag("t1", "working"), ag("t2", "idle")], terms: [], space: null, subs: all, now });
+  assert.deepEqual([runningSubs(g.nodes[0]), runningSubs(g.nodes[1])], [1, 0]);
+  const th = new Proxy({}, { get: (_t, k) => (k === "then" ? undefined : "#334455") });
+  H.texts = []; H.strings = []; edgeList(th, 13, g, "t1", now);
+  const out = [...H.texts, ...H.strings].join("\n");
+  assert.match(out, /子 agent：find the parser（Explore） · 在跑 · 開始 2 分前/);
+  assert.match(out, /子 agent：review（general-purpose） · 做完 · 3 分前/);
+});
 test("關係 log: a machine going offline and back, once each; still loading isn't offline", (M) => {
   const { diffMachines } = M.events;
   let r = diffMachines(null, [{ name: null, layout: "ready" }, { name: "box", layout: "loading" }], 10);

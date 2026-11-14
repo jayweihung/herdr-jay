@@ -348,8 +348,12 @@ export function busyOf(ags, terms, bg, subs, now = Date.now()) {
 // address -> what it said, when it said it at this stop (not long before its status became done)
 // a line that asks you something, so its agent waits for your answer: a question mark, or the usual ways of asking
 // without one (要推的話跟我說。 / 要不要… / …嗎。 / 回我「更新」)
-const ASK = /[？?]|跟我說|告訴我|回我|要不要|你決定|你選|請(你)?(確認|決定|選)|嗎[。！!.]?\s*$/;
-export const asks = (line) => ASK.test(String(line ?? ""));
+// A closing offer is not a question: 之後想改再跟我說 / 有需要隨時告訴我 (later, any time, if needed, 再…) — checked
+// per sentence, a question mark always asks.
+const ASK = /跟我說|告訴我|回我|要不要|你決定|你選|請(你)?(確認|決定|選)|嗎\s*$/;
+const LATER = /之後|以後|隨時|有需要|有問題|再(跟我說|告訴我|回我)/;
+export const asks = (line) => String(line ?? "").split(/[。！!；;\n]+/)
+  .some((x) => /[？?]/.test(x) || (ASK.test(x.trim()) && !LATER.test(x)));
 export function saidNow(all, address, since) {
   const e = (all ?? {})[address];
   return e?.text && (!since || e.at >= since - 120000) ? e.text : "";

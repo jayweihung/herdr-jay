@@ -880,6 +880,8 @@ test("關係: an agent done and not looked at says what it said when it stopped 
   // asking without a question mark; while you look at it, it still waits for your answer; a plain report stays 做完
   const { asks } = M.said;
   assert.deepEqual(["要推的話跟我說。", "要更新就回我「更新」。", "這樣可以嗎", "要不要先跑測試", "做好了。", "測試都過了，已推上去。"].map(asks), [true, true, true, true, false, false]);
+  assert.deepEqual(["顏色和 skill 那兩件，之後想改再跟我說。", "有需要隨時告訴我。", "有問題再回我", "做好了。之後想改再跟我說。要推嗎？", "這樣可以嗎。之後再說。"].map(asks),
+    [false, false, false, true, true], "a closing offer (later, any time, 再…) is not a question; a sentence that asks still is");
   const gf = graphData({ agents: [ag("t3", "done", { focused: true }), ag("t4", "done")], terms: [{ address: "t3", status_ms: now - 2 * MIN }, { address: "t4", status_ms: now - 2 * MIN }],
     said: { t3: { at: now - 2 * MIN, text: "三個提交都還在本機，要推的話跟我說。" }, t4: { at: now - 2 * MIN, text: "做好了，測試都過。" } }, space: null, now });
   const sf = (a) => cardState(gf, gf.nodes.find((n) => n.address === a), now);

@@ -9,6 +9,11 @@ says which) · **kit** = update kit itself on every machine where agents run (`k
 **snap hook** = a line in Claude Code's `settings.json` on each machine where you added the hook (the entry says
 which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/keys.md).
 
+## 2026-11-14, 關係: a closing offer is not 問你
+Needs: mods.
+- 之後想改再跟我說 / 有需要隨時告訴我 (later, any time, if needed, 再…) no longer counts as asking you; a sentence
+  with a question mark, or 要推的話跟我說, still does.
+
 ## 2026-11-14, 關係: an agent that asks you something waits for you (問你)
 Needs: mods.
 - Done, and its last words ask you (a question mark, or 跟我說 / 回我 / 要不要 / 你決定 / …嗎): its card is colored like

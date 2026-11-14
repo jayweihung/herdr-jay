@@ -518,7 +518,7 @@ export class Repo {
     all.child(h_flex().gap(6).items_center()
       .child(btn(t, z, "collect-many", this.busy === "收" ? "收進來中…" : `${allow ? "加進清單並收進來" : "收進來"}（${picked.length} 個）`,
         { small: true, kind: "primary", off: Boolean(this.busy) || !picked.length, on: (cx) => this.collectMany(picked, allow, cx) })));
-    if (this.busy === "收" && pr) all.child(this.working(t, z, `收進來中 ${pr.done}/${pr.total}：${pr.name}${pr.ok ? `（已收好 ${pr.ok} 個，在下面清單）` : ""}`));
+    if (this.busy === "收" && pr) all.child(this.working(t, z, `收進來中 ${pr.done}/${pr.total}：${pr.name}${pr.ok ? `（已收好 ${pr.ok} 個，在下面清單）` : ""}`, pr.done, pr.total));
     return box.child(card).child(all);
   }
 
@@ -870,10 +870,14 @@ export class Repo {
   message(t, z, msg) { return messageBox(t, z, this.where, msg, () => this.setMsg(null), squeeze); }
 
   // working on it: a bar with a piece sliding through it (Herdr animates it; no timer) and what is going on
-  working(t, z, text) {
+  // under way: a bar that fills as it goes when how far is known (done / total), else a spinner and the words.
+  // No bar that slides back and forth: it flickered, and in a narrow panel it was out of view half the time.
+  working(t, z, text, done = null, total = null) {
+    if (!(total > 0)) return div().text_size(z - 1.5).child(waiting(t, z - 1.5, text));
+    const pct = Math.max(0, Math.min(100, Math.round((done / total) * 100)));
     return v_flex().gap(4)
-      .child(div().relative().h(4).w_full().rounded(2).overflow_hidden().bg(t.surface)
-        .child(div().absolute().top(0).h(4).w(90).rounded(2).bg(t.accent).loop("left", { from: -90, to: 460, period: 1400 })))
+      .child(div().h(4).w_full().rounded(2).overflow_hidden().bg(t.surface)
+        .child(div().h(4).w(`${pct}%`).rounded(2).bg(t.accent)))
       .child(div().text_size(z - 1.5).text_color(t.muted).child(text));
   }
 

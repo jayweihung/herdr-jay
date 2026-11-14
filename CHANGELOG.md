@@ -9,6 +9,22 @@ says which) · **kit** = update kit itself on every machine where agents run (`k
 **snap hook** = a line in Claude Code's `settings.json` on each machine where you added the hook (the entry says
 which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/keys.md).
 
+## 2026-11-14, nvim-jay: one menu on right-click
+
+Needs: **mods** (Windows: copy nvim-jay again), then open nvim again.
+
+- Right-click in nvim opens one menu with what can be done there, only what applies, drawn like a desktop app's menu
+  (a border, lines between groups, the key on the right, ▸ items that open beside them). The mouse picks what it is
+  over and moving it no longer closes the menu; a click outside or Esc does, and selected lines stay selected.
+- In a Gerrit change, right-click and Enter open the same menu: 留言, 直接改給作者看, 問 agent, then each thread on
+  the line (▸ 回覆 / Done / Ack / 請 agent 照這則改) and each draft of yours (▸ 改 / 刪), then the change (next unresolved
+  thread, another patch set, commit 說明). Selected lines: ask, suggest an edit, copy. nvim-jay's own comments for an
+  agent are off in a change's files.
+- Gone: nvim's own right-click menu, and `space r r` / `r d` / `r k` / `r e` / `r x` (they took the line's first thread
+  or draft; the menu names each one). The commit message opens in a window below (q closes it).
+- Lists nvim asks you to pick from (which agent, which patch set, code actions) use the same menu.
+右鍵（或 review 裡的 Enter）只有一個選單，只列這裡用得到的；滑鼠移動不會關掉；舊的五個 space r 捷徑拿掉。
+
 ## 2026-11-14, Gerrit panel: 在 nvim 看 (a change as files, in nvim)
 
 Needs: **gerrit** and **mods** (nvim-jay too; Windows: copy both again), restart Herdr.

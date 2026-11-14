@@ -502,20 +502,22 @@ against 第 M 版 (only what changed since then: good for a second round). Anoth
 folder moves to it.
 跟上一個 commit 比；上面選了「從第 M 版到第 N 版」就只看兩版之間改了什麼（第二輪 review 用）。
 
-**A newer patch set** while nvim is open: the panel asks Gerrit once a minute. nvim says 🆕 有第 N 版了, and its Enter
-menu (below) has 換成第 N 版：只看第 M→N 版改的地方 (only what the author changed since the one you read) or the whole
+**A newer patch set** while nvim is open: the panel asks Gerrit once a minute. nvim says 🆕 有第 N 版了, and its menu
+(right-click, below) has 🆕 有第 N 版了：換過去 ▸ 換成第 N 版：只看第 M→N 版改的地方 (only what the author changed since the one you read) or the whole
 of it; the same folder moves there, with a progress line at the top of nvim's list. The change's page reloads too: 🔍
 只看第 M→N 版改的, 切到 nvim when nvim is open, 改成看… for what the page shows.
-有新的一版：nvim 會說，Enter 選單裡可以換過去，只看這次改了什麼；面板那頁也會更新。
+有新的一版：nvim 會說，右鍵選單裡可以換過去，只看這次改了什麼；面板那頁也會更新。
 
 **In nvim** (nvim-jay's review mode, [nvim-jay.md](nvim-jay.md#9-gerrit-review-mode--gerrit-review-模式)):
 - left: the changed files (新增 / 刪除 / 改名, +/−, 💬 comments), ✓ on the ones you opened, 看過 N / M;
 - right: the whole file, changed lines marked against the base (removed lines in red above, added in green);
 - this patch set's comments under their line, as threads (replies with ↳; unresolved in yellow, your drafts in blue);
-- **Enter on a line**: a menu of what fits there: 💬 a comment; ↩ reply, ✓ Done, 👍 Ack to a thread on that line; ✎ /
-  🗑 your draft there; 🗨 ask the Gerrit agent; 🆕 another patch set; 📄 the commit message. Right click has it too
-  (Gerrit：這一行能做的事);
-- **select lines, then Enter**: ask the Gerrit agent about them (see below), or **suggest an edit**: they open in a small
+- **Right-click (or Enter) on a line**: one menu of what fits there: 💬 留言（寫意見）; 🔧 直接改給作者看 (a suggested
+  edit); 🤖 ask the Gerrit agent; each thread on the line ▸ 回覆 / ✅ Done / 👍 Ack; your draft there ▸ 改 / 刪; ⏩ the next
+  unresolved thread; 🆕 another patch set; 📄 the commit message. The mouse picks what it is over; a click outside
+  closes it;
+- **select lines, then right-click (or Enter)**: ask the Gerrit agent about them (see below), or 🔧 直接改給作者看 (**a
+  suggested edit**): they open in a small
   window, change them, `:w`, an optional note: a draft with Gerrit's suggestion block, so the author applies it with
   one click on Gerrit's page (works without any server setting);
 - **older patch sets' threads**: on 第 N 版, the threads still open from earlier ones show on the lines they are on now
@@ -524,16 +526,16 @@ of it; the same folder moves there, with a progress line at the top of nvim's li
 
 Comments, replies, Done / Ack and changes to your drafts become **your Gerrit drafts** (the panel saves them; they
 show in the panel's thread, and **💬 送出回覆** publishes them with the rest). nvim never publishes anything.
-在檔案裡按 Enter 就有這一行能做的事；留言、回覆、Done 都先存成草稿，面板按 💬 送出回覆才會送出。
+在檔案裡按右鍵（或 Enter）就有這一行能做的事；留言、回覆、Done 都先存成草稿，面板按 💬 送出回覆才會送出。
 
-**Your own change**: nvim says so at the top of the list. On an unresolved thread the Enter menu has 🛠 請 agent 照這則改:
+**Your own change**: nvim says so at the top of the list. In an unresolved thread's ▸ (right-click menu) there is 🤖 請 agent 照這則改:
 the Gerrit agent gets the thread and changes the files in the review folder (only the files: no commit, no push, no
-comment). nvim marks what it changed as the file changes. 📝 看還沒推的改動 shows the folder's diff; `]u` / `[u` go to
+comment). nvim marks what it changed as the file changes. 🔍 看還沒推的改動 shows the folder's diff; `]u` / `[u` go to
 the next / previous unresolved thread nobody has answered. When it's right, commit --amend and push in that folder
 yourself (a new patch set), and answer the threads Done.
 自己的 change：未解決的留言可以請 agent 照著改（只改檔案，不 commit、不推），改好你自己推新的一版。
 
-**Ask the agent about lines**: select them and press Enter (or 問 Gerrit agent 這一段 in the menu), then a question
+**Ask the agent about lines**: select them and right-click (or Enter): 問 agent 這幾行, then a question
 (empty: 這段改動在做什麼？有沒有問題？). It goes to the Gerrit agent (§7) with the change, the file and lines, the folder's
 path and the diff of exactly those lines (lines that the change didn't touch: the lines themselves); the agent has the
 folder for anything around them. One already open in

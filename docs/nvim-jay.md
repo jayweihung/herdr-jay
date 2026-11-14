@@ -47,9 +47,18 @@ Needs **Neovim 0.11 or newer**, `git`, and `hc` on the machine where the pane op
   Comment spans and message shape follow [herdr-nvim](https://github.com/ChmaraX/herdr-nvim) (MIT).
 - **Files the agent touched**: a list of files the agent read or edited, newest first, plus files git shows as changed.
 - **Language servers**: go to definition, hover, errors — see [3](#3-language-servers--語言伺服器).
-- **Mouse**: rest the pointer on a name for its type, on an error to read it; right-click menu in Chinese. Herdr gives
-  right-clicks to the program only when the pane is labelled `herdr.right-click=program`; nvim-jay sets that label.
-  Shift + right-click still opens Herdr's menu.
+- **Mouse**: rest the pointer on a name for its type, on an error to read it.
+- **One menu (right-click)**: what can be done where you clicked, only what applies, in groups: the language server
+  (看型別, 跳到定義, …), errors, comments for the agent (刪掉 only on a commented line, 列出 / 送給 agent only when there are
+  some), the agent's files, editing (剪下 / 複製 / 貼上 on selected lines; 開網址 on a link). On selected lines it is about
+  those lines. Drawn like a desktop app's menu: a border, a line between groups, the key on the right (␣ = space);
+  the mouse picks what it is over, a ▸ item opens its menu beside it, moving the mouse never closes it; a click
+  outside, Esc or q does (selected lines stay selected). Keys work too: j k ↑ ↓, Enter / l / →, h / ←. Every list nvim
+  asks you to pick from (which agent, which patch set, a language server's code actions) is this menu too.
+  Herdr gives right-clicks to the program only when the pane is labelled `herdr.right-click=program`; nvim-jay sets
+  that label. Shift + right-click still opens Herdr's menu.
+  一個選單：右鍵就有這裡能做的事（只列用得到的），選幾行再右鍵就是那幾行的；滑鼠移過去就選、▸ 會在旁邊展開，
+  點外面或 Esc 關掉。
 - **Two panes on one file**: a heads-up the first time you change a file another nvim also has open.
 - **Bash edits**: when a shell command of the agent ends (also with an error, also one run in the background), nvim
   opens what it changed: the files Claude Code saw it change, else a changed file the command names (`/abs/path`,
@@ -71,6 +80,7 @@ Inside nvim (`space` is the leader), the same everywhere:
 
 | Key | What |
 |---|---|
+| right-click | the menu: what can be done here (on selected lines: with them) |
 | `space o` | files the agent read / edited (+ git changes) |
 | `space a c` | comment this line (or the selection in visual mode) |
 | `space a l` | list comments |
@@ -251,9 +261,10 @@ Opened by the Gerrit panel's **在 nvim 看** ([gerrit.md §9](gerrit.md#9-read-
 `cmd-e`: a new tab in the change's own folder (a git worktree at that patch set). The panel passes
 `--cmd "let g:nvim_jay_review = '<…>/review.json'"`; that file is the panel's (files, comments, base and head, a jump)
 and it rewrites it when something changes. Everything else of nvim-jay stays (language servers, the mouse, the
-comments to an agent); follow is off and there is no tree.
+menu); follow is off and there is no tree. nvim-jay's own comments for an agent are off in the change's files: there
+you comment on Gerrit.
 由 Gerrit 面板的「在 nvim 看」打開，在那個 change 自己的資料夾開新分頁；左邊是改過的檔，右邊是整個檔案。
-不用記鍵：在檔案裡按 Enter 就有這一行能做的事，選幾行按 Enter 就問 agent；下面的 space r … 只是捷徑。
+不用記鍵：在檔案裡按右鍵（或 Enter）就有這裡能做的事，選幾行再按右鍵就是那幾行的；下面的 space r … 只是捷徑。
 
 - **Left**: the change's files in Gerrit's order: 新增 / 刪除 / 改名, `+N -M`, `💬N（K 未解）`; ✓ on the ones you
   opened (kept per patch set in `seen.json` beside review.json); 看過 N / M. `Enter` or a double click opens one.
@@ -263,16 +274,20 @@ comments to an agent); follow is off and there is no tree.
   in red. It opens on the first change.
 - **Comments**: this patch set's under their line, as threads: `💬 Alice（未解決）：…` in yellow, replies `↳ Bob：…`,
   resolved threads grey, your drafts blue `📝 你的草稿（還沒送出）`.
-- **Enter on a line** (in a file of the change): a menu of what fits there: 💬 在這一行留言, ↩ 回覆 / ✓ Done / 👍 Ack a
-  thread on the line (Done and Ack resolve it), ✎ 改 / 🗑 刪 your draft there, 🗨 問 Gerrit agent, 🆕 換成第 N 版 (only
-  what it changed since, or all of it), 📄 commit 說明. The right-click menu has 「Gerrit：這一行能做的事」 too.
-  Elsewhere (the list, other files) Enter does what it did.
-- **Select lines, then Enter**: 🤖 ask the Gerrit agent about them (the question can be empty: what does it do, anything
-  wrong; the panel sends the change, file, lines, this folder's path and the diff of exactly those lines), or ✏️ 建議改法:
-  the lines open in a small window below; change them, `:w`, a note if you like (`:q!`: never mind). It becomes your
-  draft with Gerrit's suggestion block (shown as ✏️ 建議改成：…), and the author applies it with one click.
+- **Right-click (or Enter) on a line** (in a file of the change): the menu (§1) with the change's part first:
+  💬 留言（寫意見） and 🔧 直接改給作者看 (a suggested edit, below), 🤖 問 agent 這一行; then each thread on the line as one ▸
+  item (🟡 open, ⚪ resolved: 回覆, ✅ Done, 👍 Ack, and on your own change 🤖 請 agent 照這則改) and each draft of yours
+  (▸ 改草稿, 刪掉草稿); then the change: ⏩ the next unresolved thread, 🔍 看還沒推的改動 (your change), 🆕 another patch
+  set (▸ only what it changed since, or all of it), 📄 commit 說明 (in a window below; q closes it). The language
+  server's items follow when there is one. In the list: 開這個檔, 先看測試. Elsewhere (other files) Enter does what it did.
+- **Select lines, then right-click (or Enter)**: 🤖 ask the Gerrit agent about them (the question can be empty: what
+  does it do, anything wrong; the panel sends the change, file, lines, this folder's path and the diff of exactly those
+  lines), 🔧 直接改給作者看: the lines open in a small window below; change them, `:w`, a note if you like (`:q!`: never
+  mind). It becomes your draft with Gerrit's suggestion block (shown as ✏️ 建議改成：…), and the author applies it with
+  one click. Or 複製.
+  留言是寫意見，作者自己改；直接改給作者看是你改好，作者在 Gerrit 按一下就套用。
 - **Older patch sets**: their threads that are still open show on the lines they are on now, 第 M 版留的.
-- **Your own change** (the list says so): 🛠 請 agent 照這則改 on an unresolved thread, 📝 看還沒推的改動 (the folder's
+- **Your own change** (the list says so): 🤖 請 agent 照這則改 in an unresolved thread's ▸, 🔍 看還沒推的改動 (the folder's
   diff); `]u` `[u` the next / previous unresolved thread nobody has answered.
 - **Where it goes**: every one of these is a line in `from-nvim.jsonl` beside review.json (`draft`, `reply`, `edit`,
   `delete`, `update`, `ask`); the panel saves drafts on Gerrit (on the thread's patch set; they show at once, marked
@@ -286,17 +301,19 @@ comments to an agent); follow is off and there is no tree.
 |---|---|
 | `]f` `[f` | next / previous changed file (marks it seen) |
 | `]c` `[c` | next / previous change in this file |
-| `Enter` (in a file) | what you can do on this line (the menu above) |
-| `Enter` (lines selected) | ask the Gerrit agent about them |
-| `space r c` | a comment on this line, as your Gerrit draft |
-| `space r r` `space r d` `space r k` | reply / Done / Ack to the thread on this line |
-| `space r e` `space r x` | edit / delete your draft on this line |
-| `space r u` | another patch set |
-| `space r s` | suggest an edit of this line (or the selected ones) |
 | `]u` `[u` | next / previous unresolved thread nobody has answered |
+| right-click or `Enter` (in a file) | the menu above (lines selected: for those lines) |
+
+Shortcuts for what the menu has (the menu shows them on the right):
+
+| Key | What |
+|---|---|
+| `space r c` | 留言 on this line |
+| `space r s` | 直接改給作者看 (this line, or the selected ones) |
 | `space r a` | ask the Gerrit agent (this line, or the selected ones) |
-| `space r l` | the list of files (back to it, or open it again) |
+| `space r u` | another patch set |
 | `space r m` | the commit message |
+| `space r l` | the list of files (back to it, or open it again) |
 | `o` (in the list) | tests first / Gerrit's order |
 
 The files can be edited (to try something), but the panel then can't move the folder to another patch set until you

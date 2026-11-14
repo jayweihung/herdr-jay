@@ -1333,6 +1333,7 @@ function JN.notes_list() return notes end
 
 function JN.comment(l1, l2)
   local b = vim.api.nvim_get_current_buf()
+  if JN.review and JN.review.owns and JN.review.owns(b) then return vim.notify("Gerrit change 裡：按右鍵（或 Enter）留言、問 agent") end
   vim.ui.input({ prompt = ("註解（第 %d%s 行）："):format(l1, l2 > l1 and ("–" .. l2) or "") }, function(text)
     if not text or text == "" then return end
     local id = vim.api.nvim_buf_set_extmark(b, cns, l1 - 1, 0, {
@@ -1567,43 +1568,365 @@ map("n", "<leader>q", JN.toggle_list, { desc = "下面的清單（開／關）" 
 api.nvim_create_autocmd("FileType", { group = AUG, pattern = "qf", callback = function(a)
   map("n", "q", "<Cmd>cclose<CR>", { buffer = a.buf, desc = "關掉清單" })
 end })
--- Right-click (mousemodel popup_setpos puts the cursor there first): nvim's menu, in Chinese, with the
--- language items on top. Its own MenuPopup handler names the English items, so it goes too.
-vim.cmd([[
-  silent! aunmenu PopUp
-  nnoremenu PopUp.看型別 <Cmd>lua vim.lsp.buf.hover()<CR>
-  nnoremenu PopUp.跳到定義 <Cmd>lua JN.definition()<CR>
-  nnoremenu PopUp.找所有用到的地方 <Cmd>lua vim.lsp.buf.references()<CR>
-  nnoremenu PopUp.改名 <Cmd>lua vim.lsp.buf.rename()<CR>
-  nnoremenu PopUp.跳回上一個位置 <C-o>
-  nnoremenu PopUp.列出所有錯誤 <Cmd>lua vim.diagnostic.setqflist()<CR>
-  nnoremenu PopUp.關掉錯誤清單 <Cmd>cclose<CR>
-  anoremenu PopUp.-agent- <Nop>
-  nnoremenu PopUp.agent\ 讀過／改過的檔 <Cmd>lua JN.pick()<CR>
-  nnoremenu PopUp.跟著\ agent\ 開檔（開／關） <Cmd>lua JN.toggle_follow()<CR>
-  nnoremenu PopUp.註解這行 <Cmd>lua JN.comment(vim.fn.line("."), vim.fn.line("."))<CR>
-  vnoremenu PopUp.註解選取的行 <Cmd>lua JN.comment_sel()<CR>
-  nnoremenu PopUp.刪掉這行的註解 <Cmd>lua JN.drop_here()<CR>
-  nnoremenu PopUp.列出註解 <Cmd>lua JN.list()<CR>
-  nnoremenu PopUp.註解送給\ agent <Cmd>lua JN.send()<CR>
-  anoremenu PopUp.-1- <Nop>
-  vnoremenu PopUp.剪下 "+x
-  vnoremenu PopUp.複製 "+y
-  anoremenu PopUp.貼上 "+gP
-  vnoremenu PopUp.貼上 "+P
-  nnoremenu PopUp.全選 ggVG
-  vnoremenu PopUp.全選 gg0oG$
-  amenu PopUp.開網址 gx
-]])
-api.nvim_create_autocmd("MenuPopup", { group = api.nvim_create_augroup("nvim.popupmenu", { clear = true }), callback = function()
-  local lsp = vim.lsp.get_clients({ bufnr = 0 })[1] and "enable" or "disable"
-  for _, n in ipairs({ "看型別", "跳到定義", "找所有用到的地方", "改名" }) do vim.cmd("nmenu " .. lsp .. " PopUp." .. n) end
-  vim.cmd("nmenu " .. (next(vim.diagnostic.count()) and "enable" or "disable") .. " PopUp.列出所有錯誤")
-  local open = vim.tbl_contains(vim.tbl_map(function(w) return w.quickfix end, vim.fn.getwininfo()), 1)
-  vim.cmd("nmenu " .. (open and "enable" or "disable") .. " PopUp.關掉錯誤清單")
-  local url = require("vim.ui")._get_urls()[1]
-  vim.cmd("amenu " .. (url and vim.startswith(url, "http") and "enable" or "disable") .. " PopUp.開網址")
+-- ===================================== MENU =====================================
+-- One menu, drawn like a desktop app's, for the mouse and the keys: right-click opens it at the mouse (Enter in a file
+-- of a Gerrit change opens the same one at the cursor), and vim.ui.select is it too. What it lists comes from
+-- M.sections, in order: each gives the items that fit where it was opened, or nothing (the review mode puts its own
+-- first). An item is { label, icon = one wide emoji, hint = its key (dim, on the right), fn, sub = items (or a function
+-- giving them): a ▸ item, its menu opens beside it } or "-", a line between groups (never two, never at an end).
+-- The mouse picks what it is over and a ▸ opens on hover; moving it never closes the menu; a click outside, Esc or q
+-- does. Keys: j k ↑ ↓, Enter / l / → (opens a ▸), h / ← back.
+-- (nvim's own right-click menu closed as soon as the mouse moved: with mousemoveevent on, a move is a key to it.)
+local M = { stack = {}, sections = {} }
+JN.menu = M
+local mns = api.nvim_create_namespace("nvim-jay-menu")
+for name, link in pairs({ QtMenu = "NormalFloat", QtMenuBorder = "FloatBorder", QtMenuSel = "PmenuSel",
+  QtMenuHint = "Comment", QtMenuLine = "FloatBorder", QtMenuOff = "NonText" }) do
+  api.nvim_set_hl(0, name, { link = link, default = true })
+end
+api.nvim_set_hl(0, "QtMenuCursor", { blend = 100, nocombine = true }) -- the cursor hidden while the menu is open
+local dw = vim.fn.strdisplaywidth
+local function cut(s, w)
+  if dw(s) <= w then return s end
+  local n = vim.fn.strchars(s)
+  while n > 0 and dw(vim.fn.strcharpart(s, 0, n)) > w - 1 do n = n - 1 end
+  return vim.fn.strcharpart(s, 0, n) .. "…"
+end
+M.cut = cut
+-- the items to show: no line first, last or twice
+function M.clean(items)
+  local out = {}
+  for _, it in ipairs(items or {}) do
+    if it == "-" then
+      if #out > 0 and out[#out] ~= "-" then out[#out + 1] = "-" end
+    elseif type(it) == "table" and it.label then out[#out + 1] = it end
+  end
+  while out[#out] == "-" do out[#out] = nil end
+  return out
+end
+local function ok(it) return type(it) == "table" and not it.off end
+local function hint(it) return it.sub and "▸" or it.hint or "" end
+local function lines_of(rows, minw)
+  local icons, lw, hw = false, 0, 0
+  for _, it in ipairs(rows) do
+    if it ~= "-" then
+      icons = icons or it.icon ~= nil
+      lw, hw = math.max(lw, dw(it.label)), math.max(hw, dw(hint(it)))
+    end
+  end
+  local lead, tail = icons and 3 or 0, hw > 0 and hw + 3 or 0
+  lw = math.max(4, (minw or 0) - 2 - lead - tail, math.min(lw, math.min(64, vim.o.columns - 4) - 2 - lead - tail))
+  local width, lines = 1 + lead + lw + tail + 1, {}
+  for _, it in ipairs(rows) do
+    if it == "-" then lines[#lines + 1] = string.rep("─", width)
+    else
+      local icon = icons and ((it.icon or "") .. string.rep(" ", 2 - dw(it.icon or "")) .. " ") or ""
+      local s, h = " " .. icon .. cut(it.label, lw), hint(it)
+      lines[#lines + 1] = s .. string.rep(" ", width - 1 - dw(s) - dw(h)) .. h .. " "
+    end
+  end
+  return lines, width
+end
+local function level_of(win)
+  for i, L in ipairs(M.stack) do if L.win == win then return i, L end end
+end
+-- close the menus opened from level i
+local function drop(i)
+  for j = #M.stack, i + 1, -1 do
+    local L = table.remove(M.stack, j)
+    if api.nvim_win_is_valid(L.win) then api.nvim_win_close(L.win, true) end
+  end
+  if M.stack[i] then M.stack[i].open_row = nil end
+end
+-- one level of the menu; pos: where its top left corner goes (row, col: 0-based screen cells), and up / left: the
+-- bottom row / right column to use instead when it doesn't fit below / to the right
+local function level(rows, pos, title)
+  local lines, width = lines_of(rows, title and math.min(dw(title) + 2, vim.o.columns - 4))
+  local b = api.nvim_create_buf(false, true)
+  api.nvim_buf_set_lines(b, 0, -1, false, lines)
+  vim.bo[b].modifiable, vim.bo[b].bufhidden, vim.bo[b].filetype = false, "wipe", "nvim-jay-menu"
+  local h = math.max(1, math.min(#lines, vim.o.lines - 4))
+  local row, col = pos.row, pos.col
+  if row + h + 2 > vim.o.lines - 1 then row = math.max(0, (pos.up or row) - h - 1) end
+  if col + width + 2 > vim.o.columns then col = math.max(0, (pos.left or vim.o.columns) - width - 2) end
+  local w = api.nvim_open_win(b, true, { relative = "editor", row = row, col = col, width = width, height = h,
+    border = "rounded", style = "minimal", zindex = 250 + #M.stack, noautocmd = true,
+    title = title and (" " .. cut(title, width - 2) .. " ") or nil, title_pos = title and "left" or nil })
+  vim.wo[w].winhighlight = "Normal:QtMenu,NormalFloat:QtMenu,FloatBorder:QtMenuBorder,FloatTitle:QtMenuBorder,CursorLine:QtMenuSel"
+  vim.wo[w].cursorline, vim.wo[w].wrap, vim.wo[w].scrolloff = true, false, 0
+  if M.status then vim.wo[w].statusline = M.status end -- the bottom line keeps naming the file, not the menu
+  for i, it in ipairs(rows) do
+    if it == "-" then api.nvim_buf_set_extmark(b, mns, i - 1, 0, { end_col = #lines[i], hl_group = "QtMenuLine" })
+    elseif it.off then api.nvim_buf_set_extmark(b, mns, i - 1, 0, { end_col = #lines[i], hl_group = "QtMenuOff" })
+    elseif hint(it) ~= "" then
+      local s = #lines[i] - 1 - #hint(it)
+      api.nvim_buf_set_extmark(b, mns, i - 1, s, { end_col = s + #hint(it), hl_group = "QtMenuHint" })
+    end
+  end
+  local L = { win = w, buf = b, rows = rows, row = row, col = col, width = width }
+  M.stack[#M.stack + 1] = L
+  M.keys(b)
+  for i, it in ipairs(rows) do if ok(it) then api.nvim_win_set_cursor(w, { i, 0 }) break end end
+  return L
+end
+-- a ▸ item's menu, beside it
+local function sub(i, line)
+  local L = M.stack[i]
+  local it = L.rows[line]
+  local rows = M.clean(type(it.sub) == "function" and it.sub() or it.sub)
+  if #rows == 0 then return end
+  drop(i)
+  L.open_row = line
+  local y = L.row + 1 + line - vim.fn.line("w0", L.win) -- the item's screen row
+  level(rows, { row = y - 1, col = L.col + L.width + 2, up = y + 1, left = L.col })
+end
+function M.close(cancel)
+  if M.closing or #M.stack == 0 then return end
+  M.closing = true
+  drop(0)
+  if M.gc then vim.o.guicursor, M.gc = M.gc, nil end
+  local o = M.opts or {}
+  if M.mark and api.nvim_buf_is_valid(M.mark[1]) then api.nvim_buf_del_extmark(M.mark[1], mns, M.mark[2]) end
+  M.mark, M.opts = nil, nil
+  if M.origin and api.nvim_win_is_valid(M.origin) then api.nvim_set_current_win(M.origin) end
+  M.closing = false
+  if cancel ~= false then
+    if o.lines then pcall(vim.cmd, "normal! gv") end -- the lines stay selected, as in any app
+    if o.on_cancel then o.on_cancel() end
+  end
+end
+local function run(it)
+  M.close(false)
+  api.nvim_echo({}, false, {}) -- not the last prompt's text still at the bottom
+  if it.fn then it.fn() end
+end
+-- the level with the focus, and what it has selected
+local function here()
+  local i, L = level_of(api.nvim_get_current_win())
+  if not i then return end
+  return i, L, api.nvim_win_get_cursor(L.win)[1]
+end
+function M.move(d)
+  local i, L, line = here()
+  if not i then return end
+  drop(i)
+  local n = #L.rows
+  for _ = 1, n do
+    line = (line - 1 + d) % n + 1
+    if ok(L.rows[line]) then break end
+  end
+  api.nvim_win_set_cursor(L.win, { line, 0 })
+end
+function M.pick()
+  local i, L, line = here()
+  if not i or not ok(L.rows[line]) then return end
+  if L.rows[line].sub then sub(i, line) else run(L.rows[line]) end
+end
+function M.back()
+  local i = here()
+  if not i then return end
+  if i == 1 then return M.close() end
+  drop(i - 1)
+  api.nvim_set_current_win(M.stack[i - 1].win)
+end
+local function under_mouse()
+  local m = vim.fn.getmousepos()
+  local i, L = level_of(m.winid)
+  return i, L, m.line, m
+end
+function M.hover()
+  local i, L, line = under_mouse()
+  if not i or not ok(L.rows[line]) then return end
+  if L.open_row ~= line then drop(i) end
+  api.nvim_set_current_win(L.win)
+  api.nvim_win_set_cursor(L.win, { line, 0 })
+  if L.rows[line].sub and #M.stack == i then sub(i, line) end
+end
+function M.click(right)
+  local i, L, line, m = under_mouse()
+  if not i then
+    M.close()
+    if right then M.right_click(m) end -- right-click elsewhere: the menu there
+    return
+  end
+  if not ok(L.rows[line]) then return end
+  api.nvim_set_current_win(L.win)
+  api.nvim_win_set_cursor(L.win, { line, 0 })
+  if L.rows[line].sub then
+    if L.open_row ~= line then sub(i, line) end
+  else run(L.rows[line]) end
+end
+function M.keys(b)
+  local o = { buffer = b, nowait = true, silent = true }
+  local function keys(list, fn) for _, k in ipairs(list) do map("n", k, fn, o) end end
+  keys({ "j", "<Down>", "<C-n>", "<Tab>", "<ScrollWheelDown>" }, function() M.move(1) end)
+  keys({ "k", "<Up>", "<C-p>", "<S-Tab>", "<ScrollWheelUp>" }, function() M.move(-1) end)
+  keys({ "<CR>", "l", "<Right>", "<Space>" }, M.pick)
+  keys({ "h", "<Left>" }, M.back)
+  keys({ "<Esc>", "q", "<C-c>" }, function() M.close() end)
+  keys({ "<MouseMove>" }, M.hover)
+  keys({ "<LeftMouse>" }, function() M.click(false) end)
+  keys({ "<RightMouse>" }, function() M.click(true) end)
+  keys({ "<LeftRelease>", "<LeftDrag>", "<RightRelease>", "<RightDrag>", "<2-LeftMouse>", "<MiddleMouse>" }, "<Nop>")
+end
+-- focus left the menu some other way (a command, a timer): close it
+api.nvim_create_autocmd("WinEnter", { group = AUG, callback = function()
+  if #M.stack > 0 and not M.closing and not level_of(api.nvim_get_current_win()) then
+    M.origin = nil
+    M.close()
+  end
 end })
+-- opts: at = "mouse" (default: the cursor), title, lines = { l1, l2 } (selected: shown so while it is open, selected
+-- again if it is closed), on_cancel
+function M.open(items, opts)
+  opts = opts or {}
+  M.close(false)
+  local rows = M.clean(items)
+  if #rows == 0 then if opts.on_cancel then opts.on_cancel() end return end
+  hover_close()
+  hov.timer:stop()
+  M.opts, M.origin = opts, api.nvim_get_current_win()
+  local okst, st = pcall(api.nvim_eval_statusline, vim.o.statusline ~= "" and vim.o.statusline or "%f", { winid = M.origin })
+  M.status = okst and st.str:gsub("%%", "%%%%") or nil
+  local pos
+  if opts.at == "mouse" then
+    local m = vim.fn.getmousepos()
+    pos = { row = m.screenrow - 1, col = m.screencol - 1, up = m.screenrow - 2, left = m.screencol - 1 }
+  else
+    local p = vim.fn.screenpos(0, vim.fn.line("."), vim.fn.col("."))
+    pos = { row = p.row, col = math.max(0, p.col - 1), up = p.row - 2, left = p.col }
+  end
+  if opts.lines then
+    local b = api.nvim_get_current_buf()
+    M.mark = { b, api.nvim_buf_set_extmark(b, mns, opts.lines[1] - 1, 0, { end_row = opts.lines[2], hl_group = "Visual", hl_eol = true, priority = 300 }) }
+  end
+  M.gc = vim.o.guicursor
+  vim.o.guicursor = "a:QtMenuCursor"
+  level(rows, pos, opts.title)
+end
+-- every list nvim asks to pick from (which agent, which patch set, a language server's code actions…)
+function M.select(items, opts, cb)
+  opts = opts or {}
+  local fmt, list = opts.format_item or tostring, {}
+  for i, x in ipairs(items) do list[#list + 1] = { label = fmt(x), fn = function() cb(x, i) end } end
+  local title = opts.prompt and vim.trim(tostring(opts.prompt):gsub("[:：]%s*$", "")) or nil
+  M.open(list, { title = title ~= "" and title or nil, on_cancel = function() cb(nil, nil) end })
+end
+vim.ui.select = M.select
+
+-- what it lists. ctx: { buf, win, line, lines = { l1, l2 } when lines are selected }
+function M.items(ctx)
+  local out = {}
+  for _, s in ipairs(M.sections) do
+    local got = s(ctx)
+    if got and #got > 0 then
+      if #out > 0 then out[#out + 1] = "-" end
+      vim.list_extend(out, got)
+    end
+  end
+  return out
+end
+function M.show(at, lines)
+  local ctx = { buf = api.nvim_get_current_buf(), win = api.nvim_get_current_win(), line = vim.fn.line("."), lines = lines }
+  M.open(M.items(ctx), { at = at, lines = lines })
+end
+-- in a file nobody is reviewing: the language server, errors, comments for the agent, the agent's files, editing
+local function file(ctx) return vim.bo[ctx.buf].buftype == "" end
+local function reviewing(ctx) return JN.review ~= nil and JN.review.owns(ctx.buf) end
+local function note_on(b, l)
+  for _, n in ipairs(notes) do
+    local pos = n.buf == b and api.nvim_buf_get_extmark_by_id(b, cns, n.id, { details = true })
+    if pos and pos[1] and pos[1] + 1 <= l and l <= math.max(pos[1] + 1, pos[3].end_row) then return true end
+  end
+end
+M.sections = {
+  function(ctx) -- the language server
+    if ctx.lines then return end
+    local out, lsp = {}, vim.lsp.get_clients({ bufnr = ctx.buf })[1] ~= nil
+    if lsp then
+      vim.list_extend(out, {
+        { icon = "💡", label = "看型別", hint = "K", fn = vim.lsp.buf.hover },
+        { icon = "🎯", label = "跳到定義", hint = "gd", fn = JN.definition },
+        { icon = "🔎", label = "找所有用到的地方", hint = "grr", fn = vim.lsp.buf.references },
+        { icon = "🔤", label = "改名", hint = "grn", fn = vim.lsp.buf.rename },
+      })
+    end
+    local jl = vim.fn.getjumplist()
+    if lsp and jl[2] > 0 then out[#out + 1] = { icon = "⏪", label = "跳回上一個位置", hint = "ctrl-o", fn = function() vim.cmd("normal! \15") end } end
+    return out
+  end,
+  function(ctx) -- errors
+    if ctx.lines then return end
+    for _, w in ipairs(vim.fn.getwininfo()) do
+      if w.quickfix == 1 and w.tabnr == vim.fn.tabpagenr() then return { { icon = "📋", label = "關掉下面的清單", hint = "␣q", fn = function() vim.cmd("cclose") end } } end
+    end
+    local n = 0
+    for _, c in pairs(vim.diagnostic.count()) do n = n + c end
+    if n > 0 then return { { icon = "🚨", label = ("列出所有錯誤（%d 個）"):format(n), fn = function() vim.diagnostic.setqflist() end } } end
+  end,
+  function(ctx) -- comments for the agent (in a Gerrit change: its own comments instead)
+    if not file(ctx) or reviewing(ctx) then return end
+    local l1, l2 = ctx.lines and ctx.lines[1] or ctx.line, ctx.lines and ctx.lines[2] or ctx.line
+    local out = { { icon = "📝", label = ctx.lines and "註解選取的行" or "註解這行", hint = "␣ac", fn = function() JN.comment(l1, l2) end } }
+    if ctx.lines then return out end -- about the selected lines only
+    if note_on(ctx.buf, ctx.line) then out[#out + 1] = { icon = "❌", label = "刪掉這行的註解", hint = "␣ad", fn = JN.drop_here } end
+    local n = #resolved()
+    if n > 0 then
+      out[#out + 1] = { icon = "📋", label = ("列出註解（%d 條）"):format(n), hint = "␣al", fn = JN.list }
+      out[#out + 1] = { icon = "📨", label = ("註解送給 agent（%d 條）"):format(n), hint = "␣as", fn = JN.send }
+    end
+    return out
+  end,
+  function(ctx) -- the agent's files
+    if ctx.lines or reviewing(ctx) then return end
+    return {
+      { icon = "📂", label = "agent 讀過／改過的檔", hint = "␣o", fn = JN.pick },
+      { icon = "👀", label = follow.on and "不要再跟著 agent 開檔" or "跟著 agent 開檔", hint = "␣af", fn = JN.toggle_follow },
+    }
+  end,
+  function(ctx) -- editing (in a Gerrit change only copying: its files are the patch set's)
+    local mod, out = vim.bo[ctx.buf].modifiable and not reviewing(ctx), {}
+    local function add(label, keys, cond, done)
+      if cond ~= false then out[#out + 1] = { label = label, fn = function() vim.cmd("normal! " .. keys) if done then api.nvim_echo({ { done } }, false, {}) end end } end
+    end
+    if ctx.lines then
+      local sel, n = ("%dGV%dG"):format(ctx.lines[1], ctx.lines[2]), ctx.lines[2] - ctx.lines[1] + 1
+      add("剪下", sel .. '"+d', mod, ("已剪下 %d 行"):format(n))
+      add("複製", sel .. '"+y', nil, ("已複製 %d 行"):format(n))
+      add("貼上（取代選取的行）", sel .. '"+p', mod)
+    elseif not reviewing(ctx) then
+      add("貼上", '"+gP', mod)
+      add("全選", "ggVG", file(ctx))
+      local url = require("vim.ui")._get_urls()[1]
+      if url and url:match("^https?://") then out[#out + 1] = { icon = "🌐", label = "開網址", hint = "gx", fn = function() vim.ui.open(url) end } end
+    end
+    return out
+  end,
+}
+-- right-click: the menu for where the mouse is (on selected lines: for those lines)
+function M.right_click(m)
+  m = m or vim.fn.getmousepos()
+  if m.winid == 0 or not api.nvim_win_is_valid(m.winid) or m.line == 0 then return end
+  local mode, lines = vim.fn.mode(), nil
+  if mode:match("^[vV\22]") then
+    local a, z = vim.fn.line("v"), vim.fn.line(".")
+    if m.winid == api.nvim_get_current_win() and m.line >= math.min(a, z) and m.line <= math.max(a, z) then
+      lines = { math.min(a, z), math.max(a, z) }
+    end
+    api.nvim_feedkeys(vim.keycode("<Esc>"), "nx", false)
+  end
+  if not lines then
+    api.nvim_set_current_win(m.winid)
+    pcall(api.nvim_win_set_cursor, m.winid, { m.line, math.max(0, m.column - 1) })
+  end
+  M.show("mouse", lines)
+end
+vim.o.mousemodel = "extend" -- right-click is ours (above), not nvim's menu
+vim.cmd("silent! aunmenu PopUp")
+pcall(api.nvim_del_augroup_by_name, "nvim.popupmenu")
+map({ "n", "x" }, "<RightMouse>", function() M.right_click() end, { desc = "這裡能做的事（選單）" })
+map("i", "<RightMouse>", function() vim.cmd("stopinsert") vim.schedule(function() M.right_click() end) end, { desc = "這裡能做的事（選單）" })
+map({ "n", "x" }, "<RightRelease>", "<Nop>")
 -- ===================================== REVIEW =====================================
 -- A Gerrit change opened from Herdr's Gerrit panel (its 在 nvim 看 button): nvim starts in the change's own folder
 -- (a git worktree at that patch set) with g:nvim_jay_review = the path of review.json, which the panel writes and
@@ -1616,9 +1939,10 @@ end })
 -- - marks compare with "base" (the parent, or an older patch set) instead of HEAD; a renamed file with its old name
 -- - the changed files on the left (seen ones ticked, kept in seen.json beside review.json, per head)
 -- - comments of this patch set under their line, as threads (replies under the first); drafts marked as such
--- - Enter on a line (or the right-click menu): what can be done there, in a menu: a comment, a reply / Done / Ack in a
---   thread, editing or deleting your draft, asking the Gerrit agent, another patch set. Lines selected + Enter: ask the
---   agent about them. (Shortcuts: space r c / r r / r d / r k / r e / r x / r a / r u / r m.)
+-- - right-click (or Enter) on a line: nvim-jay's menu (MENU above) with this section first: a comment, a suggested
+--   edit, each thread / draft of yours on the line (▸ reply / Done / Ack / the agent fixes it, edit / delete), asking
+--   the Gerrit agent, the next unresolved thread, another patch set. On selected lines: ask about them, suggest an
+--   edit. nvim-jay's own comments for an agent are off here. (Shortcuts: space r c / r s / r a / r u / r m, ]u [u.)
 --   All of it goes to the panel through from-nvim.jsonl beside review.json (one JSON object per line, emptied once
 --   done): drafts only, nothing is published from here.
 do
@@ -1764,13 +2088,13 @@ do
       add(("#%s 第 %s 版"):format(tostring(d.change or "?"), tostring(d.ps or "?")), "QtRevHead")
       add(d.base_ps and ("跟第 %s 版比"):format(tostring(d.base_ps)) or "跟上一個 commit 比", "QtRevDim")
       add(tostring(d.subject or ""))
-      if d.mine then add("你的 change：Enter 選單可以請 agent 照留言改", "QtRevDim") end
+      if d.mine then add("你的 change：右鍵選單可以請 agent 照留言改", "QtRevDim") end
       local up, latest, ps = d.updating, tonumber(d.latest), tonumber(d.ps)
       if type(up) == "table" and up.to then
         if up.error then add(("⚠ 沒換成第 %s 版：%s"):format(tostring(up.to), tostring(up.error)), "QtRevGone")
         else add(("⏳ 下載第 %s 版中…%s"):format(tostring(up.to), up.percent and (" " .. tostring(up.percent) .. "%") or ""), "QtRevOpen") end
       elseif latest and ps and latest > ps then
-        add(("🆕 有第 %d 版了：Enter 選單換"):format(latest), "QtRevOpen")
+        add(("🆕 有第 %d 版了：右鍵選單可以換"):format(latest), "QtRevOpen")
       end
       add("")
       local n_seen, cur = 0, current_path()
@@ -1795,9 +2119,9 @@ do
       end
       add("")
       add(("看過 %d / %d%s"):format(n_seen, #files, R.order == "tests" and "　先看測試" or ""), "QtRevDim")
-      add("在檔案裡按 Enter：這一行能做的事", "QtRevDim")
+      add("右鍵（或 Enter）：這裡能做的事", "QtRevDim")
       add("（留言、回覆、Done、問 agent、換版本…）", "QtRevDim")
-      add("選幾行再按 Enter：問 agent、建議改法", "QtRevDim")
+      add("選幾行再按右鍵：問 agent、直接改", "QtRevDim")
       add("]f [f 換檔　]c [c 換改動的地方", "QtRevDim")
       add("]u [u 換未解決的留言", "QtRevDim")
       add("這裡按 Enter 開檔　o 先看測試", "QtRevDim")
@@ -1960,14 +2284,23 @@ do
         R.draw(b)
       end)
     end
+    -- something to read (the commit message, the folder's diff): a window under the file, q closes it
+    local function peek(text, title, ft)
+      local b = api.nvim_create_buf(false, true)
+      api.nvim_buf_set_lines(b, 0, -1, false, vim.split(text, "\n", { plain = true }))
+      vim.bo[b].filetype, vim.bo[b].bufhidden, vim.bo[b].modifiable = ft or "", "wipe", false
+      pcall(api.nvim_buf_set_name, b, ("%s（%d）"):format((title:gsub("：.*", "")), b))
+      api.nvim_set_current_win(edit_win())
+      vim.cmd("belowright split")
+      api.nvim_win_set_buf(0, b)
+      vim.wo.winbar = title .. "　q 關掉"
+      map("n", "q", function() vim.cmd("close") end, { buffer = b, nowait = true })
+    end
     function R.commit_message()
       local h = R.data and R.data.head
       if type(h) ~= "string" or not h:match("^%x+$") then return end
       local r = git(R.data.dir, { "show", "-s", "--format=%B", h }, { text = true }):wait()
-      local b = api.nvim_create_buf(false, true)
-      api.nvim_buf_set_lines(b, 0, -1, false, vim.split(r.code == 0 and r.stdout or r.stderr, "\n", { plain = true }))
-      vim.bo[b].modifiable = false
-      api.nvim_win_set_buf(edit_win(), b)
+      peek(vim.trim(r.code == 0 and r.stdout or r.stderr), "commit 說明", "gitcommit")
     end
 
     -- to the panel (from-nvim.jsonl): one request, with an id of its own
@@ -2152,6 +2485,7 @@ do
       pcall(api.nvim_win_set_height, w, math.min(math.max(#orig + 2, 5), 20))
       vim.wo[w].winbar = "✏️ 改成你建議的樣子　:w 存成建議（作者按一下就套用）　:q! 不要"
       R.suggesting = { b = b, w = w }
+      vim.b[b].nvim_jay_suggest = true
       api.nvim_create_autocmd("BufWriteCmd", { buffer = b, callback = function()
         local new = api.nvim_buf_get_lines(b, 0, -1, false)
         if table.concat(new, "\n") == table.concat(orig, "\n") then return say("還沒改：改好再 :w") end
@@ -2213,75 +2547,81 @@ do
       local r = git(R.data.dir, { "diff", "--no-color", "--no-ext-diff" }, { text = true }):wait()
       if r.code ~= 0 then return say("git diff 沒成功：" .. tostring(r.stderr or ""), WARN) end
       if vim.trim(r.stdout or "") == "" then return say("這個資料夾還沒有改動") end
-      local b = api.nvim_create_buf(false, true)
-      api.nvim_buf_set_lines(b, 0, -1, false, vim.split(vim.trim(r.stdout), "\n", { plain = true }))
-      vim.bo[b].filetype, vim.bo[b].bufhidden, vim.bo[b].modifiable = "diff", "wipe", false
-      vim.cmd("belowright split")
-      api.nvim_win_set_buf(0, b)
-      vim.wo.winbar = "還沒推的改動：好了就在這個資料夾 commit --amend、push 成新的一版　q 關掉"
-      map("n", "q", function() vim.cmd("close") end, { buffer = b })
+      peek(vim.trim(r.stdout), "還沒推的改動：好了就在這個資料夾 commit --amend、push 成新的一版", "diff")
     end
-    -- Enter on a line: everything that can be done there, in one menu (only what applies)
-    function R.menu()
-      local path, ts, line = here()
-      if not path then return say("先到 change 的檔案那一格", WARN) end
-      local e, items = entry(path), {}
-      local function add(label, fn) items[#items + 1] = { label = label, fn = fn } end
-      if e and e.status ~= "D" then
-        add("💬 在這一行留言", R.draft)
-        add("✏️ 建議改這一行（作者按一下就套用）", function() R.suggest(line, line) end)
+    -- the menu (right-click, or Enter in a file of the change): what can be done here, only what applies; a thread
+    -- or a draft of yours is one ▸ item, its menu has what can be done with it
+    local function thread_items(path, t)
+      local out = { { icon = "💬", label = "回覆", fn = function() R.reply_to(path, t, "reply") end } }
+      if t.open then
+        out[#out + 1] = { icon = "✅", label = "Done（改好了，標成已解決）", fn = function() R.reply_to(path, t, "done") end }
+        out[#out + 1] = { icon = "👍", label = "Ack（知道了，標成已解決）", fn = function() R.reply_to(path, t, "ack") end }
+        if R.data.mine then out[#out + 1] = { icon = "🤖", label = "請 agent 照這則改", fn = function() R.fix(path, t) end } end
       end
+      return out
+    end
+    function R.items(ctx)
+      local out = {}
+      local function add(it) out[#out + 1] = it end
+      if vim.b[ctx.buf].nvim_jay_suggest then
+        add({ icon = "💾", label = "存成建議（作者按一下就套用）", hint = ":w", fn = function() vim.cmd("write") end })
+        add({ icon = "❌", label = "不要了", hint = ":q!", fn = function() vim.cmd("quit!") end })
+        return out
+      end
+      if ctx.buf == R.list then
+        local e = not ctx.lines and R.rows[ctx.line]
+        if e then add({ icon = "📄", label = "開這個檔", hint = "Enter", fn = function() R.open(e) end }) end
+        add({ icon = "🔀", label = R.order == "tests" and "照 Gerrit 的順序" or "先看測試", hint = "o",
+          fn = function() R.order = R.order == "tests" and "gerrit" or "tests" R.render() end })
+        return out
+      end
+      local path = ctx.win == edit_win() and current_path()
+      if not path then return end
+      local e = entry(path)
+      local editable = e and e.status ~= "D"
+      if ctx.lines then
+        local l1, l2 = ctx.lines[1], ctx.lines[2]
+        add({ icon = "🤖", label = "問 agent 這幾行", hint = "␣ra", fn = function() R.ask(l1, l2) end })
+        if editable then add({ icon = "🔧", label = "直接改給作者看（作者一鍵套用）", hint = "␣rs", fn = function() R.suggest(l1, l2) end }) end
+        return out
+      end
+      local _, ts, line = here()
+      if editable then
+        add({ icon = "💬", label = "留言（寫意見）", hint = "␣rc", fn = R.draft })
+        add({ icon = "🔧", label = "直接改給作者看（作者一鍵套用）", hint = "␣rs", fn = function() R.suggest(line, line) end })
+      end
+      add({ icon = "🤖", label = "問 agent 這一行", hint = "␣ra", fn = function() R.ask(line, line) end })
+      add("-")
       for _, t in ipairs(ts) do
         if t.last and not t.draft then
-          local who = ("%s「%s」"):format(short(t.items[1].author, 8), short(t.items[1].message, 18))
-          if t.open and R.data.mine then add("🛠 請 agent 照這則改 " .. who, function() R.fix(path, t) end) end
-          add("↩ 回覆 " .. who, function() R.reply_to(path, t, "reply") end)
-          if t.open then
-            add("✓ Done（改好了）" .. who, function() R.reply_to(path, t, "done") end)
-            add("👍 Ack（知道了）" .. who, function() R.reply_to(path, t, "ack") end)
-          end
+          add({ icon = t.open and "🟡" or "⚪", label = ("%s「%s」"):format(short(t.items[1].author, 8), short(t.items[1].message, 20)),
+            sub = function() return thread_items(path, t) end })
         end
         for _, c in ipairs(t.items) do
           if c.draft and c.id then
-            add(("✎ 改我的草稿「%s」"):format(short(c.message, 18)), function() R.edit_draft(path, c) end)
-            add(("🗑 刪我的草稿「%s」"):format(short(c.message, 18)), function() R.delete_draft(path, c) end)
+            add({ icon = "📝", label = ("我的草稿「%s」"):format(short(c.message, 20)), sub = {
+              { icon = "📝", label = "改草稿", fn = function() R.edit_draft(path, c) end },
+              { icon = "❌", label = "刪掉草稿", fn = function() R.delete_draft(path, c) end },
+            } })
           end
         end
       end
-      add("🤖 問 Gerrit agent 這一段", function() R.ask(line, line) end)
-      if #open_threads() > 0 then add("⏭ 下一則還沒回的未解決留言", function() R.next_open(1) end) end
-      if R.data.mine then add("📝 看還沒推的改動", R.my_changes) end
-      for _, o in ipairs(versions()) do add(o.label, function() R.switch(o) end) end
-      add("📄 看 commit 說明", R.commit_message)
-      vim.ui.select(items, { prompt = ("%s:%d 要做什麼？"):format(path, line), format_item = function(x) return x.label end }, function(x)
-        if x then x.fn() end
-      end)
-    end
-    -- Enter on selected lines: ask the agent about them, or suggest how they should read
-    function R.sel_menu(l1, l2)
-      l1, l2 = math.min(l1, l2), math.max(l1, l2)
-      local path = api.nvim_get_current_win() == edit_win() and current_path()
-      if not path then return say("先到 change 的檔案那一格", WARN) end
-      local e = entry(path)
-      local items = { { label = "🤖 問 Gerrit agent 這幾行", fn = function() R.ask(l1, l2) end } }
-      if e and e.status ~= "D" then items[#items + 1] = { label = "✏️ 建議改法（作者在 Gerrit 按一下就套用）", fn = function() R.suggest(l1, l2) end } end
-      vim.ui.select(items, { prompt = ("%s:%d-%d 要做什麼？"):format(path, l1, l2), format_item = function(x) return x.label end }, function(x)
-        if x then x.fn() end
-      end)
-    end
-    -- the old shortcuts: the first thread on the line that fits
-    local function first_thread(kind)
-      local path, ts = here()
-      for _, t in ipairs(ts) do
-        if t.last and not t.draft and (kind == "reply" or t.open) then return R.reply_to(path, t, kind) end
+      add("-")
+      if #open_threads() > 0 then add({ icon = "⏩", label = "下一則還沒回的未解決留言", hint = "]u", fn = function() R.next_open(1) end }) end
+      if R.data.mine then add({ icon = "🔍", label = "看還沒推的改動", fn = R.my_changes }) end
+      local vs = versions()
+      if #vs > 0 then
+        local newer = vs[1].icon == "🆕"
+        add({ icon = newer and "🆕" or "📄", label = newer and ("有第 %d 版了：換過去"):format(vs[1].to) or "換版本",
+          sub = vim.tbl_map(function(o) return { icon = o.icon, label = o.label, fn = function() R.switch(o) end } end, vs) })
       end
-      say("這一行沒有可以回的留言（留言顯示在它那一行的下面）", WARN)
+      add({ icon = "📄", label = "看 commit 說明", hint = "␣rm", fn = R.commit_message })
+      return out
     end
-    local function first_draft(fn)
-      local path, ts = here()
-      for _, t in ipairs(ts) do for _, c in ipairs(t.items) do if c.draft and c.id then return fn(path, c) end end end
-      say("這一行沒有你存好的草稿", WARN)
-    end
+    table.insert(JN.menu.sections, 1, R.items)
+    -- Enter in a file of the change: the same menu, at the cursor
+    function R.menu() JN.menu.show("cursor") end
+    function R.sel_menu(l1, l2) JN.menu.show("cursor", { math.min(l1, l2), math.max(l1, l2) }) end
 
     -- review.json, again whenever the panel rewrites it
     function R.load()
@@ -2314,7 +2654,7 @@ do
       local lt, ps = tonumber(R.data.latest), tonumber(R.data.ps)
       if lt and ps and lt > ps and R.told ~= lt and not R.data.updating then
         R.told = lt
-        say(("🆕 第 %d 版出來了：Enter 選單裡可以換"):format(lt))
+        say(("🆕 第 %d 版出來了：右鍵選單裡可以換"):format(lt))
       end
       for _, b in ipairs(api.nvim_list_bufs()) do if api.nvim_buf_is_loaded(b) then R.draw(b) end end
       local j = R.data.jump
@@ -2342,11 +2682,6 @@ do
     map("n", "[c", function() hunk(-1) end, { desc = "上一處改動" })
     map("n", "<leader>rc", R.draft, { desc = "留言（存成 Gerrit 草稿）" })
     map("n", "<leader>rm", R.commit_message, { desc = "看 commit 說明" })
-    map("n", "<leader>rr", function() first_thread("reply") end, { desc = "回覆這一行的留言（存成草稿）" })
-    map("n", "<leader>rd", function() first_thread("done") end, { desc = "這一行的留言：Done（存成草稿）" })
-    map("n", "<leader>rk", function() first_thread("ack") end, { desc = "這一行的留言：Ack（存成草稿）" })
-    map("n", "<leader>re", function() first_draft(R.edit_draft) end, { desc = "改這一行的草稿" })
-    map("n", "<leader>rx", function() first_draft(R.delete_draft) end, { desc = "刪這一行的草稿" })
     map("n", "<leader>ru", R.update, { desc = "換成另一版" })
     map("n", "<leader>ra", function() local l = api.nvim_win_get_cursor(0)[1] R.ask(l, l) end, { desc = "問 Gerrit agent 這一段" })
     local function on_sel(fn)
@@ -2358,25 +2693,19 @@ do
     end
     local ask_sel, sel_menu, suggest_sel = on_sel(R.ask), on_sel(R.sel_menu), on_sel(R.suggest)
     map("x", "<leader>ra", ask_sel, { desc = "問 Gerrit agent 選起來的這幾行" })
-    map("n", "<leader>rs", function() local l = api.nvim_win_get_cursor(0)[1] R.suggest(l, l) end, { desc = "建議改這一行（Gerrit 建議修改）" })
-    map("x", "<leader>rs", suggest_sel, { desc = "建議改這幾行（Gerrit 建議修改）" })
+    map("n", "<leader>rs", function() local l = api.nvim_win_get_cursor(0)[1] R.suggest(l, l) end, { desc = "直接改這一行給作者看（Gerrit 建議修改）" })
+    map("x", "<leader>rs", suggest_sel, { desc = "直接改這幾行給作者看（Gerrit 建議修改）" })
     map("n", "]u", function() R.next_open(1) end, { desc = "下一則還沒回的未解決留言" })
     map("n", "[u", function() R.next_open(-1) end, { desc = "上一則還沒回的未解決留言" })
-    -- Enter in a file of the change: the menu (selected lines: ask the agent); elsewhere Enter as usual
+    -- Enter in a file of the change: the right-click menu, at the cursor; elsewhere Enter as usual
     local function in_change(b) return vim.b[b].nvim_jay_review_path ~= nil or rel(api.nvim_buf_get_name(b)) ~= nil end
+    function R.owns(b) return b == R.list or vim.b[b].nvim_jay_suggest == true or in_change(b) end
     R.menu_keys = function(b)
       if b == R.list or vim.b[b].nvim_jay_review_keys or not in_change(b) then return end
       vim.b[b].nvim_jay_review_keys = true
-      map("n", "<CR>", R.menu, { buffer = b, desc = "這一行能做的事（Gerrit）" })
-      map("x", "<CR>", sel_menu, { buffer = b, desc = "選起來的這幾行能做的事（Gerrit）" })
+      map("n", "<CR>", R.menu, { buffer = b, desc = "這裡能做的事（跟右鍵一樣）" })
+      map("x", "<CR>", sel_menu, { buffer = b, desc = "選起來的這幾行能做的事（跟右鍵一樣）" })
     end
-    JN.review_menu, JN.review_ask_sel, JN.review_suggest_sel = R.menu, ask_sel, suggest_sel
-    vim.cmd([[
-      nnoremenu 1 PopUp.Gerrit：這一行能做的事 <Cmd>lua JN.review_menu()<CR>
-      vnoremenu 1 PopUp.Gerrit：問\ agent\ 選起來的行 <Cmd>lua JN.review_ask_sel()<CR>
-      vnoremenu 1 PopUp.Gerrit：建議改法 <Cmd>lua JN.review_suggest_sel()<CR>
-      anoremenu 1 PopUp.-gerrit- <Nop>
-    ]])
     map("n", "<leader>rl", function()
       local w = list_win()
       if w then api.nvim_set_current_win(w) else

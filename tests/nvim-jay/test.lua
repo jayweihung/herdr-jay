@@ -456,6 +456,93 @@ test("open from outside", function()
   vim.cmd("silent! %bwipeout!")
 end)
 
+test("the menu", function()
+  local M, api = JN.menu, vim.api
+  local p = ROOT .. "/menu.txt"
+  write(p, "one\ntwo\nthree\nsee https://example.com/x\n")
+  vim.cmd("edit " .. p)
+  local function labels(ctx)
+    local out = {}
+    for _, it in ipairs(M.clean(M.items(vim.tbl_extend("force", { buf = api.nvim_get_current_buf(), win = api.nvim_get_current_win(), line = 1 }, ctx or {})))) do
+      out[#out + 1] = it == "-" and "-" or it.label
+    end
+    return table.concat(out, "|")
+  end
+  local l = labels()
+  check("a file: comment, the agent's files, paste, select all (no language server: none of its items)", l:find("^註解這行|%-|agent 讀過／改過的檔|不要再跟著 agent 開檔|")
+    and l:find("|-|貼上|全選$") and not l:find("看型別", 1, true) and not l:find("刪掉這行的註解", 1, true), l)
+  check("right-click is the menu; nvim's own is gone", vim.fn.maparg("<RightMouse>", "n") ~= "" and vim.o.mousemodel == "extend" and vim.fn.menu_info("PopUp").submenus == nil or #vim.fn.menu_info("PopUp").submenus == 0, vim.fn.menu_info("PopUp"))
+  local ui = vim.ui.input
+  vim.ui.input = function(_, cb) cb("why") end
+  JN.comment(2, 2)
+  vim.ui.input = ui
+  l = labels({ line = 2 })
+  check("on a commented line: delete it; the list and send say how many", l:find("刪掉這行的註解", 1, true) and l:find("列出註解（1 條）", 1, true)
+    and l:find("註解送給 agent（1 條）", 1, true), l)
+  check("on another line: no delete", not labels({ line = 3 }):find("刪掉這行的註解", 1, true))
+  check("a link under the cursor: open it", (function() api.nvim_win_set_cursor(0, { 4, 6 }) return labels({ line = 4 }) end)():find("開網址", 1, true))
+  local gc = vim.lsp.get_clients
+  vim.lsp.get_clients = function() return { { id = 1, supports_method = function() return false end } } end
+  l = labels({ line = 1 })
+  vim.lsp.get_clients = gc
+  check("with a language server: its items first", l:find("^看型別|跳到定義|找所有用到的地方|改名|", 1) ~= nil, l)
+  l = labels({ lines = { 1, 2 } })
+  check("selected lines: comment them, cut / copy / paste", l == "註解選取的行|-|剪下|複製|貼上（取代選取的行）", l)
+  JN.drop_here() -- line 4: nothing there
+  api.nvim_win_set_cursor(0, { 2, 0 }) JN.drop_here()
+
+  -- the window: separators skipped, a submenu beside its item, back, close
+  local ran, cancelled = {}, 0
+  local file_win = api.nvim_get_current_win()
+  M.open({ { icon = "💬", label = "first", hint = "x", fn = function() ran[#ran + 1] = "first" end }, "-", "-",
+    { label = "off", off = true }, { label = "more", sub = function() return { { label = "inner", fn = function() ran[#ran + 1] = "inner" end } } end }, "-" },
+    { on_cancel = function() cancelled = cancelled + 1 end })
+  local L = M.stack[1]
+  local lines = api.nvim_buf_get_lines(L.buf, 0, -1, false)
+  check("one window with a border; the empty line once, none at the end", #M.stack == 1 and api.nvim_win_get_config(L.win).border ~= nil and #lines == 4
+    and lines[2]:find("^─") and lines[1]:find("💬 first", 1, true) and lines[1]:find("x $") and lines[4]:find("▸ $"), lines)
+  check("the cursor hidden meanwhile", vim.o.guicursor == "a:QtMenuCursor")
+  M.move(1)
+  check("down skips the line and what can't be picked", api.nvim_win_get_cursor(L.win)[1] == 4)
+  M.pick()
+  check("a ▸ item: its menu beside it, the focus there", #M.stack == 2 and api.nvim_get_current_win() == M.stack[2].win
+    and api.nvim_win_get_config(M.stack[2].win).col > api.nvim_win_get_config(L.win).col)
+  M.back()
+  check("back: the submenu closes", #M.stack == 1 and api.nvim_get_current_win() == L.win)
+  M.move(1) -- wraps to the top
+  M.pick()
+  check("pick: it runs, the menu is gone, back in the file", ran[1] == "first" and #M.stack == 0 and api.nvim_get_current_win() == file_win
+    and vim.o.guicursor ~= "a:QtMenuCursor" and cancelled == 0, { ran, cancelled })
+  -- the mouse (getmousepos stubbed: headless has none)
+  local gm = vim.fn.getmousepos
+  M.open({ { label = "a", fn = function() ran[#ran + 1] = "a" end }, { label = "b", sub = { { label = "b1", fn = function() ran[#ran + 1] = "b1" end } } } },
+    { on_cancel = function() cancelled = cancelled + 1 end })
+  L = M.stack[1]
+  vim.fn.getmousepos = function() return { winid = L.win, line = 2, column = 1, screenrow = 1, screencol = 1 } end
+  M.hover()
+  check("the mouse over a ▸ item opens it", #M.stack == 2)
+  vim.fn.getmousepos = function() return { winid = L.win, line = 1, column = 1, screenrow = 1, screencol = 1 } end
+  M.hover()
+  check("over another item: that one, the submenu closes, the menu stays", #M.stack == 1 and api.nvim_win_get_cursor(L.win)[1] == 1)
+  vim.fn.getmousepos = function() return { winid = file_win, line = 1, column = 1, screenrow = 1, screencol = 1 } end
+  M.hover()
+  check("moving outside never closes it", #M.stack == 1)
+  M.click(false)
+  check("a click outside closes it (cancel)", #M.stack == 0 and cancelled == 1 and api.nvim_get_current_win() == file_win, cancelled)
+  vim.fn.getmousepos = gm
+  -- vim.ui.select is the menu
+  local got = "none"
+  vim.ui.select({ "x", "y" }, { prompt = "which：" }, function(c, i) got = tostring(c) .. tostring(i) end)
+  check("vim.ui.select: the menu with the prompt as its title", #M.stack == 1 and vim.inspect(api.nvim_win_get_config(M.stack[1].win).title):find("which", 1, true) ~= nil,
+    api.nvim_win_get_config(M.stack[1].win).title)
+  M.move(1) M.pick()
+  check("vim.ui.select: picked", got == "y2", got)
+  vim.ui.select({ "x" }, {}, function(c) got = c == nil and "nil" or c end)
+  M.close()
+  check("vim.ui.select: closed is nil", got == "nil", got)
+  vim.cmd("silent! %bwipeout!")
+end)
+
 print(("%d checks, %d failed"):format(n, fails))
 write(ROOT .. "/result", fails == 0 and "pass" or "fail")
 vim.cmd("qa!")

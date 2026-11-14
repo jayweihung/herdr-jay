@@ -92,22 +92,38 @@ local function last_rec()
   return ls[#ls] and vim.json.decode(ls[#ls]) or nil
 end
 local function with_ui(input, choose, fn)
-  local oi, os_ = vim.ui.input, vim.ui.select
+  local oi, os_, om = vim.ui.input, vim.ui.select, JN.menu.open
   local seen = {}
+  JN.menu.open = function(items, o)
+    seen.labels, seen.at, seen.lines = {}, o and o.at, o and o.lines
+    local pick
+    local function walk(list, pre)
+      for _, it in ipairs(JN.menu.clean(list)) do
+        if it ~= "-" then
+          seen.labels[#seen.labels + 1] = pre .. it.label
+          if it.sub then walk(type(it.sub) == "function" and it.sub() or it.sub, pre .. it.label .. " ▸ ")
+          elseif not pick and choose and it.label:find(choose, 1, true) then pick = it end
+        end
+      end
+    end
+    walk(items, "")
+    if pick then pick.fn() end
+  end
   vim.ui.input = function(o, cb) seen.prompt = o.prompt seen.default = o.default cb(input) end
   vim.ui.select = function(items, o, cb)
+    seen.asked = o.prompt
     seen.labels = vim.tbl_map(function(x) return o.format_item and o.format_item(x) or x end, items)
     local pick
     for _, x in ipairs(items) do if (o.format_item and o.format_item(x) or x):find(choose or "\0", 1, true) then pick = x break end end
     cb(pick)
   end
   local ok, e = pcall(fn)
-  vim.ui.input, vim.ui.select = oi, os_
+  vim.ui.input, vim.ui.select, JN.menu.open = oi, os_, om
   if not ok then error(e) end
   return seen
 end
 
-test("threads, the Enter menu, replies and your drafts", function()
+test("threads, the menu, replies and your drafts", function()
   local d = vim.json.decode(table.concat(vim.fn.readfile(R.file), "\n"))
   d.jump = vim.NIL
   d.comments = { ["a.txt"] = {
@@ -122,11 +138,13 @@ test("threads, the Enter menu, replies and your drafts", function()
   check("two threads: Alice's with Bob's reply under it, your draft", #th == 2 and #th[1].items == 2 and th[1].last.id == "c2" and th[1].open and th[2].draft ~= nil, th)
   local shown = vim.inspect(api.nvim_buf_get_extmarks(0, cmt, 0, -1, { details = true }))
   check("drawn as a thread: the reply indented", shown:find("↳ Bob", 1, true) ~= nil and shown:find("Alice（未解決）", 1, true) ~= nil, shown)
-  check("Enter is the menu in a file of the change", vim.fn.maparg("<CR>", "n", false, true).desc == "這一行能做的事（Gerrit）")
+  check("Enter is the right-click menu in a file of the change", vim.fn.maparg("<CR>", "n", false, true).desc == "這裡能做的事（跟右鍵一樣）")
   local seen = with_ui(nil, nil, function() R.menu() end)
   local all = table.concat(seen.labels or {}, "\n")
-  check("the menu: comment, reply / Done / Ack in Alice's thread, ask the agent", all:find("在這一行留言", 1, true) and all:find("回覆 Alice", 1, true)
-    and all:find("Done", 1, true) and all:find("Ack", 1, true) and all:find("問 Gerrit agent", 1, true) and not all:find("改我的草稿", 1, true), seen.labels)
+  check("the menu: comment, a suggested edit, Alice's thread ▸ reply / Done / Ack, ask the agent", all:find("留言（寫意見）", 1, true)
+    and all:find("直接改給作者看", 1, true) and all:find("Alice「why TWO?」 ▸ 回覆", 1, true) and all:find("▸ Done", 1, true)
+    and all:find("▸ Ack", 1, true) and all:find("問 agent 這一行", 1, true) and not all:find("草稿", 1, true) and seen.at == "cursor", seen.labels)
+  check("no comments for the agent, no pasting in a change", not all:find("註解", 1, true) and not all:find("貼上", 1, true), seen.labels)
   with_ui(nil, "Done", function() R.menu() end)
   local rec = last_rec()
   check("Done: a resolving reply to the thread's last comment", rec.reply and rec.reply.in_reply_to == "c2" and rec.reply.message == "Done" and rec.reply.unresolved == false, rec)
@@ -138,22 +156,13 @@ test("threads, the Enter menu, replies and your drafts", function()
   check("a typed reply keeps the thread open", rec.reply and rec.reply.message == "yes, see line 4" and rec.reply.unresolved == true, rec)
   vim.uv.sleep(20) R.stamp = nil R.load()
   api.nvim_win_set_cursor(0, { 3, 0 })
-  seen = with_ui("better", "改我的草稿", function() R.menu() end)
+  seen = with_ui("better", "改草稿", function() R.menu() end)
   rec = last_rec()
   check("edit your draft: its text offered, then saved", seen.default == "mine" and rec.edit and rec.edit.id == "d9" and rec.edit.message == "better", { seen, rec })
   vim.uv.sleep(20) R.stamp = nil R.load()
-  local orig = vim.ui.select
-  local asked = {}
-  vim.ui.select = function(items, o, cb)
-    local labels = vim.tbl_map(function(x) return o.format_item and o.format_item(x) or x end, items)
-    asked[#asked + 1] = o.prompt
-    for i, l in ipairs(labels) do if l:find("刪我的草稿", 1, true) or l == "刪掉" then return cb(items[i]) end end
-    cb(nil)
-  end
-  R.menu()
-  vim.ui.select = orig
+  seen = with_ui(nil, "刪掉", function() R.menu() end)
   rec = last_rec()
-  check("delete your draft (asked first)", rec.delete and rec.delete.id == "d9" and asked[2] and asked[2]:find("刪掉這則草稿", 1, true), { rec, asked })
+  check("delete your draft (asked first)", rec.delete and rec.delete.id == "d9" and (seen.asked or ""):find("刪掉這則草稿", 1, true), { rec, seen })
 end)
 
 test("a newer patch set: switch, only what it changed", function()
@@ -197,10 +206,13 @@ test("a suggested edit, threads from an older patch set, your own change", funct
   R.open(RV.ordered()[1], 2)
   local file_win, line2 = api.nvim_get_current_win(), api.nvim_buf_get_lines(0, 1, 2, false)[1]
   -- selected lines + Enter: the menu has 建議改法; it opens a small window with those lines
-  local seen = with_ui(nil, "建議改法", function() R.sel_menu(2, 2) end)
-  check("selected lines: ask or suggest", table.concat(seen.labels, "|"):find("問 Gerrit agent", 1, true) ~= nil and #seen.labels == 2, seen.labels)
+  local seen = with_ui(nil, "直接改給作者看", function() R.sel_menu(2, 2) end)
+  check("selected lines: ask, suggest, copy", table.concat(seen.labels, "|") == "問 agent 這幾行|直接改給作者看（作者一鍵套用）|複製" and seen.lines[1] == 2, seen.labels)
   local sw = api.nvim_get_current_win()
   check("a window with the line to edit", sw ~= file_win and api.nvim_buf_get_lines(0, 0, -1, false)[1] == line2, api.nvim_buf_get_lines(0, 0, -1, false))
+  local sl = table.concat(vim.tbl_map(function(it) return it == "-" and "-" or it.label end,
+    JN.menu.clean(JN.menu.items({ buf = api.nvim_get_current_buf(), win = sw, line = 1 }))), "|")
+  check("its menu: save it or never mind", sl == "存成建議（作者按一下就套用）|不要了", sl)
   api.nvim_buf_set_lines(0, 0, -1, false, { "two, fixed", "and one more" })
   with_ui("simpler", nil, function() vim.cmd("write") end)
   local rec = last_rec()
@@ -231,7 +243,7 @@ test("a suggested edit, threads from an older patch set, your own change", funct
   seen = with_ui(nil, "請 agent 照這則改", function() R.menu() end)
   rec = last_rec()
   check("the menu: ask the agent to fix it", rec.fix and rec.fix.path == "a.txt" and rec.fix.line == 2 and rec.fix.thread[1].message == "rename it", rec)
-  check("the menu has 建議改這一行 and 看還沒推的改動", table.concat(seen.labels, "|"):find("建議改這一行", 1, true) ~= nil
+  check("the menu has 直接改給作者看 and 看還沒推的改動", table.concat(seen.labels, "|"):find("直接改給作者看", 1, true) ~= nil
     and table.concat(seen.labels, "|"):find("看還沒推的改動", 1, true) ~= nil, seen.labels)
 end)
 

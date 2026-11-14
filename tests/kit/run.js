@@ -689,6 +689,10 @@ test("關係: an agent done and not looked at says what it said when it stopped 
   assert.match(out, /做完等你看：t6/);
   assert.ok(!/t8/.test(out));
   assert.equal(tint("#000000", "#ffffff", 0.5), "#808080");
+  // no hook there: the line the program reported with its status (status.msg in the core's record)
+  const gm = graphData({ agents: [ag("box/t9", "done")], terms: [{ address: "box/t9", status_ms: now - MIN, status: { state: "done", msg: "要不要升到  0.6.3？" } }], space: null, now });
+  assert.equal(gm.done[0].said, "要不要升到 0.6.3？");
+  assert.equal(cardState(gm, gm.nodes[0], now).text, "做完：要不要升到 0.6.3？");
   assert.equal(tint("rgb(1,2,3)", "#ffffff"), "rgb(1,2,3)", "not #rrggbb: as it is");
 });
 test("關係 log: a machine going offline and back, once each; still loading isn't offline", (M) => {

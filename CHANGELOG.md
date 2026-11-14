@@ -15,8 +15,9 @@ Needs: **mods**; on other machines, open nvim-jay there once (it rewrites the re
 
 - 做完等你看 now says what the agent said when it stopped: the last line of its last words that asks something (？ or ?),
   else their last line, on its card (「做完：srv root 要不要升到 0.6.3？」) and in its own alert line. The reply hook
-  writes it (`~/.cache/nvim-jay/said/<terminal>`, on every stop); the panel reads it from the agent's machine. Agents
-  without the reply hook (or not Claude Code) keep the plain 「做完 · 等你看」.
+  writes it (`~/.cache/nvim-jay/said/<terminal>`, on every stop, from Claude Code's `last_assistant_message`); the
+  panel reads it from the agent's machine. Without it, the one line the program reported with its status (Claude
+  Code's short summary, `status.msg` in herdr-core's record); with neither, the plain 「做完 · 等你看」.
 - A card waiting for you (等你允許 / 在問你 from the start, or done and not looked at) has a thick border in its color and
   a tint of it all over; still yellow → red for long waits.
 

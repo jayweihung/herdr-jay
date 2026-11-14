@@ -382,6 +382,11 @@ test("reply hook", function()
   run("s1")
   s = read_said()
   check("said: no question, its last line", s and s.text == "下一步：等 CI。", s)
+  -- Claude Code hands it the last words (the transcript may not have them yet): those first
+  vim.system({ vim.v.progpath, "--clean", "-l", hook }, { env = { HC_TERMINAL_ID = "t5" }, text = true,
+    stdin = vim.json.encode({ session_id = "s1", transcript_path = tr, stop_hook_active = false, last_assistant_message = "好了。\n要不要關掉我？" }) }):wait(20000)
+  s = read_said()
+  check("said: last_assistant_message over the transcript", s and s.text == "要不要關掉我？", s)
 end)
 
 -- review 2: git budget per round (a hung mount: one 5 s wait, not one per folder) and only the last Bash of a chunk

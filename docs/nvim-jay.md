@@ -274,7 +274,8 @@ anything unexpected (no transcript, bad input) lets the agent stop.
 訊息第一行寫了「不用回」「不用再回」「不必回」或 `[FYI]` 的不提醒；同一則只提醒一次。
 
 Every stop (a reminded one too), inside a Herdr terminal (`HC_TERMINAL_ID`), it also writes what the agent said last
-to `~/.cache/nvim-jay/said/<terminal id>` (`{ at, text }`, 0600): the last line of its last words that asks something
+to `~/.cache/nvim-jay/said/<terminal id>` (`{ at, text }`, 0600; its last words: Claude Code's
+`last_assistant_message`, else the transcript's last text): the last line of its last words that asks something
 (？ or ?), else their last line, markdown marks taken off, at most 200 characters. The Agents panel's 關係 shows it
 for an agent that is done and not looked at yet ([kit.md](kit.md)).
 每次停下來也把它最後說的話（最後一句問句，沒有就是最後一行）記在 `~/.cache/nvim-jay/said/<terminal>`，

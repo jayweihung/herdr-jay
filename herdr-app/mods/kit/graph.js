@@ -104,7 +104,12 @@ export function graphData({ agents, terms, space, ctx, notes, log = [], down = {
   // done (not looked at yet) is news for you, never 可以關了
   g.idle = live.filter((n) => n.status === "idle" && now - n.since >= IDLE_CLOSE && !waited.has(n.address)
     && !parents.has(n.address) && !n.focused).map((n) => ({ address: n.address, for: now - n.since }));
-  for (const n of nodes) n.said = n.status === "done" && !n.focused ? saidNow(said, n.address, n.since) : "";
+  // what it said: the reply hook's line (its last question, word for word), else the one line the program itself
+  // reported with its status (Claude Code: a short summary of its last words, in the core's record as status.msg)
+  for (const n of nodes) {
+    const r = rec.get(n.address), msg = String((r?.status && typeof r.status === "object" ? r.status.msg : "") ?? "").replace(/\s+/g, " ").trim();
+    n.said = n.status === "done" && !n.focused ? saidNow(said, n.address, n.since) || [...msg].slice(0, 200).join("") : "";
+  }
   g.done = nodes.filter((n) => !n.down && n.status === "done" && !n.focused).map((n) => ({ address: n.address, for: n.since ? now - n.since : 0, said: n.said }));
   g.full = nodes.filter((n) => !n.down && n.pct != null && n.pct >= FULL_PCT).map((n) => ({ address: n.address, pct: n.pct }));
   return g;

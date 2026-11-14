@@ -128,22 +128,25 @@ local ok, call = pcall(vim.json.decode, io.read("*a") or "")
 if not ok or type(call) ~= "table" then return end
 -- What it said last, for Herdr's 關係 tab (做完等你看): in ~/.cache/nvim-jay/said/<its terminal id> as { at, text }, the
 -- last line of its last words that asks something (？ or ?), else their last line. Every stop, a reminded one too.
+-- Its last words: Claude Code's last_assistant_message (the transcript may not have them yet when the hook runs),
+-- else the transcript's last text.
 pcall(function()
   local tid = tostring(vim.env.HC_TERMINAL_ID or ""):gsub("[^%w%-_]", "")
+  if tid == "" then return end
+  local last = type(call.last_assistant_message) == "string" and call.last_assistant_message:find("%S") and call.last_assistant_message or nil
   local path = call.transcript_path
-  if tid == "" or type(path) ~= "string" then return end
-  local st = vim.uv.fs_stat(path)
+  local st = not last and type(path) == "string" and vim.uv.fs_stat(path)
   local r = st and vim.uv.fs_open(path, "r", 0)
-  if not r then return end
-  local from = math.max(0, st.size - 512 * 1024)
-  local text = vim.uv.fs_read(r, st.size - from, from) or ""
-  vim.uv.fs_close(r)
-  local last
-  for line in text:gmatch("[^\n]+") do
-    local okl, rec = pcall(vim.json.decode, line)
-    local c = okl and type(rec) == "table" and rec.type == "assistant" and type(rec.message) == "table" and rec.message.content
-    for _, b in ipairs(type(c) == "table" and c or {}) do
-      if type(b) == "table" and b.type == "text" and type(b.text) == "string" and b.text:find("%S") then last = b.text end
+  if r then
+    local from = math.max(0, st.size - 512 * 1024)
+    local text = vim.uv.fs_read(r, st.size - from, from) or ""
+    vim.uv.fs_close(r)
+    for line in text:gmatch("[^\n]+") do
+      local okl, rec = pcall(vim.json.decode, line)
+      local c = okl and type(rec) == "table" and rec.type == "assistant" and type(rec.message) == "table" and rec.message.content
+      for _, b in ipairs(type(c) == "table" and c or {}) do
+        if type(b) == "table" and b.type == "text" and type(b.text) == "string" and b.text:find("%S") then last = b.text end
+      end
     end
   end
   if not last then return end

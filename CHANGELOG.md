@@ -9,6 +9,15 @@ says which) · **kit** = update kit itself on every machine where agents run (`k
 **snap hook** = a line in Claude Code's `settings.json` on each machine where you added the hook (the entry says
 which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/keys.md).
 
+## 2026-11-14, kit: the note gets room first in a narrow header
+
+Needs: **mods** (kit; Windows: copy it again).
+
+- When an agent has a note and its header is narrow, the rest gives way in turn so the note shows: the folder (then
+  in the note's tooltip), the context chip's numbers (just the %), the Kit chip's counts (just "Kit"; both in their
+  tooltips), and last the name. A wide header, or one with no note, looks as before.
+標題列窄時進度優先：資料夾、context 數字、Kit 數字依序收起來（都在提示裡）。
+
 ## 2026-11-14, kit: what the agent wrote about where it is, in its header
 
 Needs: **mods** (kit; Windows: copy it again) and **kit** 0.6.0 (kit api 1.4) on the agents' machines.

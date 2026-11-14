@@ -249,6 +249,19 @@ test("context window: the bar, the shares, the footer line, the chip's numbers (
   assert.deepEqual(nv, { line: "改好 parser；下一步跑測試", tip: "改好 parser；下一步跑測試\n目標：修 #12\n（1 分鐘前寫的；右鍵複製）", copy: "改好 parser；下一步跑測試\n目標：修 #12", old: false });
   assert.equal(X.noteView({ text: "x", at: 1000 }, 1000000 + 7200000).old, true);
   assert.match(X.noteView({ text: "x", at: 1000 }, 1000000 + 3 * 86400000).tip, /3 天前寫的/);
+  // the header gives the note room first (seen: "Claude Code ~/proj [進度 …8 字] [Kit 規則 54 skill 3 MCP 1] [context …]")
+  const kw = X.kitChipW({ counts: [["規則", 54], ["skill", 3], ["MCP", 1]] }), long = "herdr-jay 拉到最新；下一步重開 Herdr 看標題列的進度欄位顯示";
+  const fit = (w, o = {}) => X.headerFit(w, { name: "Claude Code", dir: "~/proj", note: long, kitW: kw, ctx: true, ...o });
+  assert.ok(kw > 120 && kw < 200, `Kit chip ${kw}`);
+  assert.deepEqual(fit(0), { dir: true, nameMax: 260, kit: "full", ctx: "full", noteW: null }, "not measured yet: all shown");
+  assert.deepEqual(fit(700, { note: "" }), { dir: true, nameMax: 260, kit: "full", ctx: "full", noteW: null }, "no note: the folder takes the room");
+  const wide = fit(1600); assert.ok(wide.dir && wide.kit === "full" && wide.ctx === "full" && wide.noteW >= 360, "wide: all of it");
+  const mid = fit(1000); assert.ok(!mid.dir && mid.noteW >= 360, `mid: the folder goes first ${JSON.stringify(mid)}`);
+  const narrow = fit(760); assert.ok(!narrow.dir && narrow.ctx === "short" && narrow.kit === "short" && narrow.noteW > 300, `narrow ${JSON.stringify(narrow)}`);
+  const tiny = fit(500); assert.equal(tiny.nameMax, 120); assert.ok(tiny.noteW >= 0);
+  const short = fit(760, { note: "跑測試" }); assert.ok(short.dir && short.kit === "full" && short.ctx === "full", "a short note needs no room taken");
+  for (let w = 300; w <= 1800; w += 20) { const f = fit(w), g = fit(w + 20); assert.ok(g.noteW >= f.noteW || g.noteW >= 360, `wider never less note room at ${w}`); }
+  assert.equal(X.textW("ab", 10), 12); assert.equal(X.textW("中文", 10), 20);
   assert.equal(X.catColorKey("skills"), "ansi5"); assert.equal(X.catColorKey("whatever"), "dim");
   // one place for the number formats
   assert.deepEqual([C.num(1234567), C.kfmt(13500), C.kfmt(139000), C.kfmt(1250000), C.kShort(13500), C.kShort(1000000)], ["1,234,567", "13.5k", "139k", "1.25M", "14k", "1M"]);

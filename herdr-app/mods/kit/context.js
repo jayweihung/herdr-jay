@@ -75,6 +75,40 @@ export function noteView(n, now = Date.now()) {
   const when = s < 60 ? "剛剛" : s < 3600 ? `${Math.floor(s / 60)} 分鐘前` : s < 86400 ? `${Math.floor(s / 3600)} 小時前` : `${Math.floor(s / 86400)} 天前`;
   return { line: text.split("\n")[0], tip: `${text}\n（${when}寫的；右鍵複製）`, copy: text, old: s >= 7200 };
 }
+// About how wide a text is drawn at a size (px): wide (CJK, full-width) characters a full em, the rest 0.6 em.
+export const textW = (s, size) => [...String(s ?? "")].reduce((w, ch) => w + (ch.codePointAt(0) >= 0x2e80 ? size : size * 0.6), 0);
+// How a pane's header fits its width (px, unzoomed; 0 = not measured yet: all shown) so the agent's note gets room first.
+// What else is in the line gives way in this order until the note has NOTE_ROOM (or all of its line, if shorter):
+//   the folder (then in the tooltips), the context chip's numbers (just the %), the Kit chip's counts (just "Kit"),
+//   the name (to NAME_SHORT).
+// kitW: the Kit chip's full width (kitChipW); ctx: whether the context chip is shown.
+// -> { dir, nameMax, kit: "full"|"short", ctx: "full"|"short", noteW }
+export const NOTE_ROOM = 360, NAME_MAX = 260, NAME_SHORT = 120, DIR_MAX = 200, CTX_FULL = 154, CTX_SHORT = 92, KIT_SHORT = 44;
+export function headerFit(width, { name = "", dir = "", note = "", kitW = 0, ctx = true } = {}) {
+  const full = { dir: true, nameMax: NAME_MAX, kit: "full", ctx: "full", noteW: null };
+  if (!note || !width) return full;
+  const gap = 8, fixed = 20 + 14 + gap + 16 + gap + 4 * 20 + 3 * 2;   // padding, the icon, the status box, the 4 buttons
+  const want = Math.min(NOTE_ROOM, 33 + textW(note, 11));   // the 進度 tag, then the line
+  const steps = [{}, { dir: false }, { ctx: "short" }, { kit: "short" }, { nameMax: NAME_SHORT }];
+  let f = { ...full };
+  for (const s of steps) {
+    f = { ...f, ...s };
+    const used = fixed + Math.min(textW(name, 12), f.nameMax) + gap + (f.dir ? Math.min(textW(dir, 12), DIR_MAX) + gap : 0)
+      + (kitW ? (f.kit === "full" ? kitW : KIT_SHORT) + gap : 0) + (ctx ? (f.ctx === "full" ? CTX_FULL : CTX_SHORT) + gap : 0);
+    f.noteW = Math.max(0, Math.floor(width - used));
+    if (f.noteW >= want) break;
+  }
+  return f;
+}
+// The Kit chip's width as drawn in full: the tag, the agent's name, each [label n], the news badge.
+export function kitChipW({ text = "", counts = null, agent = null, news = 0 } = {}) {
+  const parts = [30];
+  if (agent) parts.push(textW(agent, 11));
+  if (counts) for (const [l, n] of counts) parts.push(textW(l, 11) + 3 + textW(String(n), 11));
+  else parts.push(textW(text, 11));
+  if (news) parts.push(textW(`${news} 新`, 11) + 8);
+  return Math.ceil(2 + 8 + 2 + parts.reduce((a, b) => a + b, 0) + 7 * (parts.length - 1));
+}
 // a category's color: the theme's key for it
 const CAT_COLOR = { system_prompt: "ansi4", system_tools: "ansi6", mcp_tools: "ansi2", mcp_instructions: "ansi2", memory_files: "ansi3",
   instructions: "ansi3", skills: "ansi5", custom_agents: "ansi1", slash_commands: "ansi1", messages: "accent", compaction: "done", other: "dim" };

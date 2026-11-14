@@ -22,6 +22,8 @@ Needs: **mods**; for the hook, a Stop entry in Claude Code's `settings.json` on 
   stops, a message from another agent it didn't answer with `hc send` keeps it going once with a reminder.
   [docs/nvim-jay.md](docs/nvim-jay.md) §7a.
 - 關係 in a narrow panel: columns that don't fit go on below (like the Agents list), nothing to scroll sideways.
+- 關係 also says 等你簽 / 等站長同意 from kit status's `pending` (kit 0.6.3, api 1.6) on every machine and in root's
+  report file (the ones the Kit panel's 各機器 reads), asked again every 10 minutes while the tab is open.
 - 關係 also says 做完等你看 (done, not looked at yet; no longer counted as 可以關了) and context 快滿 (80 % or more:
   write HANDOFF.md first); each card shows its context %.
 

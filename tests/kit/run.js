@@ -1554,7 +1554,26 @@ machinesTest("各機器: plain values — api and kit versions compared, kit sta
   const s = X.readStatus({ ...STATUS({ at: 100, approvals: { serial: 7, used: 6, valid: true, extra: 1 } }), run: "rm -rf /", hosts: ["x"],
     sources: [{ name: "team", commit: "not a sha", approved: SHA("c"), dir: "/x", evil: true }, { commit: SHA("d") }, "x"] });
   assert.deepEqual(s, { kit: "0.4.1", api: "1.2", user: "amy", at: 100000, self: { name: "agentkit", commit: SHA("a"), approved: null },
-    approvals: { serial: 7, used: 6, valid: true }, sources: [{ name: "team", commit: null, approved: SHA("c") }] });
+    approvals: { serial: 7, used: 6, valid: true }, sources: [{ name: "team", commit: null, approved: SHA("c") }], pending: [] });
+  // kit api 1.6's pending: each field checked; root's report too; 關係 says them, where they were read
+  const pend = X.readStatus({ ...STATUS(), pending: [
+    { kind: "sign", name: "agentkit", what: "agentkit 有 3 個新 commit 等核准", commits: 3, head: SHA("e"), since: 5e11, machine: "srv", run: "x" },
+    { kind: "owner", id: "deploy", what: "要上線 web", since: "soon", machine: "srv", pid: 9 }, { kind: "sign" }, "x"] }).pending;
+  assert.deepEqual(pend, [
+    { kind: "sign", what: "agentkit 有 3 個新 commit 等核准", name: "agentkit", commits: 3, since: 5e11, machine: "srv", id: null },
+    { kind: "owner", what: "要上線 web", name: null, commits: null, since: null, machine: "srv", id: "deploy" }]);
+  const rows = [{ here: true, state: "ok", pending: [] }, { reported: true, label: "srv root", state: "ok", pending: pend }, { machine: "x", state: "down", pending: pend }];
+  const pr = X.pendingRows(rows);
+  assert.deepEqual(pr.map((p) => p.where), ["srv root", "srv root"], "only rows that answered");
+  {
+    const th = new Proxy({}, { get: (_t, k) => (k === "then" ? undefined : "#334455") });
+    const g0 = M.graph.graphData({ agents: [], terms: [], space: null, now: 5e11 + 7200000 });
+    H.texts = []; H.strings = []; H.clicks = {}; M.graph.alertsView(th, 13, g0, 5e11 + 7200000, () => assert.fail("no agent to go to"), { pending: pr });
+    const out = [...H.texts, ...H.strings].join("\n");
+    assert.match(out, /等你簽：agentkit 有 3 個新 commit 等核准（srv root，等了 2 小時）。簽章在 Mac 親手做/);
+    assert.match(out, /等站長同意：要上線 web（srv root）/);
+    H.clicks["kit-graph-alert-pending-0"]({}, cx);
+  }
   for (const bad of [null, [], "x", { kit: "0.4.1" }, { kit: "0.4.1", api: "one" }, { api: "1.2" }]) assert.equal(X.readStatus(bad), null, JSON.stringify(bad));
   assert.match(X.readReport(null, "/r.json").why, /還沒有回報檔/);
   assert.match(X.readReport(" ".repeat(X.REPORT_MAX + 1), "/r.json").why, /太大/);

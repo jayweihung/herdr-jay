@@ -76,8 +76,23 @@ export function readStatus(j) {
     self: repo(j.self),
     approvals: a ? { serial: count(a.serial), used: count(a.used), valid: a.valid === true } : null,
     sources: Array.isArray(j.sources) ? j.sources.slice(0, 50).map(repo).filter(Boolean) : [],
+    pending: pendingOf(j.pending),
   };
 }
+// kit status's pending (kit api 1.6): what waits for a person, each checked; none (an older kit): []
+//   { kind: "sign", name, what, commits, head, since, machine }   new commits of a source waiting for kit approve
+//   { kind: "owner", id, what, since, machine, dir, pid }          an agent or service waiting for the owner's OK
+// since: Unix ms. Another kind: said by its what.
+export function pendingOf(list) {
+  if (!Array.isArray(list)) return [];
+  return list.slice(0, 20).filter((p) => p && typeof p === "object").map((p) => ({
+    kind: str(p.kind, 20) ?? "?", what: str(p.what, 300), name: str(p.name, 100), commits: count(p.commits),
+    since: Number.isFinite(p.since) && p.since > 0 ? p.since : null, machine: str(p.machine, 64), id: str(p.id, 100),
+  })).filter((p) => p.what || p.name);
+}
+// what waits for a person on every machine and account the 各機器 load asked (rows), each with where it was read
+export const pendingRows = (rows) => (rows ?? []).filter((r) => r.state === "ok")
+  .flatMap((r) => (r.pending ?? []).map((p) => ({ ...p, where: rowLabel(r) })));
 // a report file's text -> { status } or { why }
 export function readReport(text, file) {
   if (text == null) return { why: `還沒有回報檔 ${file}` };

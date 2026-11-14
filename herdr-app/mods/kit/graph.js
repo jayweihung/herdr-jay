@@ -337,7 +337,8 @@ export function nudgeText(g, w) {
 
 // above the drawing: what needs a look, each a line; a click selects the agent it is about.
 // onNudge(wait, cx): 提醒它回 on an agent that stopped without answering (nudged: "from>to@at" keys already sent)
-export function alertsView(t, z, g, now = Date.now(), onSelect = null, { onNudge = null, nudged = new Set() } = {}) {
+// pending: what waits for a person outside the agents (machines.js pendingRows: kit status's pending, root's report too)
+export function alertsView(t, z, g, now = Date.now(), onSelect = null, { onNudge = null, nudged = new Set(), pending = [] } = {}) {
   const name = (a) => g.nodes.find((n) => n.address === a)?.name ?? a;
   const items = [];
   const waitOn = (from, to) => g.waits.find((w) => w.from === from && w.to === to);
@@ -356,6 +357,13 @@ export function alertsView(t, z, g, now = Date.now(), onSelect = null, { onNudge
     items.push({ id: `long-${w.address}`, text: `${name(w.address)} ${KIND[w.kind] ?? "等你處理"}已經 ${spanText(w.for)}`, color: t.ansi1, who: w.address });
   for (const c of g.clashes)
     items.push({ id: `clash-${c.nodes.join("-")}`, text: `同一個資料夾：${c.nodes.map(name).join("、")} 同時在 ${shortDir(c.dir)} 裡改東西`, color: t.working, who: c.nodes[0] });
+  for (const [i, p] of pending.entries()) {
+    const long = p.since ? `，等了 ${spanText(now - p.since)}` : "";
+    const text = p.kind === "sign" ? `等你簽：${p.what ?? `${p.name} 有 ${p.commits ?? "新的"} 個 commit 等核准`}（${p.where}${long}）。簽章在 Mac 親手做`
+      : p.kind === "owner" ? `等站長同意：${p.what}（${p.where}${long}）`
+      : `${p.what}（${p.where}${long}）`;
+    items.push({ id: `pending-${i}`, text, color: t.blocked, who: null });
+  }
   const done = g.done ?? [];
   if (done.length) items.push({ id: "done", text: `做完等你看：${done.map((x) => name(x.address)).join("、")}`, color: t.done, who: done[0].address });
   for (const f of g.full ?? [])
@@ -369,7 +377,7 @@ export function alertsView(t, z, g, now = Date.now(), onSelect = null, { onNudge
   for (const i of items)
     box.child(h_flex().id(`kit-graph-alert-${i.id}`).gap(6).items_center().px(8).py(4).rounded(6).border_1().border_color(i.color)
       .text_size(z - 1.5).cursor_pointer().hover((s) => s.bg(t.hover)).on_mouse_down("left", stop)
-      .on_click((_e, cx) => { run("pane.focus", { terminal: i.who }); onSelect?.(i.who, cx); })
+      .on_click((_e, cx) => { if (!i.who) return; run("pane.focus", { terminal: i.who }); onSelect?.(i.who, cx); })
       .child(div().size(7).flex_none().rounded(4).bg(i.color)).child(div().flex_1().min_w(0).child(i.text))
       .when(Boolean(i.nudge && onNudge), (el) => {
         const key = `${i.nudge.from}>${i.nudge.to}@${i.nudge.at}`, done = nudged.has(key);

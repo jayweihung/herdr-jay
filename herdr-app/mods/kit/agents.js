@@ -32,6 +32,7 @@ import { graphData, graphView, edgeList, alertsView, layoutOf, nudgeText } from 
 import { logTick, eventLog, downMachines } from "./events.js";
 import { timelineView, timelineHeight, SPANS } from "./timeline.js";
 import { sidebarNames } from "./names.js";
+import { loadMachines, machinesDue, machinesData, pendingRows } from "./machines.js";
 
 const PANEL = NODES.agents;
 const SHORT = 120000, STALE = 50000;
@@ -81,6 +82,8 @@ export class Agents {
     const tick = (cx) => {
       try { logTick(); } catch {}
       if (this.tab === "rel") cx.notify();   // its "3 分前" move on
+      // 等你簽 / 等站長同意: kit status on every machine and root's report (the 各機器 load), every 10 minutes
+      if (this.tab === "rel" && machinesDue()) { try { loadMachines(cx); } catch {} }
       const a = apiKnown(null);
       if (!a) return checkApi(null, cx);
       if (a.ok && (this.first || stale()) && !this.busy && !this.loading) this.refresh(cx);
@@ -298,7 +301,7 @@ export class Agents {
         // a bigger look: the same tab in its own window, most of the screen (not from that window itself)
         .when(!props()?.big, (el) => el.child(btn(t, z, "kit-graph-big", "放大", { tiny: true,
           on: () => openOverlay({ mod: "kit", props: { role: "agents", big: true, scope: this.scope }, kind: "window", key: "kit-agents-big", width: 0.9, height: 0.85 }) }))))
-      .child(alertsView(t, z, g, now, select, { nudged: this.nudged, onNudge: (w, cx) => this.nudge(g, w, cx) }) ?? div());
+      .child(alertsView(t, z, g, now, select, { nudged: this.nudged, onNudge: (w, cx) => this.nudge(g, w, cx), pending: pendingRows(machinesData()?.rows) }) ?? div());
     if (this.view === "time") {
       const span = SPANS.find(([k]) => k === this.span) ?? SPANS[1];
       return body

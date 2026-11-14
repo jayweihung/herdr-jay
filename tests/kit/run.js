@@ -608,6 +608,16 @@ test("關係: who waits for whom: still on it, no answer, needs you; chains to t
   assert.deepEqual(graphData({ agents: pq, terms: qa, space: null }).waits, [], "answered: nobody waits");
   qa[0].sent[0] = { to: "q", count: 2, last_ms: 21000 };
   assert.deepEqual(graphData({ agents: pq, terms: qa, space: null }).waits.map((x) => `${x.from}>${x.to}`), ["p>q"], "asked again");
+  // a got its answer some other way: it worked again after b stopped (or messaged someone), so it isn't waiting
+  // (b answered on its own screen, a read it there and told c)
+  {
+    const moved = terms.map((r) => (r.address === "a" ? { ...r, status_ms: 12000 } : r));
+    assert.equal(graphData({ agents, terms: moved, space: null, now: 60000 }).waits.some((x) => x.from === "a" && x.to === "b"), false, "worked after b stopped");
+    const told = terms.map((r) => (r.address === "a" ? { ...r, sent: [msg("b", 1000), msg("zz", 12000)] } : r));
+    assert.equal(graphData({ agents, terms: told, space: null, now: 60000 }).waits.some((x) => x.from === "a" && x.to === "b"), false, "messaged someone (even off this list) after b stopped");
+    const early = terms.map((r) => (r.address === "a" ? { ...r, status_ms: 9000 } : r));
+    assert.equal(graphData({ agents, terms: early, space: null, now: 60000 }).waits.find((x) => x.from === "a" && x.to === "b")?.state, "silent", "stopped the same moment as b: still waits");
+  }
   // a sent, but works on something else now: not waiting
   assert.equal(graphData({ agents: agents.map((x) => (x.address === "a" ? { ...x, status: "working" } : x)), terms, space: null }).waits.some((x) => x.from === "a"), false);
   // x and y wait for each other

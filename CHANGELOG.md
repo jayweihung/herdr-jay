@@ -9,6 +9,15 @@ says which) · **kit** = update kit itself on every machine where agents run (`k
 **snap hook** = a line in Claude Code's `settings.json` on each machine where you added the hook (the entry says
 which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/keys.md).
 
+## 2026-11-14, 關係: no 卡住 when the asker already moved on
+
+Needs: **mods**.
+
+- 還沒回／卡住 no longer shows when A, after B stopped, worked again or messaged anyone: A got its answer some other
+  way (read B's screen, was told) and isn't waiting. Before, an agent that answered on its own screen instead of
+  with hc send stayed 「停了但沒回」 forever.
+- 提醒它回 no longer fails with "cx is no longer valid"; when the message can't go (B isn't idle) it says why.
+
 ## 2026-11-14, 關係: background work isn't your turn
 
 Needs: **mods**; for Herdr's own Agents list too, **app** (patch 0009).

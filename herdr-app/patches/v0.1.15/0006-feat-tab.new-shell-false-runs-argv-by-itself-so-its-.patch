@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: jayweihung <3034830+jayweihung@users.noreply.github.com>
 Date: Sat, 14 Nov 2026 15:39:45 +0800
-Subject: [PATCH 6/8] feat: tab.new shell: false runs argv by itself, so its
+Subject: [PATCH 6/9] feat: tab.new shell: false runs argv by itself, so its
  tab closes with it
 
 tab.new runs an agent in your shell, which stays after the agent exits. A

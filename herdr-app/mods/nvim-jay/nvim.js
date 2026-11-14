@@ -128,7 +128,7 @@ const REPLY_HOOK = String.raw`-- nvim-jay's reply hook: written by nvim-jay (her
 local ok, call = pcall(vim.json.decode, io.read("*a") or "")
 if not ok or type(call) ~= "table" then return end
 -- Its sub-agents, for Herdr's 關係 tab: also run on SubagentStart / SubagentStop (and every Stop), it writes
--- ~/.cache/nvim-jay/subs/<its terminal id> as { at, list = { { id, type, desc, done, start, last } } }: those
+-- ~/.cache/nvim-jay/subs/<its terminal id> as { at, list = { { id, type, desc, done, start, last, path } } }: those
 -- running and those done in the last 30 minutes, newest first, at most 12. Claude Code keeps each sub-agent's
 -- description in <session>/subagents/agent-<id>.meta.json ("finished" once it ended).
 local function write_cache(kind, tid, value)
@@ -166,7 +166,7 @@ pcall(function()
         if now - last < 30 * 60000 then
           list[#list + 1] = { id = id, type = type(meta.agentType) == "string" and meta.agentType or "",
             desc = type(meta.description) == "string" and vim.fn.strcharpart(meta.description, 0, 120) or "",
-            done = done, start = start, last = last }
+            done = done, start = start, last = last, path = lst and lp or nil }
         end
       end
     end

@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: jayweihung <3034830+jayweihung@users.noreply.github.com>
 Date: Sat, 14 Nov 2026 16:45:18 +0800
-Subject: [PATCH 7/8] feat: edits in a linked mod, layout or settings file
+Subject: [PATCH 7/9] feat: edits in a linked mod, layout or settings file
  reload it
 
 The home folder's OS watcher (FSEvents, inotify) doesn't follow symlinks, so a

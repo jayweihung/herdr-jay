@@ -1,0 +1,31 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: jayweihung <3034830+jayweihung@users.noreply.github.com>
+Date: Sat, 14 Nov 2026 19:27:21 +0800
+Subject: [PATCH 9/9] feat: the Agents list shows a done agent as working while
+ another mod says its work goes on
+
+A mod that sees an agent's own work still running after its turn ended (a
+background command, a sub-agent) puts it in shared "agents.busy" (address ->
+what runs); the list then shows that agent as working, not done.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ defaults/mods/agents/main.js | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/defaults/mods/agents/main.js b/defaults/mods/agents/main.js
+index 0b11925..f463519 100644
+--- a/defaults/mods/agents/main.js
++++ b/defaults/mods/agents/main.js
+@@ -244,7 +244,10 @@ export default class Agents extends View {
+     if (props()?.sortMenu) return this.sortMenu(t);
+     const collapsed = narrow();
+     const sort = sortOf();
+-    let list = agents();
++    // An agent whose turn ended while work of its own still runs (a background command, a sub-agent) isn't done
++    // yet: another mod that sees it (the kit mod) puts it in shared "agents.busy" (address -> what runs).
++    const busy = shared("agents.busy") ?? {};
++    let list = agents().map((a) => (a.status === "done" && busy[a.address] ? { ...a, status: "working" } : a));
+     this.listed = new Map(list.map((a) => [a.address, a.status]));
+     const all = terminals();
+     this.migratePins(all);

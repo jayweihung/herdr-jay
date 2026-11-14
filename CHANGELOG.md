@@ -11,11 +11,12 @@ which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/key
 
 ## 2026-11-14, 關係: background work isn't your turn
 
-Needs: **mods**.
+Needs: **mods**; for Herdr's own Agents list too, **app** (patch 0009).
 
 - An agent whose turn ended while its own work still runs (a command Claude Code runs in the background, or a
   sub-agent) shows as working, 背景工作中：<the command>, and isn't listed as 做完等你看 until that work is over.
-  Background shells are seen with `ps` on the agent's machine every 15 s (macOS, Linux).
+  Background shells are seen with `ps` on the agent's machine every 15 s (macOS, Linux), also while the panel is
+  closed. With app patch 0009, Herdr's own Agents list shows them as working too (the kit mod sets `agents.busy`).
 - 做完等你看 now also finds what the agent said when the hook was still writing it, and Claude Code's own one-line
   summary (Herdr's `report.msg`) where there is no hook.
 

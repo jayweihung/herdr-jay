@@ -406,7 +406,7 @@ test("reply hook", function()
   end
   local r, d = hook_ev("SubagentStart", { agent_id = "a1", agent_type = "Explore" })
   check("subs: the running one, not the one done 2 h ago nor a broken file; says nothing", r.code == 0 and r.stdout == ""
-    and d and #d.list == 1 and d.list[1].id == "a1" and d.list[1].desc == "find the parser" and d.list[1].type == "Explore" and d.list[1].done == false, d)
+    and d and #d.list == 1 and d.list[1].id == "a1" and d.list[1].desc == "find the parser" and d.list[1].type == "Explore" and d.list[1].done == false and d.list[1].path == sdir .. "/agent-a1.jsonl", d)
   r, d = hook_ev("SubagentStart", { agent_id = "a9", agent_type = "Plan" })
   local a9 = d and vim.iter(d.list):find(function(x) return x.id == "a9" end)
   check("subs: a sub-agent whose meta file isn't there yet: listed from the hook's input", d and #d.list == 2 and a9 and a9.type == "Plan" and not a9.done, d)

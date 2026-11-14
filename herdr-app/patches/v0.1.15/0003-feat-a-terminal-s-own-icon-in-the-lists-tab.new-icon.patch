@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: jayweihung <3034830+jayweihung@users.noreply.github.com>
 Date: Fri, 13 Nov 2026 20:11:58 +0800
-Subject: [PATCH 3/8] feat: a terminal's own icon in the lists (tab.new icon,
+Subject: [PATCH 3/9] feat: a terminal's own icon in the lists (tab.new icon,
  terminal.icon)
 
 A mod that opens an agent (a kit agent, say) can show that agent's own

@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: jayweihung <3034830+jayweihung@users.noreply.github.com>
 Date: Sat, 14 Nov 2026 17:27:39 +0800
-Subject: [PATCH 8/8] feat: keep a terminal's sent list current from the core's
+Subject: [PATCH 8/9] feat: keep a terminal's sent list current from the core's
  sent event
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>

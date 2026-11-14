@@ -17,6 +17,9 @@ export const SUBS = "kit.subs.v1";   // address -> { at, list, asked, for, busy 
 // a sub-agent. That isn't your turn: 關係 shows it working, 背景工作中, instead of 做完等你看. Asked every BG_MS (ps on its machine;
 // none on Windows) while it is done and not looked at.
 export const BG = "kit.bg.v1";       // address -> { at, jobs: [label], asked, busy }
+// For Herdr's own Agents list (herdr-jay app patch 0009): address -> what still runs, for each done agent whose work
+// goes on; the list shows those as working.
+export const BUSY = "agents.busy";
 const BG_MS = 15000;
 const RETRY = 60000, MAX = 200, SUBS_MS = 15000, SUBS_MAX = 12;
 
@@ -118,9 +121,24 @@ export function saidTick(ags, terms, cx) {
       });
     }
     const s = subs[a.address];
-    if (!s?.busy && (!s || s.for !== stop || (a.status === "working" && now - s.asked >= SUBS_MS)))
+    if (!s?.busy && (!s || s.for !== stop || ((a.status === "working" || a.status === "done") && now - s.asked >= SUBS_MS)))
       ask(SUBS, a, stop, "subs", parseSubs, cx);
   }
+  const busy = busyOf(ags, terms, shared(BG), shared(SUBS), now);
+  if (JSON.stringify(busy) !== JSON.stringify(shared(BUSY) ?? {})) setShared(BUSY, busy);
+}
+
+// done agents whose own work still runs: address -> what runs (the newest background shell, else its sub-agents)
+export function busyOf(ags, terms, bg, subs, now = Date.now()) {
+  const rec = new Map((terms ?? []).map((r) => [r?.address, r])), out = {};
+  for (const a of ags ?? []) {
+    if (a.status !== "done") continue;
+    const stop = Number(rec.get(a.address)?.status_ms) || 0, b = bg?.[a.address];
+    const jobs = b?.at >= stop ? b.jobs ?? [] : [];
+    const run = subsNow(subs, a.address, now).filter((x) => !x.done).length;
+    if (jobs.length || run) out[a.address] = jobs[0] ?? `子 agent ${run} 個`;
+  }
+  return out;
 }
 
 // address -> what it said, when it said it at this stop (not long before its status became done)

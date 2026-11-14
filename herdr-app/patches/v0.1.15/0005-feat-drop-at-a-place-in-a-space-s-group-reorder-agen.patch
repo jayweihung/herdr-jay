@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: jayweihung <3034830+jayweihung@users.noreply.github.com>
 Date: Fri, 13 Nov 2026 21:38:18 +0800
-Subject: [PATCH 5/8] feat: drop at a place in a space's group; reorder agents
+Subject: [PATCH 5/9] feat: drop at a place in a space's group; reorder agents
  by dragging
 
 In the agents panel grouped by space, every agent row under a space's

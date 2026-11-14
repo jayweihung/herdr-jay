@@ -733,6 +733,8 @@ test("關係: done but its own work still runs (a background shell, a sub-agent)
   assert.equal(st("t2").text, "背景工作中：子 agent 1 個");
   assert.equal(st("t3").text, "做完 · 等你看", "a shell seen before it stopped doesn't count");
   assert.deepEqual(g.done.map((x) => x.address), ["t3"]);
+  // the same for Herdr's own Agents list (agents.busy)
+  assert.deepEqual(M.said.busyOf(agents, terms, bg, subs, now), { t1: "pwsh tests/run.ps1", t2: "子 agent 1 個" });
 });
 test("關係 log: a machine going offline and back, once each; still loading isn't offline", (M) => {
   const { diffMachines } = M.events;

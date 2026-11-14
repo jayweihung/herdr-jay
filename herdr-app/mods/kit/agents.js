@@ -64,6 +64,8 @@ export class Agents {
     if (this.role === "agents-toggle") {   // the button only reads what the panel loaded, and runs the window's places
       cx.timer.every(400, (cx) => takeAsks(this, cx));
       cx.timer.every(2000, () => { try { logTick(); } catch {} });   // the 關係 timeline's log, while Herdr runs
+      // background work of done agents for Herdr's Agents list (agents.busy), and what they said, while Herdr runs
+      cx.timer.every(2000, (cx) => { try { saidTick(agents(), terminals(), cx); } catch {} });
       return;
     }
     this.open = null;      // the agent shown in detail (its name)

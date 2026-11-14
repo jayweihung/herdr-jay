@@ -242,10 +242,14 @@ test("context window: the bar, the shares, the footer line, the chip's numbers (
   assert.deepEqual(X.compactLine(d), { left: 17000, line: "距自動壓縮還有 17.0k（到 167k 會自動壓縮）" });
   assert.deepEqual(X.compactLine({ used: 10000, window: 400000 }), { left: 390000, line: "還有 390k 可用" });
   assert.deepEqual(X.compactLine({ used: 10 }), { left: null, line: "" });
-  assert.deepEqual(X.chipNumbers({ pct: 35, used: 139000, window: 400000 }), { has: true, pct: 35, nums: "139k/400k", copy: "35% 139000 / 400000" });
+  assert.deepEqual(X.chipNumbers({ pct: 35, used: 139000, window: 400000 }), { has: true, pct: 35, nums: "139k/400k", copy: "35% 139000 / 400000", loading: false });
   assert.equal(X.chipNumbers({ pct: 120, used: 1500000, window: 1000000 }).nums, "1.5M/1M");
   assert.equal(X.chipNumbers({ pct: 120 }).pct, 100);
-  assert.equal(X.chipNumbers(null).nums, "…"); assert.equal(X.chipNumbers({ busy: true }).nums, "…"); assert.equal(X.chipNumbers({}).nums, "—");
+  assert.equal(X.chipNumbers(null).nums, "讀取中"); assert.equal(X.chipNumbers({ busy: true }).nums, "讀取中"); assert.equal(X.chipNumbers({}).nums, "—");
+  // just after /compact: 0 tokens is no number yet, not 0 %
+  assert.deepEqual(X.chipNumbers({ pct: 0, used: 0, window: 400000 }), { has: false, pct: null, nums: "讀取中", copy: "", loading: true });
+  assert.equal(X.chipNumbers({ pct: 0, used: 900, window: 400000 }).pct, 0, "a real count under 1 % stays");
+  assert.equal(X.chipNumbers({ pct: 35, used: 139000, window: 400000 }).loading, false);
   assert.deepEqual([X.level(null), X.level(69), X.level(70), X.level(90)], ["", "", "high", "full"]);
   assert.equal(X.howCounted({ exact: true, tool: "claude" }), "Claude Code 自己算的"); assert.equal(X.howCounted({ tool: "codex" }), "總數是 Codex 記的，細項估算");
   assert.equal(X.ago(1000, 1030000), "30 秒前"); assert.equal(X.ago(1000, 1000000 + 180000), "3 分鐘前");

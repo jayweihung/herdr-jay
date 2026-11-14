@@ -69,7 +69,7 @@ export function graphData({ agents, terms, space, ctx, notes, log = [], down = {
   const nodes = shown.map((a) => {
     const c = byTerminal(ctx, a.address), n = noteView(byTerminal(notes, a.address), now), r = rec.get(a.address);
     return { address: a.address, machine: machineOf(a.address), name: names?.[a.address] || a.tab_name || a.title || a.address, status: a.status,
-      cli: cliOf(a.app, a.program?.key), model: modelOf(c?.model), pct: c?.pct != null ? Math.min(100, Math.round(Number(c.pct))) : null, note: n?.line ?? "", noteOld: Boolean(n?.old),
+      cli: cliOf(a.app, a.program?.key), model: modelOf(c?.model), pct: c?.pct != null && (Number(c.pct) || Number(c.used)) ? Math.min(100, Math.round(Number(c.pct))) : null, note: n?.line ?? "", noteOld: Boolean(n?.old),
       program: a.program, space: a.space_name, spaceId: a.space, focused: Boolean(a.focused),
       since: Math.max(Number(r?.status_ms) || 0, began[a.address] ?? 0), cwd: String(r?.foreground?.cwd || r?.cwd || ""),
       kind: String((r?.report ?? r?.status)?.kind ?? ""), down: down?.[machineOf(a.address)] ?? null,

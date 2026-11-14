@@ -181,7 +181,7 @@ the mod doesn't know shows a card 「不認得的 role」 naming it: check the s
 
 按鈕上的字：`…` 還在讀；`出錯了` 點開看原因；`沒有 kit`、`kit 太舊`、`mod 太舊`（紅色）看上面「需要什麼」的表，點開也會寫怎麼辦。
 
-Kit 按鈕右邊的 `[context 35% 139k/400k]` 是這個 agent 的 context 用了多少（`kit context`，滑鼠停上去有提示，70% 以上變黃、90% 以上變紅，最多寫 100%）。agent 在工作時每 15 秒問一次，閒置時每分鐘一次。問不到（kit 正忙、那台連不上）時，先留著上一次的數字；還沒問到時寫「…」，問不到數字時寫「—」。那台的 kit 不能用（上面的表）時不顯示這格。右鍵複製這些數字。
+Kit 按鈕右邊的 `[context 35% 139k/400k]` 是這個 agent 的 context 用了多少（`kit context`，滑鼠停上去有提示，70% 以上變黃、90% 以上變紅，最多寫 100%）。agent 在工作時每 15 秒問一次，閒置時每分鐘一次。問不到（kit 正忙、那台連不上）時，先留著上一次的數字；還沒問到、或還沒有數字（剛 /compact、/clear 完或剛開的 agent，到它下一次回話前都是 0）時寫「讀取中」（一亮一暗，不寫 0%），問不到數字時寫「—」。那台的 kit 不能用（上面的表）時不顯示這格。右鍵複製這些數字。
 
 **進度**（kit 0.6.0 以上）：agent 用 `kit note "剛做了什麼；下一步"` 寫了進度的話，資料夾後面會多一格 `[進度 改好 parser；下一步跑測試]`，顯示第一行；滑鼠停上去看全部和多久以前寫的，右鍵複製，超過兩小時變灰。跟 context 一起問（工作時每 15 秒，閒置時每分鐘），所以寫完最多等這麼久才出現。沒寫過就不顯示這格。Claude、omp 用 kit 0.6.0 就可以；Codex 在沙箱裡要 kit 0.6.1（kit 會在 Codex 的 config.toml 開放 `~/.config/agentkit/notes` 給它寫，開著的 Codex 要重開）。要 agent 自己寫，給它 rule `progress-note`（agentkit-library 有，`kit add rule progress-note`）。
 

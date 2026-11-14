@@ -49,12 +49,16 @@ export function removal(list, group, name, path) {
   return null;
 }
 // the chip on a pane header: { has, pct (capped at 100, or null), nums "139k/400k" ("…" while asking, "—" none), copy }
+// nothing counted yet (0 tokens: just after /compact or /clear, or a new session, until its next reply; or kit still
+// reading): no 0 %, "讀取中" (loading: the chip breathes)
 export function chipNumbers(c) {
-  const has = Boolean(c && (c.pct != null || c.used != null));
+  const zero = Boolean(c) && (c.pct != null || c.used != null) && !Number(c.pct) && !Number(c.used);
+  const has = Boolean(c && (c.pct != null || c.used != null)) && !zero;
   const pct = has && c.pct != null ? Math.min(100, c.pct) : null;
-  const nums = has ? (c.window ? `${kShort(c.used ?? 0)}/${kShort(c.window)}` : kShort(c.used ?? 0)) : !c || c.busy ? "…" : "—";
+  const loading = zero || !c || Boolean(c.busy);
+  const nums = has ? (c.window ? `${kShort(c.used ?? 0)}/${kShort(c.window)}` : kShort(c.used ?? 0)) : loading ? "讀取中" : "—";
   const copy = has ? `${pct != null ? `${pct}% ` : ""}${c.used ?? ""}${c.window ? ` / ${c.window}` : ""}` : "";
-  return { has, pct, nums, copy };
+  return { has, pct, nums, copy, loading };
 }
 // how full: "" below 70 %, "high" from 70 %, "full" from 90 %
 export const level = (pct) => (pct == null ? "" : pct >= 90 ? "full" : pct >= 70 ? "high" : "");

@@ -13,6 +13,8 @@ which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/key
 
 Needs: **mods**.
 
+- The context chip says 讀取中 (dim to bright) while there is no number yet: just after /compact or /clear, or a
+  new agent, until its next reply. It used to say 0%.
 - omp and Codex: 子 N on the card, each sub-agent with what it is doing now, and 做完等你看 with what the agent
   last said, like Claude Code. Nothing to install: the panel reads their own files on the agent's machine every 15 s
   (omp: `~/.omp/agent/terminal-sessions`, its session folder; Codex: the rollout files its process holds open, found

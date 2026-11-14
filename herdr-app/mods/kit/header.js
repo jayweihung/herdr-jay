@@ -168,16 +168,19 @@ export class Header {
   // 70 %, red from 90 %; a click opens where the tokens go, a right-click copies the numbers
   // short (a narrow header with a note): [context 35%], the numbers in the tooltip
   contextChip(t, p, short) {
-    const { has, pct, nums, copy } = chipNumbers((shared(CTX) ?? {})[placeOf(p).key]);
+    const { has, pct, nums, copy, loading } = chipNumbers((shared(CTX) ?? {})[placeOf(p).key]);
     const color = pct == null ? t.dim : levelColor(t, pct);
     const chip = h_flex().id(`kit-ctx-${p.pane}`).flex_none().w(short ? CTX_SHORT : CTX_FULL).h(22).pl(2).pr(6).gap(5).items_center().rounded(6)
       .bg(t.surface).border_1().border_color(pct != null && pct >= 90 ? t.blocked : t.border).text_size(11).cursor_pointer()
       .hover((st) => st.bg(t.hover).border_color(t.accent))
       .on_mouse_down("left", stop)
-      .on_click((_e, cx) => { cx.stop_propagation(); this.openContext(p); }).tooltip(short && nums ? `context 用了 ${nums}，按一下看細項` : "context 用了多少，按一下看細項")
+      .on_click((_e, cx) => { cx.stop_propagation(); this.openContext(p); }).tooltip(short && has ? `context 用了 ${nums}，按一下看細項` : "context 用了多少，按一下看細項")
       .child(div().h(16).px(5).flex().flex_none().items_center().rounded(4).bg(t.raised).font_semibold().text_color(t.foreground).child("context"))
       .when(pct != null, (el) => el.child(div().flex_none().font_semibold().text_color(color).child(`${pct}%`)))
-      .when(!short, (el) => el.child(div().min_w(0).truncate().text_color(t.dim).child(nums)));
+      // no number yet: "-" (short) or "讀取中", breathing like a card at work
+      .when(pct == null, (el) => el.child(div().id(`kit-ctx-wait-${p.pane}`).flex_none().min_w(0).truncate().text_color(t.dim)
+        .child(short ? "-" : nums).when(loading, (d) => d.loop("opacity", { from: 0.3, to: 1, period: 1400 }))))
+      .when(!short && pct != null, (el) => el.child(div().min_w(0).truncate().text_color(t.dim).child(nums)));
     return has ? copyOnRight(chip, copy) : chip;
   }
 

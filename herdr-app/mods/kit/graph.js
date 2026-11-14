@@ -27,7 +27,7 @@ import { v_flex, h_flex } from "gpui-base";
 import { run } from "herdr";
 import { stop, icon, spin, btn, copyOnRight, shortDir } from "./common.js";
 import { shortSpan } from "./names.js";
-import { noteView } from "./context.js";
+import { noteView, limitOf, whenText } from "./context.js";
 import { saidNow, subsNow, STEPS, asks } from "./said.js";
 
 export const COL_W = 200, COL_W_DEFAULT = COL_W, NODE_H = 86, GAP_X = 100, GAP_Y = 24, PAD = 14, HEAD = 22, LOOP = 44;
@@ -50,7 +50,10 @@ export function agoText(ms, now = Date.now()) {
 }
 const machineOf = (addr) => (String(addr).includes("/") ? String(addr).split("/")[0] : "");
 // what the pane header keeps per agent, by `machine|cwd|terminal` key: the entry for this terminal
-const byTerminal = (obj, addr) => Object.entries(obj ?? {}).find(([k]) => k.endsWith(`|${addr}`))?.[1];
+// a limit's name in a sentence: a space around a number ("撞到 5 小時上限"), none around words ("撞到每週上限")
+const sp = (name) => (/^\d/.test(name) ? ` ${name}` : name);
+const keyOf = (obj, addr) => Object.keys(obj ?? {}).find((k) => k.endsWith(`|${addr}`));
+const byTerminal = (obj, addr) => { const k = keyOf(obj, addr); return k == null ? undefined : obj[k]; };
 
 // agents: Herdr's agents(); terms: terminals(); space: the shown space's id, or null for every space;
 // ctx, notes: the pane header's CTX and NOTE. -> { cols: [{ machine, nodes }], nodes, edges, outside }
@@ -62,7 +65,8 @@ const byTerminal = (obj, addr) => Object.entries(obj ?? {}).find(([k]) => k.ends
 // shells (said.js BG)
 // steps: what each running sub-agent does now (said.js STEPS)
 // owner: { address: { since, what, here } } (here: this computer's, so it waits for you, not the box's owner) agents waiting for the owner's OK (kit pending add, matched to their terminal)
-export function graphData({ agents, terms, space, ctx, notes, log = [], down = {}, names = {}, said = {}, subs = {}, bg = {}, steps = {}, owner = {}, now = Date.now() }) {
+// limitSent: the pane header's LIMIT_SENT (key -> the limit's until 繼續 was typed for)
+export function graphData({ agents, terms, space, ctx, notes, log = [], down = {}, names = {}, said = {}, subs = {}, bg = {}, steps = {}, owner = {}, limitSent = {}, now = Date.now() }) {
   const shown = (agents ?? []).filter((a) => !space || a.space === space);
   const rec = new Map((terms ?? []).map((r) => [r?.address, r]));
   const began = {};
@@ -74,6 +78,8 @@ export function graphData({ agents, terms, space, ctx, notes, log = [], down = {
       program: a.program, space: a.space_name, spaceId: a.space, focused: Boolean(a.focused),
       since: Math.max(Number(r?.status_ms) || 0, began[a.address] ?? 0), cwd: String(r?.foreground?.cwd || r?.cwd || ""),
       kind: String((r?.report ?? r?.status)?.kind ?? ""), down: down?.[machineOf(a.address)] ?? null, owner: owner?.[a.address] ?? null,
+      // stopped at its plan's usage limit (kit context's limit, kit api 1.7; Claude only): until when, and whether 繼續 was typed
+      limit: (() => { const l = limitOf(c, now); return l ? { ...l, continued: limitSent?.[keyOf(ctx, a.address)] === l.until } : null; })(),
       subs: subsNow(subs, a.address, now, a.status === "working").map((x) => {
         const s = steps?.[`${a.address}|${x.id}`];
         return { ...x, desc: x.desc || s?.desc || "", step: x.done ? "" : s?.text ?? "" };
@@ -119,7 +125,7 @@ export function graphData({ agents, terms, space, ctx, notes, log = [], down = {
   });
   const waited = new Set(g.waits.map((w) => w.to)), parents = new Set(g.edges.filter((e) => e.kind === "parent").map((e) => e.from));
   // done (not looked at yet) is news for you, never 可以關了
-  g.idle = live.filter((n) => n.status === "idle" && !n.owner && now - n.since >= IDLE_CLOSE && !waited.has(n.address)
+  g.idle = live.filter((n) => n.status === "idle" && !n.owner && !n.limit && now - n.since >= IDLE_CLOSE && !waited.has(n.address)
     && !parents.has(n.address) && !n.focused).map((n) => ({ address: n.address, for: now - n.since }));
   // what it said: the reply hook's line (its last question, word for word), else the one line the program itself
   // reported with its status (Claude Code: a short summary of its last words; the core's status.msg, which Herdr's
@@ -157,6 +163,14 @@ export function cardState(g, n, now = Date.now()) {
   if (n.status === "blocked") {
     const d = n.since ? now - n.since : 0;
     return { text: `${KIND[n.kind] ?? "等你"}${n.since ? ` ${spanText(d)}` : ""}`, color: d >= LONG_WAIT ? "ansi1" : "blocked", warm: d >= WARN_WAIT, hot: d >= LONG_WAIT, you: true };
+  }
+  // stopped at its usage limit: waiting for the reset (the color of waiting for you); reset and not yet 繼續 (the
+  // header types it when 自動繼續 is on): deep red, it is yours; 繼續 typed: says so until it works again
+  if (n.limit && n.status !== "working") {
+    const l = n.limit;
+    if (!l.back) return { text: `撞到${sp(l.name)}上限，${whenText(l.until, now)} 恢復`, color: "blocked", you: true, limit: true };
+    if (l.continued) return { text: "已恢復，已自動繼續", color: "done", limit: true };
+    return { text: `${sp(l.name).trim()}上限已恢復（${whenText(l.until, now)}），還沒繼續`, color: "ansi1", hot: true, you: true, limit: true };
   }
   // waiting for the owner's OK (kit pending add): your turn too, the same colors as waiting for you
   if (n.owner && n.status !== "working") {
@@ -493,6 +507,12 @@ export function alertsView(t, z, g, now = Date.now(), onSelect = null, { onNudge
     // the agent that waits (found by its pid): a click goes to its card, red past LONG_WAIT like waiting for you
     const hot = p.kind === "owner" && p.since && now - p.since >= LONG_WAIT;
     items.push({ id: `pending-${i}`, text, color: hot ? t.ansi1 : t.blocked, hot: Boolean(hot), who: p.who ?? null });
+  }
+  for (const n of (g.nodes ?? []).filter((x) => x.limit && x.status !== "working" && !x.down)) {
+    const l = n.limit, at = whenText(l.until, now);
+    items.push(!l.back ? { id: `limit-${n.address}`, text: `${name(n.address)} 撞到${sp(l.name)}上限，${at} 恢復`, color: t.blocked, who: n.address }
+      : l.continued ? { id: `limit-${n.address}`, text: `${name(n.address)} 的${sp(l.name)}上限已恢復（${at}），已自動繼續`, color: t.done, who: n.address }
+        : { id: `limit-${n.address}`, text: `${name(n.address)} 的${sp(l.name)}上限已恢復（${at}），還沒繼續：去打「繼續」，或在 context 視窗開自動繼續`, color: t.ansi1, hot: true, who: n.address });
   }
   const done = g.done ?? [], quiet = done.filter((x) => !x.said);
   for (const x of done.filter((y) => y.said))

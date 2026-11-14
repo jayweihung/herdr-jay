@@ -805,6 +805,33 @@ test("關係: 等站長同意 finds its agent by the pid kit pending keeps (hc g
   assert.match(out, /等站長同意：升 kit（srv\/t1p · srv，等了 51 分）/);
   assert.match(out, /等站長同意 51 分/, "on its card");
 });
+test("關係: a Claude stopped at its usage limit (kit context's limit, api 1.7): until when; reset and not yet 繼續 is yours; 已自動繼續", (M) => {
+  const { graphData, cardState, alertsView } = M.graph;
+  const MIN = 60000, now = new Date(2026, 10, 15, 0, 5).getTime(), until = new Date(2026, 10, 15, 0, 10).getTime();
+  const agents = [ag("t1", "idle"), ag("t2", "idle"), ag("t3", "done"), ag("t4", "working")];
+  const terms = ["t1", "t2", "t3", "t4"].map((a) => ({ address: a, status_ms: now - 30 * MIN }));
+  const lim = { limit: { until, kind: "five_hour" }, pct: 40 };
+  const ctx = { "|/a|t1": lim, "|/a|t2": lim, "|/a|t3": lim, "|/a|t4": lim };
+  const g = graphData({ agents, terms, space: null, ctx, now });
+  const st = (gg, a, at = now) => cardState(gg, gg.nodes.find((n) => n.address === a), at);
+  assert.deepEqual([st(g, "t1").text, st(g, "t1").color, st(g, "t1").you], ["撞到 5 小時上限，00:10 恢復", "blocked", true]);
+  assert.ok(!g.idle.some((x) => x.address === "t1"), "idle 30 minutes at its limit: not 可以關了");
+  assert.equal(st(g, "t4"), null, "at work: nothing about it");
+  const later = until + 2 * MIN;
+  const g2 = graphData({ agents, terms, space: null, ctx, limitSent: { "|/a|t2": until }, now: later });
+  assert.deepEqual([st(g2, "t1", later).text, st(g2, "t1", later).hot], ["5 小時上限已恢復（00:10），還沒繼續", true], "reset, 繼續 not typed: deep red, yours");
+  assert.equal(st(g2, "t2", later).text, "已恢復，已自動繼續");
+  const th = new Proxy({}, { get: (_t, k) => (k === "then" ? undefined : "#334455") });
+  H.texts = []; H.strings = []; alertsView(th, 13, g, now);
+  assert.match([...H.texts, ...H.strings].join("\n"), /t1 撞到 5 小時上限，00:10 恢復/);
+  H.texts = []; H.strings = []; alertsView(th, 13, g2, later);
+  const out = [...H.texts, ...H.strings].join("\n");
+  assert.match(out, /t1 的 5 小時上限已恢復（00:10），還沒繼續/);
+  assert.match(out, /t2 的 5 小時上限已恢復（00:10），已自動繼續/);
+  assert.ok(!/t4/.test(out), "at work: no line");
+  // an older kit (no limit field): nothing
+  assert.equal(graphData({ agents, terms, space: null, ctx: { "|/a|t1": { pct: 40 } }, now }).nodes[0].limit, null);
+});
 test("agents.waiting (for Herdr's own Agents list, app patch 0010): who waits for the owner's OK, and who waits for you too long", async (M) => {
   const MIN = 60000, now = 100 * MIN, { waitingNow } = M.agents;
   const terms = [{ address: "t1", status: "blocked", status_ms: now - 11 * MIN }, { address: "t2", status: "blocked", status_ms: now - MIN }, { address: "t3", status: "done", status_ms: now - 50 * MIN }];

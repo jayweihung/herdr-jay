@@ -16,6 +16,12 @@ Needs: mods, kit (0.6.5).
 - The context window (click the chip) shows the plan's usage: how much of the 5 hours and the week this account
   used and when each resets (`kit usage`), and a switch for typing 繼續 (on by default).
 
+## 2026-11-15, 關係: an agent at its usage limit says until when
+Needs: mods; kit 0.6.5 (api 1.7) on the agent's machine.
+- A Claude stopped at its plan's usage limit (kit context's limit): its card and a line say 撞到 5 小時上限，00:10 恢復
+  (the color of waiting for you); once the limit resets and 繼續 isn't typed yet, deep red and yours; 自動繼續 typed:
+  已恢復，已自動繼續. Never 可以關了 while at its limit.
+
 ## 2026-11-15, 關係: colors follow what you just did within half a second
 Needs: mods.
 - Herdr doesn't re-render mods when an agent's status or focus changes, so after you looked at a card (or answered)

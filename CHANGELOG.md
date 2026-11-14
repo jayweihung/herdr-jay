@@ -9,6 +9,14 @@ says which) · **kit** = update kit itself on every machine where agents run (`k
 **snap hook** = a line in Claude Code's `settings.json` on each machine where you added the hook (the entry says
 which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/keys.md).
 
+## 2026-11-14, 關係: 等站長同意 on the agent that waits
+
+Needs: **mods**.
+
+- 等站長同意 (kit pending add) finds the agent that waits: kit keeps its pid, the panel asks Herdr (hc get) which
+  terminal on that machine runs it. The line names it and a click goes to its card; the card is colored like waiting
+  for you (orange, red after 10 minutes) and says 等站長同意 51 分, not plain blue 做完.
+
 ## 2026-11-14, 倉庫: collect many skills from one URL at once; skills grouped by where they came from
 
 Needs: **mods**.

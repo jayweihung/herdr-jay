@@ -88,11 +88,13 @@ export function pendingOf(list) {
   return list.slice(0, 20).filter((p) => p && typeof p === "object").map((p) => ({
     kind: str(p.kind, 20) ?? "?", what: str(p.what, 300), name: str(p.name, 100), commits: count(p.commits),
     since: Number.isFinite(p.since) && p.since > 0 ? p.since : null, machine: str(p.machine, 64), id: str(p.id, 100),
+    dir: str(p.dir, 500), pid: Number.isInteger(p.pid) && p.pid > 0 ? p.pid : null,
   })).filter((p) => p.what || p.name);
 }
-// what waits for a person on every machine and account the 各機器 load asked (rows), each with where it was read
+// what waits for a person on every machine and account the 各機器 load asked (rows), each with where it was read and
+// the Herdr machine it is on (host: null is this computer), for finding the agent that waits (its pid)
 export const pendingRows = (rows) => (rows ?? []).filter((r) => r.state === "ok")
-  .flatMap((r) => (r.pending ?? []).map((p) => ({ ...p, where: rowLabel(r) })));
+  .flatMap((r) => (r.pending ?? []).map((p) => ({ ...p, where: rowLabel(r), host: r.here ? null : r.machine ?? null })));
 // a report file's text -> { status } or { why }
 export function readReport(text, file) {
   if (text == null) return { why: `還沒有回報檔 ${file}` };

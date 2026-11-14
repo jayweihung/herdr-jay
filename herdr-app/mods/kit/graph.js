@@ -61,7 +61,8 @@ const byTerminal = (obj, addr) => Object.entries(obj ?? {}).find(([k]) => k.ends
 // said: what each agent said when it stopped (said.js SAID); subs: its sub-agents (said.js SUBS); bg: its background
 // shells (said.js BG)
 // steps: what each running sub-agent does now (said.js STEPS)
-export function graphData({ agents, terms, space, ctx, notes, log = [], down = {}, names = {}, said = {}, subs = {}, bg = {}, steps = {}, now = Date.now() }) {
+// owner: { address: { since, what } } agents waiting for the owner's OK (kit pending add, matched to their terminal)
+export function graphData({ agents, terms, space, ctx, notes, log = [], down = {}, names = {}, said = {}, subs = {}, bg = {}, steps = {}, owner = {}, now = Date.now() }) {
   const shown = (agents ?? []).filter((a) => !space || a.space === space);
   const rec = new Map((terms ?? []).map((r) => [r?.address, r]));
   const began = {};
@@ -72,7 +73,7 @@ export function graphData({ agents, terms, space, ctx, notes, log = [], down = {
       cli: cliOf(a.app, a.program?.key), model: modelOf(c?.model), pct: c?.pct != null && (Number(c.pct) || Number(c.used)) ? Math.min(100, Math.round(Number(c.pct))) : null, note: n?.line ?? "", noteOld: Boolean(n?.old),
       program: a.program, space: a.space_name, spaceId: a.space, focused: Boolean(a.focused),
       since: Math.max(Number(r?.status_ms) || 0, began[a.address] ?? 0), cwd: String(r?.foreground?.cwd || r?.cwd || ""),
-      kind: String((r?.report ?? r?.status)?.kind ?? ""), down: down?.[machineOf(a.address)] ?? null,
+      kind: String((r?.report ?? r?.status)?.kind ?? ""), down: down?.[machineOf(a.address)] ?? null, owner: owner?.[a.address] ?? null,
       subs: subsNow(subs, a.address, now, a.status === "working").map((x) => {
         const s = steps?.[`${a.address}|${x.id}`];
         return { ...x, desc: x.desc || s?.desc || "", step: x.done ? "" : s?.text ?? "" };
@@ -118,7 +119,7 @@ export function graphData({ agents, terms, space, ctx, notes, log = [], down = {
   });
   const waited = new Set(g.waits.map((w) => w.to)), parents = new Set(g.edges.filter((e) => e.kind === "parent").map((e) => e.from));
   // done (not looked at yet) is news for you, never 可以關了
-  g.idle = live.filter((n) => n.status === "idle" && now - n.since >= IDLE_CLOSE && !waited.has(n.address)
+  g.idle = live.filter((n) => n.status === "idle" && !n.owner && now - n.since >= IDLE_CLOSE && !waited.has(n.address)
     && !parents.has(n.address) && !n.focused).map((n) => ({ address: n.address, for: now - n.since }));
   // what it said: the reply hook's line (its last question, word for word), else the one line the program itself
   // reported with its status (Claude Code: a short summary of its last words; the core's status.msg, which Herdr's
@@ -146,6 +147,11 @@ export function cardState(g, n, now = Date.now()) {
   if (n.status === "blocked") {
     const d = n.since ? now - n.since : 0;
     return { text: `${KIND[n.kind] ?? "等你"}${n.since ? ` ${spanText(d)}` : ""}`, color: d >= LONG_WAIT ? "ansi1" : "blocked", warm: d >= WARN_WAIT, hot: d >= LONG_WAIT, you: true };
+  }
+  // waiting for the owner's OK (kit pending add): your turn too, the same colors as waiting for you
+  if (n.owner && n.status !== "working") {
+    const d = n.owner.since ? now - n.owner.since : 0;
+    return { text: `等站長同意${n.owner.since ? ` ${spanText(d)}` : ""}`, color: d >= LONG_WAIT ? "ansi1" : "blocked", warm: d >= WARN_WAIT, hot: d >= LONG_WAIT, you: true };
   }
   const idle = g.idle?.find((x) => x.address === n.address);
   if (idle) return { text: `閒置 ${spanText(idle.for)} · 可以關了`, color: "dim", idle: true };
@@ -451,9 +457,11 @@ export function alertsView(t, z, g, now = Date.now(), onSelect = null, { onNudge
   for (const [i, p] of pending.entries()) {
     const long = p.since ? `，等了 ${spanText(now - p.since)}` : "";
     const text = p.kind === "sign" ? `等你簽：${p.what ?? `${p.name} 有 ${p.commits ?? "新的"} 個 commit 等核准`}（${p.where}${long}）。簽章在 Mac 親手做`
-      : p.kind === "owner" ? `等站長同意：${String(p.what ?? "").replace(/^要你同意[：:]\s*/, "")}（${p.where}${long}）`
+      : p.kind === "owner" ? `等站長同意：${String(p.what ?? "").replace(/^要你同意[：:]\s*/, "")}（${p.who ? `${name(p.who)} · ` : ""}${p.where}${long}）`
       : `${p.what}（${p.where}${long}）`;
-    items.push({ id: `pending-${i}`, text, color: t.blocked, who: null });
+    // the agent that waits (found by its pid): a click goes to its card, red past LONG_WAIT like waiting for you
+    const hot = p.kind === "owner" && p.since && now - p.since >= LONG_WAIT;
+    items.push({ id: `pending-${i}`, text, color: hot ? t.ansi1 : t.blocked, who: p.who ?? null });
   }
   const done = g.done ?? [], quiet = done.filter((x) => !x.said);
   for (const x of done.filter((y) => y.said))

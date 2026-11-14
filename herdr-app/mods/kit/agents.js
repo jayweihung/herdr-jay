@@ -36,6 +36,7 @@ import { sidebarNames } from "./names.js";
 import { loadMachines, machinesDue, machinesData, pendingRows } from "./machines.js";
 
 const PANEL = NODES.agents;
+const WHO_TTL = 120000;   // how long a pending's agent (found by its pid) is kept
 const SHORT = 120000, STALE = 50000;
 const KINDS = [["rule", "rules", "規則"], ["skill", "skills", "Skills"], ["mcp", "mcp", "MCP"]];
 const TOOL_NAMES = { claude: "Claude", codex: "Codex", omp: "omp" };
@@ -89,6 +90,7 @@ export class Agents {
       if (this.tab === "rel" && machinesDue()) { try { loadMachines(cx); } catch {} }
       // 做完等你看: what each agent said when it stopped; each one's sub-agents (said.js)
       if (this.tab === "rel") { try { saidTick(agents(), terminals(), cx); } catch {} }
+      if (this.tab === "rel") this.whoTick(cx);
       const a = apiKnown(null);
       if (!a) return checkApi(null, cx);
       if (a.ok && (this.first || stale()) && !this.busy && !this.loading) this.refresh(cx);
@@ -283,10 +285,44 @@ export class Agents {
     return h_flex().flex_none().px(6).gap(2).border_b(1).border_color(t.border).child(tab("defs", "定義")).child(tab("rel", "關係"));
   }
 
+  // 等站長同意's agent: kit pending add keeps the agent's pid; the terminal on that machine whose program (Herdr's
+  // foreground pid, else its own) is that pid. hc get on that machine's agents, the same folder first; each answer kept
+  // WHO_TTL (none found too: asked again then)
+  whoTick(cx) {
+    if (this.whoBusy) return;
+    this.who ??= {};
+    const want = pendingRows(machinesData()?.rows).filter((p) => p.kind === "owner" && p.pid)
+      .filter((p) => { const w = this.who[`${p.host ?? ""}|${p.pid}`]; return !w || Date.now() - w.at > WHO_TTL; });
+    if (!want.length) return;
+    this.whoBusy = true;
+    cx.spawn(async (cx) => {
+      try {
+        const ags = agents(), terms = new Map((terminals() ?? []).map((r) => [r?.address, r]));
+        for (const p of want) {
+          const on = ags.filter((x) => (String(x.address).includes("/") ? String(x.address).split("/")[0] : null) === (p.host ?? null));
+          const cwd = (x) => String(terms.get(x.address)?.foreground?.cwd || terms.get(x.address)?.cwd || "");
+          on.sort((x, y) => (cwd(y) === p.dir) - (cwd(x) === p.dir));
+          let found = "";
+          for (const x of on) {
+            const r = await hc(["get", x.address, "--json"]).catch(() => null);
+            let j = {};
+            try { j = JSON.parse(r?.stdout ?? "{}"); } catch {}
+            if (Number(j.foreground?.pid) === p.pid || Number(j.pid) === p.pid) { found = x.address; break; }
+          }
+          this.who[`${p.host ?? ""}|${p.pid}`] = { address: found, at: Date.now() };
+        }
+      } finally { this.whoBusy = false; cx.notify(); }
+    });
+  }
+
   // 關係: the agents running in the shown space (or all), who talks to whom (graph.js)
   relations(t, z) {
     const f = focused(), shownSpace = f?.space ?? (spaces() ?? []).find((s) => s.active)?.id ?? null, now = Date.now();
-    const ags = agents(), g = graphData({ agents: ags, terms: terminals(), names: sidebarNames(ags, panes(), spaces()), space: this.scope === "space" ? shownSpace : null, ctx: shared(CTX), notes: shared(NOTE), log: eventLog(), down: downMachines(), said: shared(SAID), subs: shared(SUBS), bg: shared(BG), steps: shared(STEPS), now });
+    // waiting for the owner's OK: each pending's agent (its pid's terminal, whoTick), on the card and in the line
+    const pending = pendingRows(machinesData()?.rows).map((p) => ({ ...p, who: p.pid ? this.who?.[`${p.host ?? ""}|${p.pid}`]?.address || null : null }));
+    const owner = {};
+    for (const p of pending) if (p.kind === "owner" && p.who) owner[p.who] = { since: p.since, what: p.what };
+    const ags = agents(), g = graphData({ agents: ags, terms: terminals(), names: sidebarNames(ags, panes(), spaces()), space: this.scope === "space" ? shownSpace : null, ctx: shared(CTX), notes: shared(NOTE), log: eventLog(), down: downMachines(), said: shared(SAID), subs: shared(SUBS), bg: shared(BG), steps: shared(STEPS), owner, now });
     if (this.sel && !g.nodes.some((n) => n.address === this.sel)) this.sel = null;
     const scope = (id, label) => btn(t, z, `kit-graph-scope-${id}`, label, { tiny: true, kind: this.scope === id ? "primary" : undefined,
       on: (cx) => { this.scope = id; localSet("kit.agents.scope", id); cx.notify(); } });
@@ -306,7 +342,7 @@ export class Agents {
         // a bigger look: the same tab in its own window, most of the screen (not from that window itself)
         .when(!props()?.big, (el) => el.child(btn(t, z, "kit-graph-big", "放大", { tiny: true,
           on: () => openOverlay({ mod: "kit", props: { role: "agents", big: true, scope: this.scope }, kind: "window", key: "kit-agents-big", width: 0.9, height: 0.85 }) }))))
-      .child(alertsView(t, z, g, now, select, { nudged: this.nudged, onNudge: (w, cx) => this.nudge(g, w, cx), pending: pendingRows(machinesData()?.rows) }) ?? div());
+      .child(alertsView(t, z, g, now, select, { nudged: this.nudged, onNudge: (w, cx) => this.nudge(g, w, cx), pending }) ?? div());
     if (this.view === "time") {
       const span = SPANS.find(([k]) => k === this.span) ?? SPANS[1];
       return body

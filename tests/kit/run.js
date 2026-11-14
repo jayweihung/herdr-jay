@@ -739,6 +739,41 @@ test("關係 colors: colored all over only where it is your turn; 停了沒回 h
   legendView(th, 13);
   assert.deepEqual(H.strings.filter((x) => x !== "整張上色＝輪到你："), ["等你處理", "等太久", "做完等你看", "停了沒回／互等"]);
 });
+test("關係: 等站長同意 finds its agent by the pid kit pending keeps (hc get there): that card colored, the line names it and goes to it", async (M) => {
+  const { graphData, cardState, graphView, alertsView, tint } = M.graph;
+  const MIN = 60000, now = 100 * MIN;
+  const agents = [ag("srv/t1p", "done"), ag("srv/t31", "done"), ag("t9", "idle")];
+  const terms = [{ address: "srv/t1p", status_ms: now - 52 * MIN }, { address: "srv/t31", status_ms: now - 52 * MIN }, { address: "t9", status_ms: now - 50 * MIN }];
+  const g = graphData({ agents, terms, space: null, owner: { "srv/t1p": { since: now - 51 * MIN, what: "要你同意：升 kit" } }, now });
+  const st = (a) => cardState(g, g.nodes.find((n) => n.address === a), now);
+  assert.deepEqual([st("srv/t1p").text, st("srv/t1p").color, st("srv/t1p").you, st("srv/t1p").hot], ["等站長同意 51 分", "ansi1", true, true], "51 minutes: red all over");
+  const g1 = graphData({ agents, terms, space: null, owner: { "srv/t1p": { since: now - MIN } }, now });
+  assert.equal(cardState(g1, g1.nodes[0], now).color, "blocked", "a minute: waiting-for-you color");
+  assert.equal(st("srv/t31").text, "做完 · 等你看", "the other one in the same folder: as before");
+  assert.ok(!g.idle.some((x) => x.address === "srv/t1p"), "waiting for the owner is never 可以關了");
+  const th = { raised: "#101010", selected: "#202020", border: "#303030", accent: "#0000aa", muted: "#404040", dim: "#505050", foreground: "#eeeeee",
+    surface: "#111111", blocked: "#ff8800", done: "#3366ff", working: "#dddd00", ansi1: "#ff0000", ansi5: "#cc00cc", unknown: "#666666", hover: "#121212" };
+  H.colors = {}; graphView(th, 13, g, null, { now, width: 900 });
+  assert.deepEqual([H.colors["kit-graph-srv/t1p"]?.border_color, H.colors["kit-graph-srv/t1p"]?.bg], [th.ansi1, tint(th.raised, th.ansi1)]);
+  let went = null;
+  H.texts = []; H.strings = []; H.clicks = {};
+  alertsView(th, 13, g, now, (a) => { went = a; }, { pending: [{ kind: "owner", what: "要你同意：升 kit", since: now - 51 * MIN, where: "srv", who: "srv/t1p" }] });
+  assert.match([...H.texts, ...H.strings].join("\n"), /等站長同意：升 kit（srv\/t1p · srv，等了 51 分）/);
+  assert.equal(H.colors["kit-graph-alert-pending-0"]?.border_color ?? th.ansi1, th.ansi1);
+  H.clicks["kit-graph-alert-pending-0"]({}, cx); assert.equal(went, "srv/t1p", "a click goes to its card");
+  // the panel: kit status's pending (pid 4374 on srv) -> hc get on srv's agents -> the one whose program is 4374
+  fresh(); fakeKit();
+  H.spaces = [{ id: "s1", name: "web", active: true, tabs: [] }];
+  H.agents = agents; H.terminals = terms.map((x) => ({ ...x, cwd: "/home/u/q" }));
+  H.store["kit.machines.v1"] = { done: true, at: Date.now(), rows: [{ key: "m:srv", machine: "srv", state: "ok",
+    pending: [{ kind: "owner", id: "k", what: "要你同意：升 kit", since: Date.now() - 51 * MIN, machine: "q", dir: "/home/u/q", pid: 4374 }] }] };
+  H.hcAnswer = (a) => (a[0] === "get" ? { code: 0, stdout: JSON.stringify({ pid: 1, foreground: { pid: a[1] === "srv/t1p" ? 4374 : 77 } }), stderr: "" } : null);
+  localStorage.setItem("kit.agents.tab", "rel"); localStorage.setItem("kit.agents.scope", "all");
+  const v = view(M, { role: "agents" }); await settle(); await tick(); await settle();
+  const out = render(v);
+  assert.match(out, /等站長同意：升 kit（srv\/t1p · srv，等了 51 分）/);
+  assert.match(out, /等站長同意 51 分/, "on its card");
+});
 test("關係: an agent done and not looked at says what it said when it stopped (its card, its own alert line); cards waiting for you are colored", (M) => {
   const { graphData, cardState, alertsView, tint } = M.graph, { parseSaid, saidNow } = M.said;
   const MIN = 60000, now = 100 * MIN;
@@ -1868,8 +1903,8 @@ machinesTest("各機器: plain values — api and kit versions compared, kit sta
     { kind: "sign", name: "agentkit", what: "agentkit 有 3 個新 commit 等核准", commits: 3, head: SHA("e"), since: 5e11, machine: "srv", run: "x" },
     { kind: "owner", id: "deploy", what: "要你同意：要上線 web", since: "soon", machine: "srv", pid: 9 }, { kind: "sign" }, "x"] }).pending;
   assert.deepEqual(pend, [
-    { kind: "sign", what: "agentkit 有 3 個新 commit 等核准", name: "agentkit", commits: 3, since: 5e11, machine: "srv", id: null },
-    { kind: "owner", what: "要你同意：要上線 web", name: null, commits: null, since: null, machine: "srv", id: "deploy" }]);
+    { kind: "sign", what: "agentkit 有 3 個新 commit 等核准", name: "agentkit", commits: 3, since: 5e11, machine: "srv", id: null, dir: null, pid: null },
+    { kind: "owner", what: "要你同意：要上線 web", name: null, commits: null, since: null, machine: "srv", id: "deploy", dir: null, pid: 9 }]);
   const rows = [{ here: true, state: "ok", pending: [] }, { reported: true, label: "srv root", state: "ok", pending: pend }, { machine: "x", state: "down", pending: pend }];
   const pr = X.pendingRows(rows);
   assert.deepEqual(pr.map((p) => p.where), ["srv root", "srv root"], "only rows that answered");

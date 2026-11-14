@@ -256,7 +256,7 @@ test("context window: the bar, the shares, the footer line, the chip's numbers (
   assert.deepEqual(fit(0), { dir: true, nameMax: 260, kit: "full", ctx: "full", noteW: null }, "not measured yet: all shown");
   assert.deepEqual(fit(700, { note: "" }), { dir: true, nameMax: 260, kit: "full", ctx: "full", noteW: null }, "no note: the folder takes the room");
   const wide = fit(1600); assert.ok(wide.dir && wide.kit === "full" && wide.ctx === "full" && wide.noteW >= 360, "wide: all of it");
-  const mid = fit(1000); assert.ok(!mid.dir && mid.noteW >= 360, `mid: the folder goes first ${JSON.stringify(mid)}`);
+  const mid = fit(940); assert.ok(!mid.dir && mid.noteW >= 360, `mid: the folder goes first ${JSON.stringify(mid)}`);
   const narrow = fit(760); assert.ok(!narrow.dir && narrow.ctx === "short" && narrow.kit === "short" && narrow.noteW > 300, `narrow ${JSON.stringify(narrow)}`);
   const tiny = fit(500); assert.equal(tiny.nameMax, 120); assert.ok(tiny.noteW >= 0);
   const short = fit(760, { note: "跑測試" }); assert.ok(short.dir && short.kit === "full" && short.ctx === "full", "a short note needs no room taken");

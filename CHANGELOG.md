@@ -11,7 +11,7 @@ which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/key
 
 ## 2026-11-15, Codex and omp: 背景工作中, sub-agents on Windows, Codex with --no-daemon; install docs
 
-Needs: **mods**.
+Needs: **mods**; **app** only for Herdr 98 (patch 0011).
 
 - 關係: a Codex or omp whose turn ended while its own background command still runs shows 背景工作中, not
   做完等你看. Codex: its background terminals (`zsh -lc …` under it, by `ps`). omp: its bash jobs run inside omp, so
@@ -20,6 +20,8 @@ Needs: **mods**.
   through Windows PowerShell (no `sh` there); it finds each agent by its folder.
 - An agent put in a space with Codex starts as `codex --no-daemon` (kit gives `codex`): without it Codex can run its
   commands in its shared background server, outside Herdr's terminal.
+- Herdr 98 (app patch 0011): the Start menu and Quick Launch offer the agents Herdr knows, as the new-tab menu does:
+  Codex as `codex --no-daemon`, omp when it is in your `programs.json`, and on Windows too.
 - omp's sub-agent task lines that end shortly after a line break are no longer cut.
 - Docs: Codex and omp next to Claude Code in windows.md, macos.md, linux-remote.md and agent-install.md (check,
   install, login, `--no-daemon`, omp in `programs.json`).

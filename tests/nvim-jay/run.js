@@ -104,6 +104,37 @@ esac
   try { result = readFileSync(join(root, "result"), "utf8"); } catch {}
   if (r.status !== 0 || result.trim() !== "pass") { console.log(`failed (exit ${r.status}${r.error ? ", " + r.error.message : ""})`); process.exitCode = 1; }
 
+  // omp's hook module, as omp loads it (a stub pi): a bash call keeps a copy, an unanswered message blocks the stop once,
+  // a sub-agent's stop never does
+  {
+    const hookFile = join(home, ".config", "nvim-jay", "omp_hook.js");
+    const sess = join(root, "omp-hook-session.jsonl"), named = join(root, "omp-hook-file.txt");
+    writeFileSync(named, "keep me\n");
+    writeFileSync(sess, JSON.stringify({ type: "message", message: { role: "user", content: [{ type: "text", text: '<hc from="t4 ops">deploy?</hc>' }] } }) + "\n");
+    const script = `
+      const on = {};
+      const { default: hook } = await import(${JSON.stringify(pathToFileURL(hookFile).href)});
+      hook({ on: (n, f) => { on[n] = f; } });
+      await on.tool_call({ toolName: "bash", toolCallId: "call_1|fc_1", input: { command: "rm ${named}" } }, {});
+      const sub = await on.session_stop({ session_id: "s", session_file: ${JSON.stringify(sess)}, stop_hook_active: false }, { agent: { kind: "sub" } });
+      const main = await on.session_stop({ session_id: "s", session_file: ${JSON.stringify(sess)}, stop_hook_active: false,
+        last_assistant_message: { role: "assistant", content: [{ type: "text", text: "all done" }] } }, { agent: { kind: "main" } });
+      const bad = await on.session_stop(null, null);
+      console.log(JSON.stringify({ events: Object.keys(on).sort(), sub: sub ?? null, main: main ?? null, bad: bad ?? null }));`;
+    const x = spawnSync(process.execPath, ["--input-type=module", "-e", script],
+      { env: { ...env, HC_TERMINAL_ID: "t9" }, encoding: "utf8", timeout: 60000 });
+    let got = {};
+    try { got = JSON.parse(x.stdout.trim().split("\n").pop()); } catch {}
+    const copy = join(home, ".cache", "nvim-jay", "snap", "call_1_fc_1");
+    let said = null;
+    try { said = JSON.parse(readFileSync(join(home, ".cache", "nvim-jay", "said", "t9"), "utf8")); } catch {}
+    const ok = JSON.stringify(got.events) === JSON.stringify(["agent_end", "session_start", "session_stop", "tool_call"])
+      && existsSync(copy) && readdirSync(copy).length === 1 && got.sub === null && got.bad === null
+      && got.main?.decision === "block" && /t4 ops/.test(got.main.reason) && said?.text === "all done";
+    console.log(`${ok ? "ok  " : "FAIL"}  omp hook module: bash keeps a copy, an unanswered message keeps the agent going once, a sub-agent's stop never`);
+    if (!ok) { console.log(JSON.stringify({ got, said, stderr: x.stderr })); process.exitCode = 1; }
+  }
+
   // review mode: a Gerrit change opened from the panel (g:nvim_jay_review = its review.json)
   const wt = join(root, "wt"), rdir = join(root, "rv");
   mkdirSync(rdir, { recursive: true });

@@ -775,6 +775,226 @@ test("the tree, clicks, the list, typing", function()
   vim.cmd("silent! %bwipeout!")
 end)
 
+-- ============ Codex and omp ============
+-- Their records as their logs have them (Codex 0.167 rollout, omp 18.18 session; seen in real runs 2026-11-15).
+local function omp_msg(role, content, extra)
+  return vim.tbl_extend("force", { type = "message", timestamp = iso(os.time() - 2), message = { role = role, content = content } }, extra or {})
+end
+local function omp_call(name, args, id) return omp_msg("assistant", { { type = "toolCall", id = id or "toolu_o", name = name, arguments = args } }) end
+local function omp_result(id, name, details)
+  return { type = "message", message = { role = "toolResult", toolCallId = id, toolName = name, details = details or {}, content = {} } }
+end
+local function cx_item(item, started)
+  return { timestamp = iso(os.time()), type = "event_msg", payload = { type = "item_completed", item = item,
+    started_at_ms = started or (os.time() - 2) * 1000, completed_at_ms = os.time() * 1000 } }
+end
+local function cx_exec(id, script, cwd, parsed)
+  return cx_item({ type = "CommandExecution", id = id, command = { "/bin/zsh", "-lc", script }, cwd = "file://" .. cwd:gsub(" ", "%%20"),
+    parsed_cmd = parsed or { { type = "unknown", cmd = script } }, status = "completed", exit_code = 0 })
+end
+
+test("snap ids", function()
+  check("snap_id: Claude's and Codex's ids as they are", T.snap_id("toolu_01AB") == "toolu_01AB" and T.snap_id("exec-84cb-62") == "exec-84cb-62")
+  check("snap_id: anything else becomes _ (no / or .), none or too long: nil", T.snap_id("call_a|fc_b") == "call_a_fc_b"
+    and T.snap_id("../x") == "___x" and T.snap_id("") == nil and T.snap_id(("a"):rep(129)) == nil and T.snap_id(5) == nil)
+  -- Codex's PreToolUse gives tool_use_id exec-<uuid>: the hook keeps it under that name
+  write(ROOT .. "/snapme.txt", "before\n")
+  local r = vim.system({ vim.v.progpath, "--clean", "-l", HOME .. "/.config/nvim-jay/snap_hook.lua" },
+    { stdin = vim.json.encode({ hook_event_name = "PreToolUse", tool_name = "Bash", tool_use_id = "exec-1a2b-3c4d",
+      tool_input = { command = "sed -i x " .. ROOT .. "/snapme.txt" } }), text = true }):wait(20000)
+  local f = HOME .. "/.cache/nvim-jay/snap/exec-1a2b-3c4d/" .. vim.fn.sha256(ROOT .. "/snapme.txt")
+  check("snap hook: Codex's exec-<uuid> id keeps its copy", r.code == 0 and r.stdout == "" and vim.uv.fs_stat(f) ~= nil, r)
+end)
+
+test("omp log", function()
+  local work = ROOT .. "/ompwork"
+  sh("mkdir -p '" .. work .. "' && cd '" .. work .. "' && git init -q && printf '1\\n2\\n3\\n' > a.txt && printf 'x\\n' > b.txt && git add . && git commit -qm i")
+  local log = ROOT .. "/omp1.jsonl"
+  write(log, "")
+  local s = T.new_state(log, 0, "omp")
+  append(log, { { type = "session", version = 3, id = "o1", cwd = work }, omp_call("read", { path = "a.txt:2-3" }, "toolu_r1") })
+  local it = T.scan_other(s)
+  check("omp: a read, relative to the session's folder, its line", it and it.path == work .. "/a.txt" and it.tag == "讀" and it.line == 2, it)
+  append(log, { omp_call("edit", { input = "[" .. work .. "/b.txt#AB12]\nPUT >$:\n+y" }, "toolu_e1") })
+  it = T.scan_other(s)
+  check("omp: an edit names its file in its input", it and it.path == work .. "/b.txt" and it.tag == "改", it)
+  append(log, { omp_result("toolu_e1", "edit", { path = work .. "/b.txt", firstChangedLine = 2, op = "update" }) })
+  it = T.scan_other(s)
+  check("omp: its result says the line", it and it.path == work .. "/b.txt" and it.edit_at == 2, it)
+  -- a bash command: what it changed, against the snapshot (omp's id with a | in it: the same folder name both sides)
+  local c = work .. "/c.txt"
+  write(c, "1\n2\n")
+  write(HOME .. "/.cache/nvim-jay/snap/call_9_fc_9/" .. vim.fn.sha256(c), "1\n2\n")
+  append(log, { omp_call("bash", { command = "printf '1\\n3\\n' > " .. c }, "call_9|fc_9") })
+  check("omp: bash before its result: nothing yet", T.scan_other(s) == nil and s.calls.call_9_fc_9 ~= nil, s.calls)
+  write(c, "1\n3\n")
+  append(log, { omp_result("call_9|fc_9", "bash", {}) })
+  it = T.scan_other(s)
+  check("omp: bash ended: the file it named, its snapshot as the base", it and it.path == c and it.tag == "改"
+    and vim.deep_equal(it.before, { "1", "2" }) and next(s.calls) == nil, it)
+  -- a write of a new file: once it is there
+  local n = work .. "/new.txt"
+  append(log, { omp_call("write", { path = n, content = "n\n" }, "toolu_w") })
+  check("omp: write of a file not there yet: waits", T.scan_other(s) == nil and s.waiting, s.waiting)
+  write(n, "n\n")
+  append(log, { omp_result("toolu_w", "write", {}) })
+  it = T.scan_other(s)
+  check("omp: the written file, once there", it and it.path == n and it.tag == "寫", it)
+  -- the list (space o): newest first, once each, only files that are there
+  local list = T.files_other("omp", table.concat(vim.fn.readfile(log), "\n"), 1, nil)
+  local paths = vim.tbl_map(function(x) return x.path:sub(#work + 2) .. ":" .. x.tag end, list)
+  check("omp: the list, newest first, one each", vim.deep_equal(paths, { "new.txt:寫", "b.txt:改", "a.txt:讀" }), paths)
+end)
+
+test("codex log", function()
+  local work = ROOT .. "/cx work"
+  sh("mkdir -p '" .. work .. "' && cd '" .. work .. "' && git init -q && printf 'h\\n' > n.txt && git add . && git commit -qm i")
+  local log = ROOT .. "/rollout-x.jsonl"
+  write(log, "")
+  local s = T.new_state(log, 0, "codex")
+  append(log, { cx_exec("exec-r1", "cat n.txt", work, { { type = "read", cmd = "cat n.txt", name = "n.txt", path = "n.txt" } }) })
+  local it = T.scan_other(s)
+  check("codex: a command Codex reads as a read: the file, relative to its folder (a URL with %20)", it and it.path == work .. "/n.txt" and it.tag == "讀", it)
+  write(work .. "/n.txt", "h\nsecond\nthird\n")
+  append(log, { cx_item({ type = "FileChange", id = "exec-p1", status = "completed",
+    changes = { [work .. "/n.txt"] = { type = "update", unified_diff = "@@ -2 +2,2 @@\n second\n+third\n", move_path = vim.NIL } } }) })
+  it = T.scan_other(s)
+  check("codex: apply_patch (FileChange): edited, its first changed line", it and it.path == work .. "/n.txt" and it.tag == "改" and it.edit_at == 2, it)
+  local o = ROOT .. "/outside-cx.txt"
+  write(o, "one\n")
+  write(HOME .. "/.cache/nvim-jay/snap/exec-9f-01/" .. vim.fn.sha256(o), "one\n")
+  vim.uv.sleep(1100) -- the command starts after the patch's second
+  write(o, "one\ntwo\n")
+  append(log, { cx_exec("exec-9f-01", "echo two >> " .. o, work) })
+  it = T.scan_other(s)
+  check("codex: a shell command: the file it named, the hook's copy (exec-<uuid>) as the base", it and it.path == o
+    and vim.deep_equal(it.before, { "one" }), it)
+  append(log, { cx_item({ type = "SubAgentActivity", id = "call_1", kind = "started", agent_thread_id = "th-sub9" }) })
+  T.scan_other(s)
+  check("codex: a sub-agent started: its thread id noted", s.subs and s.subs[1] == "th-sub9", s.subs)
+  local list = T.files_other("codex", table.concat(vim.fn.readfile(log), "\n"), 1)
+  check("codex: the list (space o)", #list == 1 and list[1].path == work .. "/n.txt" and list[1].tag == "改", list)
+end)
+
+-- finding the log of a Codex / omp in a pane: what its process has open, else its folder's newest
+test("codex and omp logs found", function()
+  local work = ROOT .. "/agentwork"
+  vim.fn.mkdir(work, "p")
+  local day = HOME .. "/.codex/sessions/2026/11/15"
+  local function rollout(name, meta)
+    write(day .. "/" .. name, vim.json.encode({ type = "session_meta", payload = vim.tbl_extend("force", { id = name, cwd = work,
+      base_instructions = { text = ("x"):rep(30000) } }, meta or {}) }) .. "\n")
+  end
+  rollout("rollout-2026-11-15T01-00-00-aaa.jsonl")
+  rollout("rollout-2026-11-15T02-00-00-bbb.jsonl")
+  rollout("rollout-2026-11-15T03-00-00-sub.jsonl", { parent_thread_id = "bbb" })
+  rollout("rollout-2026-11-15T04-00-00-elsewhere.jsonl", { cwd = ROOT })
+  vim.uv.fs_utime(day .. "/rollout-2026-11-15T01-00-00-aaa.jsonl", os.time() - 100, os.time() - 100)
+  local function run(cmd, o, ms) return T.run_wait(cmd, o, ms) end
+  local got = T.other_log("codex", { pid = 999999 }, { cwd = work }, run)
+  check("codex: by folder, the newest that is no sub-agent's", got and vim.fs.basename(got.log) == "rollout-2026-11-15T02-00-00-bbb.jsonl"
+    and got.cwd == work, got)
+  -- the one its process has open wins (two Codex in one folder)
+  local holder = vim.system({ "sh", "-c", "exec 3<'" .. day .. "/rollout-2026-11-15T01-00-00-aaa.jsonl'; sleep 30" })
+  vim.uv.sleep(300)
+  got = T.other_log("codex", { pid = 1, foreground = { pid = holder.pid, cwd = work } }, {}, run)
+  check("codex: the rollout its process has open", got and vim.fs.basename(got.log) == "rollout-2026-11-15T01-00-00-aaa.jsonl", got)
+  holder:kill(9)
+  -- omp: no terminal here (headless), so the newest session whose header names the folder
+  local od = HOME .. "/.omp/agent/sessions/-agentwork"
+  write(od .. "/2026-11-15T01-00-00-000Z_o1.jsonl", vim.json.encode({ type = "title" }) .. "\n" .. vim.json.encode({ type = "session", id = "o1", cwd = work }) .. "\n")
+  write(od .. "/2026-11-15T02-00-00-000Z_o2.jsonl", vim.json.encode({ type = "session", id = "o2", cwd = ROOT }) .. "\n")
+  got = T.other_log("omp", { pid = 999999, foreground = { pid = 999998, cwd = work } }, {}, run)
+  check("omp: by folder (no terminal), not another folder's newer one", got and vim.fs.basename(got.log) == "2026-11-15T01-00-00-000Z_o1.jsonl", got)
+  -- a link leading out of the sessions folder is never read
+  write(ROOT .. "/elsewhere.jsonl", vim.json.encode({ type = "session", id = "o3", cwd = work }) .. "\n")
+  vim.uv.fs_symlink(ROOT .. "/elsewhere.jsonl", od .. "/2026-11-15T03-00-00-000Z_o3.jsonl")
+  got = T.other_log("omp", { pid = 999999, foreground = { pid = 999998, cwd = work } }, {}, run)
+  check("omp: a link out of the sessions folder: not taken", got and vim.fs.basename(got.log) == "2026-11-15T01-00-00-000Z_o1.jsonl", got)
+  check("no folder known: nothing", T.other_log("omp", { pid = 999999 }, {}, run) == nil)
+end)
+
+-- follow end to end with an omp agent beside (fake hc): its reads, then its sub-agent's
+test("follow omp end to end", function()
+  local work = ROOT .. "/agentwork"
+  sh("cd '" .. work .. "' && git init -q && printf 'q\\n' > q.txt && printf 'r\\n' > r.txt && git add . && git commit -qm i")
+  local od = HOME .. "/.omp/agent/sessions/-agentwork"
+  local log = od .. "/2026-11-15T01-00-00-000Z_o1.jsonl"
+  write(FAKE .. "/ls.json", vim.json.encode({ terminals = {
+    { address = "t1", where = "s / tab", state = "live", agent = "nvim" },
+    { address = "t6", where = "s / tab", state = "live", agent = "omp", cwd = work } } }))
+  write(FAKE .. "/get-t1.json", vim.json.encode({ labels = { ["herdr.tab"] = "tab1" } }))
+  write(FAKE .. "/get-t6.json", vim.json.encode({ labels = { ["herdr.tab"] = "tab1" }, pid = 999999, foreground = { pid = 999998, cwd = work } }))
+  local F = T.follow
+  local function tick() F.checked = -1e9 T.follow_tick() end
+  vim.cmd("silent! %bwipeout!")
+  tick()
+  append(log, { omp_call("read", { path = work .. "/q.txt" }, "toolu_q") })
+  tick()
+  check("omp beside: its read is followed", F.last and F.last.path == work .. "/q.txt" and vim.api.nvim_buf_get_name(0) == work .. "/q.txt",
+    { F.last, vim.api.nvim_buf_get_name(0) })
+  local sub = od .. "/2026-11-15T01-00-00-000Z_o1/Helper.jsonl"
+  write(sub, "")
+  tick()
+  append(sub, { { type = "session", id = "h", cwd = work }, omp_call("read", { path = "r.txt" }, "toolu_h") })
+  tick()
+  check("omp's sub-agent (<session>/<name>.jsonl): followed", F.last and F.last.path == work .. "/r.txt", F.last)
+  local list = JN.agent_files({ address = "t6", agent = "omp", cwd = work })
+  check("space o for omp: its files", list[1] and list[1].path == work .. "/q.txt", list)
+end)
+
+-- the reply hook on a Codex rollout and an omp session; Codex's and omp's sub-agents from the events
+test("reply hook: codex and omp", function()
+  local hook = HOME .. "/.config/nvim-jay/reply_hook.lua"
+  local function run(input)
+    local r = vim.system({ vim.v.progpath, "--clean", "-l", hook }, { env = { HC_TERMINAL_ID = "t5" }, stdin = vim.json.encode(input), text = true }):wait(20000)
+    local ok, out = pcall(vim.json.decode, r.stdout ~= "" and r.stdout or "null")
+    return ok and out or r.stdout
+  end
+  local tr = ROOT .. "/rollout-2026-11-15T02-14-00-main.jsonl"
+  local function user(text) return { type = "response_item", payload = { type = "message", role = "user", content = { { type = "input_text", text = text } } } } end
+  write(tr, "")
+  append(tr, { user('<hc from="t7 review">two bugs</hc>'), user('<hc from="t3 lead">review y.rs</hc>'),
+    cx_exec("exec-1", "hc send t7 thanks", ROOT) })
+  local out = run({ hook_event_name = "Stop", session_id = "cx1", transcript_path = tr, stop_hook_active = false, last_assistant_message = "DONE" })
+  check("codex: t3 not answered: reminded; t7 answered by a command it ran", type(out) == "table" and out.decision == "block"
+    and out.reason:find("t3 lead", 1, true) and not out.reason:find("t7", 1, true), out)
+  append(tr, { user('<hc from="t8 x">q</hc>'), { type = "response_item", payload = { type = "function_call", name = "exec_command",
+    arguments = vim.json.encode({ cmd = "hc send t8 ok" }) } } })
+  out = run({ hook_event_name = "Stop", session_id = "cx1", transcript_path = tr, stop_hook_active = false })
+  check("codex: answered by an exec_command call: quiet", out == vim.NIL or out == nil, out)
+  local h = io.open(HOME .. "/.cache/nvim-jay/said/t5", "r")
+  local said = h and vim.json.decode(h:read("*a")) if h then h:close() end
+  check("codex: what it said last (its last_assistant_message)", said and said.text == "DONE", said)
+  -- omp: its session's records, the hook module's input (source = omp)
+  local os_ = ROOT .. "/omp-reply.jsonl"
+  write(os_, "")
+  append(os_, { omp_msg("user", { { type = "text", text = '<hc from="t9 ops">deploy?</hc>' } }), omp_msg("user", { { type = "text", text = '<hc from="t2 a">hi</hc>' } }),
+    omp_call("bash", { command = "hc send t2 'ok'" }, "toolu_b") })
+  out = run({ source = "omp", hook_event_name = "Stop", session_id = "om1", transcript_path = os_, stop_hook_active = false, last_assistant_message = "好了" })
+  check("omp: t9 not answered: reminded; t2 answered with its bash tool", type(out) == "table" and out.decision == "block"
+    and out.reason:find("t9 ops", 1, true) and not out.reason:find("t2 a", 1, true), out)
+  out = run({ source = "omp", hook_event_name = "Stop", session_id = "om1", transcript_path = os_, stop_hook_active = true })
+  check("omp: kept going once already: quiet", out == vim.NIL or out == nil, out)
+  -- sub-agents from the events (no meta files): start adds, stop marks done, a second start keeps the first
+  os.remove(HOME .. "/.cache/nvim-jay/subs/t5")
+  local subtr = ROOT .. "/rollout-2026-11-15T02-14-31-th1.jsonl"
+  run({ hook_event_name = "SubagentStart", session_id = "cx1", transcript_path = subtr, agent_id = "th1", agent_type = "default" })
+  run({ hook_event_name = "SubagentStart", session_id = "cx1", transcript_path = ROOT .. "/rollout-x-th2.jsonl", agent_id = "th2", agent_type = "explorer" })
+  out = run({ hook_event_name = "SubagentStop", session_id = "cx1", transcript_path = tr, agent_transcript_path = subtr, agent_id = "th1",
+    stop_hook_active = false, last_assistant_message = "sub" })
+  h = io.open(HOME .. "/.cache/nvim-jay/subs/t5", "r")
+  local d = h and vim.json.decode(h:read("*a")) if h then h:close() end
+  local by = {}
+  for _, x in ipairs(d and d.list or {}) do by[x.id] = x end
+  check("codex sub-agents: both listed, th1 done (its own rollout), th2 running; no block", (out == vim.NIL or out == nil) and d and #d.list == 2
+    and by.th1 and by.th1.done == true and by.th1.path == subtr and by.th2 and by.th2.done == false and by.th2.type == "explorer", { out, d })
+  run({ source = "omp", hook_event_name = "SubagentStart", session_id = "om1", transcript_path = ROOT .. "/o/EchoSub.jsonl", agent_id = "EchoSub", agent_type = "sonic" })
+  h = io.open(HOME .. "/.cache/nvim-jay/subs/t5", "r")
+  d = h and vim.json.decode(h:read("*a")) if h then h:close() end
+  check("omp sub-agent: listed with its kind", d and d.list[1] and d.list[1].id == "EchoSub" and d.list[1].type == "sonic", d)
+end)
+
 print(("%d checks, %d failed"):format(n, fails))
 write(ROOT .. "/result", fails == 0 and "pass" or "fail")
 vim.cmd("qa!")

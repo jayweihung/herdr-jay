@@ -190,6 +190,11 @@ kit 的 mod（選用，有裝 kit 0.3.0 以上才要）：照 kit.md 的安裝�
 6. Python / TypeScript: open a file; pyright / TypeScript start by themselves
    ([what they run](nvim-jay.md#3-language-servers--語言伺服器)).
 
+Codex or omp instead of Claude Code: the same, nothing to set up. Optional hooks (Bash snapshots, the reply check)
+for Claude Code: [nvim-jay.md §7](nvim-jay.md#7-snapshots-for-bash-edits-optional--bash-改檔的快照選用), §7a; for Codex and omp
+(`~/.codex/hooks.json`, `~/.omp/agent/hooks/pre/nvim-jay.js`): [§7b](nvim-jay.md#7b-codex-and-omp--codex-和-omp).
+用 Codex 或 omp 也一樣，不用設定；選用的 hook 看 nvim-jay.md §7、§7a、§7b。
+
 All keys and features: [docs/nvim-jay.md](nvim-jay.md). On a space of another machine (Herdr "machines"), the pane opens
 there: that machine needs nvim ≥ 0.11, git and `hc`.
 

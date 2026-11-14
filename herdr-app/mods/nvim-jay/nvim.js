@@ -41,13 +41,22 @@ function P.abs_paths(cmd)
   for w in rest:gmatch(NAME) do add(w) end
   return out
 end
+-- A shell call's id as the name of its snapshot folder (~/.cache/nvim-jay/snap/<id>): Claude Code's toolu_x, Codex's
+-- exec-<uuid>, omp's (whatever its model's provider gives). Any other character becomes "_", so the hook and nvim name
+-- the same folder and no id reaches outside it (no "/", no "."). nil: no id, or one over 128 characters.
+function P.snap_id(id)
+  if type(id) ~= "string" or id == "" or #id > 128 then return nil end
+  return (id:gsub("[^%w_%-]", "_"))
+end
 `;
 
-// The snap hook, a Claude Code PreToolUse hook (matcher Bash) run with `nvim -l`. nvim-jay writes it to
+// The snap hook, a PreToolUse hook (matcher Bash) run with `nvim -l`: Claude Code's and Codex's (the same input:
+// tool_use_id, tool_input.command), and omp's through OMP_HOOK below. nvim-jay writes it to
 // ~/.config/nvim-jay/snap_hook.lua on the machine where it runs, so it exists wherever nvim-jay does (macOS,
 // Windows, a remote Linux server) and always matches this version's path rules (PATH_RULES, shared with nvim).
 const SNAP_HOOK = String.raw`-- nvim-jay's snap hook: written by nvim-jay (herdr-jay mods/nvim-jay/nvim.js); edits here are overwritten.
--- Claude Code PreToolUse hook, matcher Bash, run as: nvim -l <this file>. Before a command runs, keep a copy of each
+-- PreToolUse hook of Claude Code or Codex (matcher Bash; omp: through omp_hook.js), run as: nvim -l <this file>.
+-- Before a command runs, keep a copy of each
 -- file it names by absolute path (at most 20, each up to 1 MB; not /proc, /sys, /dev, never keys or credentials: ~/.ssh,
 -- ~/.aws, ~/.gnupg, ~/.config/gh, ~/.kube, ~/.netrc, ~/.git-credentials, ~/.docker/config.json), so nvim-jay can mark
 -- what the command changed in a file outside any git repo. Copies: ~/.cache/nvim-jay/snap/<tool_use_id>/<sha256 of the
@@ -57,8 +66,8 @@ pcall(function()
 ${PATH_RULES}
   local ok, call = pcall(vim.json.decode, io.read("*a") or "")
   if not ok or type(call) ~= "table" then return end
-  local id = call.tool_use_id
-  if type(id) ~= "string" or not id:match("^[%w_]+$") then return end
+  local id = P.snap_id(call.tool_use_id)
+  if not id then return end
   local input = type(call.tool_input) == "table" and call.tool_input or {}
   local dir = P.home .. "/.cache/nvim-jay/snap"
   vim.fn.mkdir(dir, "p", 448) -- 0700
@@ -110,8 +119,10 @@ end)
 os.exit(0)
 `;
 
-// The reply hook, a Claude Code Stop hook run with `nvim -l`, written next to the snap hook
-// (~/.config/nvim-jay/reply_hook.lua) on every machine nvim-jay runs on. When an agent is about to stop, it looks at
+// The reply hook, a Stop hook run with `nvim -l`, written next to the snap hook (~/.config/nvim-jay/reply_hook.lua) on
+// every machine nvim-jay runs on: Claude Code's and Codex's (Codex sends the same input, honours the same
+// { decision = "block", reason }, and its transcript is a rollout-*.jsonl), and omp's through OMP_HOOK below (its
+// session_stop, given as a Stop with source = "omp"). When an agent is about to stop, it looks at
 // what came in since its last stop: a message from another agent (herdr-core's <hc from="…"> tag) it hasn't answered
 // with `hc send` to that agent, and that doesn't say it wants no answer (不用回, 不用再回, 不必回, [FYI] in its first line).
 // Then it keeps the agent going once, with a reminder: answer, or just stop if it was only a notice. Once per message
@@ -120,17 +131,21 @@ os.exit(0)
 // kit mod's 關係 tab (said.js). Also set for SubagentStart / SubagentStop (it then only does this), it and every stop
 // write the agent's sub-agents (running, or done in the last 30 minutes) to ~/.cache/nvim-jay/subs/<terminal id>.
 const REPLY_HOOK = String.raw`-- nvim-jay's reply hook: written by nvim-jay (herdr-jay mods/nvim-jay/nvim.js); edits here are overwritten.
--- Claude Code Stop hook, run as: nvim -l <this file>. Before the agent stops: did a message from another agent come in
+-- Stop hook of Claude Code or Codex (omp: through omp_hook.js), run as: nvim -l <this file>. Before the agent stops:
+-- did a message from another agent come in
 -- (herdr-core's <hc from="..."> tag) since its last stop that it didn't answer with hc send to that agent, and that
 -- doesn't say it wants no answer (不用回, 不用再回, 不必回, [FYI] in its first line)? Then keep it going once with a
 -- reminder (answer, or stop if it was only a notice). How far it looked: ~/.cache/nvim-jay/reply/<session>, so each
 -- message is said once. Anything wrong (no transcript, bad input): stays quiet and lets the agent stop.
+-- Transcripts it reads: Claude Code's (records "user" / "assistant"), Codex's rollout ("response_item" messages,
+-- "item_completed" CommandExecution) and omp's session ("message" with role user / assistant, toolCall "bash").
 local ok, call = pcall(vim.json.decode, io.read("*a") or "")
 if not ok or type(call) ~= "table" then return end
 -- Its sub-agents, for Herdr's 關係 tab: also run on SubagentStart / SubagentStop (and every Stop), it writes
 -- ~/.cache/nvim-jay/subs/<its terminal id> as { at, list = { { id, type, desc, done, start, last, path } } }: those
 -- running and those done in the last 30 minutes, newest first, at most 12. Claude Code keeps each sub-agent's
--- description in <session>/subagents/agent-<id>.meta.json ("finished" once it ended).
+-- description in <session>/subagents/agent-<id>.meta.json ("finished" once it ended). Codex and omp keep no such
+-- file: their list is the one written last, changed by the event (SubagentStart adds one, SubagentStop marks it done).
 local function write_cache(kind, tid, value)
   local dir = vim.uv.os_homedir() .. "/.cache/nvim-jay/" .. kind
   vim.fn.mkdir(dir, "p", 448) -- 0700
@@ -142,6 +157,10 @@ local function write_cache(kind, tid, value)
   vim.uv.fs_rename(tmp, dir .. "/" .. tid)
 end
 local ev = call.hook_event_name
+-- Codex: its transcript is a rollout-<time>-<id>.jsonl (a SubagentStart's is the sub-agent's own). omp: the hook module
+-- says so. Both: no meta files, the sub-agents are known from these events only.
+local by_events = call.source == "omp"
+  or (type(call.transcript_path) == "string" and call.transcript_path:match("rollout%-[^/\\]*%.jsonl$") ~= nil)
 pcall(function()
   local tid = tostring(vim.env.HC_TERMINAL_ID or ""):gsub("[^%w%-_]", "")
   local path = type(call.transcript_path) == "string" and call.transcript_path or ""
@@ -150,6 +169,35 @@ pcall(function()
   local ending = ev == "SubagentStop" and tostring(call.agent_id or "") or ""
   local function ms(t) return t and (t.sec * 1000 + math.floor((t.nsec or 0) / 1e6)) or 0 end
   local now, list = ms(vim.uv.clock_gettime("realtime")), {}
+  if by_events then
+    local fd = vim.uv.fs_open(vim.uv.os_homedir() .. "/.cache/nvim-jay/subs/" .. tid, "r", 0)
+    local raw = fd and vim.uv.fs_read(fd, 262144, 0)
+    if fd then vim.uv.fs_close(fd) end
+    local okc, old = pcall(vim.json.decode, raw or "")
+    for _, x in ipairs(okc and type(old) == "table" and type(old.list) == "table" and old.list or {}) do
+      -- one never heard of again for 2 hours (its agent was killed mid-way): gone
+      if type(x) == "table" and type(x.id) == "string" and now - (tonumber(x.last) or 0) < 2 * 3600000 then list[#list + 1] = x end
+    end
+    local id = tostring(call.agent_id or "")
+    if id ~= "" and (ev == "SubagentStart" or ev == "SubagentStop") then
+      local x
+      for _, y in ipairs(list) do if y.id == id then x = y end end
+      if not x then
+        x = { id = id, type = "", desc = "", done = false, start = now }
+        list[#list + 1] = x
+      end
+      x.last = now
+      if ev == "SubagentStop" then x.done = true end
+      local own = ev == "SubagentStart" and call.transcript_path or call.agent_transcript_path
+      if type(own) == "string" and own ~= "" then x.path = own end
+      if type(call.agent_type) == "string" and call.agent_type ~= "" then x.type = vim.fn.strcharpart(call.agent_type, 0, 40) end
+      if type(call.description) == "string" then x.desc = vim.fn.strcharpart(call.description, 0, 120) end
+    end
+    list = vim.tbl_filter(function(x) return not x.done or now - (tonumber(x.last) or 0) < 30 * 60000 end, list)
+    table.sort(list, function(a, b) return (tonumber(a.start) or 0) > (tonumber(b.start) or 0) end)
+    while #list > 12 do table.remove(list) end
+    return write_cache("subs", tid, { at = now, list = list })
+  end
   for name, kind in vim.fs.dir(dir) do
     local id = kind == "file" and name:match("^agent%-(.+)%.meta%.json$")
     if id then
@@ -186,8 +234,24 @@ end)
 if ev == "SubagentStart" or ev == "SubagentStop" then return end
 -- What it said last, for Herdr's 關係 tab (做完等你看): in ~/.cache/nvim-jay/said/<its terminal id> as { at, text }, the
 -- last line of its last words that asks something (？ or ?), else their last line. Every stop, a reminded one too.
--- Its last words: Claude Code's last_assistant_message (the transcript may not have them yet when the hook runs),
+-- Its last words: the agent's last_assistant_message (the transcript may not have them yet when the hook runs),
 -- else the transcript's last text.
+-- An assistant record's text blocks: Claude Code ("assistant"), omp ("message", role assistant), Codex
+-- ("response_item" message, role assistant, output_text).
+local function said_in(rec)
+  local c
+  if (rec.type == "assistant" or (rec.type == "message" and type(rec.message) == "table" and rec.message.role == "assistant"))
+    and type(rec.message) == "table" then
+    c = rec.message.content
+  elseif rec.type == "response_item" and type(rec.payload) == "table" and rec.payload.type == "message" and rec.payload.role == "assistant" then
+    c = rec.payload.content
+  end
+  local last
+  for _, b in ipairs(type(c) == "table" and c or {}) do
+    if type(b) == "table" and (b.type == "text" or b.type == "output_text") and type(b.text) == "string" and b.text:find("%S") then last = b.text end
+  end
+  return last
+end
 pcall(function()
   local tid = tostring(vim.env.HC_TERMINAL_ID or ""):gsub("[^%w%-_]", "")
   if tid == "" then return end
@@ -201,10 +265,7 @@ pcall(function()
     vim.uv.fs_close(r)
     for line in text:gmatch("[^\n]+") do
       local okl, rec = pcall(vim.json.decode, line)
-      local c = okl and type(rec) == "table" and rec.type == "assistant" and type(rec.message) == "table" and rec.message.content
-      for _, b in ipairs(type(c) == "table" and c or {}) do
-        if type(b) == "table" and b.type == "text" and type(b.text) == "string" and b.text:find("%S") then last = b.text end
-      end
+      last = okl and type(rec) == "table" and said_in(rec) or last
     end
   end
   if not last then return end
@@ -253,26 +314,48 @@ pcall(function()
   -- worked); never the tag inside a tool's output or the agent's own code. Answers: hc send in a command it ran.
   -- Each transcript line is one JSON record; the first one may be cut off (it then doesn't decode and is skipped).
   local wants, order, n = {}, {}, 0
+  local function texts(c, kinds)
+    if type(c) == "string" then return { c } end
+    local out = {}
+    for _, b in ipairs(type(c) == "table" and c or {}) do
+      if type(b) == "table" and kinds[b.type] and type(b.text) == "string" then out[#out + 1] = b.text end
+    end
+    return out
+  end
   local function incoming(rec)
     if rec.type == "attachment" and type(rec.attachment) == "table" and rec.attachment.type == "queued_command" then
       return { rec.attachment.prompt }
     end
-    if rec.type ~= "user" or type(rec.message) ~= "table" then return {} end
-    local c = rec.message.content
-    if type(c) == "string" then return { c } end
-    local out = {}
-    for _, b in ipairs(type(c) == "table" and c or {}) do
-      if type(b) == "table" and b.type == "text" then out[#out + 1] = b.text end
+    if rec.type == "user" and type(rec.message) == "table" then return texts(rec.message.content, { text = true }) end -- Claude Code
+    if rec.type == "message" and type(rec.message) == "table" and rec.message.role == "user" then -- omp
+      return texts(rec.message.content, { text = true })
     end
-    return out
+    local p = rec.type == "response_item" and type(rec.payload) == "table" and rec.payload -- Codex (not its event_msg copy)
+    if p and p.type == "message" and p.role == "user" then return texts(p.content, { input_text = true }) end
+    return {}
+  end
+  -- a command as Codex logs it: one string, or an argv whose last item is the shell's script (zsh -lc "...")
+  local function script(c)
+    if type(c) == "table" then c = c[#c] end
+    return type(c) == "string" and c or nil
   end
   local function commands(rec)
     local out = {}
-    local c = rec.type == "assistant" and type(rec.message) == "table" and rec.message.content
-    for _, b in ipairs(type(c) == "table" and c or {}) do
-      if type(b) == "table" and b.type == "tool_use" and type(b.input) == "table" and type(b.input.command) == "string" then
-        out[#out + 1] = b.input.command
+    local m = type(rec.message) == "table" and rec.message
+    if m and (rec.type == "assistant" or (rec.type == "message" and m.role == "assistant")) then
+      for _, b in ipairs(type(m.content) == "table" and m.content or {}) do
+        -- Claude Code: tool_use with input.command; omp: toolCall "bash" with arguments.command
+        local input = type(b) == "table" and (b.type == "tool_use" and b.input or b.type == "toolCall" and b.name == "bash" and b.arguments)
+        if type(input) == "table" and type(input.command) == "string" then out[#out + 1] = input.command end
       end
+    end
+    local p = type(rec.payload) == "table" and rec.payload
+    if p and rec.type == "event_msg" and p.type == "item_completed" and type(p.item) == "table" and p.item.type == "CommandExecution" then
+      out[#out + 1] = script(p.item.command) -- Codex: every command it ran (also those run from its exec tool)
+    elseif p and rec.type == "response_item" and p.type == "function_call" and type(p.arguments) == "string"
+      and (p.name == "exec_command" or p.name == "shell" or p.name == "shell_command") then
+      local oka, a = pcall(vim.json.decode, p.arguments) -- Codex without its exec tool: the call itself
+      out[#out + 1] = oka and type(a) == "table" and script(a.cmd or a.command) or nil
     end
     return out
   end
@@ -338,6 +421,79 @@ pcall(function()
   io.stdout:write(vim.json.encode({ decision = "block", reason = "[Herdr 回覆檢查] 這段時間有別的 agent 傳訊息給你，你還沒用 hc send 回："
     .. table.concat(left, "；") .. "。要回就用 hc send <它的位址> 回給它；只是通知或報告、不用回的話，直接結束就好（這個提醒只出現一次）。" }))
 end)
+`;
+
+// omp has no hooks.json: a hook module (JavaScript, omp's extension API) runs the two Lua hooks above for it, with the
+// input Claude Code would give them. nvim-jay writes it to ~/.config/nvim-jay/omp_hook.js; the person loads it once from
+// omp's own hook folder (~/.omp/agent/hooks/pre/nvim-jay.js, one line re-exporting this file, see docs/nvim-jay.md §7b),
+// so it stays current as nvim-jay updates it. No backticks or dollar-brace in it: it sits inside this template string.
+const OMP_HOOK = String.raw`// nvim-jay's omp hook module: written by nvim-jay (herdr-jay mods/nvim-jay/nvim.js); edits here are overwritten.
+// Load it from ~/.omp/agent/hooks/pre/nvim-jay.js, a file with one line:  export { default } from "<this file's path>";
+// It runs nvim-jay's Lua hooks (next to this file) for omp, with the input Claude Code would give them:
+//   - before each bash call: snap_hook.lua (a copy of the files the command names, so nvim-jay can mark its change)
+//   - session_stop (the main agent is about to stop): reply_hook.lua; its { decision: "block", reason } keeps the agent
+//     going once (a message from another agent not answered with hc send); it also writes what the agent said last
+//   - a sub-agent's session_start / agent_end: reply_hook.lua as SubagentStart / SubagentStop (the sub-agents list)
+// Never blocks a tool and never throws: nvim missing, slow (5 s; the reply 10 s) or failing just means nothing happens.
+import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+
+const DIR = join(homedir(), ".config", "nvim-jay");
+// where nvim-jay's launcher looks for nvim (unix.js); Windows: nvim on PATH
+const NVIM = process.platform === "win32" ? "nvim"
+  : [join(homedir(), ".local", "bin", "nvim"), "/opt/homebrew/bin/nvim", "/usr/local/bin/nvim", "/usr/bin/nvim"].find((p) => existsSync(p)) || "nvim";
+
+// nvim -l <hook> with input as JSON on stdin; what it printed ("" on any failure or after ms)
+function lua(file, input, ms) {
+  return new Promise((done) => {
+    let out = "", over = false;
+    try {
+      const p = spawn(NVIM, ["--clean", "-l", join(DIR, file)], { stdio: ["pipe", "pipe", "ignore"], windowsHide: true });
+      const timer = setTimeout(() => { over = true; try { p.kill("SIGKILL"); } catch {} done(""); }, ms);
+      p.stdout.on("data", (d) => { out += d; });
+      p.on("error", () => { clearTimeout(timer); done(""); });
+      p.on("close", () => { clearTimeout(timer); if (!over) done(out); });
+      p.stdin.on("error", () => {});
+      p.stdin.end(JSON.stringify(input));
+    } catch { done(""); }
+  });
+}
+// an omp message's text (its last_assistant_message is the message, not a string)
+const text = (m) => (typeof m === "string" ? m : Array.isArray(m?.content)
+  ? m.content.filter((b) => b?.type === "text" && typeof b.text === "string").map((b) => b.text).join("\n") : "");
+
+export default function nvimJay(pi) {
+  pi.on("tool_call", async (event) => {
+    try {
+      if (event?.toolName !== "bash" || typeof event.input?.command !== "string" || !event.toolCallId) return;
+      await lua("snap_hook.lua", { hook_event_name: "PreToolUse", tool_name: "Bash", tool_use_id: String(event.toolCallId),
+        tool_input: { command: event.input.command } }, 5000);
+    } catch {}
+  });
+  pi.on("session_stop", async (event, ctx) => {
+    try {
+      if (ctx?.agent?.kind === "sub") return; // a sub-agent's stop: its own said/subs are not the pane's
+      const out = await lua("reply_hook.lua", { source: "omp", hook_event_name: "Stop", session_id: String(event?.session_id ?? ""),
+        transcript_path: String(event?.session_file ?? ""), stop_hook_active: event?.stop_hook_active === true,
+        last_assistant_message: text(event?.last_assistant_message) }, 10000);
+      const r = JSON.parse(out || "null");
+      if (r?.decision === "block" && typeof r.reason === "string") return { decision: "block", reason: r.reason };
+    } catch {}
+  });
+  // the hook is bound again in every sub-agent's session: ctx.agent.kind says which one this is
+  const sub = (ev, ctx) => {
+    try {
+      if (ctx?.agent?.kind !== "sub") return;
+      const file = String(ctx.sessionManager?.getSessionFile?.() ?? "");
+      lua("reply_hook.lua", { source: "omp", hook_event_name: ev, agent_id: String(ctx.agent.id ?? ""), agent_type: String(ctx.agent.name ?? ""),
+        transcript_path: file, agent_transcript_path: file }, 10000);
+    } catch {}
+  };
+  pi.on("session_start", async (_e, ctx) => { sub("SubagentStart", ctx); });
+  pi.on("agent_end", async (_e, ctx) => { sub("SubagentStop", ctx); });
+}
 `;
 
 export const NVIM_INIT = String.raw`if vim.fn.has("nvim-0.11") == 0 then
@@ -537,6 +693,163 @@ function P.session(info, t)
   end
   return best
 end
+-- Codex and omp keep their logs in their own folders (CODEX_HOME, omp's PI_CODING_AGENT_DIR, as nvim sees them).
+P.codex_sessions = ((vim.env.CODEX_HOME or "") ~= "" and vim.env.CODEX_HOME or P.home .. "/.codex") .. "/sessions"
+P.omp_dir = (vim.env.PI_CODING_AGENT_DIR or "") ~= "" and vim.env.PI_CODING_AGENT_DIR or P.home .. "/.omp/agent"
+-- A log's first records (its header), at most 3 lines in its first 256 KB (Codex's first record holds its whole
+-- system prompt), as tables.
+local function head_records(f)
+  local st = vim.uv.fs_lstat(f)
+  if not st or st.type ~= "file" then return {} end
+  local fd = vim.uv.fs_open(f, "r", 0)
+  local data = fd and vim.uv.fs_read(fd, 262144, 0) or ""
+  if fd then vim.uv.fs_close(fd) end
+  local out = {}
+  for line in data:gmatch("([^\n]*)\n") do
+    local ok, r = pcall(vim.json.decode, line)
+    if ok and type(r) == "table" then out[#out + 1] = r end
+    if #out >= 3 then break end
+  end
+  return out
+end
+-- What a log says about itself: { cwd, sub = it is a sub-agent's } (Codex: session_meta; omp: the session record).
+local function log_header(kind, f)
+  for _, r in ipairs(head_records(f)) do
+    if kind == "codex" and r.type == "session_meta" and type(r.payload) == "table" then
+      return { cwd = r.payload.cwd, sub = r.payload.parent_thread_id ~= nil and r.payload.parent_thread_id ~= vim.NIL }
+    elseif kind == "omp" and r.type == "session" then
+      return { cwd = r.cwd }
+    end
+  end
+end
+-- A plain file (not a link) really inside top (its real path), or nil.
+local function inside(f, top)
+  local real, st, rt = vim.uv.fs_realpath(f), vim.uv.fs_lstat(f), vim.uv.fs_realpath(top)
+  if not (real and st and st.type == "file" and rt) then return nil end
+  rt = P.key(rt):gsub("/$", "")
+  return P.key(real):sub(1, #rt + 1) == rt .. "/" and f or nil
+end
+local function same_dir(a, b)
+  if type(a) ~= "string" or type(b) ~= "string" then return false end
+  local function k(x) return (P.key(vim.uv.fs_realpath(x) or x):gsub("/$", "")) end
+  return k(a) == k(b)
+end
+-- The files a process has open: Linux /proc/<pid>/fd; macOS lsof (run: nvim's run_wait, 1 s); Windows: none.
+local function open_files(pids, run)
+  local out = {}
+  if P.win or #pids == 0 then return out end
+  if vim.uv.fs_stat("/proc/self/fd") then
+    for _, pid in ipairs(pids) do
+      pcall(function()
+        for name in vim.fs.dir("/proc/" .. pid .. "/fd") do
+          out[#out + 1] = vim.uv.fs_readlink("/proc/" .. pid .. "/fd/" .. name)
+        end
+      end)
+    end
+    return out
+  end
+  local lsof = vim.uv.fs_stat("/usr/sbin/lsof") and "/usr/sbin/lsof" or P.bin("lsof")
+  local r = lsof and run({ lsof, "-n", "-P", "-Fn", "-p", table.concat(pids, ",") }, { text = true }, 1000)
+  for l in (r and r.stdout or ""):gmatch("[^\n]+") do
+    if l:sub(1, 1) == "n" then out[#out + 1] = l:sub(2) end
+  end
+  return out
+end
+-- The terminal of a process, as omp names its record of it (~/.omp/agent/terminal-sessions/<name>): /dev/ttys002 is
+-- "ttys002", /dev/pts/3 "pts-3". Linux: /proc; macOS: ps (run, 1 s); Windows: none.
+local function tty_of(pid, run)
+  if P.win or not pid then return nil end
+  local dev
+  if vim.uv.fs_stat("/proc/self/fd") then
+    dev = vim.uv.fs_readlink("/proc/" .. pid .. "/fd/0")
+  else
+    local r = run({ "/bin/ps", "-o", "tty=", "-p", tostring(pid) }, { text = true }, 1000)
+    dev = r.code == 0 and vim.trim(r.stdout or "") or nil
+  end
+  local name = dev and (dev:gsub("^/dev/", ""):gsub("/", "-"))
+  return name and name:match("^[%w%-]+$") and name or nil
+end
+-- The newest log files under top whose names match pat, at most n folders deep (Codex: sessions/YYYY/MM/DD), newest
+-- first, at most max of them: { { path, at } }. Only the last "per" folders of each level by name are looked into
+-- (Codex's are dates: the newest 14 days).
+local function newest_logs(top, depth, pat, max, per)
+  local found = {}
+  local function walk(dir, d)
+    local names = {}
+    pcall(function() for name, kind in vim.fs.dir(dir) do names[#names + 1] = { name, kind } end end)
+    if d > 0 then
+      table.sort(names, function(a, b) return a[1] > b[1] end)
+      local k = 0
+      for _, x in ipairs(names) do
+        if x[2] == "directory" then
+          k = k + 1
+          if k > per then break end
+          walk(dir .. "/" .. x[1], d - 1)
+        end
+      end
+    else
+      for _, x in ipairs(names) do
+        local st = x[2] == "file" and x[1]:match(pat) and vim.uv.fs_lstat(dir .. "/" .. x[1])
+        if st then found[#found + 1] = { path = dir .. "/" .. x[1], at = st.mtime.sec + st.mtime.nsec / 1e9 } end
+      end
+    end
+  end
+  walk(top, depth)
+  table.sort(found, function(a, b) return a.at > b.at end)
+  while #found > max do table.remove(found) end
+  return found
+end
+-- The log of a Codex or omp agent in a pane (info: hc get; t: hc ls's entry; run: nvim's run_wait), cheapest first:
+-- Codex  1. the rollout its process (or one under it) has open, not a sub-agent's (Linux: /proc; macOS: lsof)
+--        2. the newest rollout of ~/.codex/sessions/YYYY/MM/DD whose session_meta names the agent's folder (two Codex
+--           in one folder may swap); Windows: always this
+-- omp    1. the session omp wrote down for the agent's terminal: line 2 of ~/.omp/agent/terminal-sessions/<tty>
+--        2. the newest ~/.omp/agent/sessions/<folder>/*.jsonl whose session record names the agent's folder (two omp
+--           in one folder may swap); Windows: always this
+-- Only a plain file really inside that tool's sessions folder. Returns { log, cwd = the folder its header names } or nil.
+function P.other_log(kind, info, t, run)
+  info = type(info) == "table" and info or {}
+  local fg = type(info.foreground) == "table" and info.foreground or {}
+  local pid, top = tonumber(fg.pid), tonumber(info.pid)
+  local cwd = type(fg.cwd) == "string" and fg.cwd ~= "" and fg.cwd or type(t.cwd) == "string" and t.cwd ~= "" and t.cwd or nil
+  local root = kind == "codex" and P.codex_sessions or P.omp_dir .. "/sessions"
+  local function take(f)
+    f = type(f) == "string" and inside(P.norm(f), root)
+    local h = f and log_header(kind, f)
+    if h and not h.sub then return { log = f, cwd = type(h.cwd) == "string" and h.cwd or cwd } end
+  end
+  if kind == "codex" then
+    local pids = {}
+    for _, p in ipairs(vim.list_extend({ pid or top }, pid and P.tree(pid, 16) or {})) do pids[#pids + 1] = p end
+    local best
+    for _, f in ipairs(open_files(pids, run)) do
+      local name = vim.fs.basename(f)
+      local got = name:match("^rollout%-.*%.jsonl$") and take(f)
+      -- a sub-agent's rollout is open too: the main one has no parent; two mains (resumed): the newer
+      if got and (not best or name > vim.fs.basename(best.log)) then best = got end
+    end
+    if best then return best end
+    if not cwd then return nil end
+    for _, x in ipairs(newest_logs(root, 3, "^rollout%-.*%.jsonl$", 40, 14)) do
+      local h = log_header("codex", x.path)
+      if h and not h.sub and same_dir(h.cwd, cwd) then return take(x.path) end
+    end
+    return nil
+  end
+  local tty = tty_of(pid, run)
+  local rec = tty and P.omp_dir .. "/terminal-sessions/" .. tty
+  local fd = rec and vim.uv.fs_open(rec, "r", 0)
+  local data = fd and vim.uv.fs_read(fd, 8192, 0)
+  if fd then vim.uv.fs_close(fd) end
+  local lines = vim.split(data or "", "\n", { plain = true })
+  local got = lines[2] and take(vim.trim(lines[2]))
+  if got and (not cwd or same_dir(lines[1], cwd)) then return got end
+  if not cwd then return nil end
+  for _, x in ipairs(newest_logs(root, 1, "%.jsonl$", 40, 1000)) do
+    local h = log_header("omp", x.path)
+    if h and same_dir(h.cwd, cwd) then return take(x.path) end
+  end
+end
 -- The Herdr pane of another process (for "another nvim has this file"): Linux reads its environment; elsewhere unknown.
 function P.pane_of_pid(pid)
   if P.win or not vim.uv.fs_stat("/proc/self") then return nil end -- Windows would read C:\proc\...
@@ -552,11 +865,13 @@ local HOME, norm = P.home, P.norm
 -- Size caps: nvim opens, diffs and reads these whole.
 local FILE_MAX = 4 * 1024 * 1024 -- a file follow opens or marks against HEAD (larger: skipped; space o still lists it), a root copy
 local LOG_CATCHUP = 8 * 1024 * 1024 -- log bytes read in one tick; more piled up (nvim was busy): only the newest
--- Keep the hook files current (SNAP_HOOK and REPLY_HOOK at the top of nvim.js; enabling each is a Claude Code setting).
+-- Keep the hook files current (SNAP_HOOK, REPLY_HOOK and OMP_HOOK at the top of nvim.js; enabling each is a setting of
+-- the agent: Claude Code's settings.json, Codex's hooks.json, omp's hooks/pre folder).
 -- libuv, not io.open: on Windows io.open goes through the ANSI code page (a non-English user name).
 for _, hook in ipairs({ { "snap_hook.lua", [=====[
 ${SNAP_HOOK}]=====] }, { "reply_hook.lua", [=====[
-${REPLY_HOOK}]=====] } }) do pcall(function()
+${REPLY_HOOK}]=====] }, { "omp_hook.js", [=====[
+${OMP_HOOK}]=====] } }) do pcall(function()
   local f, want = HOME .. "/.config/nvim-jay/" .. hook[1], hook[2]
   local st = vim.uv.fs_stat(f)
   local fd = st and vim.uv.fs_open(f, "r", 0)
@@ -976,6 +1291,16 @@ local function session_log(t)
     if in_projects(f) then return f end
   end
 end
+-- Any agent's log: log, kind ("claude", "codex", "omp"), and for Codex / omp the folder its header names (relative
+-- paths in it are from there). Codex and omp: P.other_log. Not for an agent on another machine (the address has a
+-- machine: its log is there, not here).
+local function agent_log(t)
+  local kind = agent_kind(t.agent)
+  if kind == "claude-code" then return session_log(t), "claude" end
+  if (kind ~= "codex" and kind ~= "omp") or t.address:find("/") then return nil end
+  local found = P.other_log(kind, hc({ "get", t.address }), t, run_wait)
+  if found then return found.log, kind, found.cwd end
+end
 
 -- An agent started under sudo: hc can't see its foreground and its log is root's, so nothing can be followed.
 -- Say so once (no root handoff: an editor run as root, reachable by anything that can type into a pane, is a root door).
@@ -1127,11 +1452,6 @@ local function paths_in(text, first, missing)
   return out
 end
 
-function JN.agent_files(t)
-  local text, start = read_log(session_log(t), 8 * 1024 * 1024)
-  return paths_in(text, start == 0 and 1 or 2) -- line 1 may start mid-record
-end
-
 -- The window that shows files, not the tree (nor a review's list of files).
 local SIDE = { NvimTree = true, ["nvim-jay-review"] = true }
 local function edit_win()
@@ -1249,7 +1569,8 @@ end
 -- touched a file last . Never while you type
 -- or when the shown buffer has unsaved changes.
 local follow = { on = true, logs = {}, state = {}, subdirs = {}, subseen = {}, round = 0, checked = -1e9, last = nil, who = nil }
-local function new_state(log, pos) return { log = log, pos = pos, calls = {}, seq = 0 } end
+-- kind: nil for Claude Code's log, "codex" or "omp" (scan_other reads those)
+local function new_state(log, pos, kind) return { log = log, pos = pos, calls = {}, seq = 0, kind = kind } end
 -- One agent's log since the last tick: the newest file it read or edited, or nil. s keeps that log's place.
 local function scan(s)
   local st = vim.uv.fs_stat(s.log)
@@ -1368,6 +1689,226 @@ local function scan(s)
   end
   return it, st.mtime
 end
+
+-- Codex and omp logs. Each record, as what follow needs: { file = { path, tag, line, edit_at, missing } } (read,
+-- edited, written: missing = a write whose file may not be there yet), { call = { id, cmd, t } } (a shell command, logged
+-- before it runs), { done = { id, cwd } } (it ended), { sub = thread id } (Codex: a sub-agent started). A path the agent
+-- wrote relative is read against cwd (omp: its session's folder).
+local function abs_in(p, cwd)
+  if type(p) ~= "string" or p == "" or p:find("%c") then return nil end
+  p = norm(p)
+  if p:sub(1, 2) == "~/" then p = HOME .. p:sub(2) end
+  if not (p:sub(1, 1) == "/" or (P.win and p:match("^%a:/"))) then
+    if type(cwd) ~= "string" or cwd == "" then return nil end
+    p = norm(cwd):gsub("/$", "") .. "/" .. p:gsub("^%./", "")
+  end
+  return p
+end
+-- Codex's folders are URLs: file:///abs/path (percent escapes), Windows file:///C:/x
+local function from_url(u)
+  if type(u) ~= "string" or u == "" then return nil end
+  local p = u:match("^file://[^/]*(/.*)$")
+  if not p then return norm(u) end
+  p = p:gsub("%%(%x%x)", function(h) return string.char(tonumber(h, 16)) end)
+  if P.win and p:match("^/%a:") then p = p:sub(2) end
+  return norm(p)
+end
+local OTHER = {}
+-- omp's session: { type = "message", message = { role = "assistant", content = { { type = "toolCall", id, name,
+-- arguments } } } }, then { role = "toolResult", toolCallId, toolName, details } once the tool ran. read's path may end
+-- in ":12" or ":12-40" (those lines); edit names its file in its input ("[/path#HASH]" lines), its result says where
+-- it changed (details.path, details.firstChangedLine); bash: arguments.command.
+OTHER.omp = {
+  want = function(l) return l:find('"toolCall"', 1, true) or l:find('"toolResult"', 1, true) or l:find('"type":"session"', 1, true) end,
+  read = function(rec, cwd)
+    local out, m = {}, type(rec.message) == "table" and rec.message
+    if rec.type ~= "message" or not m then return out end
+    if m.role == "assistant" then
+      for _, b in ipairs(type(m.content) == "table" and m.content or {}) do
+        local a = type(b) == "table" and b.type == "toolCall" and type(b.arguments) == "table" and b.arguments
+        if a and b.name == "read" then
+          local p, line = a.path, nil
+          if type(p) == "string" then
+            local base, n = p:match("^(.-):(%d+)[%d,%-]*$")
+            if base and base ~= "" then p, line = base, tonumber(n) end
+          end
+          p = abs_in(p, cwd)
+          if p then out[#out + 1] = { file = { path = p, tag = "讀", line = line } } end
+        elseif a and (b.name == "write" or b.name == "edit") then
+          local p = a.path
+          if type(p) ~= "string" and type(a.input) == "string" then p = a.input:match("^%[([^\n]-)#%w+%]") end
+          p = abs_in(p, cwd)
+          if p then out[#out + 1] = { file = { path = p, tag = b.name == "write" and "寫" or "改", missing = b.name == "write" } } end
+        elseif a and b.name == "bash" and type(a.command) == "string" then
+          local id = P.snap_id(b.id)
+          if id then out[#out + 1] = { call = { id = id, cmd = a.command, t = epoch(rec.timestamp) } } end
+        end
+      end
+    elseif m.role == "toolResult" then
+      local d = type(m.details) == "table" and m.details
+      local p = m.toolName == "edit" and d and abs_in(d.path, cwd)
+      if p then out[#out + 1] = { file = { path = p, tag = "改", edit_at = tonumber(d.firstChangedLine) } } end
+      local id = P.snap_id(m.toolCallId)
+      if id then out[#out + 1] = { done = { id = id } } end
+    end
+    return out
+  end,
+}
+-- Codex's rollout: { type = "event_msg", payload = { type = "item_completed", started_at_ms, item } }, logged once the
+-- thing is done. item FileChange: changes = { [abs path] = { type = add | update | delete, unified_diff, move_path } };
+-- CommandExecution: id (exec-<uuid>, the hook's tool_use_id), command (argv: the shell's script last), cwd (a file://
+-- URL), parsed_cmd (Codex's reading of it: only "read" / "list_files" / "search" parts = it changed nothing; a read
+-- names its path); SubAgentActivity kind "started": agent_thread_id, whose own rollout ends in -<thread id>.jsonl.
+OTHER.codex = {
+  want = function(l)
+    return l:find('"item_completed"', 1, true) and (l:find('"FileChange"', 1, true) or l:find('"CommandExecution"', 1, true)
+      or l:find('"SubAgentActivity"', 1, true))
+  end,
+  read = function(rec)
+    local out = {}
+    local p = rec.type == "event_msg" and type(rec.payload) == "table" and rec.payload
+    local it = p and p.type == "item_completed" and type(p.item) == "table" and p.item
+    if not it then return out end
+    if it.type == "FileChange" and it.status == "completed" and type(it.changes) == "table" then
+      local paths = vim.tbl_keys(it.changes)
+      table.sort(paths)
+      for _, path in ipairs(paths) do
+        local c = type(it.changes[path]) == "table" and it.changes[path] or {}
+        local kind = type(c.type) == "string" and c.type or type(c.kind) == "table" and c.kind.type
+        local f = (kind == "add" or kind == "update") and abs_in(type(c.move_path) == "string" and c.move_path or path, nil)
+        local at = kind == "update" and type(c.unified_diff) == "string" and tonumber(c.unified_diff:match("@@ %-[%d,]+ %+(%d+)"))
+        if f then out[#out + 1] = { file = { path = f, tag = kind == "add" and "寫" or "改", edit_at = at or nil } } end
+      end
+    elseif it.type == "CommandExecution" and it.status ~= "declined" then
+      local cmd, cwd = it.command, from_url(it.cwd)
+      if type(cmd) == "table" then cmd = cmd[#cmd] end
+      local parsed = type(it.parsed_cmd) == "table" and it.parsed_cmd or {}
+      local looks = #parsed > 0
+      for _, x in ipairs(parsed) do
+        if type(x) ~= "table" or not (x.type == "read" or x.type == "list_files" or x.type == "search") then looks = false end
+      end
+      if looks then
+        for _, x in ipairs(parsed) do
+          local f = x.type == "read" and abs_in(x.path, cwd)
+          if f then out[#out + 1] = { file = { path = f, tag = "讀" } } end
+        end
+      else
+        local id = P.snap_id(it.id)
+        if id and type(cmd) == "string" then
+          local ms = tonumber(p.started_at_ms)
+          out[#out + 1] = { call = { id = id, cmd = cmd, t = ms and math.floor(ms / 1000) or epoch(rec.timestamp) } }
+          out[#out + 1] = { done = { id = id, cwd = cwd } }
+        end
+      end
+    elseif it.type == "SubAgentActivity" and it.kind == "started" and type(it.agent_thread_id) == "string"
+      and it.agent_thread_id:match("^[%w%-]+$") then
+      out[#out + 1] = { sub = it.agent_thread_id }
+    end
+    return out
+  end,
+}
+-- One Codex or omp log since the last tick (scan's counterpart): the newest file it read or edited, or nil. A shell
+-- command that ended opens what it changed (bash_changed: no file list from the agent, so the files it names, else the
+-- repo's newest change), marked against the snap hook's copy when there is one. Only the last command of a chunk.
+local function scan_other(s)
+  local st = vim.uv.fs_stat(s.log)
+  if not st or st.size == s.pos then return end
+  if s.pos and st.size < s.pos then s.pos = nil end
+  local from = s.pos and math.max(s.pos, st.size - LOG_CATCHUP)
+  local first = (s.pos and from == s.pos) and 1 or 2
+  local text, start = read_log(s.log, 256 * 1024, from)
+  text = text or ""
+  local cut = text:match(".*()\n")
+  if not cut or not start then return end
+  if start == 0 then first = 1 end
+  s.pos = start + cut
+  local parse, calls = OTHER[s.kind], s.calls
+  local it, last_bash, waits
+  local lines = vim.split(text:sub(1, cut - 1), "\n", { plain = true })
+  for i = first, #lines do
+    local ok, rec
+    if parse.want(lines[i]) then ok, rec = pcall(vim.json.decode, lines[i]) end
+    if ok and type(rec) == "table" then
+      if rec.type == "session" and type(rec.cwd) == "string" then s.cwd = rec.cwd end -- omp's header
+      for _, e in ipairs(parse.read(rec, s.cwd)) do
+        if e.file then
+          local ft = (vim.uv.fs_stat(e.file.path) or {}).type
+          if ft == "file" then e.file.at, it = i, e.file elseif e.file.missing and not ft then waits = e.file end
+        elseif e.call then
+          -- parallel calls (until a result lands) share one list of ids for the snapshots
+          if not s.batch_open then s.batch, s.batch_open = {}, true end
+          table.insert(s.batch, e.call.id)
+          s.seq = s.seq + 1
+          calls[e.call.id] = { t = e.call.t or os.time(), cmd = e.call.cmd, batch = s.batch, n = s.seq }
+        elseif e.done then
+          local c = calls[e.done.id]
+          if c then
+            s.batch_open, calls[e.done.id] = false, nil
+            last_bash = { call = c, cwd = e.done.cwd or s.cwd, i = i }
+          end
+        elseif e.sub then
+          s.subs = s.subs or {}
+          s.subs[#s.subs + 1] = e.sub
+        end
+      end
+    end
+  end
+  -- a write whose file wasn't there yet (still running, or waiting for your approval): once it is
+  local w = s.waiting
+  if w and (vim.uv.fs_stat(w.path) or {}).type == "file" then
+    s.waiting = nil
+    if not it then it, w.at = w, 0 end
+  elseif w and os.time() - w.since > 900 then
+    s.waiting = nil
+  end
+  if waits then s.waiting, waits.missing, waits.since = waits, nil, os.time() end
+  if last_bash and type(last_bash.cwd) == "string" and not (it and it.at > last_bash.i) then
+    local b = last_bash
+    local p = bash_changed(b.cwd, b.call.t, b.call.cmd)
+    -- an edit just before the command (same second) looks changed by it: keep the edit's line while the file is as it left it
+    local last = it or s.last
+    local same = last and last.edit_at and last.path == p and (last == it or last.mt == stamp(p))
+    if p and not same then it = { path = p, tag = "改", at = b.i, before = snap_of(b.call.batch, p) } end
+  end
+  local ids = vim.tbl_keys(calls) -- results that never came: keep the newest 64 calls
+  if #ids > 64 then
+    table.sort(ids, function(a, b) return calls[a].n < calls[b].n end)
+    for k = 1, #ids - 64 do calls[ids[k]] = nil end
+  end
+  if it then
+    it.mt = stamp(it.path)
+    s.last = it
+  end
+  return it, st.mtime
+end
+-- The files of a Codex or omp log's text, newest first, one entry per file, only files that are there.
+local function files_other(kind, text, first, cwd)
+  local parse, all, seen, out = OTHER[kind], {}, {}, {}
+  local lines = vim.split(text or "", "\n", { plain = true })
+  for i = first, #lines do
+    local ok, rec
+    if parse.want(lines[i]) then ok, rec = pcall(vim.json.decode, lines[i]) end
+    if ok and type(rec) == "table" then
+      if rec.type == "session" and type(rec.cwd) == "string" then cwd = rec.cwd end
+      for _, e in ipairs(parse.read(rec, cwd)) do if e.file then all[#all + 1] = e.file end end
+    end
+  end
+  for i = #all, 1, -1 do
+    local f = all[i]
+    if not seen[P.key(f.path)] and (vim.uv.fs_stat(f.path) or {}).type == "file" then
+      seen[P.key(f.path)] = true
+      out[#out + 1] = { path = f.path, tag = f.tag, line = f.line }
+    end
+  end
+  return out
+end
+-- The files the agent read or edited (space o): its log's last 8 MB.
+function JN.agent_files(t)
+  local log, kind, cwd = agent_log(t)
+  local text, start = read_log(log, 8 * 1024 * 1024)
+  if kind == "codex" or kind == "omp" then return files_other(kind, text, start == 0 and 1 or 2, cwd) end
+  return paths_in(text, start == 0 and 1 or 2) -- line 1 may start mid-record
+end
 local function loaded(path)
   for _, b in ipairs(vim.api.nvim_list_bufs()) do
     if vim.api.nvim_buf_is_loaded(b) and P.key(vim.api.nvim_buf_get_name(b)) == P.key(path) then return true end
@@ -1381,13 +1922,19 @@ local function follow_tick()
     follow.checked = now
     follow.logs, follow.subdirs, follow.round = {}, {}, follow.round + 1
     for _, t in ipairs(JN.agents() or {}) do
-      local log = session_log(t)
+      local log, kind, cwd = agent_log(t)
+      kind = kind ~= "claude" and kind or nil
       -- kept by log, so a missed lookup does not reread an agent's tail
       if log then
-        follow.state[log] = follow.state[log] or new_state(log)
+        local s = follow.state[log] or new_state(log, nil, kind)
+        s.cwd = s.cwd or cwd
+        follow.state[log] = s
         follow.logs[log] = t
-        -- its sub-agents (Task) log apart: <session>/subagents/*.jsonl beside <session>.jsonl (Claude Code 2.1.309+)
-        follow.subdirs[log:sub(1, -7) .. "/subagents"] = t
+        -- its sub-agents log apart: Claude Code (Task, 2.1.309+) <session>/subagents/*.jsonl beside <session>.jsonl;
+        -- omp (task) <session>/<name>.jsonl; Codex: each in a rollout of its own, named in this log (scan_other)
+        if not kind then follow.subdirs[log:sub(1, -7) .. "/subagents"] = { t = t }
+        elseif kind == "omp" then follow.subdirs[log:sub(1, -7)] = { t = t, kind = "omp", cwd = s.cwd } end
+        for sub in pairs(s.sub_logs or {}) do follow.logs[sub] = t end
       else
         -- a root agent: its log is root's; follow the root view instead, when there is one
         local dir = is_claude(t) and root_view_dir()
@@ -1405,15 +1952,17 @@ local function follow_tick()
   end
   -- Sub-agent logs, looked for every tick: those there the first time a folder is looked at are history (read from
   -- their end), later ones are new (read from their start).
-  for dir, t in pairs(follow.subdirs) do
+  for dir, d in pairs(follow.subdirs) do
     local new = follow.subseen[dir]
     follow.subseen[dir] = true
     pcall(function()
       for name, kind in vim.fs.dir(dir) do
         if kind == "file" and name:match("%.jsonl$") then
           local log = dir .. "/" .. name
-          follow.state[log] = follow.state[log] or new_state(log, new and 0 or (vim.uv.fs_stat(log) or {}).size)
-          follow.logs[log] = t
+          local s = follow.state[log] or new_state(log, new and 0 or (vim.uv.fs_stat(log) or {}).size, d.kind)
+          s.cwd = s.cwd or d.cwd
+          follow.state[log] = s
+          follow.logs[log] = d.t
         end
       end
     end)
@@ -1421,14 +1970,29 @@ local function follow_tick()
   local w = edit_win()
   -- unsaved changes: leave the logs unread, so the switch lands once they are saved or dropped
   if vim.bo[vim.api.nvim_win_get_buf(w)].modified then return end
-  local it, newest
+  local it, newest, subs
   for log, t in pairs(follow.logs) do
     local s = follow.state[log]
-    local got, mt = (s.root and scan_root or scan)(s)
+    local got, mt = (s.root and scan_root or s.kind and scan_other or scan)(s)
     -- two agents in one tick: the one whose log was written last
     if got and (not newest or mt.sec > newest.sec or (mt.sec == newest.sec and mt.nsec > newest.nsec)) then
       it, newest, follow.who = got, mt, t
     end
+    if s.subs then subs = subs or {} subs[#subs + 1] = { s = s, t = t } end
+  end
+  -- Codex sub-agents that started: their rollouts (<sessions>/YYYY/MM/DD/rollout-<time>-<thread id>.jsonl), read from
+  -- their start; kept with the main log, so the next re-find follows them too
+  for _, x in ipairs(subs or {}) do
+    for _, id in ipairs(x.s.subs) do
+      for _, f in ipairs(vim.fn.glob(P.codex_sessions .. "/*/*/*/rollout-*-" .. id .. ".jsonl", false, true)) do
+        f = norm(f)
+        if not follow.state[f] then follow.state[f] = new_state(f, 0, "codex") end
+        x.s.sub_logs = x.s.sub_logs or {}
+        x.s.sub_logs[f] = true
+        follow.logs[f] = x.t
+      end
+    end
+    x.s.subs = nil
   end
   if not it then return end -- no dedup: the agent touching the same file again brings you back to it
   if not it.root then -- not a file any more, or too big to open and diff here (space o still lists it)
@@ -1460,7 +2024,7 @@ local function follow_tick()
         end
       end
     end
-    local at = it.line or (it.tag == "改" and edit_line(b, it.edit))
+    local at = it.line or it.edit_at or (it.tag == "改" and edit_line(b, it.edit))
     if at then -- a Read's offset goes to the top, an edited line to the middle
       pcall(vim.api.nvim_win_set_cursor, w, { math.max(1, math.min(at, vim.api.nvim_buf_line_count(0))), 0 })
       vim.cmd(it.line and "normal! zt" or "normal! zz")
@@ -1477,6 +2041,7 @@ local function follow_tick()
 end
 -- for tests (tests/nvim-jay): the follow pieces, run without Herdr
 JN.test = { abs_paths = P.abs_paths, paths_in = paths_in, scan = scan, scan_root = scan_root, new_state = new_state,
+  scan_other = scan_other, files_other = files_other, other_log = P.other_log, agent_log = agent_log, snap_id = P.snap_id,
   bash_changed = bash_changed, edit_line = edit_line, show_root = show_root, follow = follow, follow_tick = follow_tick,
   session = P.session, session_log = session_log, started = P.started, git = git, run_wait = run_wait,
   head_lines = head_lines, hc_quiet = HC_QUIET, git_stuck = GIT_STUCK }

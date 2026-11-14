@@ -16,6 +16,8 @@ Needs **Neovim 0.11 or newer**, `git`, and `hc` on the machine where the pane op
 5. [How it is built](#5-how-it-is-built--程式結構)
 6. [Agent running as root](#6-agent-running-as-root--agent-用-root-跑)
 7. [Snapshots for Bash edits (optional)](#7-snapshots-for-bash-edits-optional--bash-改檔的快照選用)
+   ([7a reply hook](#7a-the-reply-hook-answer-the-agents-that-asked-optional--回覆檢查選用),
+   [7b Codex and omp](#7b-codex-and-omp--codex-和-omp))
 8. [When something goes wrong](#8-when-something-goes-wrong--出問題時)
 9. [Gerrit review mode](#9-gerrit-review-mode--gerrit-review-模式)
 
@@ -23,11 +25,12 @@ Needs **Neovim 0.11 or newer**, `git`, and `hc` on the machine where the pane op
 
 ## 1. Features / 功能
 
-- **Follow the agent**: opens the file the agent beside it (Claude Code) last read or edited — several agents:
-  whichever touched a file last; its sub-agents (Task) count too. A file the agent writes new opens once it is
+- **Follow the agent**: opens the file the agent beside it (Claude Code, Codex or omp) last read or edited — several
+  agents: whichever touched a file last; its sub-agents count too (Claude Code's Task, Codex's spawned agents, omp's
+  task agents). For Codex and omp see [7b](#7b-codex-and-omp--codex-和-omp). A file the agent writes new opens once it is
   written (after you approve it). Never while you type or with unsaved changes; files over 4 MB are skipped
   (`space o` still lists them), and a file whose last commit is over 4 MB is not marked against it. `space a f` toggles.
-  跟著 agent 開檔（含它叫出來的 sub-agent）。
+  跟著 agent 開檔（Claude Code、Codex、omp 都可以，含它叫出來的 sub-agent）。
 - **Live reload with a diff**: files the agent edits reload every second; changed lines show like Claude Code's diff
   (red `-` old, green `+` new). Opening a file in a git repo marks what changed since the last commit.
   Outside a git repo there is no older copy to compare with, so only these get marks: changes made while the file is
@@ -49,7 +52,8 @@ Needs **Neovim 0.11 or newer**, `git`, and `hc` on the machine where the pane op
   quoted lines are cut at 200 characters. Only known coding agents (Claude Code, Codex, Gemini, opencode, pi, omp, aider,
   …) count as agents — never a shell, ssh or a REPL, where the quoted lines would run as commands.
   Comment spans and message shape follow [herdr-nvim](https://github.com/ChmaraX/herdr-nvim) (MIT).
-- **Files the agent touched**: a list of files the agent read or edited, newest first, plus files git shows as changed.
+- **Files the agent touched**: a list of files the agent read or edited, newest first, plus files git shows as changed
+  (Claude Code, Codex, omp).
 - **Language servers**: go to definition, hover, errors — see [3](#3-language-servers--語言伺服器).
 - **Mouse**: rest the pointer on a name for its type, on an error to read it. Lists open what you click with one
   click: the tree, the errors / comments list, a review's file list. The middle button does nothing (it used to paste).
@@ -73,7 +77,9 @@ Needs **Neovim 0.11 or newer**, `git`, and `hc` on the machine where the pane op
   opens what it changed: the files Claude Code saw it change, else a changed file the command names (`/abs/path`,
   `~/x`, `$HOME/x`, or relative to the agent's folder), else the newest changed file in the repo. When nvim catches
   up on several finished commands at once (it was busy), only the last one counts. A background command counts as
-  ended only by Claude Code's own task notification, not by text that quotes one (a Read of a log).
+  ended only by Claude Code's own task notification, not by text that quotes one (a Read of a log). Codex and omp:
+  a command that ended (its result is in the log) opens a changed file the command names, else the newest changed file
+  in the repo; a Codex command it knows only reads (`cat`, `rg`, `ls`) opens the file it read instead.
   Bash 指令跑完（失敗或背景跑的也算）就開它改的檔：先看指令裡寫到的檔，沒有才找 repo 裡最新改的。
 
 ## 2. Keys / 按鍵
@@ -145,6 +151,20 @@ One `nvim.js` for both; all OS differences sit in its PLATFORM section ([5](#5-h
 | Paths in Bash commands | `/abs/path`, `~/x`, `$HOME/x` | `C:\x`, `C:/x`, `/c/x`, `~\x`, `$HOME\x`, `$env:USERPROFILE\x` |
 | Agent running as root | follows root's copies if a root view is set up, else a one-line note ([6](#6-agent-running-as-root--agent-用-root-跑)) | — |
 | Opened from agent-files through | `~/.cache/nvim-jay/sock/<pid>` | `\\.\pipe\nvim-jay-<pid>` |
+
+Codex and omp: nvim-jay reads their own logs, found the same way on every system, newest first: Codex's
+`~/.codex/sessions/<year>/<month>/<day>/rollout-*.jsonl` (`CODEX_HOME` if set), omp's
+`~/.omp/agent/sessions/<folder>/*.jsonl` (`PI_CODING_AGENT_DIR` if set).
+
+| | macOS / Linux | Windows |
+|---|---|---|
+| Codex | the rollout its process holds open (`lsof`; Linux `/proc`), else the newest one (last 14 days) whose `cwd` is the agent's folder | the newest one whose `cwd` is the agent's folder |
+| omp | the session its terminal names (`~/.omp/agent/terminal-sessions/<tty>`), else the newest one whose `cwd` is the agent's folder | the newest one whose `cwd` is the agent's folder |
+
+The fallback has the same shortcut as Claude Code's: two Codex (or two omp) in one folder may get mixed up; on
+Windows that is the only way, so start one per folder there. Only plain files really inside those folders are read.
+Agents on another machine (`box/t7`) are not followed, the same as Claude Code.
+Codex、omp 的紀錄：macOS／Linux 先找那個程式開著的檔（omp 看它的終端機），找不到才用同一資料夾最新的；Windows 只能用後者。
 
 Newer Claude Code (2.1.322 on macOS) no longer writes `~/.claude/sessions/<pid>.json`, so on every system nvim-jay
 falls back to the agent's folder: Claude Code keeps its logs in `~/.claude/projects/<folder>/`, the folder being the
@@ -306,9 +326,59 @@ from Claude Code's `<session>/subagents/agent-<id>.meta.json`. On those two even
 keeps a sub-agent going. 加上 SubagentStart／SubagentStop 兩段，關係圖的卡片會寫「子 2」（它自己開的子 agent 幾個在跑），
 點卡片會列出每一個。
 
-Only Claude Code has this hook; omp and codex agents aren't reminded (the 關係 tab still shows them, with its
-提醒它回 button). Sending yourself: put `不用回` (or `[FYI]`) in the first line of a message that needs no answer, so
+Codex and omp get the same hook ([7b](#7b-codex-and-omp--codex-和-omp)); other agents aren't reminded (the 關係 tab
+still shows them, with its 提醒它回 button). Sending yourself: put `不用回` (or `[FYI]`) in the first line of a message that needs no answer, so
 neither the hook nor the 關係 tab waits for one.
+
+### 7b. Codex and omp / Codex 和 omp
+
+Follow and `space o` need nothing: nvim-jay reads Codex's and omp's logs itself ([4](#4-macos-vs-windows--兩個系統的差別)).
+The two hooks above work for them too, each turned on in that agent's own settings. 跟著開檔不用設定；
+snap hook 和回覆檢查要在 Codex、omp 各自的設定加上去。
+
+**Codex** (0.167+; hooks are on by default) reads `~/.codex/hooks.json` (`CODEX_HOME` if set), in Claude Code's
+format: its shell tool calls itself `Bash` there, and its `tool_use_id` (`exec-<id>`) is the id its log gives the
+command, so the snapshot of a command is found. Stop's `{ decision: "block" }` keeps it going once, as for Claude
+Code; SubagentStart / SubagentStop give its spawned agents (no meta files: the type is Codex's `agent_type`). Add (keep
+other entries, e.g. kit's; full `nvim` path; Windows `C:/Users/<you>/...` and `nvim` from PATH, not yet tested there):
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      { "matcher": "Bash", "hooks": [{ "type": "command", "command": "/opt/homebrew/bin/nvim -l /Users/<you>/.config/nvim-jay/snap_hook.lua", "timeout": 15 }] }
+    ],
+    "Stop": [
+      { "hooks": [{ "type": "command", "command": "/opt/homebrew/bin/nvim -l /Users/<you>/.config/nvim-jay/reply_hook.lua", "timeout": 15 }] }
+    ],
+    "SubagentStart": [
+      { "hooks": [{ "type": "command", "command": "/opt/homebrew/bin/nvim -l /Users/<you>/.config/nvim-jay/reply_hook.lua", "timeout": 15 }] }
+    ],
+    "SubagentStop": [
+      { "hooks": [{ "type": "command", "command": "/opt/homebrew/bin/nvim -l /Users/<you>/.config/nvim-jay/reply_hook.lua", "timeout": 15 }] }
+    ]
+  }
+}
+```
+
+Codex asks once, at its next start, to review new or changed hooks: choose to trust them (it remembers that in
+`config.toml`). A Linux server: `~/.local/bin/nvim` and `/home/<you>/...`.
+Codex 下次啟動會問要不要信任新的 hook，選信任就好。
+
+**omp** (18.18+) has no hooks.json; it loads JavaScript hook modules from `~/.omp/agent/hooks/pre/`. nvim-jay writes
+one next to the Lua hooks, `~/.config/nvim-jay/omp_hook.js` (kept current like them); load it with a file of one line,
+`~/.omp/agent/hooks/pre/nvim-jay.js`:
+
+```js
+export { default } from "/Users/<you>/.config/nvim-jay/omp_hook.js";
+```
+
+(Windows: `"file:///C:/Users/<you>/.config/nvim-jay/omp_hook.js"`, not yet tested there.) It runs the snap hook before
+each bash call, the reply hook when the main agent is about to stop (a `block` keeps it going once), and the reply
+hook's SubagentStart / SubagentStop when a sub-agent starts and ends. It finds nvim where nvim-jay's launcher does
+(`~/.local/bin`, `/opt/homebrew/bin`, `/usr/local/bin`, `/usr/bin`; Windows: PATH), never blocks a tool, and gives up
+after 5 s (the reply 10 s). Restart omp after adding it. omp 要在 `~/.omp/agent/hooks/pre/` 放一行的檔，指到 nvim-jay 寫的
+`omp_hook.js`，重開 omp 就生效。
 
 ## 8. When something goes wrong / 出問題時
 
@@ -318,7 +388,8 @@ OS-specific problems (install, PATH, keys) are in each install guide. These are 
 |---|---|---|
 | "nvim-jay needs Neovim 0.11 or newer" | Neovim older than 0.11 (e.g. Ubuntu's apt) | install a newer Neovim (the official release or a PPA) |
 | "找不到 hc" inside nvim | `hc` not found | install Herdr core; check `hc --version` |
-| nvim never follows the agent | agent isn't Claude Code, nothing read yet, or follow is off | `space a f`; on Windows see [4](#4-macos-vs-windows--兩個系統的差別) |
+| nvim never follows the agent | agent isn't Claude Code, Codex or omp, it runs on another machine, nothing read yet, or follow is off | `space a f`; on Windows see [4](#4-macos-vs-windows--兩個系統的差別) |
+| A Codex / omp beside follows the other one in the same folder | two in one folder: the newest log wins (always on Windows) | one per folder ([4](#4-macos-vs-windows--兩個系統的差別)) |
 | No hover / go-to-definition | server not installed on that machine | install it; `:checkhealth vim.lsp` |
 | No "another nvim has this file" warning | the other nvim uses no swap file, or is on another machine | — |
 

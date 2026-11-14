@@ -391,9 +391,20 @@ nvim-jay 開過一次後，在 Claude Code 設定加這個 hook（一次就好�
 
    The same command under `"SubagentStart"` and `"SubagentStop"` too lets the 關係 tab show the agent's own
    sub-agents (子 N on its card). 同一行也放在 `"SubagentStart"`、`"SubagentStop"` 底下，關係圖就看得到子 agent。
-   omp and Codex agents need no hook, but their sub-agents are read with `sh`, so on this Windows computer itself
-   they don't show yet (on a Linux or macOS machine Herdr reaches, they do). omp、Codex 的子 agent 要用 `sh` 讀，
-   Windows 本機上的還看不到；連過去的 Linux／macOS 機器上的看得到。
+   omp and Codex agents need no hook for the 關係 tab, but their sub-agents are read with `sh`, so on this Windows
+   computer itself they don't show yet (on a Linux or macOS machine Herdr reaches, they do). omp、Codex 的子 agent 要用
+   `sh` 讀，Windows 本機上的還看不到；連過去的 Linux／macOS 機器上的看得到。
+5. Optional, **Codex and omp** ([nvim-jay.md §7b](nvim-jay.md#7b-codex-and-omp--codex-和-omp); not yet tested on
+   Windows). nvim follows them without any hook (on Windows by the newest log in the agent's folder: one Codex, one
+   omp per folder). For the snap and reply hooks:
+   - Codex: `%USERPROFILE%\.codex\hooks.json` (back it up; keep other entries), the same entries as §7b with
+     `"command": "nvim -l <home>/.config/nvim-jay/snap_hook.lua"` under `"PreToolUse"` (matcher `Bash`) and
+     `"command": "nvim -l <home>/.config/nvim-jay/reply_hook.lua"` under `"Stop"`, `"SubagentStart"`, `"SubagentStop"`
+     (each `"timeout": 15`). At Codex's next start, trust the new hooks when it asks.
+   - omp: a file `%USERPROFILE%\.omp\agent\hooks\pre\nvim-jay.js` with one line (forward slashes, `file:///`):
+     `export { default } from "file:///C:/Users/<you>/.config/nvim-jay/omp_hook.js";` — the hook module nvim-jay
+     writes next to the Lua hooks; it finds `nvim` on PATH. Restart omp.
+   Codex、omp 跟著開檔不用設定；要 snap hook 和回覆檢查就照上面加（Windows 上還沒實測）。
 
 ---
 

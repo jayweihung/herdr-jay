@@ -9,6 +9,20 @@ says which) · **kit** = update kit itself on every machine where agents run (`k
 **snap hook** = a line in Claude Code's `settings.json` on each machine where you added the hook (the entry says
 which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/keys.md).
 
+## 2026-11-15, nvim-jay follows Codex and omp; their snap and reply hooks
+
+Needs: **mods**; optional: the hooks for Codex (`~/.codex/hooks.json`) and omp (`~/.omp/agent/hooks/pre/nvim-jay.js`),
+see [docs/nvim-jay.md §7b](docs/nvim-jay.md#7b-codex-and-omp--codex-和-omp).
+
+- nvim follows a Codex or omp beside it like a Claude Code: the files it reads and edits, a shell command's change,
+  its sub-agents; `space o` lists them. It finds their logs itself (Codex's rollout, omp's session); on Windows by the
+  agent's folder only (one of each per folder there).
+- The snap hook and the reply hook now also work for Codex (its hooks.json, Claude Code's format) and omp (a hook
+  module nvim-jay writes, `~/.config/nvim-jay/omp_hook.js`, loaded with a one-line file). The reply hook reads Codex's
+  and omp's transcripts, and writes their sub-agents from SubagentStart / SubagentStop.
+- The snap hook keeps Codex's command ids (`exec-…`; before, only Claude Code's were kept).
+nvim-jay 現在也會跟著 Codex 和 omp 開檔；snap hook、回覆檢查也能給它們用（設定方法在 nvim-jay.md §7b）。
+
 ## 2026-11-15, the context chip after /compact: its real number, not 讀取中 until the next reply
 
 Needs: **mods**.

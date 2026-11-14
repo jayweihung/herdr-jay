@@ -343,6 +343,11 @@ old file is no longer updated, and its copies go where nvim-jay no longer looks.
 `~/.config/jay-nvim` and `~/.cache/jay-nvim` can be deleted ([CHANGELOG](../CHANGELOG.md) 2026-11-13).
 2026-11-13 以前加的 hook 寫的是 `~/.config/jay-nvim/…`：改成 `nvim-jay`，再重開 agent。
 
+Codex or omp on the server instead: nvim follows them without any hook. Their hooks (snap, reply) go in their own
+settings there, `~/.codex/hooks.json` and `~/.omp/agent/hooks/pre/nvim-jay.js`, with `~/.local/bin/nvim` and
+`/home/<you>/...`: [nvim-jay.md §7b](nvim-jay.md#7b-codex-and-omp--codex-和-omp).
+server 上跑的是 Codex 或 omp：跟著開檔不用設定；hook 照 nvim-jay.md §7b 加在它們自己的設定裡。
+
 ---
 
 ## 5. Try nvim-jay there / 試 nvim-jay

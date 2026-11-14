@@ -234,6 +234,16 @@ test("two agents in the tab: the focused one first, Tab moves to the next", asyn
   assert.equal(v.rows()[0].path, "/w/502.txt");
 });
 
+test("an omp agent (or pi, its old name): kit files --tool omp", async (V) => {
+  for (const app of ["omp", "pi"]) {
+    world({ two: true });
+    H.agents[1] = { ...H.agents[1], app, program: { name: "omp" } };
+    H.focused = { ...H.focused, pane: "p2", terminal: "t2" };
+    await open(V);
+    assert.deepEqual(kitCalls()[0].argv.slice(0, 8), ["kit", "files", "--pid", "502", "--tool", "omp", "--dir", "/w/other"], app);
+  }
+});
+
 test("kit without kit files: says kit 0.4.0; with an nvim-jay pane, nvim-jay's own list instead", async (V) => {
   world({ kit: "old" });
   let v = await open(V);

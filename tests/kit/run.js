@@ -1188,6 +1188,63 @@ test("下載看看: kit collect --look's JSON is shown; its error JSON shows kit
   const shown = render(v);
   assert.match(shown, /不在 collect_sources/); assert.doesNotMatch(shown, /"error"/);
 });
+test("收進來（N 個）: several skills ticked (every one that can be, at first), one kit collect each, what failed listed", async (M) => {
+  const sk = (name, extra = {}) => ({ name, path: `skills/${name}`, description: `${name} does it`, license: "MIT", scripts: "", skipped: 0, valid: true, exists: "", dest: `/x/skills/${name}/SKILL.md`, ...extra });
+  const look = { url: "https://github.com/a/r", source: "mine", id: "github.com/a/r", allowed: false, can_allow: true,
+    skills: [sk("tdd"), sk("triage", { scripts: "run.sh", license: "GPL" }), sk("nolic", { license: "" }), sk("calm", { exists: "own" })] };
+  fresh(); fakeKit({ list: TEAM_LIST });
+  const base = H.answer;
+  H.answer = (argv) => {
+    const a = argv[0] === "sh" ? argv.slice(4) : argv.slice(1);
+    if (a[0] !== "collect") return base(argv);
+    if (a.includes("--look")) return { code: 0, stdout: `${JSON.stringify(look)}\n`, stderr: "" };
+    return a.includes("skills/triage") ? { code: 1, stdout: "", stderr: "kit: 下載中…\nkit: 沒辦法下載 https://github.com/a/r\n" } : { code: 0, stdout: "", stderr: "kit：已收\n" };
+  };
+  const v = view(M, { role: "repo" }); await settle(); await tick();
+  render(v); H.clicks.new({}, cx); render(v); H.clicks["mode-collect"]({}, cx);
+  v.part.newUrl.set_value("https://github.com/a/r");
+  render(v); H.clicks.look({}, cx); await settle();
+  let shown = render(v);
+  assert.match(shown, /這個 repo 有 4 個 skill，勾了 2 個/, "no LICENSE and a name of your own: not ticked");
+  assert.match(shown, /✓ tdd/); assert.match(shown, /✕ nolic/); assert.match(shown, /✕ calm/);
+  assert.match(shown, /其中 1 個有會執行的程式/); assert.match(shown, /其中 1 個是 GPL/); assert.match(shown, /會一起加進 mine 的允許清單/);
+  assert.match(shown, /加進清單並收進來（2 個）/);
+  H.clicks["pick-2"]({}, cx); shown = render(v);
+  assert.match(shown, /勾了 2 個/, "one that can't be collected can't be ticked"); assert.match(shown, /不能收：沒有 LICENSE/);
+  H.clicks["pick-0"]({}, cx); assert.match(render(v), /勾了 1 個/);
+  H.clicks["pick-none"]({}, cx); assert.match(render(v), /勾了 0 個/);
+  H.clicks["pick-all"]({}, cx); assert.match(render(v), /勾了 2 個/);
+  H.clicks["collect-many"]({}, cx); await settle();
+  const runs = kitCalls("collect").filter((c) => !c.argv.includes("--look")).map((c) => c.argv.slice(c.argv[0] === "sh" ? 4 : 1));
+  assert.deepEqual(runs, [["collect", "https://github.com/a/r", "--to", "mine", "--path", "skills/tdd", "--allow"], ["collect", "https://github.com/a/r", "--to", "mine", "--path", "skills/triage", "--allow"]]);
+  shown = render(v);
+  assert.match(shown, /收了 1 個（github.com\/a\/r）：tdd/); assert.match(shown, /1 個沒收：\s*triage：沒辦法下載/);
+  assert.equal(v.part.making, null, "the box closes once something was collected");
+  assert.deepEqual(JSON.parse(localStorage.getItem("kit.groups")), ["a/r"], "its group open in the list");
+});
+test("Skills 清單: your own first, then what was collected, one group per URL (third_party.lock); closed until clicked", async (M) => {
+  const R = M.repo;
+  assert.deepEqual(R.lockFrom("# third_party.lock - written by kit collect\ntdd\thttps://github.com/mattpocock/skills.git\tskills/tdd\t-\tabc\tMIT\t2026-11-14\r\nx\tgit@git.example.org:team/x\t.\n\nbad"),
+    { tdd: "mattpocock/skills", x: "team/x" });
+  assert.equal(R.urlId("https://user@github.com/a/b/"), "a/b");
+  const g = R.groupRows([{ name: "b", from: "z/r" }, { name: "a", from: "" }, { name: "c", from: "a/r" }, { name: "d", from: "z/r" }]);
+  assert.deepEqual(g.map((x) => [x.from, x.rows.map((i) => i.name)]), [["", ["a"]], ["a/r", ["c"]], ["z/r", ["b", "d"]]]);
+  const skill = (name, source = "mine") => ({ kind: "skill", name, status: "unused", new: false, changed: false, source, description: `${name} desc`, path: `/x/skills/${name}/SKILL.md` });
+  fresh();
+  fakeKit({ list: { ...TEAM_LIST, sources: [{ name: "mine", source: "/x", dir: "/x", push: "direct", changed: [] }], items: [skill("calm"), skill("tdd"), skill("triage"), skill("archify")] } });
+  H.files = { "/x/third_party.lock": "tdd\thttps://github.com/mattpocock/skills\tskills/tdd\ntriage\thttps://github.com/mattpocock/skills\tskills/triage\narchify\thttps://github.com/tt/archify\t.\n" };
+  try { localStorage.removeItem("kit.groups"); } catch {}
+  const v = view(M, { role: "repo" }); await settle(); await tick();
+  let shown = render(v);
+  assert.match(shown, /自己寫的[\s\S]*calm[\s\S]*收來的（照網址分）/);
+  assert.match(shown, /archify[\s\S]*收自 tt\/archify/, "one from a URL: a plain row that says where from");
+  assert.match(shown, /mattpocock\/skills[\s\S]*2 個/); assert.doesNotMatch(shown, /tdd desc/, "closed");
+  H.clicks["group-mattpocock/skills"]({}, cx); shown = render(v);
+  assert.match(shown, /tdd desc/); assert.match(shown, /triage desc/);
+  H.clicks["group-mattpocock/skills"]({}, cx); assert.doesNotMatch(render(v), /tdd desc/, "closed again");
+  v.part.filter = "triage"; shown = render(v);
+  assert.match(shown, /triage desc/, "open while searching"); assert.doesNotMatch(shown, /calm desc/);
+});
 
 // ---------- an agent in a space (place.js, agents.js): kit place, then a tab there ----------
 const AGENTS = { kit: "0.5.0", tools: ["claude", "codex"], available: {}, agents: [{ name: "reviewer", description: "看 PR", rules: [], skills: [], mcp: [], source: "team", path: "/s/agents/reviewer.md" }] };

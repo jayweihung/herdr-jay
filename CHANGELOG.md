@@ -9,6 +9,16 @@ says which) · **kit** = update kit itself on every machine where agents run (`k
 **snap hook** = a line in Claude Code's `settings.json` on each machine where you added the hook (the entry says
 which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/keys.md).
 
+## 2026-11-14, 倉庫: collect many skills from one URL at once; the Skills list grouped by where they came from
+
+Needs: **mods**.
+
+- ＋ 新增 → 從網址收別人的: a repo with several skills ticks every one that can be collected (✓ / ○ / ✕ with why
+  not), 全選 / 全不選, and 收進來（N 個） collects them one by one (kit collect each), showing 12/39; what could not be
+  collected is listed with kit's reason. kit itself is unchanged.
+- Skills list: 自己寫的 first, then 收來的 grouped by the URL they came from (third_party.lock): ▸ author/repo N 個,
+  closed until clicked (remembered), open while searching; a URL with one skill is one row that says 收自 author/repo.
+
 ## 2026-11-14, 關係: omp's and Codex's sub-agents and last words; colors that say whose turn
 
 Needs: **mods**.

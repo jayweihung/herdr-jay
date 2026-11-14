@@ -27,15 +27,48 @@ async function loadRepo() {
   const { data: d, error } = kitJson(await kit(["list", "--json"], 60000), "kit list --json"), at = Date.now();
   if (error) return { key: "repo", error: error.message, code: error.code, at };
   const sources = (d.sources ?? []).map((s) => ({ ...s, changed: Array.isArray(s.changed) ? s.changed : [] }));
+  // what kit collect took from whom: each source's third_party.lock (name, url, ...), for the 收來的 groups
+  const locks = {};
+  for (const s of sources) if (s.dir) locks[s.name] = lockFrom(await readTextFile(`${slash(s.dir)}/third_party.lock`).catch(() => null));
   const items = (d.items ?? []).filter((i) => i.kind !== "agent").map((i) => {
     // Windows paths come with \; compared as /. Only for showing where the file is: nothing depends on it
     const s = sources.find((x) => x.name === i.source), dir = s?.dir ? slash(s.dir) + "/" : "", p = slash(i.path);
-    return { ...i, rel: dir && p.startsWith(dir) ? p.slice(dir.length) : "", changed: i.changed === true, src: i.source };
+    const from = i.kind === "skill" ? locks[i.source]?.[i.name] ?? "" : "";
+    return { ...i, rel: dir && p.startsWith(dir) ? p.slice(dir.length) : "", changed: i.changed === true, src: i.source, from };
   });
   const dirty = sources.map((s) => ({ name: s.name, push: s.push ?? null,
     items: s.changed.filter((f) => !f.startsWith("agents/")).length, agents: s.changed.filter((f) => f.startsWith("agents/")).length }))
     .filter((x) => x.items + x.agents > 0);
   return { ...d, key: "repo", at, items, sources, dirty };
+}
+// third_party.lock (kit collect: "name TAB url TAB path TAB ref TAB commit TAB license TAB date", # comments) ->
+// { name: "author/repo" } (the URL without scheme, user, host, .git: who it was collected from)
+export function lockFrom(text) {
+  const out = {};
+  for (const line of String(text ?? "").split(/\r?\n/)) {
+    const [name, url] = line.split("\t");
+    if (!name || name.startsWith("#") || !url) continue;
+    out[name] = urlId(url);
+  }
+  return out;
+}
+// a git URL -> "author/repo" (kit's url_id without the host): https://github.com/a/r.git, git@host:a/r -> a/r
+export const urlId = (url) => String(url ?? "").trim().replace(/^[a-z+]+:\/\//, "").replace(/^[^@/]*@/, "").replace(/^([^/:]+):/, "$1/")
+  .replace(/\/+$/, "").replace(/\.git$/, "").split("/").slice(1).join("/") || String(url ?? "");
+// a skill kit collect --look found: why it can't be collected (null: it can), as the card says it
+export function collectBlock(x, lk) {
+  if (!x?.license) return "沒有 LICENSE";
+  if (!x.valid) return "名字不行";
+  if (x.exists === "own") return "已經有同名的";
+  if (lk && !lk.allowed && !lk.can_allow) return "不在允許清單";
+  return null;
+}
+// the list of one kind: your own first, then what was collected, by whom it was collected from
+//   -> [{ from: "", rows }, { from: "author/repo", rows }, ...]  (groups by name; rows as sorted)
+export function groupRows(rows) {
+  const own = rows.filter((i) => !i.from), by = new Map();
+  for (const i of rows) if (i.from) by.set(i.from, [...(by.get(i.from) ?? []), i]);
+  return [{ from: "", rows: own }, ...[...by.keys()].sort((a, b) => a.localeCompare(b)).map((from) => ({ from, rows: by.get(from) }))];
 }
 // kit push --to <source> [--dry-run] --json -> { ok, files (what it sends, as one string to compare), sent, push,
 // text (kit's own words, stderr), code (kit's error code, when it failed) }
@@ -341,12 +374,24 @@ export class Repo {
     box.child(div().flex_none().px(10).pt(8).child(Input.new(this.input).h(30).px(8).rounded(6).border_1().border_color(t.border)
       .bg(t.background).text_size(z - 1).text_color(t.foreground)));
     const hit = (...xs) => !f || xs.some((x) => String(x ?? "").toLowerCase().includes(f));
-    const rows = items.filter((i) => i.kind === kind && hit(i.name, i.description, i.source))
+    const rows = items.filter((i) => i.kind === kind && hit(i.name, i.description, i.source, i.from))
       .sort((a, b) => (b.changed - a.changed) || (b.new - a.new) || a.name.localeCompare(b.name));
     const body = v_flex().flex_1().min_h(0).overflow_y_scrollbar().px(10).py(8).gap(2);
     if (!this.plan && (d.dirty ?? []).length) body.child(this.unsent(t, z, d));
     if (this.making) body.child(this.maker(t, z, d, kind));   // in the scroll area: a long one (a skill looked at) can be scrolled
-    for (const i of rows) body.child(this.repoRow(t, z, i));
+    // your own first; then what kit collect took, one group per URL it came from (closed until clicked; open while
+    // searching), a URL with one skill as a plain row that says where it came from
+    const groups = groupRows(rows), theirs = groups.slice(1);
+    const section = (text) => div().flex_none().px(8).pt(8).pb(2).text_size(z - 2).font_semibold().text_color(t.dim).child(text);
+    if (theirs.length && groups[0].rows.length) body.child(section("自己寫的"));
+    for (const i of groups[0].rows) body.child(this.repoRow(t, z, i));
+    if (theirs.length) body.child(section("收來的（照網址分）"));
+    for (const g of theirs) {
+      if (g.rows.length === 1) { body.child(this.repoRow(t, z, g.rows[0], true)); continue; }
+      const open = Boolean(f) || this.openGroups().includes(g.from);
+      body.child(this.groupHead(t, z, g, open));
+      if (open) for (const i of g.rows) body.child(div().pl(14).child(this.repoRow(t, z, i)));
+    }
     if (!rows.length) body.child(div().p(8).text_color(t.muted).child(f ? "找不到符合的。" : "這一類還沒有東西，按「＋ 新增」寫一個。"));
     return box.child(body);
   }
@@ -426,10 +471,25 @@ export class Repo {
     if (m.urlErr) box.child(note(m.urlErr, t.ansi1));
     if (!lk && this.busy === "下載") return box.child(this.working(t, z, "下載中：大的 repo 可能要一兩分鐘…"));
     if (!lk) return box.child(note("先下載看看：kit 只會列出找到什麼，還不會放進你的倉。", t.dim));
-    const sk = lk.skills ?? [], i = Math.min(m.pick ?? 0, Math.max(sk.length - 1, 0)), x = sk[i];
+    const sk = lk.skills ?? [], i = Math.min(m.pick ?? 0, Math.max(sk.length - 1, 0)), x = sk[i], multi = sk.length > 1;
     const card = v_flex().gap(5).p(8).rounded(6).bg(t.background);
-    if (sk.length > 1) card.child(note(`這個 repo 有 ${sk.length} 個 skill，選一個：`, t.foreground))
-      .child(h_flex().gap(4).flex_wrap().children(sk.map((y, j) => chip(`pick-${j}`, y.name, j === i, (cx) => { m.pick = j; cx.notify(); }))));
+    // several: tick the ones to collect (at first every one that can be), a click also shows that one below
+    if (multi) {
+      m.sel ??= sk.map((y, j) => (collectBlock(y, lk) ? -1 : j)).filter((j) => j >= 0);
+      const all = sk.map((y, j) => (collectBlock(y, lk) ? -1 : j)).filter((j) => j >= 0);
+      card.child(h_flex().gap(6).items_center().flex_wrap()
+          .child(div().flex_1().min_w(0).text_size(z - 1.5).text_color(t.foreground).child(`這個 repo 有 ${sk.length} 個 skill，勾了 ${m.sel.length} 個（點一下勾／不勾，下面看它的說明）：`))
+          .child(btn(t, z, "pick-all", "全選", { small: true, off: Boolean(this.busy) || m.sel.length === all.length, on: (cx) => { m.sel = all; cx.notify(); } }))
+          .child(btn(t, z, "pick-none", "全不選", { small: true, off: Boolean(this.busy) || !m.sel.length, on: (cx) => { m.sel = []; cx.notify(); } })))
+        .child(h_flex().gap(4).flex_wrap().children(sk.map((y, j) => {
+          const no = collectBlock(y, lk), on = m.sel.includes(j);
+          return chip(`pick-${j}`, `${no ? "✕" : on ? "✓" : "○"} ${y.name}`, on, (cx) => {
+            m.pick = j;
+            if (!no && !this.busy) m.sel = on ? m.sel.filter((k) => k !== j) : [...m.sel, j].sort((a, b) => a - b);
+            cx.notify();
+          });
+        })));
+    }
     if (!x) return box.child(card.child(note("找不到 skill。", t.ansi1)));
     // every line first, then the head with its button: an element can be added to a parent only once
     const scripts = String(x.scripts ?? "").split(" ").filter(Boolean), desc = String(x.description ?? "");
@@ -449,16 +509,38 @@ export class Repo {
       lines.push(note(`${lk.id} 還不在 ${lk.source} 的允許清單（kit.yaml 的 collect_sources）。按下去會一起加進清單，之後這個作者的東西就能收。`, t.working)); }
     else if (!lk.allowed) { block = block ?? "不在允許清單";
       lines.push(note(`${lk.id} 不在 ${lk.source} 的允許清單。這是團隊的倉，要請維護者把它加進 kit.yaml 的 collect_sources 才能收。`, t.ansi1)); }
-    lines.push(note("收進來後：用 git diff 看收了哪些檔案 → 清單上面黃色那條按「送出」送上去 → 要用它就在 agent 視窗上的 Kit 清單按「加到這個資料夾」（在家目錄開的 agent 是「加到整個帳號」）。"));
+    if (!multi) lines.push(note("收進來後：用 git diff 看收了哪些檔案 → 清單上面黃色那條按「送出」送上去 → 要用它就在 agent 視窗上的 Kit 清單按「加到這個資料夾」（在家目錄開的 agent 是「加到整個帳號」）。"));
     const act = block ? div().flex_none().text_size(z - 2).text_color(t.ansi1).child(`不能收：${block}`)
+      : multi ? div().flex_none().text_size(z - 2).text_color(m.sel.includes(i) ? t.foreground : t.dim).child(m.sel.includes(i) ? "✓ 勾了" : "沒勾")
       : btn(t, z, "collect", this.busy === "收" ? "收進來中…" : label, { small: true, kind: "primary", off: Boolean(this.busy), on: (cx) => this.collect(x, allow, cx) });
     card.child(h_flex().gap(6).items_center()
         .child(copyOnRight(div().font_semibold().child(x.name), x.name))
         .child(copyOnRight(div().flex_1().text_size(z - 2).text_color(t.dim).child(x.path === "." ? "（在 repo 最外層）" : `（在 ${x.path}/）`), x.path))
         .child(act))
       .children(lines);
-    if (this.busy === "收") card.child(this.working(t, z, "收進來中：下載、複製檔案…"));
-    return box.child(card);
+    if (!multi) {
+      if (this.busy === "收") card.child(this.working(t, z, "收進來中：下載、複製檔案…"));
+      return box.child(card);
+    }
+    // several: what the ticked ones have between them, and one button for all of them
+    const picked = m.sel.map((j) => sk[j]).filter(Boolean);
+    const count = (f) => picked.filter(f).length;
+    const all = v_flex().gap(5).p(8).rounded(6).bg(t.background).border_1().border_color(t.accent)
+      .child(div().font_semibold().child(`勾了 ${picked.length} 個`));
+    const run_ = count((y) => String(y.scripts ?? "").trim()), gpl = count((y) => y.license === "GPL"), unk = count((y) => y.license === "unknown"), again = count((y) => y.exists === "collected");
+    if (run_) all.child(note(`⚠ 其中 ${run_} 個有會執行的程式，送出前請看過（點它看是哪些）。`, t.working));
+    if (gpl) all.child(note(`其中 ${gpl} 個是 GPL 類授權：改了再發布要公開原始碼。`, t.foreground));
+    if (unk) all.child(note(`其中 ${unk} 個認不出授權種類：收進來後請自己看它的 LICENSE。`, t.foreground));
+    if (again) all.child(note(`其中 ${again} 個之前收過：會整份換成這次下載的版本。`, t.working));
+    if (allow) all.child(note(`${lk.id} 會一起加進 ${lk.source} 的允許清單。`, t.working));
+    all.child(note("會一個一個收（每個都重新下載一次，大的 repo 要等一下）；不能收的會跳過，最後列出來。收完在 Skills 清單「收來的」底下，照網址分一組。"));
+    all.child(note("收進來後：用 git diff 看收了哪些檔案 → 清單上面黃色那條按「送出」送上去 → 要用哪個，就在 agent 視窗上的 Kit 清單按「加到這個資料夾」。"));
+    const pr = m.progress;
+    all.child(h_flex().gap(6).items_center()
+      .child(btn(t, z, "collect-many", this.busy === "收" ? "收進來中…" : `${allow ? "加進清單並收進來" : "收進來"}（${picked.length} 個）`,
+        { small: true, kind: "primary", off: Boolean(this.busy) || !picked.length, on: (cx) => this.collectMany(picked, allow, cx) })));
+    if (this.busy === "收" && pr) all.child(this.working(t, z, `收進來中 ${pr.done}/${pr.total}：${pr.name}`));
+    return box.child(card).child(all);
   }
 
   // ---------- 貼上設定 (MCP): kit new mcp [name] --config <file> [--to source] [--look] ----------
@@ -579,7 +661,7 @@ export class Repo {
     if (!m) return;
     if (!url) { m.urlErr = "先在上面貼上網址（灰字只是例子）"; this.newUrl.focus(); cx.notify(); return; }
     if (!this.startBusy("下載", SHORT)) return;
-    m.look = null; m.pick = 0;
+    m.look = null; m.pick = 0; m.sel = null; m.progress = null;
     cx.notify();
     cx.spawn(async (cx) => {
       try {
@@ -612,6 +694,43 @@ export class Repo {
     });
   }
 
+  // 收進來（N 個）: kit collect for each ticked one, one after another (kit writes the lock each time), the same URL and
+  // --allow as one; what wasn't collected is listed with kit's reason; then the list, its group open
+  collectMany(picked, allow, cx) {
+    const m = this.making, lk = m?.look;
+    if (!lk || !picked.length) return;
+    if (!this.startBusy("收", LONG + SHORT * picked.length)) return;
+    m.progress = { done: 0, total: picked.length, name: picked[0].name };
+    cx.notify();
+    cx.spawn(async (cx) => {
+      const ok = [], bad = [];
+      try {
+        for (const x of picked) {
+          m.progress = { ...m.progress, name: x.name };
+          cx.notify();
+          const r = await kit(["collect", lk.url, "--to", lk.source, "--path", x.path, ...(allow ? ["--allow"] : [])], LONG)
+            .catch((e) => ({ code: 1, err: String(e?.message ?? e) }));
+          if (r.code === 0) ok.push(x.name);
+          else bad.push(`${x.name}：${clean(r.err || r.out).trim().split("\n").filter(Boolean).pop() ?? "失敗"}`);
+          m.progress = { ...m.progress, done: m.progress.done + 1 };
+        }
+      } finally {
+        const text = [ok.length ? `收了 ${ok.length} 個（${lk.id}）：${ok.join("、")}` : "", bad.length ? `${bad.length} 個沒收：\n${bad.join("\n")}` : "",
+          ok.length ? "下一步：用 git diff 看收了哪些檔案 → 清單上面黃色那條按「送出」送上去。" : ""].filter(Boolean).join("\n\n");
+        this.setMsg({ ok: ok.length > 0, label: "收進來", text: text || "什麼都沒收", at: Date.now() });
+        if (ok.length) {
+          this.making = null;
+          this.newUrl.set_value("");
+          const g = urlId(lk.url);
+          localSet("kit.groups", JSON.stringify([...this.openGroups().filter((x) => x !== g), g]));
+        } else m.progress = null;
+        this.endBusy();
+        cx.notify();
+      }
+      if (ok.length) { await loadNewest(LOAD, DATA, loadRepo); cx.notify(); }
+    });
+  }
+
   make(cx) {
     const name = this.newName.value().trim(), kind = this.kind, to = this.making?.source;
     if (!name) return;
@@ -632,8 +751,28 @@ export class Repo {
     });
   }
 
-  // a row: name, marks (改過 / 新 / 團隊必備), what it is and where from; click to open it
-  repoRow(t, z, i) {
+  // the 收來的 groups that are open (kept on this computer)
+  openGroups() { try { const v = JSON.parse(localGet("kit.groups") || "[]"); return Array.isArray(v) ? v : []; } catch { return []; } }
+  // a group's head: ▸ author/repo, how many, a dot when one changed; a click opens or closes it
+  groupHead(t, z, g, open) {
+    const ch = g.rows.some((i) => i.changed);
+    return h_flex().id(`group-${g.from}`).gap(6).items_center().px(8).py(6).rounded(6).cursor_pointer()
+      .hover((st) => st.bg(t.hover)).on_mouse_down("left", stop)
+      .on_click((_e, cx) => {
+        const now = this.openGroups().filter((x) => x !== g.from);
+        localSet("kit.groups", JSON.stringify(open ? now : [...now, g.from]));
+        cx.notify();
+      })
+      .child(div().flex_none().w(10).text_color(t.dim).child(open ? "▾" : "▸"))
+      .child(copyOnRight(div().min_w(0).truncate().font_semibold().child(g.from), g.from))
+      .child(div().flex_none().text_size(z - 2).text_color(t.dim).child(`${g.rows.length} 個`))
+      .when(ch, (el) => el.child(div().size(6).rounded(3).bg(t.working)))
+      .child(div().flex_1());
+  }
+
+  // a row: name, marks (改過 / 新 / 團隊必備), what it is and where from (from: the URL it was collected from, for one
+  // outside a group); click to open it
+  repoRow(t, z, i, from = false) {
     const badge = (text, color) => div().flex_none().px(5).rounded(4).text_size(z - 2.5).text_color(t.background).bg(color).child(text);
     return h_flex().id(`repo-${i.kind}-${i.name}`).gap(8).items_center().px(8).py(6).rounded(6).cursor_pointer()
       .hover((s) => s.bg(t.hover)).on_mouse_down("left", stop)
@@ -644,7 +783,7 @@ export class Repo {
           .when(Boolean(i.changed), (el) => el.child(badge("改過", t.working)))
           .when(Boolean(i.new), (el) => el.child(badge("新", t.done)))
           .when(i.status === "required", (el) => el.child(badge("團隊必備", t.accent))))
-        .child(copyOnRight(div().min_w(0).truncate().text_size(z - 1.5).text_color(t.muted).child([i.description, i.src].filter(Boolean).join(" · ") || "（還沒寫說明）"),
+        .child(copyOnRight(div().min_w(0).truncate().text_size(z - 1.5).text_color(t.muted).child([i.description, from && i.from ? `收自 ${i.from}` : "", i.src].filter(Boolean).join(" · ") || "（還沒寫說明）"),
           i.description || i.path)))
       .child(div().flex_none().text_color(t.dim).child("›"));
   }

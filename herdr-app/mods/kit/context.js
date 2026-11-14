@@ -62,7 +62,7 @@ export function chipNumbers(c) {
 }
 // ---------- the plan's usage limits (kit api 1.7: kit context's "limit", kit usage) ----------
 // what a usage window is called: by its kind (Claude) or how long it is (Codex's primary / secondary)
-const KIND_NAMES = { five_hour: "5 小時", seven_day: "每週", seven_day_opus: "每週（Opus）", seven_day_sonnet: "每週（Sonnet）" };
+const KIND_NAMES = { five_hour: "5 小時", seven_day: "每週", monthly: "每月", seven_day_opus: "每週（Opus）", seven_day_sonnet: "每週（Sonnet）" };
 export function windowName(kind, minutes) {
   if (KIND_NAMES[kind]) return KIND_NAMES[kind];
   const m = Number(minutes);

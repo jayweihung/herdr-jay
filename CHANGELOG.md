@@ -9,6 +9,11 @@ says which) · **kit** = update kit itself on every machine where agents run (`k
 **snap hook** = a line in Claude Code's `settings.json` on each machine where you added the hook (the entry says
 which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/keys.md).
 
+## 2026-11-15, a Codex at its usage limit too
+Needs: mods, kit (0.6.6).
+- A Codex that stops at its plan's usage limit gets the same red chip and 繼續 once it resets (kit 0.6.6 reads it
+  from Codex's own rollout). Codex's free plan has a monthly window: shown as 每月.
+
 ## 2026-11-15, a Claude at its usage limit: until when, and 繼續 once it resets
 Needs: mods, kit (0.6.5).
 - When a Claude stops at its plan's usage limit (5 hours or weekly), its context chip turns into a red

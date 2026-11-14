@@ -1212,6 +1212,7 @@ test("usage limit (context.js): names, times, the lines of kit usage, when 繼�
   const now = new Date(2026, 10, 15, 9, 0).getTime(), at = (d, h, m) => new Date(2026, 10, d, h, m).getTime();
   assert.equal(X.whenText(at(15, 23, 5), now), "23:05"); assert.equal(X.whenText(at(16, 0, 10), now), "明天 00:10"); assert.equal(X.whenText(at(20, 10, 0), now), "11/20 10:00");
   assert.deepEqual(["five_hour", "seven_day", "primary"].map((k, i) => X.windowName(k, [null, null, 43200][i])), ["5 小時", "每週", "每月"]);
+  assert.equal(X.limitOf({ limit: { until: 5, kind: "monthly" } }, 1).name, "每月");   // Codex free plan (kit 0.6.6)
   assert.deepEqual(X.usageLines({ windows: [{ id: "five_hour", pct: 41, minutes: 300, resets_at: at(15, 14, 0) }, { id: "secondary", pct: 62, minutes: 10080, resets_at: at(15, 8, 0) }, { id: "x", pct: null }] }, now).map((x) => x.text),
     ["5 小時：用了 41%，14:00 重置", "每週：已重新計算（08:00 重置過）"], "a reset that passed: started again; no pct: left out");
   assert.deepEqual(X.usageLines(null), []);

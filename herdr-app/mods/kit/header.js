@@ -174,7 +174,7 @@ export class Header {
     });
   }
 
-  // a Claude stopped at its plan's usage limit (kit context's limit): once the limit has reset, type 繼續 for it, once
+  // a Claude or Codex stopped at its plan's usage limit (kit context's limit): once the limit has reset, type 繼續 for it, once
   // per stop and only while it waits (idle, done). Marked before it is sent, so a second window's header of the same
   // pane doesn't type it too; a send that fails is unmarked (tried again next tick). The context is asked again after.
   tickLimit(p, cx) {

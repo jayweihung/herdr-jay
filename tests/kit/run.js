@@ -721,7 +721,8 @@ test("關係: waiting for you warms up then goes red (with what it waits for); s
   {
     const th = new Proxy({}, { get: (_t, k) => (k === "then" ? undefined : "#334455") });
     H.texts = []; H.strings = []; M.graph.alertsView(th, 13, gc, now);
-    const out = [...H.texts, ...H.strings].join("\n");
+    assert.ok(H.strings.includes("›"), "a line with an agent to go to ends with ›");
+    const out = [...H.texts, ...H.strings].filter((x) => x !== "›").join("\n");
     assert.match(out, /做完等你看：t5/);
     // waiting for you: a line each from the start, on top, with what it asks; red past 10 minutes
     assert.match(out, /^t1 等你允許 1 分\nt2 在問你 5 分：「要選 A 還是 B？ \(A · B\)」\nt3 等你處理已經 15 分/);
@@ -2337,7 +2338,12 @@ machinesTest("各機器: plain values — api and kit versions compared, kit sta
     const out = [...H.texts, ...H.strings].join("\n");
     assert.match(out, /等你簽：agentkit 有 3 個新 commit 等核准（srv root，等了 2 小時）。簽章在 Mac 親手做/);
     assert.match(out, /等站長同意：要上線 web（srv root）/, "kit pending's own 要你同意： not said twice");
+    assert.ok(!("kit-graph-alert-pending-0" in H.clicks), "a signature: nowhere to go, so no click and no ›");
+    // a line that says where to fix it (Kit 送不出去): a click opens that panel
+    let opened = null;
+    H.clicks = {}; M.graph.alertsView(th, 13, g0, 5e11 + 7200000, null, { pending: [{ kind: "kit", what: "Kit：x 有改動送不出去", where: "這台", panel: "repo" }], onPanel: (p) => { opened = p; } });
     H.clicks["kit-graph-alert-pending-0"]({}, cx);
+    assert.equal(opened, "repo");
   }
   for (const bad of [null, [], "x", { kit: "0.4.1" }, { kit: "0.4.1", api: "one" }, { api: "1.2" }]) assert.equal(X.readStatus(bad), null, JSON.stringify(bad));
   assert.match(X.readReport(null, "/r.json").why, /還沒有回報檔/);

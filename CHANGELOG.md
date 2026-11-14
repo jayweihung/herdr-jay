@@ -60,6 +60,14 @@ Needs: mods.
 - nvim-jay sends comments to omp too (omp reports itself as `omp`, not `pi`). The Kit panel's new-skill hint says omp's
   `/skill:名字`; the context window's switch for typing 繼續 shows for Codex too.
 
+## 2026-11-15, 關係: a line you can click says so (›, a tooltip); Kit 送不出去 opens the Kit panel
+
+Needs: **mods**.
+
+A line in 關係 about an agent goes to its pane when clicked, as before; now it ends with › and says so on hover. Kit
+有改動送不出去 opens the Kit panel. A line with nowhere to go (等你簽: signed on the Mac by hand) has no pointer and no ›.
+關係上面的提醒：可以點的行尾有 ›（點了跳到那個 agent；Kit 那行打開 Kit 面板），不能點的不會再假裝可以點。
+
 ## 2026-11-15, Kit: 送出 shows its steps and how long it has run
 
 Needs: **mods**.

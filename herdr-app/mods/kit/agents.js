@@ -63,7 +63,7 @@ export function pushStuck(data, checks) {
   return Object.entries(checks ?? {}).filter(([src, c]) => {
     const x = (data?.dirty ?? []).find((y) => y.name === src);
     return x && c && !c.busy && c.ok === false && c.sig === x.sig;
-  }).map(([src, c]) => ({ kind: "kit", what: `Kit：${checkLine(src, c.bad)}，到 Kit 面板改好再送出`, where: "這台", since: c.at ?? null }));
+  }).map(([src, c]) => ({ kind: "kit", what: `Kit：${checkLine(src, c.bad)}，到 Kit 面板改好再送出`, where: "這台", since: c.at ?? null, panel: "repo" }));
 }   // every agent's status and focus, set when it changes (every mod re-renders)
 let whoBusy = false;
 export const whoOf = (p) => (p?.pid ? (shared(WHO) ?? {})[`${p.host ?? ""}|${p.pid}`]?.address || null : null);
@@ -406,7 +406,9 @@ export class Agents {
         // a bigger look: the same tab in its own window, most of the screen (not from that window itself)
         .when(!props()?.big, (el) => el.child(btn(t, z, "kit-graph-big", "放大", { tiny: true,
           on: () => openOverlay({ mod: "kit", props: { role: "agents", big: true, scope: this.scope }, kind: "window", key: "kit-agents-big", width: 0.9, height: 0.85 }) }))))
-      .child(alertsView(t, z, g, now, select, { nudged: this.nudged, onNudge: (w, cx) => this.nudge(g, w, cx), pending }) ?? div());
+      .child(alertsView(t, z, g, now, select, { nudged: this.nudged, onNudge: (w, cx) => this.nudge(g, w, cx), pending,
+        // the Kit panel, shown if it was hidden (never hidden by a click here)
+        onPanel: () => { const n = find(layout(), NODES.repo); if (!n || n.hidden) run("layout.toggle", { id: NODES.repo }); } }) ?? div());
     if (this.view === "time") {
       const span = SPANS.find(([k]) => k === this.span) ?? SPANS[1];
       return body

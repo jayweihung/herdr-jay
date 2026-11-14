@@ -475,7 +475,7 @@ export function nudgeText(g, w) {
 // above the drawing: what needs a look, each a line; a click selects the agent it is about.
 // onNudge(wait, cx): 提醒它回 on an agent that stopped without answering (nudged: "from>to@at" keys already sent)
 // pending: what waits for a person outside the agents (machines.js pendingRows: kit status's pending, root's report too)
-export function alertsView(t, z, g, now = Date.now(), onSelect = null, { onNudge = null, nudged = new Set(), pending = [] } = {}) {
+export function alertsView(t, z, g, now = Date.now(), onSelect = null, { onNudge = null, nudged = new Set(), pending = [], onPanel = null } = {}) {
   const name = (a) => g.nodes.find((n) => n.address === a)?.name ?? a;
   const items = [];
   const waitOn = (from, to) => g.waits.find((w) => w.from === from && w.to === to);
@@ -510,7 +510,7 @@ export function alertsView(t, z, g, now = Date.now(), onSelect = null, { onNudge
       : `${p.what}（${p.where}${long}）`;
     // the agent that waits (found by its pid): a click goes to its card, red past LONG_WAIT like waiting for you
     const hot = p.kind === "owner" && p.since && now - p.since >= LONG_WAIT;
-    items.push({ id: `pending-${i}`, text, color: hot ? t.ansi1 : t.blocked, hot: Boolean(hot), who: p.who ?? null });
+    items.push({ id: `pending-${i}`, text, color: hot ? t.ansi1 : t.blocked, hot: Boolean(hot), who: p.who ?? null, panel: p.panel ?? null });
   }
   for (const n of (g.nodes ?? []).filter((x) => x.limit && x.status !== "working" && !x.down)) {
     const l = n.limit, at = whenText(l.until, now);
@@ -530,16 +530,24 @@ export function alertsView(t, z, g, now = Date.now(), onSelect = null, { onNudge
     color: t.dim, who: idle[0].address });
   if (!items.length) return null;
   const box = v_flex().gap(3).px(10).pt(2).pb(4);
-  for (const i of items)
+  // a click goes where the line is about: its agent's pane (and card), or the panel to fix it in (Kit); a line with
+  // nowhere to go (a signature, done on the Mac by hand) has no pointer and no ›
+  for (const i of items) {
+    const go = i.who ? "agent" : i.panel && onPanel ? "panel" : null;
     box.child(h_flex().id(`kit-graph-alert-${i.id}`).gap(6).items_center().px(8).py(4).rounded(6).border_1().border_color(i.color)
       .when(Boolean(i.hot), (el) => el.border_2().bg(tint(t.raised, i.color, 0.3)))   // waited too long: deep, like its card
-      .text_size(z - 1.5).cursor_pointer().hover((s) => s.bg(t.hover)).on_mouse_down("left", stop)
-      .on_click((_e, cx) => { if (!i.who) return; run("pane.focus", { terminal: i.who }); onSelect?.(i.who, cx); })
+      .text_size(z - 1.5).on_mouse_down("left", stop)
+      .when(Boolean(go), (el) => el.cursor_pointer().hover((s) => s.bg(t.hover)).tooltip(go === "agent" ? "點一下跳到這個 agent" : "點一下打開 Kit 面板")
+        .on_click((_e, cx) => {
+          if (go === "agent") { run("pane.focus", { terminal: i.who }); onSelect?.(i.who, cx); } else onPanel(i.panel, cx);
+        }))
       .child(div().size(7).flex_none().rounded(4).bg(i.color)).child(div().flex_1().min_w(0).child(i.text))
+      .when(Boolean(go), (el) => el.child(div().flex_none().text_color(t.dim).child("›")))
       .when(Boolean(i.nudge && onNudge), (el) => {
         const key = `${i.nudge.from}>${i.nudge.to}@${i.nudge.at}`, done = nudged.has(key);
         return el.child(btn(t, z, `kit-graph-nudge-${i.id}`, done ? "已提醒" : "提醒它回", { tiny: true, off: done, on: (cx) => onNudge(i.nudge, cx) }));
       }));
+  }
   return box;
 }
 

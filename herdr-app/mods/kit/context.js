@@ -65,6 +65,16 @@ export function howCounted(d) {
 }
 // "12 秒前", "3 分鐘前" (at: seconds since 1970, as kit gives it)
 export const ago = (at, now = Date.now()) => { const s = Math.max(0, Math.round(now / 1000 - Number(at || 0))); return s < 60 ? `${s} 秒前` : `${Math.round(s / 60)} 分鐘前`; };
+// what an agent wrote about where it is (kit note --pid <pid> --json, kit api 1.4): its args, and the header's line, the
+// tooltip (all of it and when), what a right-click copies, and whether it is old (2 hours: shown dim). null: none.
+export const noteArgs = (pid) => ["note", "--pid", String(pid), "--json"];
+export function noteView(n, now = Date.now()) {
+  const text = String(n?.text ?? "").trim();
+  if (!text) return null;
+  const s = Math.max(0, Math.round(now / 1000 - Number(n.at || 0)));
+  const when = s < 60 ? "剛剛" : s < 3600 ? `${Math.floor(s / 60)} 分鐘前` : s < 86400 ? `${Math.floor(s / 3600)} 小時前` : `${Math.floor(s / 86400)} 天前`;
+  return { line: text.split("\n")[0], tip: `${text}\n（${when}寫的；右鍵複製）`, copy: text, old: s >= 7200 };
+}
 // a category's color: the theme's key for it
 const CAT_COLOR = { system_prompt: "ansi4", system_tools: "ansi6", mcp_tools: "ansi2", mcp_instructions: "ansi2", memory_files: "ansi3",
   instructions: "ansi3", skills: "ansi5", custom_agents: "ansi1", slash_commands: "ansi1", messages: "accent", compaction: "done", other: "dim" };

@@ -242,6 +242,13 @@ test("context window: the bar, the shares, the footer line, the chip's numbers (
   assert.deepEqual([X.level(null), X.level(69), X.level(70), X.level(90)], ["", "", "high", "full"]);
   assert.equal(X.howCounted({ exact: true, tool: "claude" }), "Claude Code 自己算的"); assert.equal(X.howCounted({ tool: "codex" }), "總數是 Codex 記的，細項估算");
   assert.equal(X.ago(1000, 1030000), "30 秒前"); assert.equal(X.ago(1000, 1000000 + 180000), "3 分鐘前");
+  // kit note (kit api 1.4): the header's line, tooltip, copy, dim after two hours
+  assert.deepEqual(X.noteArgs(4321), ["note", "--pid", "4321", "--json"]);
+  assert.equal(X.noteView(null), null); assert.equal(X.noteView({ text: null }), null); assert.equal(X.noteView({ text: "  " }), null);
+  const nv = X.noteView({ text: "改好 parser；下一步跑測試\n目標：修 #12", at: 1000 }, 1000000 + 90000);
+  assert.deepEqual(nv, { line: "改好 parser；下一步跑測試", tip: "改好 parser；下一步跑測試\n目標：修 #12\n（1 分鐘前寫的；右鍵複製）", copy: "改好 parser；下一步跑測試\n目標：修 #12", old: false });
+  assert.equal(X.noteView({ text: "x", at: 1000 }, 1000000 + 7200000).old, true);
+  assert.match(X.noteView({ text: "x", at: 1000 }, 1000000 + 3 * 86400000).tip, /3 天前寫的/);
   assert.equal(X.catColorKey("skills"), "ansi5"); assert.equal(X.catColorKey("whatever"), "dim");
   // one place for the number formats
   assert.deepEqual([C.num(1234567), C.kfmt(13500), C.kfmt(139000), C.kfmt(1250000), C.kShort(13500), C.kShort(1000000)], ["1,234,567", "13.5k", "139k", "1.25M", "14k", "1M"]);

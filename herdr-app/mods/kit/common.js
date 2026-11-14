@@ -16,6 +16,7 @@ export const AGENT_CACHE = "kit.agent.v1";     // key -> { text, level, counts, 
 export const AGENT_DATA = "kit.agent.data.v1"; // key -> what kit list said (only for panes that still exist)
 export const AGENT_WANT = "kit.agent.want";    // key -> when someone asked for a fresh look
 export const CTX = "kit.ctx.v1";               // key -> how full the agent's context is
+export const NOTE = "kit.note.v1";             // key -> the agent's progress note (kit note --pid --json; kit api 1.4)
 export const AGENTS_DATA = "kit.agents.data.v1";   // kit agents --json
 export const AGENTS_LOAD = "kit.agents.load";      // { seq, at, done } its load in progress
 export const AGENTS_MSG = "kit.agents.msg";        // kit's words after an action in the Agents panel

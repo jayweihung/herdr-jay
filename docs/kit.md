@@ -183,6 +183,8 @@ the mod doesn't know shows a card 「不認得的 role」 naming it: check the s
 
 Kit 按鈕右邊的 `[context 35% 139k/400k]` 是這個 agent 的 context 用了多少（`kit context`，滑鼠停上去有提示，70% 以上變黃、90% 以上變紅，最多寫 100%）。agent 在工作時每 15 秒問一次，閒置時每分鐘一次。問不到（kit 正忙、那台連不上）時，先留著上一次的數字；還沒問到時寫「…」，問不到數字時寫「—」。那台的 kit 不能用（上面的表）時不顯示這格。右鍵複製這些數字。
 
+**進度**（kit 0.6.0 以上）：agent 用 `kit note "剛做了什麼；下一步"` 寫了進度的話，資料夾後面會多一格 `[進度 改好 parser；下一步跑測試]`，顯示第一行；滑鼠停上去看全部和多久以前寫的，右鍵複製，超過兩小時變灰。跟 context 一起問（工作時每 15 秒，閒置時每分鐘），所以寫完最多等這麼久才出現。沒寫過就不顯示這格。要 agent 自己寫，給它 rule `progress-note`（agentkit-library 有，`kit add rule progress-note`）。
+
 標題列的東西都固定寬度：context 那格、狀態那格（在等你回答是紅色「!」（滑鼠停上去寫 Needs you）、做完是圓點、工作中什麼都不顯示，只佔一個圖示寬）寬度不變，分割／放大／關閉三顆按鈕一直佔著位置，滑鼠移上去才看得到、按得到，所以滑鼠移進移出、數字變動時，標題列不會跳。
 
 ### context 細項（按 context 那格）
@@ -522,6 +524,7 @@ mod 只用這些欄位，每個都先檢查：`kit`（版本）、`api`（`major
 | 安裝／更新（skill 自己的套件） | `kit install-deps <skill> [npm\|pip]` |
 | 窗格上方的 context 35%（每 15 秒，閒置時每分鐘） | `kit context --pid <pid> --tool <claude\|codex\|omp> --dir <資料夾>` |
 | 按 context 那格（細項） ／ 它的 ⟳ | `kit context --pid <pid> --tool <工具> --dir <資料夾> --detail` ／ 再加 `--fresh` |
+| 窗格上方的進度（跟 context 一起問） | `kit note --pid <pid> --json` |
 | 細項的「壓縮」／「清空重來」 | 在那個 agent 打 `/compact [要保留什麼]` ／ `/clear`（Codex、omp：`/new`），用 `hc send` |
 | 細項的「拿掉」 | `kit rm <種類> <名字>` ／ `kit rm --dir <資料夾> <種類> <名字>` |
 | 同步 | `kit sync` |

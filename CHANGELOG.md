@@ -9,6 +9,15 @@ says which) · **kit** = update kit itself on every machine where agents run (`k
 **snap hook** = a line in Claude Code's `settings.json` on each machine where you added the hook (the entry says
 which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/keys.md).
 
+## 2026-11-14, kit: what the agent wrote about where it is, in its header
+
+Needs: **mods** (kit; Windows: copy it again) and **kit** 0.6.0 (kit api 1.4) on the agents' machines.
+
+- An agent's header shows `[進度 …]` after the folder: the first line of what the agent wrote with `kit note`
+  (the whole note and when in the tooltip, right-click copies, dim after two hours). Asked with the context
+  (`kit note --pid <pid> --json`). Older kit: nothing changes ([docs/kit.md §1](docs/kit.md#1-agent-視窗上的-kit-按鈕)).
+agent 用 `kit note` 寫的進度顯示在它的標題列（要 kit 0.6.0）。
+
 ## 2026-11-14, Gerrit review in nvim: quitting nvim closes its tab
 
 Needs: **app** (rebuild with herdr-app patch 0006) and **mods** (nvim-jay; Windows: copy it again).

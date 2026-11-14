@@ -11,7 +11,8 @@
 // and anything that changed what the agent uses ask for a fresh one (AGENT_WANT).
 // How full the context is comes from
 //   kit context --pid <the agent's process> --tool <claude|codex|omp> --dir <its folder>
-// kept in CTX, asked again every 15 s while it works. A failed ask keeps the numbers it had.
+// kept in CTX, asked again every 15 s while it works. A failed ask keeps the numbers it had. With kit api 1.4 the same
+// ask also gets what the agent wrote about where it is (kit note --pid <pid> --json, in NOTE), shown after the folder.
 //
 // context (props { role, target }): the popup the context chip opens, where the tokens go, like Claude Code's own
 // /context:  kit context ... --detail [--fresh]  on the agent's machine (kit keeps it a minute; ⟳ asks again). Its
@@ -23,10 +24,10 @@
 import { div, svg } from "gpui-kit";
 import { h_flex, v_flex, InputState, Input } from "gpui-base";
 import { panes, spaces, agents, props, run, theme, hc, shared, setShared, openOverlay, closeOverlay, notify } from "herdr";
-import { AGENT_CACHE, AGENT_DATA, AGENT_WANT, CTX, EDITORS, fs, stop, slash, shortDir, clean, spin, waiting, icon, textBlock,
-  copyOnRight, btn, busyNow, takeBusy, giveBusy, markChanged, kit, kitJson, apiState, apiKnown, checkApi, apiCard, num, kfmt } from "./common.js";
+import { AGENT_CACHE, AGENT_DATA, AGENT_WANT, CTX, NOTE, EDITORS, fs, stop, slash, shortDir, clean, spin, waiting, icon, textBlock,
+  copyOnRight, btn, busyNow, takeBusy, giveBusy, markChanged, kit, kitJson, apiState, apiKnown, apiAtLeast, checkApi, apiCard, num, kfmt } from "./common.js";
 import { toolOf, ctxArgs, sendText, sendArgs, removal, ctxTips, summaryText, chipNumbers, level, howCounted, ago, catColorKey, barSegments,
-  catShare, compactLine } from "./context.js";
+  catShare, compactLine, noteArgs, noteView } from "./context.js";
 
 const CTX_STALE = 15000, CTX_IDLE = 60000;   // how often to ask how full the context is: working / not
 const STALE = 60000, LOAD_TTL = 90000;   // look again after a minute; a load longer than this is taken as lost
@@ -78,12 +79,19 @@ async function agentPid(term) {
   const g = term ? await hc(["get", term, "--json"]).catch(() => null) : null;
   try { const j = JSON.parse(g?.stdout ?? "{}"); return j.foreground?.pid ?? j.pid ?? null; } catch { return null; }
 }
-async function loadContext(machine, cwd, term, tool) {
+// With withNote (kit api 1.4) also what it wrote about where it is (kit note --pid --json): note { text, at } | null (none),
+// undefined when not asked or the ask failed (the old one stays). -> { ctx, note }
+async function loadContext(machine, cwd, term, tool, withNote) {
   const pid = await agentPid(term);
-  if (!pid) return null;
+  if (!pid) return { ctx: null, note: undefined };
   const r = await kit(ctxArgs(pid, tool, cwd), 60000, machine);
-  if (r.code !== 0) return null;
-  try { const d = JSON.parse(r.out); return d && typeof d === "object" ? d : null; } catch { return null; }
+  let ctx = null, note;
+  if (r.code === 0) try { const d = JSON.parse(r.out); ctx = d && typeof d === "object" ? d : null; } catch {}
+  if (withNote) {
+    const n = await kit(noteArgs(pid), 30000, machine);
+    if (n.code === 0) try { const d = JSON.parse(n.out); if (d && typeof d === "object") note = d.text ? { text: d.text, at: d.at } : null; } catch {}
+  }
+  return { ctx, note };
 }
 // a category's color in the bar and its dot
 const catColor = (t, id) => t[catColorKey(id)] ?? t.dim;
@@ -144,8 +152,9 @@ export class Header {
     const started = Date.now();
     setShared(CTX, { ...pruned(all), [w.key]: { ...(c ?? {}), busy: true, started, status: p.status } });
     cx.spawn(async (cx) => {
-      let d = null;
-      try { d = await loadContext(w.machine, p.cwd, p.terminal, toolOf(p.app, p.program?.key)); } catch {}
+      let d = null, note;
+      try { ({ ctx: d, note } = await loadContext(w.machine, p.cwd, p.terminal, toolOf(p.app, p.program?.key), apiAtLeast(w.machine, 4))); } catch {}
+      if (note !== undefined) setShared(NOTE, { ...pruned(shared(NOTE)), [w.key]: note });
       // a failed ask (no answer, kit busy, the machine away) keeps the numbers it had: only when it asked changes
       const before = (shared(CTX) ?? {})[w.key] ?? c ?? {};
       const now = d ? { ...d } : { ...before };
@@ -168,6 +177,15 @@ export class Header {
       .when(pct != null, (el) => el.child(div().flex_none().font_semibold().text_color(color).child(`${pct}%`)))
       .child(div().min_w(0).truncate().text_color(t.dim).child(nums));
     return has ? copyOnRight(chip, copy) : chip;
+  }
+
+  // [進度 改好 parser；下一步跑測試]: the first line of what the agent wrote (kit note), all of it in the tooltip, dim
+  // after two hours; a right-click copies it
+  noteChip(t, p, nv) {
+    const el = h_flex().id(`kit-note-${p.pane}`).flex_1().min_w(0).gap(5).items_center().text_size(11).tooltip(nv.tip)
+      .child(div().h(16).px(5).flex().flex_none().items_center().rounded(4).bg(t.raised).font_semibold().text_color(t.foreground).child("進度"))
+      .child(div().min_w(0).truncate().text_color(nv.old ? t.dim : t.foreground).child(nv.line));
+    return copyOnRight(el, nv.copy);
   }
 
   openContext(p) {
@@ -219,6 +237,7 @@ export class Header {
     if (!p) return div();
     const name = ((p.program?.agent || p.program?.shell) && p.program.name) || p.title || p.program?.name || "shell";
     const pic = icon(p.program, 14, t.dim), st = p.status, pane = p.pane, agent = Boolean(p.terminal && p.program?.agent), live = this.hovered;
+    const nv = agent ? noteView((shared(NOTE) ?? {})[placeOf(p).key]) : null;   // what the agent wrote about where it is
     // the status in a small box of one width (a red "!" for Needs you, a dot when done, else nothing): the header never moves
     const status = div().flex_none().w(16).h(22).flex().items_center().justify_center()
       .when(st === "blocked", (el) => el.child(div().flex_none().size(14).flex().items_center().justify_center().rounded(7).bg(t.blocked)
@@ -230,7 +249,8 @@ export class Header {
       .on_click(() => run("pane.focus", { pane }))
       .when(Boolean(pic), (el) => el.child(pic))
       .child(div().flex_none().truncate().max_w(260).font_medium().text_color(t.foreground).child(name))
-      .child(div().flex_1().min_w(0).truncate().text_color(t.dim).child(shortDir(p.cwd)))
+      .child(div().when(Boolean(nv), (el) => el.flex_none().max_w(200)).when(!nv, (el) => el.flex_1()).min_w(0).truncate().text_color(t.dim).child(shortDir(p.cwd)))
+      .when(Boolean(nv), (el) => el.child(this.noteChip(t, p, nv)))
       .when(agent, (el) => el.child(this.kitButton(t, p)).when(apiState(placeOf(p).machine)?.ok !== false, (el) => el.child(this.contextChip(t, p))))
       .child(status)
       .child(h_flex().flex_none().gap(2).items_center()

@@ -512,13 +512,13 @@ export class Repo {
     if (unk) all.child(note(`其中 ${unk} 個認不出授權種類：收進來後請自己看它的 LICENSE。`, t.foreground));
     if (again) all.child(note(`其中 ${again} 個之前收過：會整份換成這次下載的版本。`, t.working));
     if (allow) all.child(note(`${lk.id} 會一起加進 ${lk.source} 的允許清單。`, t.working));
-    all.child(note("會一個一個收（每個都重新下載一次，大的 repo 要等一下）；不能收的會跳過，最後列出來。收完在 Skills 清單「收來的」底下，照網址分一組。"));
+    all.child(note("會一個一個收（每個都重新下載一次，大的 repo 要等一下）；不能收的會跳過，最後列出來。收好一個就出現在 Skills 清單「收來的」底下（照網址分一組），不用等全部收完。"));
     all.child(note("收進來後：用 git diff 看收了哪些檔案 → 清單上面黃色那條按「送出」送上去 → 要用哪個，就在 agent 視窗上的 Kit 清單按「加到這個資料夾」。"));
     const pr = m.progress;
     all.child(h_flex().gap(6).items_center()
       .child(btn(t, z, "collect-many", this.busy === "收" ? "收進來中…" : `${allow ? "加進清單並收進來" : "收進來"}（${picked.length} 個）`,
         { small: true, kind: "primary", off: Boolean(this.busy) || !picked.length, on: (cx) => this.collectMany(picked, allow, cx) })));
-    if (this.busy === "收" && pr) all.child(this.working(t, z, `收進來中 ${pr.done}/${pr.total}：${pr.name}`));
+    if (this.busy === "收" && pr) all.child(this.working(t, z, `收進來中 ${pr.done}/${pr.total}：${pr.name}${pr.ok ? `（已收好 ${pr.ok} 個，在下面清單）` : ""}`));
     return box.child(card).child(all);
   }
 
@@ -680,6 +680,10 @@ export class Repo {
     if (!lk || !picked.length) return;
     if (!this.startBusy("收", LONG + SHORT * picked.length)) return;
     m.progress = { done: 0, total: picked.length, name: picked[0].name };
+    // its group open from the start: each one collected shows in the list right away, not only when all are done
+    // (a long run that showed nothing new for minutes read as failed)
+    const g = urlId(lk.url);
+    localSet("kit.groups", JSON.stringify([...this.openGroups().filter((x) => x !== g), g]));
     cx.notify();
     cx.spawn(async (cx) => {
       const ok = [], bad = [];
@@ -689,8 +693,11 @@ export class Repo {
           cx.notify();
           const r = await kit(["collect", lk.url, "--to", lk.source, "--path", x.path, ...(allow ? ["--allow"] : [])], LONG)
             .catch((e) => ({ code: 1, err: String(e?.message ?? e) }));
-          if (r.code === 0) ok.push(x.name);
-          else bad.push(`${x.name}：${clean(r.err || r.out).trim().split("\n").filter(Boolean).pop() ?? "失敗"}`);
+          if (r.code === 0) {
+            ok.push(x.name);
+            m.progress = { ...m.progress, ok: ok.length };
+            loadNewest(LOAD, DATA, loadRepo).then(() => cx.notify(), () => {});   // not waited for: the next one starts now
+          } else bad.push(`${x.name}：${clean(r.err || r.out).trim().split("\n").filter(Boolean).pop() ?? "失敗"}`);
           m.progress = { ...m.progress, done: m.progress.done + 1 };
         }
       } finally {
@@ -700,8 +707,6 @@ export class Repo {
         if (ok.length) {
           this.making = null;
           this.newUrl.set_value("");
-          const g = urlId(lk.url);
-          localSet("kit.groups", JSON.stringify([...this.openGroups().filter((x) => x !== g), g]));
         } else m.progress = null;
         this.endBusy();
         cx.notify();

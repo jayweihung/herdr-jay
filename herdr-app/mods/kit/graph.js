@@ -397,7 +397,9 @@ export const stuckColor = (t) => t.ansi5 || t.ansi1;
 
 // c over base, a little of it (both "#rrggbb"; anything else: base as it is)
 export function tint(base, c, amount = 0.16) {
-  const rgb = (x) => (/^#[0-9a-f]{6}/i.test(String(x)) ? [1, 3, 5].map((i) => parseInt(String(x).slice(i, i + 2), 16)) : null);
+  // only solid colors: a see-through one (#rrggbbaa, like the theme's selected #ffffff17) read as #rrggbb would be
+  // solid white, so it is left as it is
+  const rgb = (x) => (/^#[0-9a-f]{6}(ff)?$/i.test(String(x)) ? [1, 3, 5].map((i) => parseInt(String(x).slice(i, i + 2), 16)) : null);
   const a = rgb(base), b = rgb(c);
   if (!a || !b) return base;
   return `#${a.map((v, i) => Math.round(v + (b[i] - v) * amount).toString(16).padStart(2, "0")).join("")}`;
@@ -426,7 +428,9 @@ export const subsText = (n, now = Date.now()) => (n?.subs ?? []).map((x) => subL
 // and 等太久 (ansi1) the very same red: how deep, not which color, tells them apart.
 export function bgOf(t, mark, wash, on, hover = false, strong = false) {
   const base = mark && wash ? tint(t.raised, mark, strong ? (on ? 0.5 : 0.4) : on ? 0.26 : 0.16) : on ? t.selected : t.raised;
-  return hover ? tint(base, mark && wash ? mark : t.foreground, mark && wash ? 0.12 : 0.06) : base;
+  if (!hover) return base;
+  // the selected one's own color (t.selected) is see-through: the mouse over it brightens the card's solid color instead
+  return mark && wash ? tint(base, mark, 0.12) : tint(t.raised, t.foreground, on ? 0.12 : 0.06);
 }
 // mark: a color for a card in trouble (a stuck chain; two in one folder) or waiting for you, else null: a thick
 // border; wash: a tint of it all over too (only where it is your turn)

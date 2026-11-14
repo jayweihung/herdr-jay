@@ -759,6 +759,12 @@ test("關係 colors: colored all over only where it is your turn; 停了沒回 h
   assert.equal(bgOf(th, th.ansi1, true, false, true), tint(tint(th.raised, th.ansi1), th.ansi1, 0.12));
   assert.equal(bgOf(th, null, true, false, true), tint(th.raised, th.foreground, 0.06));
   assert.equal(bgOf(th, th.ansi1, true, true), tint(th.raised, th.ansi1, 0.26), "selected: still its color, stronger");
+  // the theme's selected is see-through (#ffffff17): the mouse over a selected card never makes it solid white
+  const see = { ...th, raised: "#2c313a", foreground: "#eeeeef", selected: "#ffffff17" };
+  assert.equal(bgOf(see, null, false, true), "#ffffff17");
+  assert.equal(bgOf(see, null, false, true, true), tint("#2c313a", "#eeeeef", 0.12), "selected + mouse: a bit brighter, not white");
+  assert.equal(bgOf(see, see.ansi1 ?? "#e06c75", false, true, true), tint("#2c313a", "#eeeeef", 0.12), "a frame only (at work): the same");
+  assert.equal(tint("#ffffff17", "#eeeeef", 0.5), "#ffffff17", "tint leaves a see-through color alone");
   assert.doesNotMatch(readFileSync(join(MOD, "graph.js"), "utf8"), /hover\(\(s\) => s\.border_color/, "hover never changes a frame's color");
   H.strings = [];
   legendView(th, 13);

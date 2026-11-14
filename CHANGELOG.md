@@ -9,6 +9,14 @@ says which) · **kit** = update kit itself on every machine where agents run (`k
 **snap hook** = a line in Claude Code's `settings.json` on each machine where you added the hook (the entry says
 which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/keys.md).
 
+## 2026-11-15, 關係: a selected card under the mouse no longer turns white
+
+Needs: **mods**.
+
+The theme's selected color is see-through (`#ffffff17`); the mouse over the selected card read it as solid white,
+so the card went white and its name could not be read. Now it is a little brighter than the others, as meant.
+選中的卡片滑鼠移上去不會再整張變白（字看不到）；只會比旁邊亮一點。
+
 ## 2026-11-15, a Codex at its usage limit too
 Needs: mods, kit (0.6.6).
 - A Codex that stops at its plan's usage limit gets the same red chip and 繼續 once it resets (kit 0.6.6 reads it

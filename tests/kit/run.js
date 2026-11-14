@@ -118,7 +118,7 @@ Date.now = () => realNow() + skew;
 const cx = {
   notify() {}, stop_propagation() {}, write_to_clipboard(text) { H.clipboard.push(text); },
   spawn: (f) => { const p = Promise.resolve().then(() => f(cx)); H.tasks.push(p); return p; },
-  timer: { every: (_ms, f) => timers.push(f), after: (_ms, f) => H.afters.push(f) },   // H.afters: run by a test
+  timer: { every: (ms, f) => { f.ms = ms; timers.push(f); }, after: (_ms, f) => H.afters.push(f) },   // H.afters: run by a test
   new: (_Class, props) => ({ props, set_props(p) { this.props = p; }, release() { return true; } }),
 };
 async function settle() { for (let i = 0; i < 20 && H.tasks.length; i++) { const t = H.tasks.splice(0); await Promise.all(t); } }
@@ -854,6 +854,18 @@ test("agents.waiting (for Herdr's own Agents list, app patch 0010): who waits fo
   M.machines.refreshPending(cx, "here"); await settle();
   assert.deepEqual(kitCalls("status").map((c) => c.on), [null], "this computer only");
   assert.equal(M.machines.pendingDue(), null);
+  // you look at one (focus) or it starts: within one 400 ms round, a key every mod re-renders on, and Herdr's list
+  fresh(); fakeKit();
+  H.agents = [ag("t1", "blocked")]; H.terminals = [{ address: "t1", status: "blocked", status_ms: Date.now() - 11 * MIN }];
+  view(M, { role: "agents-toggle" }); await settle();
+  const fast = timers.filter((f) => f.ms === 400);
+  for (const f of fast) f(cx); await settle();
+  assert.ok(H.store["agents.waiting"]?.t1, "waiting too long: in Herdr's list");
+  const before = H.store["kit.agents.sig"];
+  H.agents = [ag("t1", "working", { focused: true })]; H.terminals = [{ address: "t1", status: "working", status_ms: Date.now() }];
+  for (const f of fast) f(cx); await settle();
+  assert.notEqual(H.store["kit.agents.sig"], before, "changed: said at once");
+  assert.equal(H.store["agents.waiting"]?.t1, undefined, "answered: off Herdr's list at once, not 5 s later");
 });
 test("關係: an agent done and not looked at says what it said when it stopped (its card, its own alert line); cards waiting for you are colored", async (M) => {
   const { graphData, cardState, alertsView, tint } = M.graph, { parseSaid, saidNow } = M.said;

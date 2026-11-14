@@ -9,6 +9,12 @@ says which) · **kit** = update kit itself on every machine where agents run (`k
 **snap hook** = a line in Claude Code's `settings.json` on each machine where you added the hook (the entry says
 which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/keys.md).
 
+## 2026-11-15, 關係: colors follow what you just did within half a second
+Needs: mods.
+- Herdr doesn't re-render mods when an agent's status or focus changes, so after you looked at a card (or answered)
+  the drawing kept its color up to 2 s and Herdr's Agents list its Needs you up to 5 s. Kit's button now notices
+  such a change within 400 ms and re-renders both at once.
+
 ## 2026-11-15, 關係: 等太久 is a deep wash, not only another red
 Needs: mods.
 - Many themes give 等你處理 (blocked) and 等太久 (ansi1) the same red (atom-one-dark: both #e06c75), so a card that

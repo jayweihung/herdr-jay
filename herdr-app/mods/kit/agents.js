@@ -56,6 +56,7 @@ const botOf = (a) => a.bot ?? pickBot(a.name);
 // foreground pid, else its own) is that pid. hc get on that machine's agents, the same folder first; each answer kept
 // WHO_TTL in shared WHO ("host|pid" -> { address, at }; none found too: asked again then)
 const WHO = "kit.who.v1";
+export const AGENTS_SIG = "kit.agents.sig";   // every agent's status and focus, set when it changes (every mod re-renders)
 let whoBusy = false;
 export const whoOf = (p) => (p?.pid ? (shared(WHO) ?? {})[`${p.host ?? ""}|${p.pid}`]?.address || null : null);
 function whoTick(cx) {
@@ -133,6 +134,17 @@ export class Agents {
     dropLoop(this, cx);
     if (this.role === "agents-toggle") {   // the button only reads what the panel loaded, and runs the window's places
       cx.timer.every(400, (cx) => takeAsks(this, cx));
+      // an agent's status or focus changed (you looked at one, it stopped, it started): Herdr doesn't re-render mods
+      // for that, so the 關係 drawing (its own tick: 2 s) and Herdr's Agents list (agents.waiting: 5 s) lagged behind
+      // what you just did. Seen here within 400 ms: a shared key every mod re-renders on, and the list's key at once.
+      let sig = "";
+      cx.timer.every(400, () => {
+        try {
+          const now = (agents() ?? []).map((a) => `${a.address}:${a.status}:${a.focused ? 1 : 0}`).join("|");
+          if (now === sig) return;
+          sig = now; setShared(AGENTS_SIG, now); publishWaiting();
+        } catch {}
+      });
       cx.timer.every(2000, () => { try { logTick(); } catch {} });   // the 關係 timeline's log, while Herdr runs
       // background work of done agents for Herdr's Agents list (agents.busy), and what they said, while Herdr runs
       cx.timer.every(2000, (cx) => { try { saidTick(agents(), terminals(), cx); } catch {} });

@@ -21,7 +21,7 @@
 // timeline (timeline.js, from the event log events.js that the Agents button keeps while Herdr runs).
 import { div } from "gpui-kit";
 import { v_flex, h_flex, Editor } from "gpui-base";
-import { theme, run, shared, setShared, readTextFile, writeTextFile, closeOverlay, openOverlay, props, spaces, focused, layout, agents, terminals, settings, panes } from "herdr";
+import { theme, run, shared, setShared, readTextFile, writeTextFile, closeOverlay, openOverlay, props, spaces, focused, layout, agents, terminals, settings, panes, hc } from "herdr";
 import { AGENTS_DATA, AGENTS_LOAD, AGENTS_MSG, CTX, NOTE, NODES, fs, stop, isWindows, shortDir, spin, waiting, find, textBlock, copyOnRight, btn,
   busyNow, dropStaleBusy, giveBusy, markRepoStale, kit, kitJson, localKit, apiState, apiKnown, checkApi, apiCard, messageBox, problemCard, newEditor,
   localGet, localSet, kitAction, loadNewest, loadingNow } from "./common.js";
@@ -237,7 +237,10 @@ export class Agents {
     const a = this.open && (d?.agents ?? []).find((x) => x.name === this.open);
     root.child(this.header(t, z, d, a));
     if (!a && !this.edit) root.child(this.tabs(t, z));
-    if (!a && !this.edit && this.tab === "rel") return root.child(this.relations(t, z));
+    if (!a && !this.edit && this.tab === "rel") {   // 關係 says its own news too (提醒它回 went out or didn't)
+      if (msg && msg.label === "提醒") root.child(this.message(t, z, msg));
+      return root.child(this.relations(t, z));
+    }
     const api = apiState(null);
     if (api?.kind && !api.ok) return root.child(apiCard(t, z, api, null, "agents"));
     if (msg) root.child(this.message(t, z, msg));
@@ -319,9 +322,12 @@ export class Agents {
     if (this.nudged.has(key)) return;
     this.nudged.add(key);
     const who = g.nodes.find((n) => n.address === w.to)?.name ?? w.to;
-    Promise.resolve(run("terminal.send", { terminal: w.to, text: nudgeText(g, w), if: "idle" }))
-      .then(() => setShared(AGENTS_MSG, { ok: true, label: "提醒", text: `提醒 ${who} 回覆了`, at: Date.now() }))
-      .catch((e) => { this.nudged.delete(key); setShared(AGENTS_MSG, { ok: false, label: "提醒", text: `提醒沒送出（${who} 可能又在忙了）：${e?.message ?? e}`, at: Date.now() }); });
+    // hc send, not run(): run() takes the app's commands only. No HC_TERMINAL_ID here, so herdr-core neither tags it
+    // as an agent's message nor counts it as a line in the graph.
+    const fail = (why) => { this.nudged.delete(key); setShared(AGENTS_MSG, { ok: false, label: "提醒", text: `提醒沒送出（${who} 可能又在忙了）：${why}`, at: Date.now() }); cx.notify(); };
+    Promise.resolve(hc(["send", "--if", "idle", "--json", w.to, nudgeText(g, w)]))
+      .then((r) => (r && r.code !== 0 ? fail(String(r.stderr || r.stdout || r.code).trim()) : setShared(AGENTS_MSG, { ok: true, label: "提醒", text: `已提醒 ${who} 回覆，等它回`, at: Date.now() })))
+      .catch((e) => fail(e?.message ?? e));
     cx.notify();
   }
 

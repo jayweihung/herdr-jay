@@ -534,6 +534,22 @@ test("關係 tab: the cards and lines drawn, a click says one card's lines in wo
   assert.match(out, /→ 傳給 t9（不在這裡） · 2 次/);
   assert.match(out, /最後一則：好了/);
   H.clicks["kit-graph"]({}, cx);
+  // 提醒它回 from the panel: hc send --if idle (not run(): that takes the app's commands only), said on top
+  H.agents = [ag("t1", "idle", { tab_name: "問" }), ag("t2", "idle", { tab_name: "答" })];
+  H.terminals = [{ address: "t1", sent: [{ to: "t2", count: 1, last_ms: Date.now() - 600000, text: "看一下" }], status_ms: Date.now() - 590000 },
+    { address: "t2", status_ms: Date.now() - 300000 }];
+  out = render(v);
+  const nudge = Object.keys(H.clicks).find((k) => k.startsWith("kit-graph-nudge-"));
+  assert.ok(nudge, "a 提醒它回 button");
+  H.calls = [];
+  H.clicks[nudge]({}, cx); await settle();
+  const sendCall = H.calls.find((c) => c.argv[1] === "send");
+  assert.deepEqual(sendCall?.argv.slice(0, 6), ["hc", "send", "--if", "idle", "--json", "t2"]);
+  assert.match(sendCall.argv[6], /^\[Herdr 提醒\] 你還沒回 問 傳給你的訊息（開頭：「看一下」）/);
+  out = render(v);
+  assert.match(out, /已提醒 答 回覆，等它回/);
+  assert.match(out, /已提醒/);
+  H.agents = AGS; H.terminals = TERMS;
   assert.ok(!/最後一則：好了/.test(render(v)), "a click on the empty part: nothing selected");
   H.clicks["kit-graph-scope-all"]({}, cx);
   assert.ok(render(v).includes("docs"));

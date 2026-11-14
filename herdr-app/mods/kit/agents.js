@@ -274,7 +274,7 @@ export class Agents {
   // 關係: the agents running in the shown space (or all), who talks to whom (graph.js)
   relations(t, z) {
     const f = focused(), shownSpace = f?.space ?? (spaces() ?? []).find((s) => s.active)?.id ?? null, now = Date.now();
-    const g = graphData({ agents: agents(), terms: terminals(), space: this.scope === "space" ? shownSpace : null, ctx: shared(CTX), notes: shared(NOTE), now });
+    const g = graphData({ agents: agents(), terms: terminals(), space: this.scope === "space" ? shownSpace : null, ctx: shared(CTX), notes: shared(NOTE), log: eventLog(), now });
     if (this.sel && !g.nodes.some((n) => n.address === this.sel)) this.sel = null;
     const scope = (id, label) => btn(t, z, `kit-graph-scope-${id}`, label, { tiny: true, kind: this.scope === id ? "primary" : undefined,
       on: (cx) => { this.scope = id; localSet("kit.agents.scope", id); cx.notify(); } });

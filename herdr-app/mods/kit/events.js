@@ -26,7 +26,9 @@ export function diffEvents(last, ags, terms, notes, now = Date.now()) {
     const r = rec.get(a.address), was = last?.[a.address];
     const sent = Object.fromEntries((Array.isArray(r?.sent) ? r.sent : []).filter((s) => s?.to).map((s) => [s.to, Number(s.count) || 1]));
     const note = notes?.[a.address] ?? "";
-    const at = Math.min(now, Number(r?.status_ms) || now);
+    // the core's status_ms when it is fresh; Herdr's list keeps it from the first listing (status events don't
+    // carry it), so an old one means "just now"; the first look takes it as it is (when it got there)
+    const sm = Number(r?.status_ms) || 0, at = !last ? Math.min(now, sm || now) : sm > now - 5000 ? Math.min(now, sm) : now;
     seen[a.address] = { status: a.status, sent, note };
     if (!was) { if (last) events.push({ at, k: "start", a: a.address, v: a.status }); else events.push({ at, k: "status", a: a.address, v: a.status }); continue; }
     if (was.status !== a.status) events.push({ at, k: "status", a: a.address, v: a.status });

@@ -40,15 +40,18 @@ const byTerminal = (obj, addr) => Object.entries(obj ?? {}).find(([k]) => k.ends
 // agents: Herdr's agents(); terms: terminals(); space: the shown space's id, or null for every space;
 // ctx, notes: the pane header's CTX and NOTE. -> { cols: [{ machine, nodes }], nodes, edges, outside }
 //   edges: lines between shown agents; outside: lines with one end on a shown agent, the other not shown
-export function graphData({ agents, terms, space, ctx, notes, now = Date.now() }) {
+// log: the event log (events.js), for when each status began (Herdr's list keeps status_ms from its first listing)
+export function graphData({ agents, terms, space, ctx, notes, log = [], now = Date.now() }) {
   const shown = (agents ?? []).filter((a) => !space || a.space === space);
   const rec = new Map((terms ?? []).map((r) => [r?.address, r]));
+  const began = {};
+  for (const e of log ?? []) if ((e.k === "status" || e.k === "start") && e.at > (began[e.a] ?? 0)) began[e.a] = e.at;
   const nodes = shown.map((a) => {
     const c = byTerminal(ctx, a.address), n = noteView(byTerminal(notes, a.address), now), r = rec.get(a.address);
     return { address: a.address, machine: machineOf(a.address), name: a.tab_name || a.title || a.address, status: a.status,
       cli: cliOf(a.app, a.program?.key), model: modelOf(c?.model), note: n?.line ?? "", noteOld: Boolean(n?.old),
       program: a.program, space: a.space_name, focused: Boolean(a.focused),
-      since: Number(r?.status_ms) || 0, cwd: String(r?.foreground?.cwd || r?.cwd || "") };
+      since: Math.max(Number(r?.status_ms) || 0, began[a.address] ?? 0), cwd: String(r?.foreground?.cwd || r?.cwd || "") };
   });
   const machines = [...new Set(nodes.map((n) => n.machine))].sort((a, b) => (a === "" ? -1 : b === "" ? 1 : a.localeCompare(b)));
   const cols = machines.map((m) => ({ machine: m, nodes: nodes.filter((n) => n.machine === m) }));
@@ -72,8 +75,8 @@ export function graphData({ agents, terms, space, ctx, notes, now = Date.now() }
 
 // how long after a message the receiver must have stopped for it to count as not answering (its turn on the message)
 const SETTLE = 1500;
-// A waits for B: A's last message to B is newer than B's last to A, and A has stopped (it isn't working on
-// something else). How B stands: working (on it), blocked (needs you), or silent (stopped after it, no answer).
+// A waits for B: A messaged B more times than B messaged A (an answer evens them out: whoever answered isn't
+// waiting for an answer to it), the last one after B's last, and A has stopped (it isn't working on something else). How B stands: working (on it), blocked (needs you), or silent (stopped after it, no answer).
 // -> [{ from, to, at, state, since }] (since: when B stopped, for silent and blocked)
 export function waitsOf(g, now = Date.now()) {
   const node = new Map(g.nodes.map((n) => [n.address, n]));
@@ -82,7 +85,7 @@ export function waitsOf(g, now = Date.now()) {
   for (const e of g.edges) {
     if (e.kind !== "send") continue;
     const a = node.get(e.from), b = node.get(e.to), back = last(e.to, e.from);
-    if (!a || !b || (back && back.at >= e.at) || a.status === "working") continue;
+    if (!a || !b || (back && (back.at >= e.at || back.count >= e.count)) || a.status === "working") continue;
     const state = b.status === "working" ? "working" : b.status === "blocked" ? "blocked"
       : b.since > e.at + SETTLE ? "silent" : "working";   // stopped before the message settled in: still on it
     out.push({ from: e.from, to: e.to, at: e.at, state, since: state === "working" ? 0 : b.since, waited: now - e.at });

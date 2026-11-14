@@ -490,7 +490,7 @@ test("關係: lines leave the facing side, loop out on the right in one column, 
   assert.ok(l[0] < 10 && r[0] < 10 && l[1] * r[1] < 0, "behind the tip, one on each side");
 });
 test("關係 tab: the cards and lines drawn, a click says one card's lines in words, the scope and the tab remembered", async (M) => {
-  fresh(); fakeKit();
+  fresh(); fakeKit(); localStorage.removeItem("kit.agent-events");
   H.spaces = [{ id: "s1", name: "web", active: true, tabs: [] }, { id: "s2", name: "other", tabs: [] }];
   H.agents = AGS; H.terminals = TERMS;
   const v = view(M, { role: "agents" }); await settle();
@@ -513,7 +513,7 @@ test("關係 tab: the cards and lines drawn, a click says one card's lines in wo
   assert.ok(render(v).includes("docs"));
   const again = view(M, { role: "agents" }); await settle();
   assert.ok(render(again).includes("docs"), "the tab and the scope kept");
-  localStorage.removeItem("kit.agents.tab"); localStorage.removeItem("kit.agents.scope");
+  localStorage.removeItem("kit.agents.tab"); localStorage.removeItem("kit.agents.scope"); localStorage.removeItem("kit.agent-events");
 });
 const ag = (address, status, extra = {}) => ({ address, space: "s1", tab_name: address, app: "claude-code", status, program: { key: "claude" }, ...extra });
 test("關係: who waits for whom: still on it, no answer, needs you; chains to the end, loops; a reply ends the wait", (M) => {
@@ -534,6 +534,16 @@ test("關係: who waits for whom: still on it, no answer, needs you; chains to t
   // b answers a: no wait any more
   const answered = graphData({ agents, terms: [...terms.filter((r) => r.address !== "b"), { address: "b", sent: [msg("a", 9500)], status_ms: 9600 }], space: null, now: 60000 });
   assert.equal(answered.waits.some((x) => x.from === "a" && x.to === "b"), false);
+  // Herdr's list kept b's status_ms from before; the log knows b stopped after the message
+  const stale = terms.map((r) => (r.address === "b" ? { ...r, status_ms: 10 } : r));
+  assert.equal(graphData({ agents, terms: stale, space: null, now: 60000 }).waits.find((x) => x.from === "a").state, "working", "without the log: can't tell");
+  assert.equal(graphData({ agents, terms: stale, space: null, now: 60000, log: [{ at: 9000, k: "status", a: "b", v: "idle" }] }).waits.find((x) => x.from === "a").state, "silent");
+  // a question and its answer: the one who answered waits for nothing; asking again waits again
+  const qa = [{ address: "p", sent: [{ to: "q", count: 1, last_ms: 1000 }], status_ms: 20000 }, { address: "q", sent: [{ to: "p", count: 1, last_ms: 9000 }], status_ms: 9500 }];
+  const pq = [ag("p", "idle"), ag("q", "idle")];
+  assert.deepEqual(graphData({ agents: pq, terms: qa, space: null }).waits, [], "answered: nobody waits");
+  qa[0].sent[0] = { to: "q", count: 2, last_ms: 21000 };
+  assert.deepEqual(graphData({ agents: pq, terms: qa, space: null }).waits.map((x) => `${x.from}>${x.to}`), ["p>q"], "asked again");
   // a sent, but works on something else now: not waiting
   assert.equal(graphData({ agents: agents.map((x) => (x.address === "a" ? { ...x, status: "working" } : x)), terms, space: null }).waits.some((x) => x.from === "a"), false);
   // x and y wait for each other
@@ -562,6 +572,8 @@ test("關係 log: status changes, new messages, new notes, agents coming and goi
   assert.deepEqual(events.map((e) => [e.k, e.a, e.at]), [["start", "t3", 1200], ["send", "t1", 1400], ["status", "t1", 1500], ["note", "t1", 2000], ["gone", "t2", 2000]]);
   assert.equal(events.find((e) => e.k === "send").n, 2);
   assert.equal(events.find((e) => e.k === "note").text, "改 parser");
+  // a status_ms Herdr kept from long ago: the change is now
+  assert.equal(diffEvents(last, [ag("t1", "done"), ag("t3", "idle")], [{ address: "t1", status_ms: 5 }, { address: "t3" }], {}, 9000).events.find((e) => e.k === "status").at, 9000);
   assert.equal(diffEvents(last, [ag("t1", "working"), ag("t3", "idle")], [{ address: "t1", sent: [{ to: "t2", count: 5 }] }], notesByAddr({ "|/w|t1": { text: "改 parser" } }), 3000).events.length, 0, "nothing new: nothing");
 });
 test("關係 timeline: a lane's stretches from its status events, cut to the span; gone ends it", (M) => {
@@ -572,7 +584,7 @@ test("關係 timeline: a lane's stretches from its status events, cut to the spa
   assert.deepEqual(stretches(log, "t2", 40, 100), [{ x0: 60, x1: 100, v: "blocked" }]);
 });
 test("關係 tab: what needs a look on top (stuck, no answer, one folder); the timeline from the log the Agents button keeps", async (M) => {
-  fresh(); fakeKit();
+  fresh(); fakeKit(); localStorage.removeItem("kit.agent-events");
   H.spaces = [{ id: "s1", name: "web", active: true, tabs: [] }];
   const now = Date.now();
   H.agents = [ag("t1", "idle", { tab_name: "前端" }), ag("t2", "idle", { tab_name: "review" }), ag("t4", "working"), ag("t5", "working")];
@@ -593,7 +605,7 @@ test("關係 tab: what needs a look on top (stuck, no answer, one folder); the t
   out = render(v);
   assert.match(out, /色條是狀態/);
   for (const s of ["前端", "review", "現在"]) assert.ok(out.includes(s), s);
-  localStorage.removeItem("kit.agents.tab"); localStorage.removeItem("kit.agents.view");
+  localStorage.removeItem("kit.agents.tab"); localStorage.removeItem("kit.agents.view"); localStorage.removeItem("kit.agent-events");
   void btnView;
 });
 test("agent logo: bot: in the frontmatter is read, set after description, replaced, taken out; line ends and the prompt kept", (M) => {

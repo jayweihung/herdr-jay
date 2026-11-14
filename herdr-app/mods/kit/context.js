@@ -116,12 +116,20 @@ export function continueDue(c, status, sent, now = Date.now(), on = true) {
 export function usageLines(u, now = Date.now()) {
   if (!u || !Array.isArray(u.windows)) return [];
   return u.windows.filter((w) => w && w.pct != null).map((w) => {
-    const name = windowName(w.id, w.minutes), r = Number(w.resets_at);
+    // omp names a limit of one model family after the window ("7d:fable"): 每週（fable）
+    const tier = typeof w.id === "string" && w.id.includes(":") ? w.id.slice(w.id.indexOf(":") + 1) : "";
+    const name = windowName(w.id, w.minutes) + (tier ? `（${tier}）` : ""), r = Number(w.resets_at);
     if (r && now >= r) return { name, pct: null, text: `${name}：已重新計算（${whenText(r, now)} 重置過）` };
     return { name, pct: Math.min(100, Number(w.pct)), text: `${name}：用了 ${Math.min(100, Number(w.pct))}%${r ? `，${whenText(r, now)} 重置` : ""}` };
   });
 }
 
+// an omp agent's plan use (kit usage's "omp", kit 0.6.7): the provider of its model ("anthropic/claude-opus-5-5")
+export function ompUsage(usage, model) {
+  const p = typeof model === "string" && model.includes("/") ? model.slice(0, model.indexOf("/")) : "";
+  const u = p ? usage?.omp?.[p] : null;
+  return u ? { provider: p, u } : null;
+}
 // how full: "" below 70 %, "high" from 70 %, "full" from 90 %
 export const level = (pct) => (pct == null ? "" : pct >= 90 ? "full" : pct >= 70 ? "high" : "");
 // whose count the total is

@@ -28,7 +28,7 @@ import { panes, spaces, agents, props, run, theme, hc, shared, setShared, openOv
 import { collectedFrom, AGENT_CACHE, AGENT_DATA, AGENT_WANT, CTX, NOTE, LIMIT_SENT, EDITORS, localGet, localSet, fs, stop, slash, shortDir, clean, spin, waiting, icon, textBlock,
   copyOnRight, btn, busyNow, takeBusy, giveBusy, markChanged, kit, kitJson, apiState, apiKnown, apiAtLeast, checkApi, apiCard, num, kfmt } from "./common.js";
 import { toolOf, ctxArgs, askZero, zeroNumbers, sendText, sendArgs, removal, ctxTips, summaryText, chipNumbers, level, howCounted, ago, catColorKey, barSegments,
-  catShare, compactLine, noteArgs, noteView, headerFit, kitChipW, CTX_FULL, CTX_SHORT, limitOf, continueDue, CONTINUE_TEXT, usageLines, whenText } from "./context.js";
+  catShare, compactLine, noteArgs, noteView, headerFit, kitChipW, CTX_FULL, CTX_SHORT, limitOf, continueDue, CONTINUE_TEXT, usageLines, ompUsage, whenText } from "./context.js";
 
 const CTX_STALE = 15000, CTX_IDLE = 60000;   // how often to ask how full the context is: working / not
 const STALE = 60000, LOAD_TTL = 90000;   // look again after a minute; a load longer than this is taken as lost
@@ -569,17 +569,21 @@ export class Header {
   // 方案用量: the plan's windows for this agent's tool (kit usage), the limit it stopped at (kit context's limit, as the
   // header keeps it), and whether 繼續 is typed for it once the limit resets
   ctxUsage(t, z) {
-    const tool = this.target.tool === "codex" ? "codex" : this.target.tool === "claude" ? "claude" : null;
+    const tool = this.target.tool === "codex" ? "codex" : this.target.tool === "claude" ? "claude" : this.target.tool === "omp" ? "omp" : null;
     if (!tool) return null;
-    const lines = usageLines(this.usage?.[tool]), lim = limitOf((shared(CTX) ?? {})[this.target.key]), auto = autoContinue();
+    const c = (shared(CTX) ?? {})[this.target.key];
+    // omp: what omp says for the provider of the model it uses (it may be another account than Claude Code's or Codex's)
+    const om = tool === "omp" ? ompUsage(this.usage, this.d?.model ?? c?.model) : null, use = tool === "omp" ? om?.u : this.usage?.[tool];
+    const lines = usageLines(use), lim = limitOf(c), auto = autoContinue();
     if (!lines.length && !lim) return null;
+    const who = tool === "claude" ? "Claude" : tool === "codex" ? "Codex" : `omp 的 ${om?.provider ?? "帳號"}`;
     const box = v_flex().gap(4).p(8).rounded(6).bg(t.raised).border_1().border_color(lim && !lim.back ? t.blocked : t.border)
-      .child(div().font_semibold().child(`方案用量（${tool === "claude" ? "Claude" : "Codex"}，這個帳號所有 agent 一起算）`));
+      .child(div().font_semibold().child(`方案用量（${who}，這個帳號所有 agent 一起算）`));
     if (lim) box.child(div().text_size(z - 1).text_color(lim.back ? t.working : t.blocked)
       .child(lim.back ? `${lim.name}上限已經恢復${auto ? `，會替它打「${CONTINUE_TEXT}」` : "，要自己叫它繼續"}` : `撞到${lim.name}上限停下來了，${whenText(lim.until)} 恢復`));
     for (const [i, x] of lines.entries()) box.child(h_flex().id(`ctx-use-${i}`).gap(6).items_center().text_size(z - 1.5)
       .child(div().flex_1().min_w(0).text_color(x.pct != null && x.pct >= 90 ? t.blocked : x.pct != null && x.pct >= 70 ? t.working : t.foreground).child(x.text)));
-    if (this.usage?.[tool]?.at) box.child(div().text_size(z - 2.5).text_color(t.dim).child(`${ago(Math.floor(this.usage[tool].at / 1000))}的數字`));
+    if (use?.at) box.child(div().text_size(z - 2.5).text_color(t.dim).child(`${ago(Math.floor(use.at / 1000))}的數字`));
     box.child(h_flex().gap(6).items_center().text_size(z - 1.5)
       .child(div().flex_1().min_w(0).text_color(t.dim).child(`撞到上限停下來的 agent，額度恢復後自動打「${CONTINUE_TEXT}」：${auto ? "開" : "關"}`))
       .child(btn(t, z, "ctx-auto", auto ? "關掉" : "打開", { tiny: true, on: (cx) => { localSet("kit.autoContinue", auto ? "off" : "on"); cx.notify(); } })));

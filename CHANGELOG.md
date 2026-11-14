@@ -9,6 +9,15 @@ says which) · **kit** = update kit itself on every machine where agents run (`k
 **snap hook** = a line in Claude Code's `settings.json` on each machine where you added the hook (the entry says
 which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/keys.md).
 
+## 2026-11-15, the context window: an omp agent's plan use too
+
+Needs: **mods**, **kit** (0.6.7).
+
+The 方案用量 box in an agent's context window now shows for an omp agent too: what `omp usage` says for the provider of
+the model it uses (anthropic, openai-codex…), a model family's own window by name (每週（fable）). kit asks omp in the
+background, at most every 5 minutes.
+omp agent 的 context 視窗也有「方案用量」：照它用的模型那一家，數字是 omp 自己回報的。
+
 ## 2026-11-15, Codex and omp: 背景工作中, sub-agents on Windows, Codex with --no-daemon; install docs
 
 Needs: **mods**; **app** only for Herdr 98 (patch 0011).

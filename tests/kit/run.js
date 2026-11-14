@@ -1347,6 +1347,10 @@ test("usage limit (context.js): names, times, the lines of kit usage, when 繼�
   assert.deepEqual(X.usageLines({ windows: [{ id: "five_hour", pct: 41, minutes: 300, resets_at: at(15, 14, 0) }, { id: "secondary", pct: 62, minutes: 10080, resets_at: at(15, 8, 0) }, { id: "x", pct: null }] }, now).map((x) => x.text),
     ["5 小時：用了 41%，14:00 重置", "每週：已重新計算（08:00 重置過）"], "a reset that passed: started again; no pct: left out");
   assert.deepEqual(X.usageLines(null), []);
+  // omp (kit 0.6.7): the provider of the agent's model; a model family's own window by name
+  const ou = { omp: { anthropic: { at: 1, windows: [{ id: "5h", pct: 56, minutes: 300, resets_at: null }, { id: "7d:fable", pct: 44, minutes: 10080, resets_at: null }] } } };
+  assert.deepEqual(X.usageLines(X.ompUsage(ou, "anthropic/claude-opus-5-5").u, now).map((x) => x.text), ["5 小時：用了 56%", "每週（fable）：用了 44%"]);
+  assert.equal(X.ompUsage(ou, "openai-codex/gpt-6"), null); assert.equal(X.ompUsage(ou, ""), null); assert.equal(X.ompUsage(null, "anthropic/x"), null);
   const c = { limit: { until: now - X.LIMIT_GRACE, kind: "five_hour" } };
   assert.deepEqual(X.limitOf({ limit: { until: now + 1, kind: "seven_day" } }, now), { until: now + 1, name: "每週", back: false });
   assert.equal(X.limitOf({ pct: 3 }, now), null);

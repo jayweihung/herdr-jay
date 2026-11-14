@@ -370,6 +370,18 @@ test("reply hook", function()
   local _, times = (type(out) == "table" and out.reason or ""):gsub("t2 ops", "")
   check("written again after each answer: once, the newest", times == 1 and out.reason:find("three", 1, true) ~= nil, out)
   check("bad input / no transcript: quiet, exit 0", select(1, run("", false)) == 0)
+  -- what it said last (for 關係's 做完等你看): its last words' last question, else their last line; a reminded stop too
+  local said = HOME .. "/.cache/nvim-jay/said/t5"
+  local function words(t) return vim.json.encode({ type = "assistant", message = { content = { { type = "text", text = t } } } }) .. "\n" end
+  local function read_said() local h = io.open(said, "r") if not h then return nil end local s = h:read("*a") h:close() return vim.json.decode(s) end
+  f = assert(io.open(tr, "ab")) f:write(words("old words") .. send("ls") .. words("做好了。\n\n**要你決定：** srv root 要不要升到 0.6.3？ root 要在 Mac 簽。\n\n- 你說可以，我就請 t1w 評估。")) f:close()
+  run("s1", true)
+  local s = read_said()
+  check("said: the line that asks (markdown off), even when kept going once", s and s.text == "要你決定： srv root 要不要升到 0.6.3？ root 要在 Mac 簽。" and s.at > 0, s)
+  f = assert(io.open(tr, "ab")) f:write(words("全部推上去了。\n\n| a | b |\n\n- 下一步：等 CI。")) f:close()
+  run("s1")
+  s = read_said()
+  check("said: no question, its last line", s and s.text == "下一步：等 CI。", s)
 end)
 
 -- review 2: git budget per round (a hung mount: one 5 s wait, not one per folder) and only the last Bash of a chunk

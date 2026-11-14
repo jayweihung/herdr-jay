@@ -103,7 +103,7 @@ async function loadMod() {
   const at = (f) => import(pathToFileURL(join(dir, f)).href);
   const m = { main: await at("main.js"), common: await at("common.js"), layout: await at("layout.js"), context: await at("context.js"), bots: await at("bots.js"),
     machines: await at("machines.js"), place: await at("place.js"), repo: await at("repo.js"), graph: await at("graph.js"),
-    events: await at("events.js"), timeline: await at("timeline.js") };
+    events: await at("events.js"), timeline: await at("timeline.js"), said: await at("said.js") };
   rmSync(dir, { recursive: true, force: true });
   return m;
 }
@@ -664,6 +664,32 @@ test("關係: waiting for you warms up then goes red (with what it waits for); s
   const g2 = graphData({ agents: [ag("box/t8", "idle", { space: "s9", space_name: "srv" })], terms, space: null, down: { box: now - 3 * MIN }, now });
   assert.deepEqual([g2.cols[0].machine, g2.cols[0].down], ["box", now - 3 * MIN], "a space on an offline machine");
   assert.deepEqual([spanText(30000), spanText(90 * MIN), spanText(50 * 3600000)], ["30 秒", "1 小時", "2 天"]);
+});
+test("關係: an agent done and not looked at says what it said when it stopped (its card, its own alert line); cards waiting for you are colored", (M) => {
+  const { graphData, cardState, alertsView, tint } = M.graph, { parseSaid, saidNow } = M.said;
+  const MIN = 60000, now = 100 * MIN;
+  assert.equal(parseSaid("{bad"), null);
+  assert.equal(parseSaid(JSON.stringify({ at: 5, text: "  " })), null, "nothing said");
+  assert.deepEqual(parseSaid(JSON.stringify({ at: 5, text: "a\n b" })), { at: 5, text: "a b" });
+  assert.equal([...parseSaid(JSON.stringify({ at: 5, text: "字".repeat(300) })).text].length, 200, "kept short");
+  const said = { t5: { at: now - 45 * MIN + 2000, text: "srv root 要不要升到 0.6.3？" }, t6: { at: now - 3 * 3600000, text: "old words" } };
+  assert.equal(saidNow(said, "t6", now - 45 * MIN), "", "said before this stop (no hook there): nothing");
+  const agents = [ag("t5", "done"), ag("t6", "done"), ag("t7", "blocked"), ag("t8", "done", { focused: true })];
+  const terms = [{ address: "t5", status_ms: now - 45 * MIN }, { address: "t6", status_ms: now - 45 * MIN }, { address: "t7", status_ms: now - 30000 }, { address: "t8", status_ms: now - MIN }];
+  const g = graphData({ agents, terms, space: null, said: { ...said, t8: { at: now, text: "seen" } }, now });
+  const st = (a) => cardState(g, g.nodes.find((n) => n.address === a), now);
+  assert.deepEqual([st("t5").text, st("t5").you], ["做完：srv root 要不要升到 0.6.3？", true]);
+  assert.deepEqual([st("t6").text, st("t6").you], ["做完 · 等你看", true]);
+  assert.deepEqual([st("t7").text, st("t7").you, st("t7").warm], ["等你 30 秒", true, false], "blocked: colored from the start");
+  assert.equal(st("t8"), null, "you're on it: nothing");
+  const th = new Proxy({}, { get: (_t, k) => (k === "then" ? undefined : "#334455") });
+  H.texts = []; H.strings = []; alertsView(th, 13, g, now);
+  const out = [...H.texts, ...H.strings].join("\n");
+  assert.match(out, /t5 做完等你看：「srv root 要不要升到 0\.6\.3？」/);
+  assert.match(out, /做完等你看：t6/);
+  assert.ok(!/t8/.test(out));
+  assert.equal(tint("#000000", "#ffffff", 0.5), "#808080");
+  assert.equal(tint("rgb(1,2,3)", "#ffffff"), "rgb(1,2,3)", "not #rrggbb: as it is");
 });
 test("關係 log: a machine going offline and back, once each; still loading isn't offline", (M) => {
   const { diffMachines } = M.events;

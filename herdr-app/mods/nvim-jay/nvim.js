@@ -115,16 +115,59 @@ os.exit(0)
 // what came in since its last stop: a message from another agent (herdr-core's <hc from="…"> tag) it hasn't answered
 // with `hc send` to that agent, and that doesn't say it wants no answer (不用回, 不用再回, 不必回, [FYI] in its first line).
 // Then it keeps the agent going once, with a reminder: answer, or just stop if it was only a notice. Once per message
-// (it remembers how far it looked, per session); never twice in a row (stop_hook_active).
+// (it remembers how far it looked, per session); never twice in a row (stop_hook_active). Every stop it also writes
+// what the agent said last (its last question, else its last line) to ~/.cache/nvim-jay/said/<terminal id>, for the
+// kit mod's 關係 tab (said.js).
 const REPLY_HOOK = String.raw`-- nvim-jay's reply hook: written by nvim-jay (herdr-jay mods/nvim-jay/nvim.js); edits here are overwritten.
 -- Claude Code Stop hook, run as: nvim -l <this file>. Before the agent stops: did a message from another agent come in
 -- (herdr-core's <hc from="..."> tag) since its last stop that it didn't answer with hc send to that agent, and that
 -- doesn't say it wants no answer (不用回, 不用再回, 不必回, [FYI] in its first line)? Then keep it going once with a
 -- reminder (answer, or stop if it was only a notice). How far it looked: ~/.cache/nvim-jay/reply/<session>, so each
 -- message is said once. Anything wrong (no transcript, bad input): stays quiet and lets the agent stop.
+local ok, call = pcall(vim.json.decode, io.read("*a") or "")
+if not ok or type(call) ~= "table" then return end
+-- What it said last, for Herdr's 關係 tab (做完等你看): in ~/.cache/nvim-jay/said/<its terminal id> as { at, text }, the
+-- last line of its last words that asks something (？ or ?), else their last line. Every stop, a reminded one too.
 pcall(function()
-  local ok, call = pcall(vim.json.decode, io.read("*a") or "")
-  if not ok or type(call) ~= "table" or call.stop_hook_active == true then return end
+  local tid = tostring(vim.env.HC_TERMINAL_ID or ""):gsub("[^%w%-_]", "")
+  local path = call.transcript_path
+  if tid == "" or type(path) ~= "string" then return end
+  local st = vim.uv.fs_stat(path)
+  local r = st and vim.uv.fs_open(path, "r", 0)
+  if not r then return end
+  local from = math.max(0, st.size - 512 * 1024)
+  local text = vim.uv.fs_read(r, st.size - from, from) or ""
+  vim.uv.fs_close(r)
+  local last
+  for line in text:gmatch("[^\n]+") do
+    local okl, rec = pcall(vim.json.decode, line)
+    local c = okl and type(rec) == "table" and rec.type == "assistant" and type(rec.message) == "table" and rec.message.content
+    for _, b in ipairs(type(c) == "table" and c or {}) do
+      if type(b) == "table" and b.type == "text" and type(b.text) == "string" and b.text:find("%S") then last = b.text end
+    end
+  end
+  if not last then return end
+  local pick, ask
+  for l in last:gmatch("[^\n]+") do
+    l = l:gsub("%*%*", ""):gsub("\96", ""):gsub("^%s*[#>%-%*]+%s*", ""):gsub("^%s*%d+[.)]%s+", ""):gsub("^%s+", ""):gsub("%s+$", "")
+    if l ~= "" and not l:find("^|") then
+      pick = l
+      if l:find("？", 1, true) or l:find("?", 1, true) then ask = l end
+    end
+  end
+  local said = vim.fn.strcharpart(ask or pick or "", 0, 200)
+  if said == "" then return end
+  local dir = vim.uv.os_homedir() .. "/.cache/nvim-jay/said"
+  vim.fn.mkdir(dir, "p", 448) -- 0700
+  local tmp = dir .. "/." .. tid .. ".tmp"
+  local w = vim.uv.fs_open(tmp, "w", 384) -- 0600
+  if not w then return end
+  vim.uv.fs_write(w, vim.json.encode({ at = os.time() * 1000, text = said }), 0)
+  vim.uv.fs_close(w)
+  vim.uv.fs_rename(tmp, dir .. "/" .. tid)
+end)
+if call.stop_hook_active == true then return end
+pcall(function()
   local path, sid = call.transcript_path, tostring(call.session_id or ""):gsub("[^%w%-_]", "")
   if type(path) ~= "string" or path == "" or sid == "" then return end
   local st = vim.uv.fs_stat(path)

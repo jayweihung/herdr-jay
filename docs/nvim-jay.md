@@ -273,6 +273,13 @@ anything unexpected (no transcript, bad input) lets the agent stop.
 別的 agent 用 hc send 傳來的訊息，agent 要停之前還沒用 hc send 回，就提醒它一次：要回就回，只是通知就直接結束。
 訊息第一行寫了「不用回」「不用再回」「不必回」或 `[FYI]` 的不提醒；同一則只提醒一次。
 
+Every stop (a reminded one too), inside a Herdr terminal (`HC_TERMINAL_ID`), it also writes what the agent said last
+to `~/.cache/nvim-jay/said/<terminal id>` (`{ at, text }`, 0600): the last line of its last words that asks something
+(？ or ?), else their last line, markdown marks taken off, at most 200 characters. The Agents panel's 關係 shows it
+for an agent that is done and not looked at yet ([kit.md](kit.md)).
+每次停下來也把它最後說的話（最後一句問句，沒有就是最後一行）記在 `~/.cache/nvim-jay/said/<terminal>`，
+關係圖的「做完等你看」會顯示它。
+
 nvim-jay writes it next to the snap hook, `~/.config/nvim-jay/reply_hook.lua`, on every machine where it runs. To
 turn it on, add a Stop entry to that machine's `~/.claude/settings.json` (same rules as above: back it up, keep the
 rest, add to `"Stop"` if it is there; full `nvim` path if needed; Windows: under `%USERPROFILE%`):

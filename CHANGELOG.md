@@ -9,6 +9,17 @@ says which) · **kit** = update kit itself on every machine where agents run (`k
 **snap hook** = a line in Claude Code's `settings.json` on each machine where you added the hook (the entry says
 which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/keys.md).
 
+## 2026-11-14, 關係: what a done agent asked you; cards waiting for you are colored
+
+Needs: **mods**; on other machines, open nvim-jay there once (it rewrites the reply hook file).
+
+- 做完等你看 now says what the agent said when it stopped: the last line of its last words that asks something (？ or ?),
+  else their last line, on its card (「做完：srv root 要不要升到 0.6.3？」) and in its own alert line. The reply hook
+  writes it (`~/.cache/nvim-jay/said/<terminal>`, on every stop); the panel reads it from the agent's machine. Agents
+  without the reply hook (or not Claude Code) keep the plain 「做完 · 等你看」.
+- A card waiting for you (等你允許 / 在問你 from the start, or done and not looked at) has a thick border in its color and
+  a tint of it all over; still yellow → red for long waits.
+
 ## 2026-11-14, Agents answer each other: 不用回, 提醒它回, the reply hook
 
 Needs: **mods**; for the hook, a Stop entry in Claude Code's `settings.json` on each machine where you want it

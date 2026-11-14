@@ -30,6 +30,7 @@ import { readBot, withBot, pickBot, botIcon, botProblem, LiveBot } from "./bots.
 import { canDrag, draggable, dropLoop, requestPlace, takeAsks, placeClosed, placeDir, liveNow } from "./place.js";
 import { graphData, graphView, edgeList, alertsView, layoutOf, nudgeText } from "./graph.js";
 import { logTick, eventLog, downMachines } from "./events.js";
+import { SAID, saidTick } from "./said.js";
 import { timelineView, timelineHeight, SPANS } from "./timeline.js";
 import { sidebarNames } from "./names.js";
 import { loadMachines, machinesDue, machinesData, pendingRows } from "./machines.js";
@@ -84,6 +85,8 @@ export class Agents {
       if (this.tab === "rel") cx.notify();   // its "3 分前" move on
       // 等你簽 / 等站長同意: kit status on every machine and root's report (the 各機器 load), every 10 minutes
       if (this.tab === "rel" && machinesDue()) { try { loadMachines(cx); } catch {} }
+      // 做完等你看: what each agent said when it stopped (said.js)
+      if (this.tab === "rel") { try { saidTick(agents(), terminals(), cx); } catch {} }
       const a = apiKnown(null);
       if (!a) return checkApi(null, cx);
       if (a.ok && (this.first || stale()) && !this.busy && !this.loading) this.refresh(cx);
@@ -281,7 +284,7 @@ export class Agents {
   // 關係: the agents running in the shown space (or all), who talks to whom (graph.js)
   relations(t, z) {
     const f = focused(), shownSpace = f?.space ?? (spaces() ?? []).find((s) => s.active)?.id ?? null, now = Date.now();
-    const ags = agents(), g = graphData({ agents: ags, terms: terminals(), names: sidebarNames(ags, panes(), spaces()), space: this.scope === "space" ? shownSpace : null, ctx: shared(CTX), notes: shared(NOTE), log: eventLog(), down: downMachines(), now });
+    const ags = agents(), g = graphData({ agents: ags, terms: terminals(), names: sidebarNames(ags, panes(), spaces()), space: this.scope === "space" ? shownSpace : null, ctx: shared(CTX), notes: shared(NOTE), log: eventLog(), down: downMachines(), said: shared(SAID), now });
     if (this.sel && !g.nodes.some((n) => n.address === this.sel)) this.sel = null;
     const scope = (id, label) => btn(t, z, `kit-graph-scope-${id}`, label, { tiny: true, kind: this.scope === id ? "primary" : undefined,
       on: (cx) => { this.scope = id; localSet("kit.agents.scope", id); cx.notify(); } });

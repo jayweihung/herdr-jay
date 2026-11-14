@@ -182,6 +182,14 @@ kit 的 mod（選用，有裝 kit 0.3.0 以上才要）：照 kit.md 的安裝�
 ## 6. Try it / 試用
 
 1. In Herdr, start Claude Code in a terminal in your project folder.
+   Codex or omp instead (optional): `codex --version` (→ `codex-cli 0.167.0` or newer; `codex --help` lists
+   `--no-daemon`) and `omp --version` (→ `omp/18.18.6` or newer) must work; missing: `brew install --cask codex`,
+   `brew install can1357/tap/omp` (or <https://omp.sh>); log in once: `codex login` (check `codex login status`),
+   `omp login`. Start Codex as `codex --no-daemon` (Herdr's new-tab menu and the Kit panel do): without it a shared
+   Codex daemon runs its commands outside Herdr's terminal. omp isn't in the new-tab menu by default: add
+   `{ "programs": { "omp": { "name": "omp", "icon": "icons/pi.svg", "tint": true, "run": ["omp"] } } }` to
+   `~/.config/herdr-app/programs.json` (merge if it exists). The steps below are written for Claude Code.
+   Codex 要加 `--no-daemon` 才在 Herdr 的終端機裡跑指令；omp 要自己加進 programs.json 才出現在新分頁選單。
 2. With its pane focused: `cmd-e` → Neovim on the right, file tree beside it.
 3. Ask Claude to read or edit a file → nvim opens it; edits show red `-` / green `+`.
 4. `cmd-o` → a popup lists the files Claude read or edited; pick one → it opens in that nvim

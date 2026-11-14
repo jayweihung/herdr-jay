@@ -1003,7 +1003,7 @@ test("關係: omp's and Codex's sub-agents and last words, read from their own f
   assert.deepEqual(c.list.map((x) => [x.id, x.type, x.desc, x.done]).sort(), [["S1", "Godel", "run sleep", false], ["S2", "Ada", "inner check", true], ["S3", "Curie", "stopped", true]], "another thread's sub-agent left out; a sub-agent's own one kept");
   assert.deepEqual(c.steps, { S1: 'exec：sleep 60 && echo "hi"' }, "Codex's code mode: the command inside");
   assert.equal(c.said, "子 agent 回報的輸出是：hi。");
-  assert.deepEqual(parseOwnSubs("", "codex", now), { at: now, list: [], steps: {}, said: "" }, "nothing there");
+  assert.deepEqual(parseOwnSubs("", "codex", now), { at: now, list: [], steps: {}, said: "", jobs: [] }, "nothing there");
   assert.deepEqual(parseOwnSubs("@@kit-sub@@\tx", "omp", now).list, [], "a block cut short: nothing made up");
   // Codex's function calls; Claude Code's steps as before
   assert.equal(lastStep(j({ type: "response_item", payload: { type: "function_call", name: "exec_command", arguments: j({ cmd: "ls -la" }) } })), "exec_command：ls -la");
@@ -1036,6 +1036,119 @@ test("關係: omp's and Codex's sub-agents and last words, read from their own f
   // a process holding no rollout: nothing, quietly
   const none = spawnSync("sh", ["-c", CODEX_SH, "sh", "1"], { encoding: "utf8" });
   assert.deepEqual([none.status, parseOwnSubs(none.stdout, "codex").list], [0, []]);
+});
+test("關係: omp's and Codex's own background work: omp's bash jobs from its session file, Codex's background terminals from ps; Windows through PowerShell", async (M) => {
+  const { ompJobs, bgJobs, parseOwnSubs, OMP_JOBS, ownPs, busyOf } = M.said;
+  const j = (o) => JSON.stringify(o);
+  const now = Date.parse("2026-11-14T18:18:20Z"), L = (...f) => f.join("\t");
+  // started, not ended since, not killed, not past the deadline (+1 minute); 600 s by default; 0: none, then 6 hours
+  const lines = [
+    L("start", "bg_0", "running", "bash", "2026-11-14T13:00:00.000Z", "0", '"command":"npm run dev'),
+    L("start", "bg_1", "running", "bash", "2026-11-14T18:17:19.987Z", "300", String.raw`"command":"sleep 240; echo \"done\"\nmore`),
+    L("start", "bg_2", "running", "bash", "2026-11-14T18:17:20.000Z", "", '"command":"npm test'), L("end", "bg_2", "completed"),
+    L("start", "bg_3", "running", "bash", "2026-11-14T18:10:00.000Z", "60", '"command":"too old'),
+    L("start", "Scan", "running", "task", "2026-11-14T18:17:00.000Z", "", ""),
+    L("start", "bg_4", "running", "bash", "2026-11-14T18:17:30.000Z", "600", '"command":"cancelled'), L("kill", "bg_4"),
+    L("start", "bg_5", "running", "bash", "2026-11-14T18:17:40.000Z", "600", '"command":"long one, cut \\'), L("end", "bg_5", "running"),
+  ].join("\n");
+  assert.deepEqual(ompJobs(lines, now), ["long one, cut", 'sleep 240; echo "done"', "npm run dev"], "newest first; a wait's snapshot saying running keeps it");
+  assert.deepEqual(ompJobs(lines, now + 7 * 3600000), [], "after 6 hours even one without a deadline counts as gone");
+  assert.deepEqual(ompJobs(L("start", "bg_9", "running", "bash", "", "", ""), now), ["bg_9"], "no command: its id");
+  // the session file's records (omp 18.18), read by OMP_JOBS for real (grep, awk)
+  const base = mkdtempSync(join(tmpdir(), "kit-omp-")), sess = join(base, "s.jsonl");
+  const call = (id, cmd, ts) => j({ type: "custom", customType: "tool_execution_start", data: { toolCallId: id, toolName: "bash", startedAt: ts, args: { command: cmd }, intent: "x" }, id: "e1", timestamp: ts });
+  const result = (id, job, ts, extra = {}) => j({ type: "message", id: "m1", parentId: "e1", timestamp: ts, runtime: { version: "18.18.6" },
+    message: { role: "toolResult", toolCallId: id, toolName: "bash", content: [{ type: "text", text: `Backgrounded as job ${job}` }], details: { async: { state: "running", jobId: job, type: "bash" }, ...extra }, isError: false, timestamp: 1 } });
+  const delivered = (job) => j({ type: "custom_message", customType: "async-result", content: `<system-notice>\nBackground job ${job} (x) has completed.\n"jobId":"bg_1"\n</system-notice>`, display: true,
+    details: { meta: { source: { type: "report", value: "background job delivery" } }, jobs: [{ jobId: job, type: "bash", status: "completed", label: "x", durationMs: 1 }] }, timestamp: "2026-11-14T18:18:00.000Z" });
+  writeFileSync(sess, [j({ type: "session", version: 3, id: "S", timestamp: "2026-11-14T18:17:06.167Z", cwd: "/w" }),
+    call("toolu_A", "sleep 240; echo 'done'", "2026-11-14T18:17:19.985Z"), result("toolu_A", "bg_1", "2026-11-14T18:17:19.987Z", { timeoutSeconds: 300 }),
+    call("toolu_B", "npm test", "2026-11-14T18:17:21.000Z"), result("toolu_B", "bg_2", "2026-11-14T18:17:21.001Z"), delivered("bg_2"),
+    j({ type: "message", message: { role: "assistant", content: [{ type: "text", text: 'about "async":{"state":"running" in words' }] } })].join("\n") + "\n");
+  try {
+    const r = spawnSync("sh", ["-c", `s="$1"\n${OMP_JOBS}`, "sh", sess], { encoding: "utf8" });
+    assert.equal(r.stderr, "", "no complaints from grep, awk");
+    assert.deepEqual(ompJobs(r.stdout, now), ["sleep 240; echo 'done'"], r.stdout);
+  } finally { rmSync(base, { recursive: true, force: true }); }
+  // OMP_SH's output with a jobs part: the jobs, and the sub-agents and words as before
+  const out = ["", `@@kit-sub@@\tW\t${(now - 1000) / 1000}\t0`, `"task":"x`, "@@kit-tail@@", "tail",
+    "@@kit-jobs@@", L("start", "bg_1", "running", "bash", new Date(Date.now() - 1000).toISOString(), "300", '"command":"sleep 240'),
+    "@@kit-said@@", j({ type: "message", message: { role: "assistant", content: [{ type: "text", text: "started" }] } })].join("\n");
+  const o = parseOwnSubs(out, "omp", now);
+  assert.deepEqual([o.jobs, o.list.map((x) => x.id), o.said], [["sleep 240"], ["W"], "started"]);
+  assert.deepEqual(parseOwnSubs(out.replace(/\n/g, "\r\n"), "omp", now).jobs, ["sleep 240"], "PowerShell's line ends too");
+  assert.deepEqual(parseOwnSubs(out, "codex", now).jobs, [], "Codex's come from ps");
+  const short = parseOwnSubs(`\n@@kit-sub@@\tW\t${now / 1000}\t1\n"task":"# Goal\\n修好測試\n"agent":"ta\\u00`, "omp", now).list[0];
+  assert.deepEqual([short.desc, short.type], ["修好測試", "ta"], "a short value isn't cut after its last escape; an escape cut in half is");
+  // Codex's background terminals: <shell> -lc <command> under its process (as ps showed for Codex 0.167), maybe in its sandbox
+  const ps = ["  54461 /bin/zsh -lc sleep 300; echo done", "  54461 /opt/homebrew/Caskroom/codex/0.167.0/bin/codex-code-mode-host",
+    "  54461 /opt/homebrew/bin/python3 /Users/amy/tools/kit_ping_mcp.py", "  54461 /usr/bin/sandbox-exec -p (version 1)", "  54461 /bin/bash -c not-codex",
+    "  999 /bin/zsh -lc another's"].join("\n");
+  assert.deepEqual(bgJobs(ps, 54461, "codex"), ["sleep 300; echo done", "shell"]);
+  assert.deepEqual(bgJobs(ps, 54461), [], "Claude Code's rule: only shells sourcing its shell-snapshots");
+  // the panel: omp's jobs come with its sub-agents (no ps for it); Codex is asked with ps
+  fresh();
+  const omp = ag("t7", "done", { app: "omp", program: { key: "omp" } }), cx_ = ag("t8", "done", { app: "codex", program: { key: "codex" } });
+  H.hcAnswer = (a) => (a[0] === "get" ? { code: 0, stdout: j({ foreground: { pid: a[1] === "t7" ? 77 : 88, cwd: "C:\\Users\\amy\\proj" } }), stderr: "" } : null);
+  H.answer = (argv) => (argv[0] === "sh" && /terminal-sessions/.test(argv[2]) ? { code: 0, stdout: out, stderr: "" }
+    : argv[0] === "sh" && /ps -A/.test(argv[2]) ? { code: 0, stdout: "  88 /bin/zsh -lc pytest -x", stderr: "" } : { code: 0, stdout: "", stderr: "" });
+  const terms = [{ address: "t7", status_ms: now - 60000 }, { address: "t8", status_ms: now - 60000 }];
+  M.said.saidTick([omp, cx_], terms, cx);
+  await settle();
+  assert.ok(!H.calls.some((c) => /ps -A/.test(c.argv[2] ?? "") && c.argv[4] === "77"), "no ps for omp");
+  const bg = H.store["kit.bg.v1"];
+  assert.deepEqual([bg.t7.jobs, bg.t8.jobs], [["sleep 240"], ["pytest -x"]]);
+  assert.deepEqual(Object.keys(busyOf([omp, cx_], terms.map((t) => ({ ...t, status_ms: 1 })), { t7: { at: 2, jobs: ["sleep 240"] }, t8: bg.t8 }, {}, now)).sort(), ["t7", "t8"]);
+  // Windows itself: no sh; PowerShell finds the agent by its folder
+  fresh();
+  H.window = { platform: "windows" }; H.home = "C:\\Users\\amy";
+  H.hcAnswer = (a) => (a[0] === "get" ? { code: 0, stdout: j({ foreground: { pid: 77, cwd: "C:\\Users\\amy\\it's" } }), stderr: "" } : null);
+  H.answer = (argv) => (argv[0] === "powershell" ? { code: 0, stdout: out, stderr: "" } : new Error("cannot start sh"));
+  M.said.saidTick([omp], [terms[0]], cx);
+  await settle();
+  H.home = "/Users/amy";
+  const pc = H.calls.find((c) => c.argv[0] === "powershell");
+  assert.ok(pc && !H.calls.some((c) => c.argv[0] === "sh"), "PowerShell, not sh");
+  assert.deepEqual(pc.argv.slice(1, 4), ["-NoProfile", "-NonInteractive", "-Command"]);
+  assert.match(pc.argv[4], /\$H = 'C:\\Users\\amy'; \$C = 'C:\\Users\\amy\\it''s'; \$K = 'omp'/, "values single-quoted, ' doubled");
+  assert.deepEqual([H.store["kit.subs.v1"].t7.list.map((x) => x.id), H.store["kit.bg.v1"].t7.jobs, H.store["kit.said.v1"].t7.text], [["W"], ["sleep 240"], "started"]);
+  assert.equal(ownPs("omp", "C:\\x", "C:\\a\nb"), null, "a newline can't be quoted: not run");
+  // no PowerShell 7-only syntax: Windows has 5.1
+  const script = ownPs("codex", "h", "c");
+  assert.doesNotMatch(script.replace(/'[^']*'/g, "''"), /\?\?|\?\.|\s&&\s|\s\|\|\s|`/, "5.1 syntax only, no backtick");
+  // the script for real, where PowerShell is (pwsh on a Mac or Linux, powershell on Windows): omp by its folder
+  // (-<under home>), Codex by its rollout's cwd
+  const pwsh = ["pwsh", "powershell"].find((p) => spawnSync(p, ["-NoProfile", "-Command", "1"], { encoding: "utf8" }).status === 0);
+  if (!pwsh) { console.log("      (PowerShell not found: OWN_PS not run for real)"); return; }
+  const top = realpathSync(mkdtempSync(join(tmpdir(), "kit-ps-"))), home = join(top, "home"), cwd = join(home, "proj");
+  try {
+    const od = join(home, ".omp", "agent", "sessions", "-proj"), sid = "2026-11-14T18-17-06-167Z_S", subd = join(od, sid);
+    mkdirSync(subd, { recursive: true });
+    writeFileSync(join(od, `${sid}.jsonl`), [j({ type: "title", v: 1, title: "" }), j({ type: "session", version: 3, id: "S", timestamp: "2026-11-14T18:17:06.167Z", cwd: "/elsewhere" }),
+      call("toolu_A", "sleep 240", "2026-11-14T18:17:19.985Z"), result("toolu_A", "bg_1", new Date(Date.now() - 1000).toISOString(), { timeoutSeconds: 300 }),
+      j({ type: "message", message: { role: "assistant", content: [{ type: "text", text: "等一下，背景在跑。\n要我先推嗎？" }] } })].join("\n") + "\n");
+    writeFileSync(join(subd, "Whale.jsonl"), [j({ type: "session", version: 3, id: "W", timestamp: "2026-11-14T18:17:30.000Z", cwd }),
+      j({ type: "session_init", task: "# Goal\n修好測試", agent: "task" }), j({ type: "message", message: { role: "assistant", content: [{ type: "toolCall", name: "bash", arguments: { command: "npm test" } }] } })].join("\n") + "\n");
+    const run = (kind) => {
+      const r = spawnSync(pwsh, ["-NoProfile", "-NonInteractive", "-Command", ownPs(kind, home, cwd)], { encoding: "utf8" });
+      assert.equal(r.status, 0, r.stderr);
+      return parseOwnSubs(r.stdout, kind);
+    };
+    const po = run("omp");
+    assert.deepEqual([po.list.map((x) => [x.id, x.type, x.desc, x.done]), po.steps, po.jobs, po.said], [[["Whale", "task", "修好測試", false]], { Whale: "bash：npm test" }, ["sleep 240"], "要我先推嗎？"]);
+    const day = join(home, ".codex", "sessions", "2026", "11", "14");
+    mkdirSync(day, { recursive: true });
+    const meta = (id, parent, dir) => j({ timestamp: "2026-11-14T12:35:54.575Z", type: "session_meta", payload: { id, ...(parent ? { parent_thread_id: parent } : {}), cwd: dir, agent_nickname: "Godel", agent_path: "/main/run_sleep", base_instructions: "x".repeat(5000) } });
+    const started = j({ type: "event_msg", payload: { type: "task_started" } });
+    writeFileSync(join(day, "rollout-2026-11-14T20-35-40-OTHER.jsonl"), meta("OTHER", null, join(home, "other")) + "\n");
+    writeFileSync(join(day, "rollout-2026-11-14T20-35-42-ROOT.jsonl"), [meta("ROOT", null, cwd), j({ type: "event_msg", payload: { type: "task_complete", last_agent_message: "子 agent 還在跑。" } })].join("\n") + "\n");
+    writeFileSync(join(day, "rollout-2026-11-14T20-35-54-S1.jsonl"), [meta("S1", "ROOT", cwd), started].join("\n") + "\n");
+    writeFileSync(join(day, "rollout-2026-11-14T20-36-00-X1.jsonl"), [meta("X1", "OTHER", cwd), started].join("\n") + "\n");
+    const pc2 = run("codex");
+    assert.deepEqual([pc2.list.map((x) => [x.id, x.type, x.desc, x.done]), pc2.said], [[["S1", "Godel", "run sleep", false]], "子 agent 還在跑。"]);
+    const none = spawnSync(pwsh, ["-NoProfile", "-NonInteractive", "-Command", ownPs("codex", home, join(home, "nowhere"))], { encoding: "utf8" });
+    assert.deepEqual([none.status, none.stdout], [0, ""], "no agent's files there: nothing, quietly");
+  } finally { rmSync(top, { recursive: true, force: true }); }
 });
 test("關係: an agent's own sub-agents (the reply hook's subs file): 子 N on its card, each one when it is selected", (M) => {
   const { graphData, runningSubs, edgeList } = M.graph, { parseSubs, subsNow } = M.said;
@@ -1593,6 +1706,8 @@ test("place: what a card carries, what a drop is read as; the folder kit place m
   assert.equal(P.placeDir({ folder: "C:/w" }, "reviewer"), "C:\\w\\reviewer");
   assert.equal(P.placeDir({ folder: "" }, "reviewer"), "C:\\Users\\amy\\reviewer");
   H.home = "/Users/amy";
+  assert.deepEqual([["codex"], ["/usr/local/bin/codex", "-m", "x"], ["C:\\npm\\codex.cmd"], ["codex", "--no-daemon"], ["claude"], ["omp"], ["codexx"]].map(P.herdrArgv),
+    [["codex", "--no-daemon"], ["/usr/local/bin/codex", "--no-daemon", "-m", "x"], ["C:\\npm\\codex.cmd", "--no-daemon"], ["codex", "--no-daemon"], ["claude"], ["omp"], ["codexx"]]);
 });
 test("agents, a newer Herdr: cards are draggable (payload, its name as the label), no 放到 space… button; a drop runs kit place on the space's machine, then tab.new there with kit's command", async (M) => {
   fresh();
@@ -1604,7 +1719,8 @@ test("agents, a newer Herdr: cards are draggable (payload, its name as the label
   assert.equal(place.length, 1, "the payload that isn't an agent card does nothing");
   assert.deepEqual(place[0].argv.slice(-6), ["place", "reviewer", "/home/amy/proj/reviewer", "--tool", "codex", "--json"]);
   assert.equal(place[0].on, "box");
-  assert.deepEqual(H.runs.filter((r) => r[0] === "tab.new"), [["tab.new", { name: "reviewer", space: "box/s2", folder: "/home/amy/proj/reviewer", argv: ["codex"], icon: logoPath(M, "reviewer") }]]);
+  assert.deepEqual(H.runs.filter((r) => r[0] === "tab.new"), [["tab.new", { name: "reviewer", space: "box/s2", folder: "/home/amy/proj/reviewer", argv: ["codex", "--no-daemon"], icon: logoPath(M, "reviewer") }]],
+    "Codex in Herdr: --no-daemon, so its commands run in Herdr's terminal");
   assert.ok(H.writes.some(([p]) => p === `/Users/amy/.config/herdr-app/${logoPath(M, "reviewer")}`), "its logo's SVG is written first");
   const done = H.notes.at(-1);
   assert.equal(done.level, "success"); assert.match(done.title, /reviewer 放到 proj 了/); assert.match(done.body, /⚠ Codex 不能只開/);

@@ -299,8 +299,20 @@ dependencies. npm 9 itself needs Node ≥ 14.17, so any server with npm 9 is new
 ## 4. Agents on the server / server 上的 agent
 
 An agent that should work on the server's files runs **on the server**: open a tab on that machine and start it
-there, only if the company already provides Claude Code on the server (it is a prebuilt program: don't install it
-yourself on a source-only server; its login is per machine). No agent there → do §5 with the PC's agent and skip the snap hook below.
+there, only if the company already provides Claude Code (or Codex, or omp) on the server (each is a prebuilt program:
+don't install it yourself on a source-only server; its login is per machine). No agent there → do §5 with the PC's agent and skip the snap hook below.
+
+**Check** on the server (`ssh <user>@<server> 'bash -lc "…"'`, or a Herdr tab there): `claude --version`;
+`codex --version` (→ `codex-cli 0.167.0` or newer, and `codex --help` lists `--no-daemon`); `omp --version`
+(→ `omp/18.18.6` or newer); only the ones the company provides.
+**Login**, once per machine, by jay: Claude Code asks when it first starts; Codex: `codex login --device-auth` (a
+server has no browser: it prints a link and a code to open on the PC; check: `codex login status` → `Logged in using …`);
+omp: `omp login` (pick the provider) or `/login` inside omp.
+登入每台機器各一次，jay 自己來；server 沒有瀏覽器，Codex 用 `codex login --device-auth`（給一個網址和代碼，在 PC 上開）。
+**Codex runs as `codex --no-daemon`** in Herdr (the new-tab menu and the Kit panel start it so; typed by hand, add it):
+without it a shared Codex daemon runs its commands outside Herdr's terminal. Codex 在 Herdr 裡要加 `--no-daemon`。
+The Kit panel reads Codex's and omp's sub-agents and their background commands on the server with `sh` and `ps`
+(nothing to install; no hook needed). 面板用 `sh`、`ps` 讀 server 上 Codex／omp 的子 agent 和背景指令，不用裝東西。
 Agents on the Windows PC and on the server can sit in different tabs of the same Herdr window.
 要改 server 上的檔，agent 就在 server 上跑（在那台機器的分頁裡開）。
 
@@ -352,7 +364,7 @@ server 上跑的是 Codex 或 omp：跟著開檔不用設定；hook 照 nvim-jay
 
 ## 5. Try nvim-jay there / 試 nvim-jay
 
-1. Open a tab on the server machine in a project folder, start Claude Code there.
+1. Open a tab on the server machine in a project folder, start Claude Code there (nvim-jay's steps are written for it).
 2. With its pane focused: `ctrl-shift-i` (Windows) / `cmd-e` (Mac) → nvim opens **on the server**, beside it.
 3. Ask the agent to read / edit a file → nvim follows (then add the snap hook, §4); `ctrl-shift-j` / `cmd-o` → the list (kit 0.4.0 on the server: [agent-files.md](agent-files.md)); pick a file → it opens in that nvim.
 4. `space a c` → comment, `space a s` → sent to the agent.

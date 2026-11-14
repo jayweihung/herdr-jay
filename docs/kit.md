@@ -510,7 +510,8 @@ mod 只用這些欄位，每個都先檢查：`kit`（版本）、`api`（`major
   `<agent>` 這個資料夾（只建最後一層），放進它的東西。space 沒有資料夾的話是那台的家目錄。Windows 的機器用 `\`。
   工具是 agent 詳細頁選的（Claude、Codex、omp；沒選是 Claude）。
 - kit 做好後，在那個 space 開一個新分頁，在那個資料夾跑 kit 給的指令（就是 `claude`、`codex` 或 `omp`；Herdr 的
-  `tab.new`，帶 `space`、`folder`、`argv`）。進度和結果用通知說；kit 的提醒（例如 Codex 不能只開某些工具）也會列出來。
+  `tab.new`，帶 `space`、`folder`、`argv`）。Codex 會補上 `--no-daemon`（kit 給的只有 `codex`）：Herdr 裡的 Codex 要這樣開，
+  不然它的指令在 Codex 共用的背景服務裡跑，不在 Herdr 的終端機裡。進度和結果用通知說；kit 的提醒（例如 Codex 不能只開某些工具）也會列出來。
 - **它自己的 logo**：那一格在 Herdr 的清單（左邊 Agents 欄等）顯示這個 agent 的機器人頭像，不是 Claude／Codex 的圖示
   （`tab.new` 多帶 `icon`，圖檔是 Kit 寫在 Herdr 資料夾裡的 `data/kit/bots/…svg`）。要有 icon 修改的 Herdr
   （herdr-app 的 `0003` patch）；舊的 Herdr 不認得 `icon`，分頁照開，只是用程式的圖示。
@@ -563,10 +564,13 @@ Agents 面板上方有兩個分頁：「定義」是上面那些做好的 agent�
   正在：Read：src/parser.rs」（正在做的那一步，每 15 秒從子 agent 自己的對話紀錄最後一段讀）。滑鼠移到卡片上的「子 2」也會跳出同一份清單。
   Claude Code 的子 agent 要在 settings.json 加 reply hook 的 SubagentStart／SubagentStop 兩段
   （[nvim-jay.md §7a](nvim-jay.md#7a-the-reply-hook-answer-the-agents-that-asked-optional--回覆檢查選用)）。
-  **omp 和 Codex** 不用裝東西：面板每 15 秒在那台機器上用 `sh` 讀它們自己的檔案（Windows 本機還沒有）。
+  **omp 和 Codex** 不用裝東西：面板每 15 秒在那台機器上用 `sh` 讀它們自己的檔案（Windows 本機用 Windows PowerShell）。
   omp 從 `~/.omp/agent/terminal-sessions/<終端機>` 找到它的對話檔，子 agent 是旁邊同名資料夾裡的 `<名字>.jsonl`
   （任務、做完沒、正在做的那一步）；Codex 用 `lsof`（Linux 用 `/proc`）看它開著的 rollout 檔，子 agent 是最近 30 分鐘、
   `parent_thread_id` 接到它的那些 rollout（名字是 Codex 給的暱稱，說明是 `agent_path` 的最後一段）。
+  Windows 本機沒有終端機名字也查不到行程開著哪些檔，改用它的資料夾（Herdr 記的 cwd）找：omp 是那個資料夾的 session 資料夾裡
+  最新的對話檔，Codex 是最近 7 天裡 `cwd` 是那個資料夾、沒有 `parent_thread_id` 的最新 rollout。同一個資料夾開兩個 omp
+  （或兩個 Codex），只看得到最新那個的。
 - **範圍**：「這個 space」只畫目前的 space；「全部 space」畫全部。選的分頁和範圍會記住。
 - **上面的提醒**（有才出現，點一下切到它說的那個 agent）：
   - **還沒回**：A 傳給 B 的次數比 B 傳給 A 多（一問一答剛好打平：回覆的那一方不算在等），A 最後那句之後，B 已經停下來
@@ -613,9 +617,17 @@ Agents 面板上方有兩個分頁：「定義」是上面那些做好的 agent�
     上面單獨一行「t63 問你（3 分）：「…」」排在最上面，Herdr 左邊的 Agents 側欄也顯示 Needs you（app patch 0010）。
     跟做完等你看不同：**你正在看它時也照樣上色**，你點進去看過（Herdr 變成閒著）也一樣，等你回了、它開始工作才消失；
     在問你的不會列成「可以關了」。
-    這一輪結束了、但它自己的工作還在跑（Claude Code 在背景跑的指令，例如測試；或它開的子 agent），就不算輪到你：
+    這一輪結束了、但它自己的工作還在跑（在背景跑的指令，例如測試；或它開的子 agent），就不算輪到你：
     卡片右上轉圈、第四行寫「背景工作中：pwsh tests/run.ps1」，不列在這裡。背景跑完、它真的停下來，才變成做完等你看。
-    （背景指令是每 15 秒在那台機器上用 `ps` 看那個 agent 底下的 shell；Windows 還看不到，只看子 agent。）
+    背景指令每 15 秒看一次：
+    - Claude Code：在那台機器上用 `ps` 看那個 agent 底下、讀它 shell-snapshots 的 shell（Windows 本機還看不到）。
+    - Codex：用 `ps` 看它底下的 `zsh -lc <指令>`（它的 background terminal，`/ps` 列的那些；Windows 本機還看不到）。
+      Herdr 自己看到 Codex 畫面上「1 background terminal running」時通常已經算工作中，這裡補它沒看到的時候。
+      Codex 要用 `codex --no-daemon` 開（Herdr 的選單和 Kit 面板放 agent 時都會加），不然指令在 Codex 共用的背景服務裡跑，看不到。
+    - omp：它的背景工作（bash 的 `async: true`，`/jobs` 列的那些）在 omp 自己裡面跑，沒有行程可看，改讀它的對話檔：
+      開始了（`async` running）、還沒送回結果（`async-result`）、沒被取消、沒超過它的時限（預設 600 秒；時限 0 最多算 6 小時），
+      就算還在跑。跟讀子 agent 同一次，Windows 本機也有。omp 自己預設會等背景工作（畫面寫 Waiting for background job），
+      這時 Herdr 本來就算工作中；按 Esc 不等了，它才停下來，這裡才派上用場。
   - **撞到用量上限**（kit 0.6.5 起，Claude Code）：agent 停在方案的用量上限時，卡片和最上面一行寫「t63 撞到 5 小時上限，00:10 恢復」
     （等你處理的顏色）。時間到了、還沒繼續：變深紅，寫「已恢復（00:10），還沒繼續：去打「繼續」，或在 context 視窗開自動繼續」；
     自動繼續已經替它打了「繼續」：寫「已恢復，已自動繼續」，它開始工作就消失。撞到上限的不會列成「可以關了」。

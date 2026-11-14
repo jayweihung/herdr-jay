@@ -286,6 +286,25 @@ on this PC. Windows' Neovim is needed only for nvim beside a **local** Windows p
 If it is missing, install it the way your company allows.
 `claude --version` 要能跑；沒有就照公司允許的方式裝。
 
+**Codex / omp** (optional: only if you use them, instead of or beside Claude Code / 選用，有用才裝):
+
+- **Check** (new PowerShell): `codex --version` → `codex-cli 0.167.0` or newer, and `codex --help` lists `--no-daemon`;
+  `omp --version` → `omp/18.18.6` or newer.
+- Missing: install it the way your company allows (Codex: `npm i -g @openai/codex`, needs Node.js; omp: the ways
+  on <https://omp.sh>), then check again in a new PowerShell. 沒有就照公司允許的方式裝。
+- **Login**, once per computer (a browser opens; jay does it): `codex login` (check: `codex login status` →
+  `Logged in using …`), `omp login` (pick the provider; or `/login` inside omp). 登入一次（jay 自己來）。
+- **In Herdr, Codex runs as `codex --no-daemon`**: Herdr's new-tab menu starts it so, and the Kit panel adds it to
+  the agents it places. Typing it yourself in a tab: `codex --no-daemon`, not `codex` (a shared Codex daemon runs
+  its commands outside Herdr's terminal, and later Codex sessions stop with the first one). Codex 在 Herdr 裡要加
+  `--no-daemon`。
+- omp isn't in Herdr's new-tab menu by default. To have it there (and in Herdr 98's Start menu), add it to
+  `programs.json` in Herdr's home (`$h` as in §5 step 2; merge into the file if it already exists):
+
+  ```json
+  { "programs": { "omp": { "name": "omp", "icon": "icons/pi.svg", "tint": true, "run": ["omp"] } } }
+  ```
+
 Optional, for go-to-definition and errors (skip if Node or Python are not allowed; nvim-jay works without them)
 選用（LSP），公司不准裝 Node / Python 就跳過：
 
@@ -391,9 +410,12 @@ nvim-jay 開過一次後，在 Claude Code 設定加這個 hook（一次就好�
 
    The same command under `"SubagentStart"` and `"SubagentStop"` too lets the 關係 tab show the agent's own
    sub-agents (子 N on its card). 同一行也放在 `"SubagentStart"`、`"SubagentStop"` 底下，關係圖就看得到子 agent。
-   omp and Codex agents need no hook for the 關係 tab, but their sub-agents are read with `sh`, so on this Windows
-   computer itself they don't show yet (on a Linux or macOS machine Herdr reaches, they do). omp、Codex 的子 agent 要用
-   `sh` 讀，Windows 本機上的還看不到；連過去的 Linux／macOS 機器上的看得到。
+   omp and Codex agents need no hook: the panel reads their own files (on this Windows computer through Windows
+   PowerShell, finding each one by its folder, so two Codex or two omp in one folder show the newest one's).
+   omp、Codex 不用 hook：面板自己讀它們的檔（Windows 本機用 PowerShell，照資料夾找；同一個資料夾開兩個只看得到最新那個）。
+   Background commands still running after an agent stopped (關係 says 背景工作中): omp's are read from its session
+   file here too; Claude Code's and Codex's need `ps`, so on this Windows computer only their sub-agents count.
+   背景指令：omp 的 Windows 本機也看得到；Claude Code、Codex 的要 `ps`，Windows 本機只看子 agent。
 5. Optional, **Codex and omp** ([nvim-jay.md §7b](nvim-jay.md#7b-codex-and-omp--codex-和-omp); not yet tested on
    Windows). nvim follows them without any hook (on Windows by the newest log in the agent's folder: one Codex, one
    omp per folder). For the snap and reply hooks:
@@ -416,7 +438,7 @@ the screen and of `:messages` in nvim, note the step number, go on.
 
 1. New PowerShell: `nvim --version`, `hc --version`, `git --version` → NVIM ≥ 0.11, `hc 0.1.21`, a git version.
 2. In Herdr make a space for a git project (`ctrl-shift-n`, pick the folder); in a tab there run `claude`
-   (no `cd` first). With that pane focused: `ctrl-shift-i` → nvim on the right in that pane's folder, file tree beside it, and
+   (no `cd` first; nvim-jay's steps below are written for Claude Code). With that pane focused: `ctrl-shift-i` → nvim on the right in that pane's folder, file tree beside it, and
    `Test-Path "$h\mods\nvim-jay\.init.lua"` is True (`$h` as in §5 step 2).
 3. In nvim: `:lua print(vim.uv.os_homedir(), vim.env.USERPROFILE)` → the same `C:\Users\<you>` twice.
    If the first is another drive (e.g. `H:\`), write it down. That first folder is `<home>`: now do

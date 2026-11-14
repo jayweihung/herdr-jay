@@ -244,6 +244,18 @@ test("an omp agent (or pi, its old name): kit files --tool omp", async (V) => {
   }
 });
 
+test("an omp agent in the tab (Herdr's app omp, or pi): its files", async (V) => {
+  for (const app of ["omp", "pi"]) {
+    world({ two: true, files: (a) => ({ ...FILES, tool: "omp", log: "/h/.omp/agent/sessions/-w/s.jsonl", files: [{ path: `/w/${a[2]}-${a[4]}.txt`, tag: "edit", exists: true }] }) });
+    H.agents[1] = { ...H.agents[1], app, program: { name: "omp" } };
+    const v = await open(V);
+    press(v, "tab");
+    await settle();
+    assert.deepEqual(kitCalls().at(-1).argv.slice(0, 6), ["kit", "files", "--pid", "502", "--tool", "omp"], app);
+    assert.equal(v.rows()[0].path, "/w/502-omp.txt");
+  }
+});
+
 test("kit without kit files: says kit 0.4.0; with an nvim-jay pane, nvim-jay's own list instead", async (V) => {
   world({ kit: "old" });
   let v = await open(V);

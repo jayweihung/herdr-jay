@@ -9,6 +9,23 @@ says which) · **kit** = update kit itself on every machine where agents run (`k
 **snap hook** = a line in Claude Code's `settings.json` on each machine where you added the hook (the entry says
 which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/keys.md).
 
+## 2026-11-15, Codex and omp: 背景工作中, sub-agents on Windows, Codex with --no-daemon; install docs
+
+Needs: **mods**.
+
+- 關係: a Codex or omp whose turn ended while its own background command still runs shows 背景工作中, not
+  做完等你看. Codex: its background terminals (`zsh -lc …` under it, by `ps`). omp: its bash jobs run inside omp, so
+  they are read from its session file (started, no result yet, not cancelled, within its time limit).
+- On Windows itself the panel now reads Codex's and omp's sub-agents, last words and omp's background jobs too,
+  through Windows PowerShell (no `sh` there); it finds each agent by its folder.
+- An agent put in a space with Codex starts as `codex --no-daemon` (kit gives `codex`): without it Codex can run its
+  commands in its shared background server, outside Herdr's terminal.
+- omp's sub-agent task lines that end shortly after a line break are no longer cut.
+- Docs: Codex and omp next to Claude Code in windows.md, macos.md, linux-remote.md and agent-install.md (check,
+  install, login, `--no-daemon`, omp in `programs.json`).
+- 關係：Codex／omp 這一輪結束但背景指令還在跑，寫「背景工作中」，不再太早變成做完等你看；Windows 本機也看得到它們的子
+  agent 和 omp 的背景工作（用 PowerShell）；Kit 面板放的 Codex 會加 `--no-daemon`；安裝文件補上 Codex 和 omp。
+
 ## 2026-11-15, nvim-jay follows Codex and omp; their snap and reply hooks
 
 Needs: **mods**; optional: the hooks for Codex (`~/.codex/hooks.json`) and omp (`~/.omp/agent/hooks/pre/nvim-jay.js`),

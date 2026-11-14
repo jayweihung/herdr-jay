@@ -3,7 +3,8 @@
 //   kit place <agent> <space folder>/<agent> --tool <tool> --json   that folder becomes the agent (kit 0.5.0, api 1.3):
 //                                                                     its rules, skills, MCP, prompt and tool limits
 //   tab.new { space, folder, argv, icon }                            a new tab there runs the command kit gave (claude,
-//                                                                     codex, omp): started in that folder, it is that agent
+//                                                                     codex --no-daemon, omp): started in that folder,
+//                                                                     it is that agent
 // After that the folder is changed like any other, with 加到這個資料夾 / 從資料夾拿掉 in its Kit list; several agents
 // dragged are several folders. One of each agent per space: dropping it again where it already runs shows that tab, and
 // a newer Herdr shows it while dragging (on_drag's refuse: those spaces dim, the chip says so, the pointer says no, and
@@ -69,6 +70,13 @@ export function placeDir(space, agent) {
 async function agentIcon(agent) {
   const a = (shared(AGENTS_DATA)?.agents ?? []).find((x) => x?.name === agent);
   return botFile(a?.bot ?? pickBot(agent));
+}
+// Codex in Herdr runs with --no-daemon (herdr-core's guide; Herdr's own programs.json starts it so): without it a
+// Codex may hand its commands to its shared background server, outside Herdr's terminal (Herdr then doesn't see them
+// run, and the panel can't find its background terminals or sub-agents). Added to kit's command when it lacks it.
+export function herdrArgv(cmd) {
+  const a = (cmd ?? []).map(String);
+  return /(^|[\\/])codex(\.exe|\.cmd)?$/i.test(a[0] ?? "") && !a.includes("--no-daemon") ? [a[0], "--no-daemon", ...a.slice(1)] : a;
 }
 export function openTab(args, icon) {
   if (icon) {
@@ -157,7 +165,7 @@ export function placeAgent(agent, space, tool, cx, label = "放到 space", owner
       const r = await kit(["place", agent, dir, "--tool", tool, "--json"], PLACE_TTL, machine);
       const { data, error } = kitJson(r, "kit place");
       if (error) { say(false, placeError(error, r, machine)); return; }
-      const cmd = Array.isArray(data.command) && data.command.length && data.command.every((x) => typeof x === "string") ? data.command : [tool];
+      const cmd = herdrArgv(Array.isArray(data.command) && data.command.length && data.command.every((x) => typeof x === "string") ? data.command : [tool]);
       const folder = typeof data.dir === "string" && data.dir ? data.dir : dir;
       const icon = await agentIcon(agent);
       let opened;

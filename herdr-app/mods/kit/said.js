@@ -271,8 +271,8 @@ function prune(key, live) {
   return kept;
 }
 
-// ags: Herdr's agents(); terms: terminals(). said: each done or idle agent once per status change (its record's status_ms),
-// again after RETRY when it found nothing yet. subs: every SUBS_MS while it works, and once per status change.
+// ags: Herdr's agents(); terms: terminals(). said: each done or idle agent at each status change (its record's
+// status_ms) and every RETRY. subs: every SUBS_MS while it works, and once per status change.
 export function saidTick(ags, terms, cx) {
   const rec = new Map((terms ?? []).map((r) => [r?.address, r])), now = Date.now();
   const live = new Set((ags ?? []).map((a) => a.address));
@@ -281,11 +281,11 @@ export function saidTick(ags, terms, cx) {
   for (const a of ags ?? []) {
     const stop = Number(rec.get(a.address)?.status_ms) || 0;
     const e = said[a.address];
-    // a file from an earlier stop (the hook may still be writing this one) doesn't count as found. Idle (done and
-    // looked at): its stop was before, so whatever the file says is its last words. Read while you look at it too:
-    // its words say whether it asks you (問你), and that stays until it answers or works again
-    const found = e?.text && (a.status === "idle" || !stop || e.at >= stop - 120000);
-    if (!ownKind(a) && (a.status === "done" || a.status === "idle") && !e?.busy && !(e && e.for === stop && (found || now - e.asked < RETRY)))
+    // Read while you look at it too, and once idle (done and looked at): its words say whether it asks you (問你),
+    // and that stays until it answers or works again.
+    // Read again every RETRY anyway: Herdr's record of another machine's agent can keep an old status_ms, so a new
+    // stop there isn't seen as one (its words then stayed those of the stop before, 問你 something already answered)
+    if (!ownKind(a) && (a.status === "done" || a.status === "idle") && !e?.busy && !(e && e.for === stop && now - e.asked < RETRY))
       ask(SAID, a, stop, "said", parseSaid, cx);
     const b = (shared(BG) ?? {})[a.address];
     if (a.status === "done" && !a.focused && !b?.busy && (!b || now - b.asked >= BG_MS)) {

@@ -17,6 +17,19 @@ const here = dirname(fileURLToPath(import.meta.url));
   const theirs = files.match(/^const MARK = "([^"]*)";$/m)?.[1];
   if (theirs !== MARK) { console.log(`MARK differs: mark.js ${JSON.stringify(MARK)}, agent-files ${JSON.stringify(theirs)}`); process.exit(1); }
   console.log("ok    MARK is the same in nvim-jay/mark.js and agent-files");
+  // a review tab: shell: false (the tab closes with nvim); an app that refuses it: the same tab without it
+  const { openPane } = await import(pathToFileURL(join(mods, "nvim-jay", "mark.js")));
+  const calls = [];
+  openPane((n, a) => { calls.push([n, a]); }, ["nvim"], "/w", { review: "/r.json", name: "review 7", space: "s1" });
+  openPane((n, a) => { calls.push([n, a]); if (a.shell === false) throw new Error("tab.new: unknown argument(s): shell"); }, ["nvim"], "/w", { review: "/r.json" });
+  openPane((n, a) => { calls.push([n, a]); }, ["nvim"], "/w");
+  const want = JSON.stringify([
+    ["tab.new", { name: "review 7", space: "s1", folder: "/w", argv: ["nvim"], shell: false }],
+    ["tab.new", { name: "review", folder: "/w", argv: ["nvim"], shell: false }],
+    ["tab.new", { name: "review", folder: "/w", argv: ["nvim"] }],
+    ["terminal.open", { folder: "/w", argv: ["nvim"], place: "right", name: "nvim" }]]);
+  if (JSON.stringify(calls) !== want) { console.log(`openPane: ${JSON.stringify(calls)}`); process.exit(1); }
+  console.log("ok    a review tab opens with shell: false, and without it on an app that refuses it");
 }
 // the bundled tree: files.txt lists exactly its files, and its sum is theirs (tree-files.js rewrites it)
 {

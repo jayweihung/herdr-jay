@@ -23,14 +23,15 @@ A tag that needs no patches still gets a folder holding only README.md, so the u
 | herdr-app v0.1.15 | `0003-feat-a-terminal-s-own-icon-in-the-lists…` | a terminal can have its own icon in the lists in place of its program's: `tab.new {icon}`, `terminal.icon {terminal, icon}`, kept as the core label `herdr.icon` (an .svg/.png under the app's folder, a plain relative path; anything else is ignored). The Kit panel opens a placed agent with its own logo. Without it the tab opens with the program's icon. |
 | herdr-app v0.1.15 | `0004-feat-a-drag-can-refuse-some-drop-targets…` | a mod's drag can name the drop targets that won't take it: `on_drag(payload, label, refuse, refused_label)` (`refuse`: `drop_key`s, one per line) and a target's `.drop_key(key)`; the built-in Agents and Spaces panels key a space's row by its id. Over a refused target it dims, the chip says `refused_label`, the pointer shows the not-allowed sign, and a drop there isn't handed over. The Kit panel refuses the spaces where that agent already runs. Without it a drop there just shows the agent's tab. |
 | herdr-app v0.1.15 | `0005-feat-drop-at-a-place-in-a-space-s-group-reorder-age…` | in the agents panel grouped by space, every agent row under a space's header takes a mod's drag too, a line showing where it lands (the header: first; a row: right after its tab); `dropOnSpace(drop, space, index)` and `nextDrop()`'s `index` (before that tab position, 1 = first; null on the spaces panel). A row also drags to another place in its own group (`tab.move`; other spaces refuse it). The Kit panel moves the new tab to the place it was dropped. Without it only the header takes the drop and the tab opens last. |
+| herdr-app v0.1.15 | `0006-feat-tab.new-shell-false…` | `tab.new {argv, shell: false}` runs argv by itself instead of in your shell that stays after it, so the tab closes when the program exits. A Gerrit review opened in nvim (在 nvim 看) uses it: quitting nvim closes its tab. Without it the tab keeps a shell after nvim quits (the Gerrit panel no longer takes that shell for nvim). |
 
 ## Apply / 套用
 
 Step by step with checks: [macos.md](macos.md), [windows.md](windows.md).
 
-**Today (core v0.1.21, app v0.1.15): core has nothing to apply; the app has the two drag patches.** Set the tag from
+**Today (core v0.1.21, app v0.1.15): core has nothing to apply; the app has the patches in the table above.** Set the tag from
 the README versions table; never apply one tag's patches on another tag.
-現在 core 沒有補丁；app v0.1.15 有兩個（拖到 space）。只套那個 tag 自己資料夾裡的。
+現在 core 沒有補丁；app v0.1.15 有上表那幾個。只套那個 tag 自己資料夾裡的。
 
 macOS (zsh), in the Herdr repo (`herdr-core` or `herdr-app`), on that tag:
 

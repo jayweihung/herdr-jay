@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: jayweihung <3034830+jayweihung@users.noreply.github.com>
 Date: Fri, 13 Nov 2026 20:34:21 +0800
-Subject: [PATCH 4/5] feat: a drag can refuse some drop targets
+Subject: [PATCH 4/6] feat: a drag can refuse some drop targets
 
 on_drag(payload, label, refuse, refused_label): refuse names the drop
 targets (a target's drop_key) that won't take the drag, one per line.
@@ -529,6 +529,3 @@ index e6269b9..7673706 100644
          "on_scroll_wheel",
          "on_action",
          "key_context",
--- 
-2.54.0
-

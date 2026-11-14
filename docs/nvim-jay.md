@@ -275,7 +275,8 @@ Anything else: `:messages` in nvim, plus a photo of the error.
 ## 9. Gerrit review mode / Gerrit review 模式
 
 Opened by the Gerrit panel's **在 nvim 看** ([gerrit.md §9](gerrit.md#9-read-a-change-in-nvim--在-nvim-看)), never by
-`cmd-e`: a new tab in the change's own folder (a git worktree at that patch set). The panel passes
+`cmd-e`: a new tab in the change's own folder (a git worktree at that patch set); quitting nvim closes the tab (with
+Herdr app patch 0006, [patches.md](patches.md); without it a shell stays in the tab). The panel passes
 `--cmd "let g:nvim_jay_review = '<…>/review.json'"`; that file is the panel's (files, comments, base and head, a jump)
 and it rewrites it when something changes. Everything else of nvim-jay stays (language servers, the mouse, the
 menu); follow is off and there is no tree. nvim-jay's own comments for an agent are off in the change's files: there

@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: jayweihung <3034830+jayweihung@users.noreply.github.com>
 Date: Fri, 13 Nov 2026 20:11:58 +0800
-Subject: [PATCH 3/5] feat: a terminal's own icon in the lists (tab.new icon,
+Subject: [PATCH 3/6] feat: a terminal's own icon in the lists (tab.new icon,
  terminal.icon)
 
 A mod that opens an agent (a kit agent, say) can show that agent's own
@@ -284,6 +284,3 @@ index fe87f41..644b128 100644
      #[test]
      fn going_back_into_a_split_column_takes_its_top_pane_whatever_the_fractions() {
          let r = |x: f32, y: f32, w: f32, h: f32| gpui::Bounds::new(point(px(x), px(y)), size(px(w), px(h)));
--- 
-2.54.0
-

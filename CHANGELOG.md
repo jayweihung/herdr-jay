@@ -9,6 +9,14 @@ says which) · **kit** = update kit itself on every machine where agents run (`k
 **snap hook** = a line in Claude Code's `settings.json` on each machine where you added the hook (the entry says
 which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/keys.md).
 
+## 2026-11-14, Gerrit review in nvim: quitting nvim closes its tab
+
+Needs: **app** (rebuild with herdr-app patch 0006) and **mods** (nvim-jay; Windows: copy it again).
+
+- 在 nvim 看 opens nvim by itself in its tab (`tab.new {shell: false}`, [patches.md](docs/patches.md)), so `:q` closes
+  the tab instead of leaving a shell. On an app without the patch, the tab still keeps a shell (as before).
+nvim 關掉，review 分頁就一起關（要用打了 0006 patch 的 app）。
+
 ## 2026-11-14, Gerrit panel: 切到 nvim only while nvim runs
 
 Needs: **gerrit** (Windows: copy the Gerrit panel again).

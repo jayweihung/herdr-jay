@@ -1,0 +1,122 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: jayweihung <3034830+jayweihung@users.noreply.github.com>
+Date: Sat, 14 Nov 2026 15:39:45 +0800
+Subject: [PATCH 6/6] feat: tab.new shell: false runs argv by itself, so its
+ tab closes with it
+
+tab.new runs an agent in your shell, which stays after the agent exits. A
+program that is the whole tab (nvim-jay's Gerrit review) should take the tab
+with it: shell: false spawns argv as is.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ defaults/AGENTS.md |  3 ++-
+ docs/commands.md   |  3 ++-
+ src/commands.rs    |  6 ++++--
+ src/window.rs      | 13 +++++++++----
+ 4 files changed, 17 insertions(+), 8 deletions(-)
+
+diff --git a/defaults/AGENTS.md b/defaults/AGENTS.md
+index 6f5fc31..d9519ff 100644
+--- a/defaults/AGENTS.md
++++ b/defaults/AGENTS.md
+@@ -557,7 +557,8 @@ The main ones:
+ - Tabs: `tab.new {name?, space?, folder?, argv?, task?, icon?}` (argv: an
+   agent to run, task: its first message, icon: its own icon in the lists, as
+   `terminal.icon`). Agents run in your interactive
+-  shell (including fish), which stays open after the agent exits. A terminal
++  shell (including fish), which stays open after the agent exits;
++  `shell: false` runs argv by itself, and its tab closes when it exits. A terminal
+   that exits with a nonzero code within two seconds of launch shows an error
+   toast with its exit code and last output lines. Or `tab.new {name?, space?, mod,
+   props?}` for a tab whose only pane is a mod (a file, a board; split a shell
+diff --git a/docs/commands.md b/docs/commands.md
+index d8b85b4..060a133 100644
+--- a/docs/commands.md
++++ b/docs/commands.md
+@@ -59,7 +59,7 @@ Move a space to a position (1 = first).
+ 
+ ## `tab.new`
+ 
+-Make a tab in a space (default: the selected one; name default: none, so it's called by its number) with a terminal in folder (default: the focused terminal's), optionally an agent (argv) and its first message (task), and its own icon (icon: an .svg or .png under the app's folder, as terminal.icon); or with a mod as its only pane (`mod`, its `props`: a file, a board). With no space open, a person's new tab starts a space (as space.new).
++Make a tab in a space (default: the selected one; name default: none, so it's called by its number) with a terminal in folder (default: the focused terminal's), optionally an agent (argv) and its first message (task) in your shell that stays after it (shell: false runs argv by itself, and the tab closes when it exits), and its own icon (icon: an .svg or .png under the app's folder, as terminal.icon); or with a mod as its only pane (`mod`, its `props`: a file, a board). With no space open, a person's new tab starts a space (as space.new).
+ 
+ | Argument | Required |
+ |---|---|
+@@ -68,6 +68,7 @@ Make a tab in a space (default: the selected one; name default: none, so it's ca
+ | `folder` | no |
+ | `argv` | no |
+ | `task` | no |
++| `shell` | no |
+ | `mod` | no |
+ | `props` | no |
+ | `icon` | no |
+diff --git a/src/commands.rs b/src/commands.rs
+index 01d5e36..aab6864 100644
+--- a/src/commands.rs
++++ b/src/commands.rs
+@@ -34,8 +34,8 @@ pub const COMMANDS: &[Command] = &[
+     cmd("space.close", &[opt("id"), opt("confirmed")], "Close a space and end its terminals (asks first unless confirmed)."),
+     cmd("space.rename", &[opt("id"), opt("name")], "Rename a space (asks the person when no name; an empty name: called after where its first terminal is again)."),
+     cmd("space.move", &[req("id"), req("index")], "Move a space to a position (1 = first)."),
+-    cmd("tab.new", &[opt("name"), opt("space"), opt("folder"), opt("argv"), opt("task"), opt("mod"), opt("props"), opt("icon")],
+-        "Make a tab in a space (default: the selected one; name default: none, so it's called by its number) with a terminal in folder (default: the focused terminal's), optionally an agent (argv) and its first message (task), and its own icon (icon: an .svg or .png under the app's folder, as terminal.icon); or with a mod as its only pane (`mod`, its `props`: a file, a board). With no space open, a person's new tab starts a space (as space.new)."),
++    cmd("tab.new", &[opt("name"), opt("space"), opt("folder"), opt("argv"), opt("task"), opt("shell"), opt("mod"), opt("props"), opt("icon")],
++        "Make a tab in a space (default: the selected one; name default: none, so it's called by its number) with a terminal in folder (default: the focused terminal's), optionally an agent (argv) and its first message (task) in your shell that stays after it (shell: false runs argv by itself, and the tab closes when it exits), and its own icon (icon: an .svg or .png under the app's folder, as terminal.icon); or with a mod as its only pane (`mod`, its `props`: a file, a board). With no space open, a person's new tab starts a space (as space.new)."),
+     cmd("tab.close", &[opt("id"), opt("confirmed")], "Close a tab and end its terminals."),
+     cmd("tab.rename", &[opt("id"), opt("name")], "Rename a tab (asks the person when no name; an empty name: called by its number again)."),
+     cmd("tab.move", &[req("id"), req("index")], "Move a tab to a position in its space (1 = first)."),
+@@ -195,6 +195,8 @@ mod tests {
+         assert_eq!(validate_args(close, &json!({"space": "X", "confirmed": true})),
+             Err("space.close: unknown argument(s): space; valid arguments: id, confirmed".into()));
+         assert!(validate_args(close, &json!({"id": "X", "confirmed": true})).is_ok());
++        // a review in nvim: the program by itself, its tab closes with it
++        assert!(validate_args(find("tab.new").unwrap(), &json!({"argv": ["nvim"], "shell": false})).is_ok());
+     }
+ 
+     #[test]
+diff --git a/src/window.rs b/src/window.rs
+index 644b128..f52c9dd 100644
+--- a/src/window.rs
++++ b/src/window.rs
+@@ -2468,7 +2468,7 @@ impl AppWindow {
+     }
+ 
+     /// A tab in a space (default: the shown one), shown at once.
+-    fn new_tab(&mut self, space: Option<String>, name: &str, folder: Option<String>, argv: Option<Vec<String>>, task: Option<&str>, window: &Window) -> Result<Value, String> {
++    fn new_tab(&mut self, space: Option<String>, name: &str, folder: Option<String>, argv: Option<Vec<String>>, task: Option<&str>, shell: bool, window: &Window) -> Result<Value, String> {
+         let space = space.or_else(|| self.model.active_space().map(|p| p.id.clone())).ok_or("no space yet: make one first (space.new)")?;
+         if self.model.space(&space).is_none() {
+             return Err(format!("no space {space:?}"));
+@@ -2478,7 +2478,8 @@ impl AppWindow {
+         let on = self.machine_of(&space);
+         let (ctx, pane) = (self.model.fresh_id_on("tb", on.as_deref()), self.model.fresh_id_on("p", on.as_deref()));
+         let size = self.initial_size(&Tab::new(&ctx, "", &pane, "").root, &pane, window);
+-        let (addr, _) = self.spawn(Self::agent_argv(argv.clone(), task, on.as_deref()).or(argv), folder, follow, &space, &ctx, on.as_deref(), size, window)?;
++        let run = if shell { Self::agent_argv(argv.clone(), task, on.as_deref()).or(argv) } else { argv.filter(|a| !a.is_empty()) };
++        let (addr, _) = self.spawn(run, folder, follow, &space, &ctx, on.as_deref(), size, window)?;
+         self.model.add_tab(&space, Tab::new(&ctx, name.trim(), &pane, &addr));
+         self.model.active = Some(space.clone());
+         Ok(json!({ "space": space, "tab": ctx, "terminal": addr }))
+@@ -2965,7 +2966,11 @@ impl AppWindow {
+                     None if person && a.get("space").is_none() && self.model.active_space().is_none() => {
+                         self.new_space("", Self::owned(a, "folder"), Some(name), Self::argv(a), Self::arg(a, "task"), None, window)
+                     }
+-                    None => self.new_tab(Self::owned(a, "space"), name, Self::owned(a, "folder"), Self::argv(a), Self::arg(a, "task"), window),
++                    None => {
++                        // shell: false runs argv by itself: when it exits the pane (and a tab of its own) closes.
++                        let shell = a.get("shell").and_then(Value::as_bool) != Some(false);
++                        self.new_tab(Self::owned(a, "space"), name, Self::owned(a, "folder"), Self::argv(a), Self::arg(a, "task"), shell, window)
++                    }
+                 };
+                 if let (Ok(v), Some(icon)) = (&r, icon) {
+                     if let Some(t) = v.get("terminal").and_then(Value::as_str) {
+@@ -3124,7 +3129,7 @@ impl AppWindow {
+                         let name = Self::owned(a, "name")
+                             .or_else(|| argv.as_ref().and_then(|v| v.first()).map(|p| p.rsplit('/').next().unwrap_or(p).to_owned()))
+                             .unwrap_or_else(|| "shell".into());
+-                        self.new_tab(None, &name, Self::owned(a, "folder"), argv, None, window)
++                        self.new_tab(None, &name, Self::owned(a, "folder"), argv, None, true, window)
+                     }
+                 };
+                 self.answer(r);

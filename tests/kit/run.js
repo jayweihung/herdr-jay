@@ -1342,6 +1342,29 @@ test("收進來（N 個）: several skills ticked (every one that can be, at fir
   assert.equal(v.part.making, null, "the box closes once something was collected");
   assert.deepEqual(JSON.parse(localStorage.getItem("kit.groups")), ["a/r"], "its group open in the list");
 });
+test("收進來（N 個）: a run the mod's reload (or a restart) stopped goes on with what is left, the one in flight last; one message at the end", async (M) => {
+  fresh(); fakeKit({ list: TEAM_LIST });
+  const base = H.answer;
+  H.answer = (argv) => {
+    const a = argv[0] === "sh" ? argv.slice(4) : argv.slice(1);
+    return a[0] === "collect" ? { code: 0, stdout: "", stderr: "kit：已收\n" } : base(argv);
+  };
+  H.store["kit.collecting"] = { url: "https://github.com/a/r", id: "github.com/a/r", source: "mine", allow: true, total: 5, ok: ["x"], bad: ["y：壞了"],
+    todo: [{ name: "a", path: "skills/a" }, { name: "b", path: "skills/b" }, { name: "c", path: "skills/c" }], build: "an earlier build" };
+  H.store["kit.busy"] = { label: "收", at: Date.now(), ttl: 5280000, id: "old", build: "an earlier build" };
+  H.store["kit.data.v2"] = { at: Date.now(), ...TEAM_LIST, items: TEAM_LIST.items ?? [] };   // loaded already: the list is shown at once
+  const v = view(M, { role: "repo" }); await settle();
+  assert.match(render(v), /收進來中 2\/5：a（已收好 1 個，在下面清單；1 個沒收）/, "shown with no 新增 box open");
+  await tick(); await settle();
+  const runs = kitCalls("collect").map((c) => c.argv.slice(c.argv[0] === "sh" ? 4 : 1).join(" "));
+  assert.deepEqual(runs, ["collect https://github.com/a/r --to mine --path skills/b --allow", "collect https://github.com/a/r --to mine --path skills/c --allow",
+    "collect https://github.com/a/r --to mine --path skills/a --allow"], "a (in flight when it stopped) last, each once");
+  const shown = render(v);
+  assert.match(shown, /收了 4 個（github.com\/a\/r）：x、b、c、a/); assert.match(shown, /1 個沒收：\s*y：壞了/);
+  assert.equal(H.store["kit.collecting"], null); assert.equal(H.store["kit.busy"] ?? null, null);
+  await tick(); await settle();
+  assert.equal(kitCalls("collect").length, 3, "not run again");
+});
 test("Skills 清單: your own first, then what was collected, one group per URL (third_party.lock); closed until clicked", async (M) => {
   const R = M.repo;
   assert.deepEqual(R.lockFrom("# third_party.lock - written by kit collect\ntdd\thttps://github.com/mattpocock/skills.git\tskills/tdd\t-\tabc\tMIT\t2026-11-14\r\nx\tgit@git.example.org:team/x\t.\n\nbad"),

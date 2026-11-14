@@ -13,13 +13,18 @@ import { v_flex, h_flex, InputState, Input, Editor, TextareaState, Textarea } fr
 import { theme, exec, run, layout, shared, setShared, window, readTextFile, writeTextFile, closeOverlay, openOverlay, appHome, notify, props as blockProps } from "herdr";
 import { DATA, LOAD, EDITORS, NODES, MSG, fs, mono, stop, slash, shortDir, clean, spin, waiting, find, textBlock, copyOnRight, btn,
   busyNow, dropStaleBusy, takeBusy, giveBusy, markChanged, kit, kitJson, apiState, apiKnown, apiAtLeast, checkApi, apiCard, messageBox, problemCard, versionCard,
-  squeeze, newEditor, liveEditors, localGet, localSet, kitAction, loadNewest, loadingNow, isWindows, lockFrom, urlId, groupRows, collectedFrom } from "./common.js";
+  squeeze, newEditor, liveEditors, BUILD, localGet, localSet, kitAction, loadNewest, loadingNow, isWindows, lockFrom, urlId, groupRows, collectedFrom } from "./common.js";
 export { lockFrom, urlId, groupRows };
 import { layoutNeeds, moveIntoBar } from "./layout.js";
 import { machinesTab, loadMachines, machinesDue, machinesLoading } from "./machines.js";
 
 const LONG = 600000, SHORT = 120000; // how long kit sync / push, and the other actions, may take
 const STALE = 60000, LOAD_TTL = 90000;
+// 收進來（N 個） under way: { url, id, source, allow, todo: [{ name, path }], total, ok: [names], bad: [lines], build }.
+// Shared, so it outlives the build that ran it: a reload of the mod (someone saving a file in it) or a restart ends that
+// build's task mid-run, and the panel goes on with what is left (the one in flight then goes last: its kit may still
+// be finishing). 39 skills take minutes; twice an edit had stopped a run, silently, a few in.
+const COLLECT = "kit.collecting";
 const PUSH_KIND = { pr: "團隊 · 送出要審", direct: "自己的 · 直接推" };
 
 // The repository: kit list --json on this computer. kit says what kit push would send: per source (changed: its
@@ -172,6 +177,7 @@ export class Repo {
       const a = apiKnown(null);
       if (!a) return checkApi(null, cx);
       if (a.ok && due() && !this.busy) this.refresh(cx);
+      if (a.ok && shared(COLLECT) && !this.busy) this.resumeCollect(cx);
     };
     tick(cx);
     cx.timer.every(2000, tick);
@@ -357,6 +363,8 @@ export class Repo {
       .sort((a, b) => (b.changed - a.changed) || (b.new - a.new) || a.name.localeCompare(b.name));
     const body = v_flex().id(`kit-repo-body-${kind}`).flex_1().min_h(0).overflow_y_scrollbar().px(10).py(8).gap(2);   // named: a message appearing above must not reset the scroll
     if (!this.plan && (d.dirty ?? []).length) body.child(this.unsent(t, z, d));
+    // 收進來（N 個） going on with no card to show it in (the panel was reloaded mid-run, or another copy runs it)
+    if (shared(COLLECT) && kind === "skill" && !this.making?.look) body.child(div().flex_none().p(8).mb(4).rounded(6).bg(t.background).border_1().border_color(t.accent).child(this.collectProgress(t, z)));
     if (this.making) body.child(this.maker(t, z, d, kind));   // in the scroll area: a long one (a skill looked at) can be scrolled
     // your own first; then what kit collect took, one group per URL it came from (closed until clicked; open while
     // searching), a URL with one skill as a plain row that says where it came from
@@ -514,11 +522,10 @@ export class Repo {
     if (allow) all.child(note(`${lk.id} 會一起加進 ${lk.source} 的允許清單。`, t.working));
     all.child(note("會一個一個收（每個都重新下載一次，大的 repo 要等一下）；不能收的會跳過，最後列出來。收好一個就出現在 Skills 清單「收來的」底下（照網址分一組），不用等全部收完。"));
     all.child(note("收進來後：用 git diff 看收了哪些檔案 → 清單上面黃色那條按「送出」送上去 → 要用哪個，就在 agent 視窗上的 Kit 清單按「加到這個資料夾」。"));
-    const pr = m.progress;
     all.child(h_flex().gap(6).items_center()
       .child(btn(t, z, "collect-many", this.busy === "收" ? "收進來中…" : `${allow ? "加進清單並收進來" : "收進來"}（${picked.length} 個）`,
         { small: true, kind: "primary", off: Boolean(this.busy) || !picked.length, on: (cx) => this.collectMany(picked, allow, cx) })));
-    if (this.busy === "收" && pr) all.child(this.working(t, z, `收進來中 ${pr.done}/${pr.total}：${pr.name}${pr.ok ? `（已收好 ${pr.ok} 個，在下面清單）` : ""}`, pr.done, pr.total));
+    if (shared(COLLECT)) all.child(this.collectProgress(t, z));
     return box.child(card).child(all);
   }
 
@@ -679,40 +686,64 @@ export class Repo {
     const m = this.making, lk = m?.look;
     if (!lk || !picked.length) return;
     if (!this.startBusy("收", LONG + SHORT * picked.length)) return;
-    m.progress = { done: 0, total: picked.length, name: picked[0].name };
+    setShared(COLLECT, { url: lk.url, id: lk.id, source: lk.source, allow: Boolean(allow), todo: picked.map((x) => ({ name: x.name, path: x.path })),
+      total: picked.length, ok: [], bad: [], build: BUILD });
     // its group open from the start: each one collected shows in the list right away, not only when all are done
     // (a long run that showed nothing new for minutes read as failed)
     const g = urlId(lk.url);
     localSet("kit.groups", JSON.stringify([...this.openGroups().filter((x) => x !== g), g]));
     cx.notify();
+    this.runCollect(cx);
+  }
+
+  // a run another build started (or that stopped without ending): go on with what is left, in whichever copy takes the lock
+  resumeCollect(cx) {
+    let j = shared(COLLECT);
+    if (!j || typeof j !== "object" || !Array.isArray(j.todo)) { setShared(COLLECT, null); return; }
+    if (!this.startBusy("收", LONG + SHORT * Math.max(1, j.todo.length))) return;
+    if (j.build !== BUILD && j.todo.length > 1) j = { ...j, todo: [...j.todo.slice(1), j.todo[0]] };
+    setShared(COLLECT, { ...j, build: BUILD });
+    cx.notify();
+    this.runCollect(cx);
+  }
+
+  // one kit collect after another off the shared list, which is written after each; the message once all were tried
+  runCollect(cx) {
     cx.spawn(async (cx) => {
-      const ok = [], bad = [];
+      let j = shared(COLLECT);
       try {
-        for (const x of picked) {
-          m.progress = { ...m.progress, name: x.name };
-          cx.notify();
-          const r = await kit(["collect", lk.url, "--to", lk.source, "--path", x.path, ...(allow ? ["--allow"] : [])], LONG)
+        while (j?.todo?.length) {
+          const x = j.todo[0];
+          const r = await kit(["collect", j.url, "--to", j.source, "--path", x.path, ...(j.allow ? ["--allow"] : [])], LONG)
             .catch((e) => ({ code: 1, err: String(e?.message ?? e) }));
-          if (r.code === 0) {
-            ok.push(x.name);
-            m.progress = { ...m.progress, ok: ok.length };
-            loadNewest(LOAD, DATA, loadRepo).then(() => cx.notify(), () => {});   // not waited for: the next one starts now
-          } else bad.push(`${x.name}：${clean(r.err || r.out).trim().split("\n").filter(Boolean).pop() ?? "失敗"}`);
-          m.progress = { ...m.progress, done: m.progress.done + 1 };
+          const ok = r.code === 0;
+          j = { ...j, todo: j.todo.slice(1), ok: ok ? [...j.ok, x.name] : j.ok,
+            bad: ok ? j.bad : [...j.bad, `${x.name}：${clean(r.err || r.out).trim().split("\n").filter(Boolean).pop() ?? "失敗"}`] };
+          setShared(COLLECT, j);
+          if (ok) loadNewest(LOAD, DATA, loadRepo).then(() => cx.notify(), () => {});   // not waited for: the next one starts now
+          cx.notify();
         }
       } finally {
-        const text = [ok.length ? `收了 ${ok.length} 個（${lk.id}）：${ok.join("、")}` : "", bad.length ? `${bad.length} 個沒收：\n${bad.join("\n")}` : "",
-          ok.length ? "下一步：用 git diff 看收了哪些檔案 → 清單上面黃色那條按「送出」送上去。" : ""].filter(Boolean).join("\n\n");
-        this.setMsg({ ok: ok.length > 0, label: "收進來", text: text || "什麼都沒收", at: Date.now() });
-        if (ok.length) {
-          this.making = null;
-          this.newUrl.set_value("");
-        } else m.progress = null;
+        if (j && !j.todo?.length) {
+          const { ok, bad } = j;
+          const text = [ok.length ? `收了 ${ok.length} 個（${j.id}）：${ok.join("、")}` : "", bad.length ? `${bad.length} 個沒收：\n${bad.join("\n")}` : "",
+            ok.length ? "下一步：用 git diff 看收了哪些檔案 → 清單上面黃色那條按「送出」送上去。" : ""].filter(Boolean).join("\n\n");
+          this.setMsg({ ok: ok.length > 0, label: "收進來", text: text || "什麼都沒收", at: Date.now() });
+          setShared(COLLECT, null);
+          if (ok.length && this.making?.look) { this.making = null; this.newUrl?.set_value(""); }
+        }
         this.endBusy();
-        cx.notify();
+        try { cx.notify(); } catch {}
       }
-      if (ok.length) { await loadNewest(LOAD, DATA, loadRepo); cx.notify(); }
+      if (j && !j.todo?.length && j.ok.length) { await loadNewest(LOAD, DATA, loadRepo); cx.notify(); }
     });
+  }
+
+  // how far 收進來（N 個） is: a bar that fills, and the names
+  collectProgress(t, z) {
+    const j = shared(COLLECT), done = j.total - j.todo.length, next = j.todo[0]?.name;
+    const more = j.ok.length ? `（已收好 ${j.ok.length} 個，在下面清單${j.bad.length ? `；${j.bad.length} 個沒收` : ""}）` : j.bad.length ? `（${j.bad.length} 個沒收）` : "";
+    return this.working(t, z, next ? `收進來中 ${done}/${j.total}：${next}${more}` : `收完了 ${done}/${j.total}${more}`, done, j.total);
   }
 
   make(cx) {

@@ -60,6 +60,14 @@ Needs: mods.
 - nvim-jay sends comments to omp too (omp reports itself as `omp`, not `pi`). The Kit panel's new-skill hint says omp's
   `/skill:名字`; the context window's switch for typing 繼續 shows for Codex too.
 
+## 2026-11-15, Kit: 送出 shows its steps and how long it has run
+
+Needs: **mods**.
+
+送出 used to say only 送出中… for minutes. Now: 1/2 再確認一次要送的檔案, 2/2 kit check、commit、推到每個遠端, a bar and the
+seconds so far; 送出's first step (the list) the same.
+送出時分段顯示（1/2、2/2）和已經過幾秒，不再只有轉圈圈。
+
 ## 2026-11-15, Kit: a change that can't be sent is said at once, not first when you press 送出
 
 Needs: **mods**.

@@ -1619,6 +1619,12 @@ test("送不出去 is said at once: a change kit check would stop (a collect) is
   assert.doesNotMatch(render(v), /有問題送不出去/);
   render(v); H.clicks.reload({}, cx); await settle();
   assert.deepEqual(H.store["kit.pushCheck.v1"], {}, "⟳: every answer forgotten, asked again");
+  // 送出 in steps, with its seconds (kit says nothing while it runs)
+  const { stageText } = M.repo;
+  assert.equal(stageText({ step: 1, of: 2, text: "再確認一次要送的檔案（約 1 分鐘）", started: 1e9 - 35000 }, 1e9), "1/2 再確認一次要送的檔案（約 1 分鐘） · 已 35 秒");
+  assert.equal(stageText({ step: 2, of: 2, text: "推", started: 1e9 - 95000 }, 1e9), "2/2 推 · 已 1 分 35 秒");
+  assert.equal(stageText({ step: 1, of: 1, text: "列出", started: 1e9 }, 1e9), "列出 · 已 0 秒");
+  assert.equal(stageText(null), "");
 });
 test("下載看看: kit collect --look's JSON is shown; its error JSON shows kit's words", async (M) => {
   const look = { url: "https://git.example.org/a/r@abc", source: "mine", id: "git.example.org/a", allowed: true, can_allow: false,

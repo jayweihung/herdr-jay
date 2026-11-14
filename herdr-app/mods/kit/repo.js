@@ -30,6 +30,12 @@ const PUSH_KIND = { pr: "團隊 · 送出要審", direct: "自己的 · 直接�
 // changed files are other ones than last asked (a collect, a new file), so a change that can't be sent is said at
 // once, not first when you press 送出. Its answer stays until the files change; one copy asks (busy, for CHECK_TTL).
 const CHECK_TTL = 300000;
+// 送出 under way, in steps (kit says nothing while it runs, and a big source takes minutes): { name, step, of, text, started }
+export function stageText(st, now = Date.now()) {
+  if (!st) return "";
+  const secs = Math.max(0, Math.round((now - (st.started ?? now)) / 1000));
+  return `${st.of > 1 ? `${st.step}/${st.of} ` : ""}${st.text} · 已 ${secs >= 60 ? `${Math.floor(secs / 60)} 分 ${secs % 60} 秒` : `${secs} 秒`}`;
+}
 export function checkDue(x, c, now = Date.now()) {
   if (!x) return false;
   if (c?.busy && now - (c.started ?? 0) < CHECK_TTL) return false;
@@ -159,6 +165,7 @@ export class Repo {
     this.code = null;
     this.making = null;  // { source } while adding a new one
     this.plan = null;    // 送出: [{ name, push, ok, text }] what kit push --dry-run said, waiting for 確定送出
+    this.stage = null;   // 送出 under way: which step (stageText)
     this.mine = null;    // the id of the action this copy started in kit.busy
     this.moveErr = null; // why 放進上排 / 更新版面 didn't work (layout.js)
     dropStaleBusy();
@@ -194,6 +201,7 @@ export class Repo {
       if (a.ok && due() && !this.busy) this.refresh(cx);
       if (a.ok && shared(COLLECT) && !this.busy) this.resumeCollect(cx);
       if (a.ok && !this.busy && !shared(COLLECT) && !this.loading) this.checkPush(cx);
+      if (this.stage) cx.notify();   // its seconds
     };
     tick(cx);
     cx.timer.every(2000, tick);
@@ -275,6 +283,7 @@ export class Repo {
     const dirty = this.data?.dirty ?? [];
     if (!dirty.length || !this.startBusy("檢查", SHORT * dirty.length)) return;
     this.setMsg(null);
+    this.stage = { name: null, step: 1, of: 1, text: "列出要送的檔案、跑 kit check（大的倉約 1 分鐘）", started: Date.now() };
     cx.notify();
     cx.spawn(async (cx) => {
       try {
@@ -285,7 +294,7 @@ export class Repo {
           this.keepCheck(x, j);
         }
         this.plan = plan;
-      } finally { this.endBusy(); cx.notify(); }
+      } finally { this.stage = null; this.endBusy(); cx.notify(); }
     });
   }
   // 送出, step 2: kit push for one source
@@ -295,6 +304,8 @@ export class Repo {
     cx.spawn(async (cx) => {
       try {
         // the files must still be the ones you were shown (two dry runs' lists, compared as kit gave them)
+        this.stage = { name: p.name, step: 1, of: 2, text: "再確認一次要送的檔案（約 1 分鐘）", started: Date.now() };
+        cx.notify();
         const again = await pushJson(p.name, true, SHORT);
         if (!again.ok || again.files !== p.files) {
           const np = { ...p, ok: again.ok, files: again.files, text: again.text };
@@ -302,13 +313,15 @@ export class Repo {
           this.setMsg({ ok: false, label: `送出 ${p.name}`, text: "要送的檔案跟剛才列的不一樣了（剛剛有存檔或改過），什麼都沒送。請再看一次下面的清單。", at: Date.now() });
           return;
         }
+        this.stage = { ...this.stage, step: 2, text: `kit check、commit、推到 ${p.push === "pr" ? "送出的分支、開 PR" : "每個遠端"}（約 1～2 分鐘）` };
+        cx.notify();
         const r = await pushJson(p.name, false, LONG);
         let text = r.text || (r.sent ? "送出了" : "失敗");
         if (r.sent && r.push === "pr") text += `\n\n${r.prUrl ? `PR：${r.prUrl}\n` : ""}改的檔案現在在送出的分支上：PR 合併、kit sync 之後才會回到這裡。`;
         this.setMsg({ ok: !r.code, label: `送出 ${p.name}`, text, at: Date.now() });
         this.plan = (this.plan ?? []).filter((x) => x.name !== p.name);
         if (!this.plan.length) this.plan = null;
-      } finally { this.endBusy(); this.changed(); cx.notify(); }
+      } finally { this.stage = null; this.endBusy(); this.changed(); cx.notify(); }
     });
   }
 
@@ -374,6 +387,7 @@ export class Repo {
         .child(copyOnRight(div().flex_1().font_semibold().child(p.name), p.name))
         .when(Boolean(PUSH_KIND[p.push]), (el) => el.child(div().text_size(z - 2).text_color(t.muted).child(PUSH_KIND[p.push])))
         .when(p.ok, (el) => el.child(btn(t, z, `push-${p.name}`, this.busy === "送出" ? "送出中…" : "確定送出", { small: true, kind: "primary", off: busy, on: (cx) => this.push(p, cx) }))))
+      .when(this.stage?.name === p.name, (el) => el.child(this.working(t, z, stageText(this.stage), this.stage.step - 1, this.stage.of)))
       .child(div().p(6).rounded(6).bg(t.background).font_family(mono()).text_size(z - 2).text_color(p.ok ? t.foreground : t.ansi1).child(textBlock(`plan-${p.name}`, squeeze(p.text) || "（kit 沒說什麼）"))));
     return card;
   }
@@ -450,6 +464,7 @@ export class Repo {
           .child(bads.length ? "有改動送不出去：kit check 擋下了" : "有改動還沒送出")
           .when(checking && !bads.length, (el) => el.child(spin(z - 3, t.muted)).child(div().font_normal().text_size(z - 2).text_color(t.muted).child("檢查能不能送…"))))
         .child(btn(t, z, "push", busy === "檢查" ? "檢查中…" : "送出", { small: true, kind: "primary", off: Boolean(busy), on: (cx) => this.planPush(cx) })))
+      .when(Boolean(this.stage && !this.stage.name), (el) => el.child(this.working(t, z, stageText(this.stage))))
       .children(lines)
       .child(div().text_size(z - 1.5).text_color(t.dim).child(bads.length ? "改好（或把那樣移掉）再送；改過的檔案一變就會再檢查一次（改的是別的地方，例如不該公開的字清單：按 ⟳ 或「送出」）。" : "按了會先列出要上傳的檔案，再按「確定送出」才真的送。"));
   }

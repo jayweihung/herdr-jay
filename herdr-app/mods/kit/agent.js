@@ -121,6 +121,7 @@ export class AgentPopup {
       const kitRows = items.filter((i) => i.kind === kind && (i.status === "used" || i.status === "required" || mine(i)) && hit(i));
       const ownRows = here.filter((i) => i.kind === kind && hit(i));
       const n = kitRows.length + ownRows.length;
+      if (f0 && !n) continue;   // searching: only the parts with something found
       const folded = !f0 && (this.folded[`use-${kind}`] ?? n > 8);
       body.child(this.secHead(t, z, `use-${kind}`, `${kindName[kind]}（${n}）`, folded, ""));
       if (folded) continue;
@@ -205,7 +206,7 @@ export class AgentPopup {
     } else if (i.status === "required") action.child(div().text_size(z - 1.5).text_color(t.dim).child("拿不掉"));
     else if (i.status === "used") action.child(btn(t, z, `rm-${i.kind}-${i.name}`, "從帳號拿掉", { small: true, off: busy, on: (cx) => this.act(`從帳號拿掉 ${i.name}`, ["rm", i.kind, i.name], cx, SHORT, `已從整個帳號拿掉 ${i.name}。開新的對話就不會有了。`) }));
     else if (!inDir) action.child(btn(t, z, `add-${i.kind}-${i.name}`, "加到整個帳號", { small: true, kind: "primary", off: busy, on: (cx) => this.act(`加到整個帳號 ${i.name}`, ["add", i.kind, i.name], cx, SHORT, `已加到整個帳號：${i.name}。每個資料夾開新的對話都會讀到。`) }));
-    const sub = [i.description, from && i.from ? `收自 ${i.from}` : "", i.source].filter(Boolean).join(" · ");
+    const sub = [from && i.from ? `收自 ${i.from}` : "", i.description, i.source].filter(Boolean).join(" · ");
     const row = h_flex().gap(8).items_center()
       .child(v_flex().flex_1().min_w(0).gap(1)
         .child(head)

@@ -1080,7 +1080,7 @@ test("agent popup: 還沒用的 grouped by the URL a skill was collected from (t
   const v = view(M, { role: "agent", target }); await settle();
   let shown = render(v);
   assert.match(shown, /還沒用的（4）/); assert.match(shown, /calm/);
-  assert.match(shown, /archify desc · 收自 tt\/archify/, "one from a URL: a plain row");
+  assert.match(shown, /收自 tt\/archify · archify desc/, "one from a URL: a plain row, where from first");
   assert.match(shown, /收自 mattpocock\/skills（2）/); assert.doesNotMatch(shown, /tdd desc/, "closed");
   H.clicks["sec-from-mattpocock/skills"]({}, cx); shown = render(v);
   assert.match(shown, /tdd desc/); assert.ok("adddir-skill-tdd" in H.clicks || "add-skill-tdd" in H.clicks, "each one its own button");
@@ -1262,7 +1262,7 @@ test("Skills 清單: your own first, then what was collected, one group per URL 
   const v = view(M, { role: "repo" }); await settle(); await tick();
   let shown = render(v);
   assert.match(shown, /自己寫的[\s\S]*calm[\s\S]*收來的（照網址分）/);
-  assert.match(shown, /archify[\s\S]*收自 tt\/archify/, "one from a URL: a plain row that says where from");
+  assert.match(shown, /收自 tt\/archify · archify desc/, "one from a URL: a plain row that says where from");
   assert.match(shown, /mattpocock\/skills[\s\S]*2 個/); assert.doesNotMatch(shown, /tdd desc/, "closed");
   H.clicks["group-mattpocock/skills"]({}, cx); shown = render(v);
   assert.match(shown, /tdd desc/); assert.match(shown, /triage desc/);

@@ -762,7 +762,7 @@ export class Repo {
           .when(Boolean(i.changed), (el) => el.child(badge("改過", t.working)))
           .when(Boolean(i.new), (el) => el.child(badge("新", t.done)))
           .when(i.status === "required", (el) => el.child(badge("團隊必備", t.accent))))
-        .child(copyOnRight(div().min_w(0).truncate().text_size(z - 1.5).text_color(t.muted).child([i.description, from && i.from ? `收自 ${i.from}` : "", i.src].filter(Boolean).join(" · ") || "（還沒寫說明）"),
+        .child(copyOnRight(div().min_w(0).truncate().text_size(z - 1.5).text_color(t.muted).child([from && i.from ? `收自 ${i.from}` : "", i.description, i.src].filter(Boolean).join(" · ") || "（還沒寫說明）"),
           i.description || i.path)))
       .child(div().flex_none().text_color(t.dim).child("›"));
   }

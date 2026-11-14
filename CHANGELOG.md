@@ -9,6 +9,15 @@ says which) · **kit** = update kit itself on every machine where agents run (`k
 **snap hook** = a line in Claude Code's `settings.json` on each machine where you added the hook (the entry says
 which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/keys.md).
 
+## 2026-11-14, Gerrit panel: 切到 nvim only while nvim runs
+
+Needs: **gerrit** (Windows: copy the Gerrit panel again).
+
+- After you quit nvim in a review tab, the tab keeps a shell. The panel took that shell for nvim: it kept showing
+  切到 nvim (which went to the shell), and 清掉資料夾 said nvim still had it open. Now only a pane where nvim itself
+  still runs counts; the button goes back to 🔍 在 nvim 看, which opens a new one.
+nvim 關掉後，面板不再把留下的 shell 當成 nvim：按鈕回到「在 nvim 看」，清掉資料夾也不會被擋。
+
 ## 2026-11-14, nvim-jay: a real file tree, one-click lists, a typing box; works on Linux again
 
 Needs: **mods** (Windows: copy nvim-jay again, it now has a `nvim-tree` folder), then open nvim again.

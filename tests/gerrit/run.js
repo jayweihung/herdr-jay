@@ -401,6 +401,14 @@ test("在 nvim 看: your clone is used, the job runs in the background with its 
   assert.match(renderText(g), /切到 nvim/);
   g.reviewOpen(7);
   assert.deepEqual(H.runs.at(-1), ["pane.focus", { terminal: "t9" }]); assert.equal(H.overlays.length, 1);
+  // nvim quit: the tab's shell is left (same argv), in front a plain shell -> not open; while nvim runs, it is
+  const rvArg = `let g:nvim_jay_review = '${e.data}/review.json'`;
+  H.terminals = [{ address: "t9", state: "live", argv: ["/bin/zsh", "-lic", "x", "nvim", "--cmd", rvArg], foreground: { argv: ["/bin/zsh", "-li"] } }];
+  assert.doesNotMatch(renderText(g), /切到 nvim/);
+  H.terminals[0].state = "finished"; H.terminals[0].foreground = undefined;
+  assert.doesNotMatch(renderText(g), /切到 nvim/);
+  H.terminals = [{ address: "t9", state: "live", argv: ["/bin/zsh", "-lic", "x", "nvim", "--cmd", rvArg], foreground: { argv: ["/opt/homebrew/bin/nvim", "--cmd", rvArg] } }];
+  assert.match(renderText(g), /切到 nvim/);
   // a file clicked in the panel: nvim goes there (a jump in review.json)
   g.reviewJump(c, "n.txt"); await new Promise((r) => setTimeout(r, 10));
   const rj2 = JSON.parse(readFileSync(join(e.data, "review.json"), "utf8"));

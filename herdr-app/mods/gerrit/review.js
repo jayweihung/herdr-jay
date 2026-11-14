@@ -373,8 +373,11 @@ export function reviewMethods(h) {
   const put = async (p, text) => writeTextFile(p, text, await read(p));
   const out = (r) => String(r?.stdout ?? "").trim();
   const reviewFile = (e) => `${e.data}/review.json`;
-  // the nvim pane showing this review, if one is open (its argv names the review.json)
-  const paneOf = (e) => (terminals() ?? []).find((t) => Array.isArray(t?.argv) && t.argv.some((a) => String(a).includes(reviewFile(e).replace(/'/g, "''"))));
+  // the nvim pane showing this review, if nvim still runs there (its argv names the review.json). The tab keeps a shell
+  // after nvim quits (tab.new runs the command in one): then what runs in front is that shell, and it doesn't count.
+  const names = (argv, e) => Array.isArray(argv) && argv.some((a) => String(a).includes(reviewFile(e).replace(/'/g, "''")));
+  const paneOf = (e) => (terminals() ?? []).find((t) => names(t?.argv, e) && t.state !== "finished"
+    && (!Array.isArray(t.foreground?.argv) || !t.foreground.argv.length || names(t.foreground.argv, e)));
   // a space on this computer for nvim (the files are here): the one you're in, else the first
   const localSpace = () => {
     let all = [], f = null;

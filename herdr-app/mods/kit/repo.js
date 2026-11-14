@@ -13,7 +13,7 @@ import { v_flex, h_flex, InputState, Input, Editor, TextareaState, Textarea } fr
 import { theme, exec, run, layout, shared, setShared, window, readTextFile, writeTextFile, closeOverlay, openOverlay, appHome, notify, props as blockProps } from "herdr";
 import { DATA, LOAD, EDITORS, NODES, MSG, fs, mono, stop, slash, shortDir, clean, spin, waiting, find, textBlock, copyOnRight, btn,
   busyNow, dropStaleBusy, takeBusy, giveBusy, markChanged, kit, kitJson, apiState, apiKnown, apiAtLeast, checkApi, apiCard, messageBox, problemCard, versionCard,
-  squeeze, newEditor, liveEditors, BUILD, localGet, localSet, kitAction, loadNewest, loadingNow, isWindows, lockFrom, urlId, groupRows, collectedFrom } from "./common.js";
+  squeeze, newEditor, liveEditors, BUILD, PUSH_CHECK, checkProblems, checkLine, localGet, localSet, kitAction, loadNewest, loadingNow, isWindows, lockFrom, urlId, groupRows, collectedFrom } from "./common.js";
 export { lockFrom, urlId, groupRows };
 import { layoutNeeds, moveIntoBar } from "./layout.js";
 import { machinesTab, loadMachines, machinesDue, machinesLoading } from "./machines.js";
@@ -26,6 +26,20 @@ const STALE = 60000, LOAD_TTL = 90000;
 // be finishing). 39 skills take minutes; twice an edit had stopped a run, silently, a few in.
 const COLLECT = "kit.collecting";
 const PUSH_KIND = { pr: "團隊 · 送出要審", direct: "自己的 · 直接推" };
+// whether 送出 would go, asked by itself (kit push --dry-run: kit check, about a minute on a big source) once the
+// changed files are other ones than last asked (a collect, a new file), so a change that can't be sent is said at
+// once, not first when you press 送出. Its answer stays until the files change; one copy asks (busy, for CHECK_TTL).
+const CHECK_TTL = 300000;
+export function checkDue(x, c, now = Date.now()) {
+  if (!x) return false;
+  if (c?.busy && now - (c.started ?? 0) < CHECK_TTL) return false;
+  return !c || c.sig !== x.sig || c.busy === true;
+}
+// a source's answer that still fits its changed files, and says it can't go (null: none, or it can)
+export function checkBad(d, name) {
+  const x = (d?.dirty ?? []).find((y) => y.name === name), c = (shared(PUSH_CHECK) ?? {})[name];
+  return x && c && !c.busy && c.sig === x.sig && c.ok === false ? c : null;
+}
 
 // The repository: kit list --json on this computer. kit says what kit push would send: per source (changed: its
 // files, agents/… being agents) and per item (changed). An item's place in its source (rel) is only shown.
@@ -42,7 +56,8 @@ async function loadRepo() {
     return { ...i, rel: dir && p.startsWith(dir) ? p.slice(dir.length) : "", changed: i.changed === true, src: i.source, from };
   });
   const dirty = sources.map((s) => ({ name: s.name, push: s.push ?? null,
-    items: s.changed.filter((f) => !f.startsWith("agents/")).length, agents: s.changed.filter((f) => f.startsWith("agents/")).length }))
+    items: s.changed.filter((f) => !f.startsWith("agents/")).length, agents: s.changed.filter((f) => f.startsWith("agents/")).length,
+    sig: [...s.changed].sort().join("\n") }))
     .filter((x) => x.items + x.agents > 0);
   return { ...d, key: "repo", at, items, sources, dirty };
 }
@@ -178,6 +193,7 @@ export class Repo {
       if (!a) return checkApi(null, cx);
       if (a.ok && due() && !this.busy) this.refresh(cx);
       if (a.ok && shared(COLLECT) && !this.busy) this.resumeCollect(cx);
+      if (a.ok && !this.busy && !shared(COLLECT) && !this.loading) this.checkPush(cx);
     };
     tick(cx);
     cx.timer.every(2000, tick);
@@ -222,6 +238,31 @@ export class Repo {
 
   // kit sync: one at a time, the result (kit's own words) shown above the list
   act(label, args, cx, ttl = SHORT) { kitAction(this, cx, { label, args, ttl, msg: MSG(this.where) }); }
+
+  // kit push --dry-run by itself for a source whose changed files are new (checkDue); kit check failing is told at
+  // once: the strip, the header, a badge on the thing, a line in 關係, and a notification the first time
+  checkPush(cx) {
+    const d = this.data, all = shared(PUSH_CHECK) ?? {};
+    const keep = Object.fromEntries(Object.entries(all).filter(([k]) => (d?.dirty ?? []).some((x) => x.name === k)));
+    if (Object.keys(keep).length !== Object.keys(all).length) setShared(PUSH_CHECK, keep);
+    const x = (d?.dirty ?? []).find((y) => checkDue(y, keep[y.name]));
+    if (!x) return;
+    const before = keep[x.name], started = Date.now();
+    setShared(PUSH_CHECK, { ...keep, [x.name]: { ...(before ?? {}), sig: x.sig, busy: true, started } });
+    cx.spawn(async (cx) => {
+      let j = null;
+      try { j = await pushJson(x.name, true, SHORT); } catch {}
+      const now = { ...(shared(PUSH_CHECK) ?? {}) };
+      // kit busy, or a failure that isn't kit check: no answer (asked again with the next change)
+      const checked = j && (j.ok || j.code === "check_failed");
+      const bad = checked && !j.ok ? checkProblems(j.text) : [];
+      now[x.name] = { sig: x.sig, ok: checked ? j.ok : null, text: checked ? j.text : "", bad, at: Date.now(), busy: false };
+      setShared(PUSH_CHECK, now);
+      if (checked && !j.ok && !(before?.ok === false && before.text === j.text))
+        notify({ title: "Kit：有改動送不出去", body: `${checkLine(x.name, bad)}。到 Kit 面板改好（或移掉）再送出。`, level: "error", timeout: 20000 });
+      cx.notify();
+    });
+  }
 
   // 送出, step 1: what kit push would send from each changed source (--dry-run), shown for 確定送出
   planPush(cx) {
@@ -294,13 +335,14 @@ export class Repo {
     const d = this.data, busy = this.busy, inBar = Boolean(find(layout(), NODES.repoToggle));
     const dirty = d?.dirty ?? [], nItems = dirty.reduce((a, x) => a + x.items, 0), nAgents = dirty.reduce((a, x) => a + x.agents, 0);
     const what = [nItems ? `規則／skill／MCP ${nItems} 個檔案` : "", nAgents ? `agent ${nAgents} 個` : ""].filter(Boolean).join("、");
-    const sub = what ? `改過${what}，還沒送出` : d && !d.error ? `${(d.items ?? []).length} 樣` : "規則、skill、MCP 都在這裡";
+    const stuck = dirty.some((x) => checkBad(d, x.name));
+    const sub = what ? `改過${what}，${stuck ? "有問題送不出去" : "還沒送出"}` : d && !d.error ? `${(d.items ?? []).length} 樣` : "規則、skill、MCP 都在這裡";
     const head = h_flex().px(10).py(8).gap(6).items_center()
       .child(div().size(32).flex_none().rounded(8).bg(t.raised).flex().items_center().justify_center().font_semibold().text_size(z - 1).child("Kit"))
       .child(v_flex().flex_1().min_w(0)
         .child(div().truncate().font_semibold().child("倉庫"))
         .child(h_flex().gap(5).items_center().min_w(0).when(this.loading, (el) => el.child(spin(z - 3, t.muted)))
-          .child(div().truncate().text_size(z - 1.5).text_color(what ? t.working : t.muted).child(this.loading ? `${sub} · 讀取中…` : sub))))
+          .child(div().truncate().text_size(z - 1.5).text_color(stuck ? t.ansi1 : what ? t.working : t.muted).child(this.loading ? `${sub} · 讀取中…` : sub))))
       .child(btn(t, z, "sync", busy === "同步" ? "同步中…" : "同步", { small: true, off: Boolean(busy), on: (cx) => this.act("同步", ["sync"], cx, LONG) }))
       .child(btn(t, z, "reload", this.loading ? spin(z - 2, t.dim) : "⟳", { small: true, off: this.loading, on: (cx) => this.refresh(cx) }))
       .when(inBar, (el) => el.child(btn(t, z, "hide", "✕", { small: true, on: () => run("layout.hide", { id: NODES.repo }) })));
@@ -386,17 +428,23 @@ export class Repo {
   // changes not sent yet: one yellow strip above the list, per source what changed, and the one button that sends
   unsent(t, z, d) {
     const busy = this.busy, items = d.items ?? [];
-    const lines = (d.dirty ?? []).map((x) => {
+    const bads = (d.dirty ?? []).map((x) => checkBad(d, x.name)).filter(Boolean), checking = (d.dirty ?? []).some((x) => (shared(PUSH_CHECK) ?? {})[x.name]?.busy);
+    const lines = (d.dirty ?? []).flatMap((x) => {
       const names = items.filter((i) => i.changed && i.src === x.name).map((i) => i.name);
       const what = [names.length ? names.slice(0, 3).join("、") + (names.length > 3 ? ` 等 ${names.length} 樣` : "") : "", x.agents ? `agent ${x.agents} 個` : ""].filter(Boolean).join("、");
-      return div().text_size(z - 1).text_color(t.foreground).child(textBlock(`unsent-${x.name}`, `${x.name}：${what || "改過的檔案"}（${x.items + x.agents} 個檔案）`));
+      const c = checkBad(d, x.name);
+      return [div().text_size(z - 1).text_color(t.foreground).child(textBlock(`unsent-${x.name}`, `${x.name}：${what || "改過的檔案"}（${x.items + x.agents} 個檔案）`)),
+        ...(c ? [div().p(6).rounded(6).bg(t.background).font_family(mono()).text_size(z - 2).text_color(t.ansi1).child(textBlock(`unsent-bad-${x.name}`, squeeze(c.text)))] : [])];
     });
-    return v_flex().flex_none().mb(8).p(10).gap(6).rounded(8).bg(t.raised).border_1().border_color(t.working)
+    const color = bads.length ? t.ansi1 : t.working;
+    return v_flex().flex_none().mb(8).p(10).gap(6).rounded(8).bg(t.raised).border_1().border_color(color)
       .child(h_flex().gap(8).items_center()
-        .child(div().flex_1().font_semibold().text_color(t.working).child("有改動還沒送出"))
+        .child(h_flex().flex_1().gap(5).items_center().font_semibold().text_color(color)
+          .child(bads.length ? "有改動送不出去：kit check 擋下了" : "有改動還沒送出")
+          .when(checking && !bads.length, (el) => el.child(spin(z - 3, t.muted)).child(div().font_normal().text_size(z - 2).text_color(t.muted).child("檢查能不能送…"))))
         .child(btn(t, z, "push", busy === "檢查" ? "檢查中…" : "送出", { small: true, kind: "primary", off: Boolean(busy), on: (cx) => this.planPush(cx) })))
       .children(lines)
-      .child(div().text_size(z - 1.5).text_color(t.dim).child("按了會先列出要上傳的檔案，再按「確定送出」才真的送。"));
+      .child(div().text_size(z - 1.5).text_color(t.dim).child(bads.length ? "改好（或把那樣移掉）再送；改過的檔案一變就會再檢查一次。" : "按了會先列出要上傳的檔案，再按「確定送出」才真的送。"));
   }
 
   // + 新增: write a new one from scratch (a name, which source; kit new makes the file and the editor opens it),
@@ -796,6 +844,7 @@ export class Repo {
         .child(h_flex().gap(5).items_center().min_w(0)
           .child(copyOnRight(div().min_w(0).truncate().font_semibold().child(i.name), i.name))
           .when(Boolean(i.changed), (el) => el.child(badge("改過", t.working)))
+          .when(Boolean(checkBad(this.data, i.src)?.bad?.some((b) => b.kind === i.kind && b.name === i.name)), (el) => el.child(badge("送不出去", t.ansi1)))
           .when(Boolean(i.new), (el) => el.child(badge("新", t.done)))
           .when(i.status === "required", (el) => el.child(badge("團隊必備", t.accent))))
         .child(copyOnRight(div().min_w(0).truncate().text_size(z - 1.5).text_color(t.muted).child([from && i.from ? `收自 ${i.from}` : "", i.description, i.src].filter(Boolean).join(" · ") || "（還沒寫說明）"),

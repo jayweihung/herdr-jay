@@ -60,6 +60,15 @@ Needs: mods.
 - nvim-jay sends comments to omp too (omp reports itself as `omp`, not `pi`). The Kit panel's new-skill hint says omp's
   `/skill:名字`; the context window's switch for typing 繼續 shows for Codex too.
 
+## 2026-11-15, Kit: a change that can't be sent is said at once, not first when you press 送出
+
+Needs: **mods**.
+
+Once the changed files of a source change (a collect, a new file), the Kit panel tries `kit push --dry-run` by itself.
+If kit check would stop it: the strip turns red with kit's reasons, the header says 有問題送不出去, the thing gets a
+red 送不出去, 關係 gets a line, and a notification comes once.
+收進來的東西如果 kit check 會擋（例如授權檔裡有不該公開的字），馬上告訴你：Kit 面板變紅、那樣標「送不出去」、關係多一行、跳一次通知。
+
 ## 2026-11-15, the context chip after /compact: its real number, not 讀取中 until the next reply
 
 Needs: **mods**.

@@ -24,7 +24,7 @@ import { v_flex, h_flex, Editor } from "gpui-base";
 import { theme, run, shared, setShared, readTextFile, writeTextFile, closeOverlay, openOverlay, props, spaces, focused, layout, agents, terminals, settings, panes, hc } from "herdr";
 import { AGENTS_DATA, AGENTS_LOAD, AGENTS_MSG, CTX, NOTE, NODES, fs, stop, isWindows, shortDir, spin, waiting, find, textBlock, copyOnRight, btn,
   busyNow, dropStaleBusy, giveBusy, markRepoStale, kit, kitJson, localKit, apiState, apiKnown, checkApi, apiCard, messageBox, problemCard, newEditor,
-  localGet, localSet, kitAction, loadNewest, loadingNow, LIMIT_SENT } from "./common.js";
+  localGet, localSet, kitAction, loadNewest, loadingNow, LIMIT_SENT, DATA, PUSH_CHECK, checkLine } from "./common.js";
 import { ANIMALS, COLORS } from "./bot-models.js";
 import { readBot, withBot, pickBot, botIcon, botProblem, LiveBot } from "./bots.js";
 import { canDrag, draggable, dropLoop, requestPlace, takeAsks, placeClosed, placeDir, liveNow } from "./place.js";
@@ -56,7 +56,15 @@ const botOf = (a) => a.bot ?? pickBot(a.name);
 // foreground pid, else its own) is that pid. hc get on that machine's agents, the same folder first; each answer kept
 // WHO_TTL in shared WHO ("host|pid" -> { address, at }; none found too: asked again then)
 const WHO = "kit.who.v1";
-export const AGENTS_SIG = "kit.agents.sig";   // every agent's status and focus, set when it changes (every mod re-renders)
+export const AGENTS_SIG = "kit.agents.sig";
+// a change on this computer that 送出 can't send (kit check stopped it; the Kit panel asked by itself, repo.js): one
+// line in 關係 per source, as long as the changed files are the ones it asked about
+export function pushStuck(data, checks) {
+  return Object.entries(checks ?? {}).filter(([src, c]) => {
+    const x = (data?.dirty ?? []).find((y) => y.name === src);
+    return x && c && !c.busy && c.ok === false && c.sig === x.sig;
+  }).map(([src, c]) => ({ kind: "kit", what: `Kit：${checkLine(src, c.bad)}，到 Kit 面板改好再送出`, where: "這台", since: c.at ?? null }));
+}   // every agent's status and focus, set when it changes (every mod re-renders)
 let whoBusy = false;
 export const whoOf = (p) => (p?.pid ? (shared(WHO) ?? {})[`${p.host ?? ""}|${p.pid}`]?.address || null : null);
 function whoTick(cx) {
@@ -377,6 +385,7 @@ export class Agents {
     const pending = pendingRows(machinesData()?.rows).map((p) => ({ ...p, who: whoOf(p) }));
     const owner = {};
     for (const p of pending) if (p.kind === "owner" && p.who) owner[p.who] = { since: p.since, what: p.what, here: Boolean(p.here) };
+    pending.push(...pushStuck(shared(DATA), shared(PUSH_CHECK)));
     const ags = agents(), g = graphData({ agents: ags, terms: terminals(), names: sidebarNames(ags, panes(), spaces()), space: this.scope === "space" ? shownSpace : null, ctx: shared(CTX), notes: shared(NOTE), log: eventLog(), down: downMachines(), said: shared(SAID), subs: shared(SUBS), bg: shared(BG), steps: shared(STEPS), owner, limitSent: shared(LIMIT_SENT), now });
     if (this.sel && !g.nodes.some((n) => n.address === this.sel)) this.sel = null;
     const scope = (id, label) => btn(t, z, `kit-graph-scope-${id}`, label, { tiny: true, kind: this.scope === id ? "primary" : undefined,

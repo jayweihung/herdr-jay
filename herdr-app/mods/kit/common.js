@@ -24,6 +24,8 @@ export const AGENTS_MSG = "kit.agents.msg";        // kit's words after an actio
 export const PLACE_ASK = "kit.place.ask";          // [{ id, agent, space, tool, label, at, task? }] places the Agents window (or
                                                    // another mod: the Gerrit panel, with the first message as task) handed to
                                                    // the tab-bar button (place.js), taken off as it starts them
+export const PUSH_CHECK = "kit.pushCheck.v1"; // source -> { sig, ok, text, bad, at } kit push --dry-run, asked by itself after a
+                                                   // change (a collect, a new file): whether 送出 would go (repo.js)
 export const API = "kit.api.v1";               // machine ("" = this computer) -> what kit api said (see checkApi)
 
 // ---------- the layout's nodes (the panels are found and shown / hidden by these ids) ----------
@@ -38,6 +40,26 @@ export const NODES = {
 };
 
 // ---------- small things ----------
+// what kit check stopped a push for (its "kit check: <path>:<line>: <why>" lines), per thing: [{ kind, name, why }]
+// (kind skill / rule / mcp / agent / file), each thing once, in kit's order
+export function checkProblems(text) {
+  const out = [];
+  for (const l of String(text ?? "").split("\n")) {
+    const m = /^\s*(?:kit\s*)?check[:：]\s*([^:\s][^:]*?)(?::\d+)?:\s*(.+)$/.exec(l);
+    if (!m) continue;
+    const path = m[1].replace(/\\/g, "/"), why = m[2].trim();
+    const k = /^(skills|rules|mcp|agents)\/([^/]+)/.exec(path);
+    const kind = k ? { skills: "skill", rules: "rule", mcp: "mcp", agents: "agent" }[k[1]] : "file";
+    const name = k ? k[2].replace(/\.(md|ya?ml|json)$/, "") : path;
+    if (!out.some((x) => x.kind === kind && x.name === name)) out.push({ kind, name, why });
+  }
+  return out;
+}
+// the line 關係 and the Kit panel give a source that can't be sent: "agentkit-library 有改動送不出去（canvas-design：有不該公開的字）"
+export function checkLine(source, bad) {
+  const b = bad ?? [], first = b.slice(0, 2).map((x) => `${x.name}：${x.why}`).join("；");
+  return `${source} 有改動送不出去${first ? `（${first}${b.length > 2 ? ` 等 ${b.length} 樣` : ""}）` : ""}`;
+}
 export const fs = () => Number(settings().ui_font_size) || 13;
 export const isWindows = () => window()?.platform === "windows";
 export const mono = () => settings().font_family || (isWindows() ? "Consolas" : "Menlo");

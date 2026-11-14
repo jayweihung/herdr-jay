@@ -1522,7 +1522,8 @@ test("repository: what is unsent comes from kit list --json (sources[].changed, 
   fresh(); fakeKit({ list: TEAM_LIST }); H.window = { platform: "windows" };
   const v = view(M, { role: "repo" }); await settle(); await tick();
   const d = H.store["kit.data.v2"];
-  assert.deepEqual(d.dirty, [{ name: "team", push: "pr", items: 3, agents: 1 }]);
+  assert.deepEqual(d.dirty.map(({ sig, ...x }) => x), [{ name: "team", push: "pr", items: 3, agents: 1 }]);
+  assert.equal(d.dirty[0].sig, "agents/reviewer.md\nrules/security.md\nskills/quote/SKILL.md\nskills/quote/notes.md", "which files: asked again when they change");
   assert.deepEqual(d.items.map((i) => [i.name, i.changed, i.rel]), [["security", true, "rules/security.md"], ["quote", true, "skills/quote/SKILL.md"], ["calm", false, "skills/calm/SKILL.md"]]);
   const shown = render(v);
   assert.match(shown, /有改動還沒送出/); assert.match(shown, /team：security、quote、agent 1 個（4 個檔案）/);
@@ -1581,6 +1582,36 @@ test("送出: nothing to send (files []) has no 確定送出; a failure shows ki
   render(v); H.clicks.push({}, cx); await settle();
   shown = render(v);
   assert.match(shown, /kit check 有問題/); assert.doesNotMatch(shown, /"error"/); assert.ok(!("push-team" in H.clicks));
+});
+test("送不出去 is said at once: a change kit check would stop (a collect) is checked by itself, red in the strip, the header, a badge, 關係 and a notification", async (M) => {
+  const C = M.common;
+  const said = "kit: agents/hello.md: tools.only 在 Claude …\nkit check: skills/quote/fonts/A-OFL.txt:1: 有不該公開的字\nkit check: skills/quote/fonts/B-OFL.txt:1: 有不該公開的字\nkit check: rules/security.md:3: 網址不行\nkit: kit check 有問題，什麼都沒送（改好再 kit push）";
+  assert.deepEqual(C.checkProblems(said), [{ kind: "skill", name: "quote", why: "有不該公開的字" }, { kind: "rule", name: "security", why: "網址不行" }]);
+  assert.equal(C.checkLine("team", C.checkProblems(said)), "team 有改動送不出去（quote：有不該公開的字；security：網址不行）");
+  const { checkDue } = M.repo;
+  assert.equal(checkDue({ sig: "a" }, null, 1e9), true, "never asked");
+  assert.equal(checkDue({ sig: "a" }, { sig: "a", ok: false }, 1e9), false, "the same files: the answer stays");
+  assert.equal(checkDue({ sig: "a\nb" }, { sig: "a", ok: true }, 1e9), true, "other files (a collect): again");
+  assert.equal(checkDue({ sig: "a" }, { sig: "a", busy: true, started: 1e9 - 1000 }, 1e9), false, "another copy asks");
+  assert.equal(checkDue({ sig: "a" }, { sig: "a", busy: true, started: 1e9 - 600000 }, 1e9), true, "an ask that never came back");
+  let pushes = 0;
+  fresh(); fakeKit({ list: { ...TEAM_LIST, sources: [TEAM], items: [{ kind: "skill", name: "quote", source: "team", path: "/s/skills/quote/SKILL.md", changed: true }] },
+    push: () => { pushes++; return { ...kitError("check_failed", "kit check 有問題，什麼都沒送（改好再 kit push）"), stderr: said }; } });
+  const v = view(M, { role: "repo" }); await settle(); await tick(); await tick();
+  assert.equal(pushes, 1, "asked by itself, once");
+  const c = H.store["kit.pushCheck.v1"].team;
+  assert.equal(c.ok, false); assert.equal(c.bad.length, 2);
+  assert.equal(H.notes.length, 1, "a notification"); assert.match(H.notes[0].body, /team 有改動送不出去（quote：有不該公開的字/);
+  const shown = render(v);
+  assert.match(shown, /有改動送不出去：kit check 擋下了/); assert.match(shown, /有問題送不出去/); assert.match(shown, /送不出去/);
+  assert.match(shown, /B-OFL\.txt:1: 有不該公開的字/, "kit's own lines in the strip");
+  await tick(); await tick();
+  assert.equal(pushes, 1, "the same files: not asked again"); assert.equal(H.notes.length, 1, "nor told again");
+  // 關係: one line per source, while its changed files are the ones asked about
+  const { pushStuck } = M.agents;
+  assert.deepEqual(pushStuck(H.store["kit.data.v2"], H.store["kit.pushCheck.v1"]).map((p) => p.what), ["Kit：team 有改動送不出去（quote：有不該公開的字；security：網址不行），到 Kit 面板改好再送出"]);
+  assert.deepEqual(pushStuck({ dirty: [{ name: "team", sig: "other" }] }, H.store["kit.pushCheck.v1"]), [], "other files now: not said");
+  assert.deepEqual(pushStuck({ dirty: [] }, H.store["kit.pushCheck.v1"]), [], "sent: not said");
 });
 test("下載看看: kit collect --look's JSON is shown; its error JSON shows kit's words", async (M) => {
   const look = { url: "https://git.example.org/a/r@abc", source: "mine", id: "git.example.org/a", allowed: true, can_allow: false,
@@ -2563,7 +2594,7 @@ async function realRepo(M, exe, home, env) {
   const v = view(M, { role: "repo" }); await settle(); await tick();
   const d = H.store["kit.data.v2"];
   assert.ok(!d.error, d.error);
-  assert.deepEqual(d.dirty, [{ name: "mine", push: "direct", items: 1, agents: 0 }]);
+  assert.deepEqual(d.dirty.map(({ sig, ...x }) => x), [{ name: "mine", push: "direct", items: 1, agents: 0 }]);
   assert.deepEqual(d.items.filter((i) => i.changed).map((i) => [i.name, i.rel]), [["hello", "rules/hello.md"]]);
   render(v); H.clicks.push({}, cx); await settle();
   assert.match(render(v), /rules\/hello\.md/);

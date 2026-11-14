@@ -179,6 +179,15 @@ test("follow end to end", function()
   write(FAKE .. "/get-t3.json", vim.json.encode({ labels = { ["herdr.tab"] = "tab2" }, pid = 1, foreground = { pid = 4343 } }))
   local list = JN.agents()
   check("agents: same tab only", list and #list == 1 and list[1].address == "t2", list)
+  -- omp reports itself as "omp" (not "pi"): an agent too, comments go to it
+  local ls = vim.json.decode(vim.fn.readfile(FAKE .. "/ls.json")[1])
+  table.insert(ls.terminals, { address = "t4", where = "s / tab", state = "live", agent = "omp", cwd = repo })
+  write(FAKE .. "/ls.json", vim.json.encode(ls))
+  write(FAKE .. "/get-t4.json", vim.json.encode({ labels = { ["herdr.tab"] = "tab1" }, pid = 1, foreground = { pid = 4444 } }))
+  local with_omp = JN.agents()
+  check("agents: omp counts", with_omp and #with_omp == 2 and with_omp[2].address == "t4", with_omp)
+  table.remove(ls.terminals)
+  write(FAKE .. "/ls.json", vim.json.encode(ls))
   local F = T.follow
   local function tick() F.checked = -1e9 T.follow_tick() end
   tick()

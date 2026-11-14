@@ -881,7 +881,7 @@ if vim.g.mapleader == nil then vim.g.mapleader = " " end
 local home = HOME
 -- Coding agents (hc's agent name). Only these get comments typed into them: anything else (a shell, ssh, a REPL)
 -- would run the quoted lines as commands.
-local AGENTS = { ["claude-code"] = 1, codex = 1, gemini = 1, opencode = 1, pi = 1, aider = 1, amp = 1, goose = 1,
+local AGENTS = { ["claude-code"] = 1, codex = 1, gemini = 1, opencode = 1, pi = 1, omp = 1, aider = 1, amp = 1, goose = 1,
   crush = 1, ["cursor-agent"] = 1, copilot = 1, qwen = 1 }
 -- hc's agent name as one spelling: no folder, lower case, no ".exe" (Windows)
 local function agent_kind(name) return ((tostring(name):match("[^/\\]+$") or ""):lower():gsub("%.exe$", "")) end

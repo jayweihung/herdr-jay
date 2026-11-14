@@ -46,7 +46,7 @@ Needs **Neovim 0.11 or newer**, `git`, and `hc` on the machine where the pane op
   檔案樹：點一下資料夾就展開／收起，點一下檔案就打開；右鍵有新增、改名、複製路徑、重新整理。
 - **Comments to the agent**: comment a line or a selection, list, delete, and send them all to the agent with
   `hc send`. Control characters are removed before sending, so file text can't act as keys in the agent's terminal;
-  quoted lines are cut at 200 characters. Only known coding agents (Claude Code, Codex, Gemini, opencode, pi, aider,
+  quoted lines are cut at 200 characters. Only known coding agents (Claude Code, Codex, Gemini, opencode, pi, omp, aider,
   …) count as agents — never a shell, ssh or a REPL, where the quoted lines would run as commands.
   Comment spans and message shape follow [herdr-nvim](https://github.com/ChmaraX/herdr-nvim) (MIT).
 - **Files the agent touched**: a list of files the agent read or edited, newest first, plus files git shows as changed.

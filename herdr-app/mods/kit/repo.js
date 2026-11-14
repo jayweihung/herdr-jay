@@ -432,7 +432,7 @@ export class Repo {
         .child(note("名字（可以不寫：用設定裡的名字）", t.dim))
         .child(Input.new(this.newName).h(30).px(8).rounded(6).border_1().border_color(t.border).bg(t.background).text_size(z - 1).text_color(t.foreground)));
     } else {
-      const hint = { skill: "之後在 Claude 打 /名字、Codex 打 $名字 叫它", rule: "只是用來認它的名字；規則的內容每次都會給 agent", mcp: "MCP server 的名字" }[kind];
+      const hint = { skill: "之後在 Claude 打 /名字、Codex 打 $名字、omp 打 /skill:名字 叫它", rule: "只是用來認它的名字；規則的內容每次都會給 agent", mcp: "MCP server 的名字" }[kind];
       box.child(v_flex().gap(3).child(note("名字（小寫英文、數字和 -）", t.dim))
         .child(Input.new(this.newName).h(30).px(8).rounded(6).border_1().border_color(t.accent).bg(t.background).text_size(z - 1).text_color(t.foreground))
         .child(note(hint, t.dim)));

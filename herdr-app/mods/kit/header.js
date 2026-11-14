@@ -580,7 +580,7 @@ export class Header {
     for (const [i, x] of lines.entries()) box.child(h_flex().id(`ctx-use-${i}`).gap(6).items_center().text_size(z - 1.5)
       .child(div().flex_1().min_w(0).text_color(x.pct != null && x.pct >= 90 ? t.blocked : x.pct != null && x.pct >= 70 ? t.working : t.foreground).child(x.text)));
     if (this.usage?.[tool]?.at) box.child(div().text_size(z - 2.5).text_color(t.dim).child(`${ago(Math.floor(this.usage[tool].at / 1000))}的數字`));
-    if (tool === "claude") box.child(h_flex().gap(6).items_center().text_size(z - 1.5)
+    box.child(h_flex().gap(6).items_center().text_size(z - 1.5)
       .child(div().flex_1().min_w(0).text_color(t.dim).child(`撞到上限停下來的 agent，額度恢復後自動打「${CONTINUE_TEXT}」：${auto ? "開" : "關"}`))
       .child(btn(t, z, "ctx-auto", auto ? "關掉" : "打開", { tiny: true, on: (cx) => { localSet("kit.autoContinue", auto ? "off" : "on"); cx.notify(); } })));
     return box;

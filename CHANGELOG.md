@@ -9,6 +9,11 @@ says which) · **kit** = update kit itself on every machine where agents run (`k
 **snap hook** = a line in Claude Code's `settings.json` on each machine where you added the hook (the entry says
 which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/keys.md).
 
+## 2026-11-14, 關係: 等你同意 colors and clears in seconds
+Needs: mods.
+- What waits for a person is asked again every 5 s on this computer and every 15 s elsewhere (was every minute), so
+  a card's color keeps up with its own line (kit note, every 15 s) instead of lagging up to a minute behind it.
+
 ## 2026-11-14, 關係: a new 等你同意 / 等站長同意 shows within a minute
 Needs: mods.
 - What waits for a person (kit status's pending) is asked again every minute on each machine that answered (and

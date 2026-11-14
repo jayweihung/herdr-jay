@@ -126,9 +126,9 @@ export class Agents {
       cx.timer.every(2000, () => { try { logTick(); } catch {} });   // the 關係 timeline's log, while Herdr runs
       // background work of done agents for Herdr's Agents list (agents.busy), and what they said, while Herdr runs
       cx.timer.every(2000, (cx) => { try { saidTick(agents(), terminals(), cx); } catch {} });
-      // who waits for the owner's OK, for Herdr's own Agents list too (agents.waiting): kit status every 10 minutes, its pending every minute
+      // who waits for the owner's OK, for Herdr's own Agents list too (agents.waiting): kit status every 10 minutes, its pending every 15 s (this computer's every 5 s)
       cx.timer.every(5000, (cx) => {
-        try { if (machinesDue()) loadMachines(cx); else if (pendingDue()) refreshPending(cx); whoTick(cx); publishWaiting(); } catch {}
+        try { if (machinesDue()) loadMachines(cx); else { const w = pendingDue(); if (w) refreshPending(cx, w); } whoTick(cx); publishWaiting(); } catch {}
       });
       return;
     }

@@ -215,22 +215,32 @@ async function askReport(row) {
   return r.status ? { state: "ok", ...r.status, reportedAt: r.status.at, hasStatus: true } : { state: "error", why: r.why };
 }
 
-// what waits for a person changes by the minute (an agent's kit pending add), the rest of a row by the day: between
-// the 10-minute loads, each row that answered is asked again for pending alone every PEND_EVERY (kit status there,
-// 0.1–0.3 s; a report file read again), and only its pending is replaced. One at a time across every copy (pendAt).
-export const PEND_EVERY = 60000;
+// what waits for a person changes by the minute (an agent's kit pending add / done), the rest of a row by the day:
+// between the 10-minute loads, pending alone is asked again (kit status there, 0.1–0.3 s; a report file read again)
+// and only it is replaced: this computer's every PEND_HERE, every row that answered every PEND_EVERY. The agent's own
+// line (kit note) is read every 15 s, so its card's color keeps up with its words. One at a time across every copy.
+export const PEND_HERE = 5000, PEND_EVERY = 15000;
+const SLACK = 500;   // the 5-second timer that asks may run a little early
 let pendBusy = false;
-export function pendingDue() { const d = machinesData(); return Boolean(d?.rows && d.done) && !pendBusy && !machinesLoading() && Date.now() - Math.max(d.pendAt ?? 0, d.at ?? 0) > PEND_EVERY; }
-export function refreshPending(cx) {
+// -> "all", "here" (this computer only) or null (not yet)
+export function pendingDue() {
+  const d = machinesData();
+  if (!(d?.rows && d.done) || pendBusy || machinesLoading()) return null;
+  const now = Date.now(), all = Math.max(d.pendAt ?? 0, d.at ?? 0);
+  if (now - all >= PEND_EVERY - SLACK) return "all";
+  return now - Math.max(d.pendHereAt ?? 0, all) >= PEND_HERE - SLACK ? "here" : null;
+}
+export function refreshPending(cx, which = "all") {
   const d = machinesData();
   if (!d?.rows || pendBusy) return;
   pendBusy = true;
-  setShared(MACHINES, { ...d, pendAt: Date.now() });
+  const at = Date.now();
+  setShared(MACHINES, { ...d, pendHereAt: at, ...(which === "all" ? { pendAt: at } : {}) });
   const seq = d.seq;
   cx.spawn(async (cx) => {
     try {
       const got = {};
-      await Promise.all(d.rows.filter((r) => r.state === "ok" && r.hasStatus).map(async (row) => {
+      await Promise.all(d.rows.filter((r) => r.state === "ok" && r.hasStatus && (which === "all" || r.here)).map(async (row) => {
         try {
           const s = row.reported ? await askReport(row) : await askKit(row.machine);
           if (s.state === "ok" && s.hasStatus) got[row.key] = s.pending ?? [];

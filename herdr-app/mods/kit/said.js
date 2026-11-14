@@ -271,7 +271,7 @@ function prune(key, live) {
   return kept;
 }
 
-// ags: Herdr's agents(); terms: terminals(). said: each done, unfocused agent once per stop (its record's status_ms),
+// ags: Herdr's agents(); terms: terminals(). said: each done or idle agent once per status change (its record's status_ms),
 // again after RETRY when it found nothing yet. subs: every SUBS_MS while it works, and once per status change.
 export function saidTick(ags, terms, cx) {
   const rec = new Map((terms ?? []).map((r) => [r?.address, r])), now = Date.now();
@@ -281,9 +281,11 @@ export function saidTick(ags, terms, cx) {
   for (const a of ags ?? []) {
     const stop = Number(rec.get(a.address)?.status_ms) || 0;
     const e = said[a.address];
-    // a file from an earlier stop (the hook may still be writing this one) doesn't count as found
-    const found = e?.text && (!stop || e.at >= stop - 120000);
-    if (!ownKind(a) && a.status === "done" && !a.focused && !e?.busy && !(e && e.for === stop && (found || now - e.asked < RETRY)))
+    // a file from an earlier stop (the hook may still be writing this one) doesn't count as found. Idle (done and
+    // looked at): its stop was before, so whatever the file says is its last words. Read while you look at it too:
+    // its words say whether it asks you (問你), and that stays until it answers or works again
+    const found = e?.text && (a.status === "idle" || !stop || e.at >= stop - 120000);
+    if (!ownKind(a) && (a.status === "done" || a.status === "idle") && !e?.busy && !(e && e.for === stop && (found || now - e.asked < RETRY)))
       ask(SAID, a, stop, "said", parseSaid, cx);
     const b = (shared(BG) ?? {})[a.address];
     if (a.status === "done" && !a.focused && !b?.busy && (!b || now - b.asked >= BG_MS)) {

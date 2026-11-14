@@ -102,6 +102,9 @@ export function waitingNow(pending, terms, now = Date.now(), said = {}, bg = {})
       const msg = String((r?.report ?? (typeof r?.status === "object" ? r.status : null))?.msg ?? "");
       if (asks(saidNow(said, r.address, since) || msg)) out[r.address] = { since, hot: Boolean(since) && now - since >= LONG_WAIT };
     }
+    // looked at (Herdr: idle) without an answer: the reply hook's line, written at its last stop
+    const e = said?.[r.address];
+    if (st === "idle" && e?.text && asks(e.text)) out[r.address] = { since: e.at || since, hot: Boolean(e.at || since) && now - (e.at || since) >= LONG_WAIT };
   }
   for (const p of pending ?? []) {
     if (p.kind !== "owner" || !p.who) continue;

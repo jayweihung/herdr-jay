@@ -808,6 +808,8 @@ test("agents.waiting (for Herdr's own Agents list, app patch 0010): who waits fo
     { address: "t7", status: "done", status_ms: now - 2 * MIN }, { address: "t8", status: "done", status_ms: now - 20 * MIN, report: { msg: "要我推上去嗎？" } }], now,
     { t5: { at: now - 2 * MIN, text: "要推的話跟我說。" }, t6: { at: now - 2 * MIN, text: "做好了。" }, t7: { at: now - 2 * MIN, text: "要推嗎？" } }, { t7: { at: now - MIN, jobs: ["make"] } });
   assert.deepEqual(ws, { t5: { since: now - 2 * MIN, hot: false }, t8: { since: now - 20 * MIN, hot: true } }, "asking: in Herdr's list too (not while its own work runs)");
+  assert.deepEqual(waitingNow([], [{ address: "t5", status: "idle", status_ms: now - MIN }, { address: "t6", status: "idle", status_ms: now - MIN }], now,
+    { t5: { at: now - 3 * MIN, text: "要推的話跟我說。" }, t6: { at: now - 3 * MIN, text: "好了" } }), { t5: { since: now - 3 * MIN, hot: false } }, "looked at, not answered: still there");
   // the always-running button keeps it current: kit status (each 10 minutes), the agent by its pid, then the shared key
   fresh(); fakeKit();
   H.agents = [ag("srv/t1p", "done")]; H.terminals = [{ address: "srv/t1p", status_ms: Date.now() - 52 * MIN, cwd: "/q" }];
@@ -846,7 +848,7 @@ test("agents.waiting (for Herdr's own Agents list, app patch 0010): who waits fo
   assert.deepEqual(kitCalls("status").map((c) => c.on), [null], "this computer only");
   assert.equal(M.machines.pendingDue(), null);
 });
-test("關係: an agent done and not looked at says what it said when it stopped (its card, its own alert line); cards waiting for you are colored", (M) => {
+test("關係: an agent done and not looked at says what it said when it stopped (its card, its own alert line); cards waiting for you are colored", async (M) => {
   const { graphData, cardState, alertsView, tint } = M.graph, { parseSaid, saidNow } = M.said;
   const MIN = 60000, now = 100 * MIN;
   assert.equal(parseSaid("{bad"), null);
@@ -883,6 +885,18 @@ test("關係: an agent done and not looked at says what it said when it stopped 
   const sf = (a) => cardState(gf, gf.nodes.find((n) => n.address === a), now);
   assert.deepEqual([sf("t3").text, sf("t3").color, sf("t3").you], ["問你：三個提交都還在本機，要推的話跟我說。", "blocked", true], "looked at: still yours (orange) until you answer");
   assert.equal(sf("t4").text, "做完：做好了，測試都過。");
+  // its words are read while you look at it, and once it is idle (looked at): they may ask you; working: not read
+  fresh();
+  M.said.saidTick([ag("t3", "idle", { focused: true }), ag("t4", "done", { focused: true }), ag("t5", "working")],
+    [{ address: "t3", status_ms: 7 }, { address: "t4", status_ms: 8 }, { address: "t5", status_ms: 9 }], cx);
+  assert.deepEqual(Object.keys(H.store["kit.said.v1"] ?? {}).sort(), ["t3", "t4"]);
+  await settle();
+  // looked at, so Herdr calls it idle: its last words (the reply hook's, at its stop) still ask; idle long: not 可以關了
+  const gi = graphData({ agents: [ag("t3", "idle"), ag("t4", "idle")], terms: [{ address: "t3", status_ms: now - 40 * MIN }, { address: "t4", status_ms: now - 40 * MIN }],
+    said: { t3: { at: now - 45 * MIN, text: "要推的話跟我說。" }, t4: { at: now - 45 * MIN, text: "做好了。" } }, space: null, now });
+  const si = (a) => cardState(gi, gi.nodes.find((n) => n.address === a), now);
+  assert.deepEqual([si("t3").text, si("t3").color, si("t3").hot], ["問你：要推的話跟我說。", "ansi1", true], "45 minutes since it asked: red");
+  assert.ok(!gi.idle.some((x) => x.address === "t3") && gi.idle.some((x) => x.address === "t4"), "asking: never 可以關了; the other one is");
   // background work still running: not asking yet
   const gb = graphData({ agents: [ag("t3", "done")], terms: [{ address: "t3", status_ms: now - MIN }], said: { t3: { at: now, text: "要不要推？" } }, bg: { t3: { at: now, jobs: ["sleep 60"] } }, space: null, now });
   assert.equal(cardState(gb, gb.nodes[0], now).busy, true);

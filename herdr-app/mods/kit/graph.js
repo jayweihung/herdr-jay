@@ -132,10 +132,17 @@ export function graphData({ agents, terms, space, ctx, notes, log = [], down = {
     const b = bg?.[n.address], jobs = n.status === "done" && b?.at >= n.since ? b.jobs ?? [] : [];
     const subsRun = n.status === "done" ? (n.subs ?? []).filter((x) => !x.done).length : 0;
     n.background = jobs.length ? jobs[0] : subsRun ? `子 agent ${subsRun} 個` : "";
-    // done and its last words ask you something: it waits for your answer, looked at or not (until it works again)
-    n.ask = n.status === "done" && !n.background && asks(n.said);
+    // its last words ask you something: it waits for your answer, looked at or not, until it works again. Looked at,
+    // Herdr calls it idle: then the reply hook's line (written at every stop, so it is its last words) says so
+    const e = said?.[n.address];
+    if (n.status === "idle" && e?.text && asks(e.text)) { n.said = String(e.text); n.askAt = e.at || null; }
+    n.ask = (n.status === "done" && !n.background && asks(n.said)) || (n.status === "idle" && Boolean(n.said));
   }
-  g.asks = nodes.filter((n) => !n.down && n.ask && !n.owner).map((n) => ({ address: n.address, for: n.since ? now - n.since : 0, said: n.said }));
+  // one asking you is never 可以關了
+  const asking = new Set(nodes.filter((n) => n.ask).map((n) => n.address));
+  g.idle = g.idle.filter((x) => !asking.has(x.address));
+  const askFor = (n) => { const at = n.askAt ?? n.since; return at ? now - at : 0; };
+  g.asks = nodes.filter((n) => !n.down && n.ask && !n.owner).map((n) => ({ address: n.address, for: askFor(n), said: n.said }));
   g.done = nodes.filter((n) => !n.down && n.status === "done" && !n.focused && !n.background && !n.ask).map((n) => ({ address: n.address, for: n.since ? now - n.since : 0, said: n.said }));
   g.full = nodes.filter((n) => !n.down && n.pct != null && n.pct >= FULL_PCT).map((n) => ({ address: n.address, pct: n.pct }));
   return g;
@@ -158,7 +165,7 @@ export function cardState(g, n, now = Date.now()) {
   }
   // done and asking you (its last words ask): waiting for you, the same colors, even while you look at it
   if (n.ask) {
-    const d = n.since ? now - n.since : 0;
+    const at = n.askAt ?? n.since, d = at ? now - at : 0;
     return { text: `問你：${n.said}`, color: d >= LONG_WAIT ? "ansi1" : "blocked", warm: d >= WARN_WAIT, hot: d >= LONG_WAIT, you: true, asks: true };
   }
   const idle = g.idle?.find((x) => x.address === n.address);

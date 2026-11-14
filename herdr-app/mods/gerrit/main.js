@@ -21,8 +21,21 @@ const KIT_AGENTS = "kit.agents.data.v1";
 const KIT_PLACE_ASK = "kit.place.ask";
 const KIT_TAKEN_WAIT = 8000;   // a place ask the Kit panel hasn't taken by then: nobody will (no Kit button in the layout)
 // The presets call the gerrit-panel plugin's skills (/gerrit-panel:review); a kit gerrit agent has them as kit skills
-// (/gerrit-review).
-const forKit = (text) => String(text).replace(/\/gerrit-panel:([a-z-]+)/g, "/gerrit-$1");
+// (gerrit-review). Each tool calls a skill its own way: Claude Code /gerrit-review (a plugin's /gerrit-panel:review),
+// Codex $gerrit-review, omp /skill:gerrit-review (a plugin's /skill:gerrit-panel/review). Codex has no --plugin-dir:
+// only a kit gerrit agent gives it the skills.
+const TOOLS = ["claude", "codex", "omp"];
+const TOOL_NAMES = { claude: "Claude", codex: "Codex", omp: "omp" };
+// Herdr's agent app ("claude-code", "codex", "omp", "pi") or a command ("/usr/bin/omp") -> claude | codex | omp
+function toolOf(x) {
+  const n = String(x ?? "").replace(/\\/g, "/").split("/").pop().replace(/\.(exe|cmd|ps1)$/i, "").toLowerCase();
+  return n === "codex" ? "codex" : n === "omp" || n === "pi" ? "omp" : "claude";
+}
+function skillFor(text, tool, kit) {
+  return String(text).replace(/\/gerrit-panel:([a-z-]+)/g, (_m, name) =>
+    tool === "codex" ? `$gerrit-${name}` : tool === "omp" ? (kit ? `/skill:gerrit-${name}` : `/skill:gerrit-panel/${name}`)
+    : kit ? `/gerrit-${name}` : `/gerrit-panel:${name}`);
+}
 // Whether a folder's .agentkit (kit place) makes it the gerrit agent's
 const isGerritKit = (text) => /^agent:gerrit[ \t]*$/m.test(String(text ?? ""));
 const DATA = "gerrit.data.v1", SAFE_CFG = "gerrit.cfg.v1", BUSY = "gerrit.busy", REFRESH = "gerrit.refresh";
@@ -468,7 +481,10 @@ export default class Gerrit extends View {
     const ok = (l) => (Array.isArray(l) ? l.filter((p) => p?.label && p?.text) : []);
     const edited = ok(shared(PROMPTS_KEY)), own = ok(a.prompts);
     const prompts = edited.length ? edited : own.length ? own : AGENT_PROMPTS;
-    return { ...a, prompts, start: Array.isArray(a.start) && a.start.length ? a.start.map(String) : null, name: a.name ?? "gerrit" };
+    const start = Array.isArray(a.start) && a.start.length ? a.start.map(String) : null;
+    // gerrit.json's agent.tool, else the program agent.start runs
+    const tool = TOOLS.includes(a.tool) ? a.tool : toolOf(start?.[0]);
+    return { ...a, prompts, start, tool, name: a.name ?? "gerrit" };
   }
   // Only agents that have the Gerrit tools: a kit gerrit agent (its folder's .agentkit says agent:gerrit), or one this
   // panel opened from gerrit.json (remembered by address in shared state: every copy, survives restarts). Any other
@@ -525,6 +541,8 @@ export default class Gerrit extends View {
   }
   // The kit sources have an agent named gerrit (the Kit panel lists it)
   kitHasGerrit() { return (shared(KIT_AGENTS)?.agents ?? []).some((a) => a?.name === "gerrit"); }
+  // which tool a kit gerrit agent is opened with (picked in the card, this copy remembers; else gerrit.json's agent.tool)
+  openTool() { const t = this.load("tool"); return TOOLS.includes(t) ? t : this.agentCfg().tool; }
   pickedAgent(list) {
     const want = this.agentAddr ?? this.load("agent");
     return list.find((x) => x.address === want) ?? list[0] ?? null;
@@ -546,7 +564,8 @@ export default class Gerrit extends View {
     const target = this.pickedAgent(this.agentList());
     if (!target) return this.openAndAsk(c, p, cx);
     const filled = p.filled ?? fillPrompt(p.text, this.promptVars(c)); // (filled: written already, e.g. nvim's question)
-    const text = target.kit ? forKit(filled) : filled;
+    // the agent's own tool (what Herdr says it is), else what gerrit.json says it starts
+    const text = skillFor(filled, target.app ? toolOf(target.app) : this.agentCfg().tool, target.kit);
     this.ask = { sending: p.label };
     cx.notify();
     // Herdr's own hc(): it reaches the running core (a bare `hc` from the app has no terminal's environment
@@ -571,7 +590,8 @@ export default class Gerrit extends View {
       const id = `gerrit-${Date.now()}-${Math.random()}`;
       const plain = { id: space.id, name: space.name ?? "", machine: space.machine ?? null, folder: space.folder ?? "" };
       const asks = Array.isArray(shared(KIT_PLACE_ASK)) ? shared(KIT_PLACE_ASK) : [];
-      setShared(KIT_PLACE_ASK, [...asks, { id, agent: "gerrit", space: plain, tool: "claude", label: "Gerrit 面板", at: Date.now(), task: forKit(filled) }]);
+      const tool = this.openTool();
+      setShared(KIT_PLACE_ASK, [...asks, { id, agent: "gerrit", space: plain, tool, label: "Gerrit 面板", at: Date.now(), task: skillFor(filled, tool, true) }]);
       this.ask = { opening: p.label, to: `gerrit（在 ${where} 開一個）` };
       cx.timer.after(KIT_TAKEN_WAIT, (cx) => {
         const left = Array.isArray(shared(KIT_PLACE_ASK)) ? shared(KIT_PLACE_ASK) : [];
@@ -585,7 +605,7 @@ export default class Gerrit extends View {
     }
     if (!a.start) { this.ask = { error: "還沒有 Gerrit agent：在 kit 來源加 gerrit agent，或照 docs/gerrit.md §8 在 gerrit.json 加 agent.start" }; cx.notify(); return; }
     try {
-      const r = run("tab.new", { name: a.name, space: space.id, argv: a.start, task: filled, ...(a.cwd ? { folder: a.cwd } : {}) });
+      const r = run("tab.new", { name: a.name, space: space.id, argv: a.start, task: skillFor(filled, a.tool, false), ...(a.cwd ? { folder: a.cwd } : {}) });
       if (r?.terminal) { setShared(AGENTS_KEY, [...(shared(AGENTS_KEY) ?? []), r.terminal]); this.agentAddr = r.terminal; }
       this.ask = { opening: p.label, to: `${a.name}（在 ${where} 開一個）` };
     } catch (e) { this.ask = { error: `開不起來：${e?.message ?? e}` }; }
@@ -660,6 +680,20 @@ export default class Gerrit extends View {
     else card.child(div().text_size(z - 1).text_color(t.dim).whitespace_normal().child(
       this.kitHasGerrit() || a.start ? "還沒有 Gerrit agent：選一個問題，會先在這個 space 開一個 gerrit，開好就回答。"
       : "還沒有 Gerrit agent：在 kit 來源加 gerrit agent（docs/kit.md），或照 docs/gerrit.md §8 在 gerrit.json 加 agent.start。"));
+    // a kit gerrit agent can be opened with any of the three tools: which one, for the next one opened
+    if (!list.length && this.kitHasGerrit()) {
+      const cur = this.openTool();
+      card.child(h_flex().gap(6).items_center().flex_wrap()
+        .child(div().text_size(z - 1.5).text_color(t.dim).child("用"))
+        .children(TOOLS.map((k) => {
+          const on = cur === k;
+          return div().id(`ask-tool-${k}`).px(8).py(2).rounded(5).text_size(z - 1.5).cursor_pointer()
+            .bg(on ? t.accent : t.raised).text_color(on ? t.background : t.foreground).hover((h) => (on ? h : h.bg(t.hover)))
+            .on_mouse_down("left", stop).on_click((_e, cx) => { this.save("tool", k); cx.notify(); })
+            .child(TOOL_NAMES[k]);
+        }))
+        .child(div().text_size(z - 1.5).text_color(t.dim).child("開")));
+    }
     if (this.promptEdit) return card.child(this.promptEditor(t, z, c));
     card.child(h_flex().gap(6).flex_wrap().children(a.prompts.map((p, i) =>
       this.big(t, z, `ask-p-${i}`, this.ask?.sending === p.label ? "送出中…" : p.label,

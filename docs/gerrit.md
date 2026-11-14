@@ -335,6 +335,17 @@ gerrit agent 就用它（跟從 Kit 面板拖進來一樣，版面裡要有 Kit 
 按了就用 hc send 叫它用對應的 skill 處理這個 change（例如 `/gerrit-panel:review 7 3 網址`，kit 的 gerrit agent 是
 `/gerrit-review 7 3 網址`）；做法寫在 skill 裡，都用繁體中文回答、沒問過你不會在 Gerrit 留言或給分。按「✎ 編輯問題」可以改按鈕。
 
+**Claude, Codex or omp.** The agent can be any of the three; the panel asks Herdr which one it is and calls the skill
+that tool's way: Claude Code `/gerrit-review` (with the plugin `/gerrit-panel:review`), Codex `$gerrit-review`, omp
+`/skill:gerrit-review` (with the plugin `/skill:gerrit-panel/review`). Write your own buttons the Claude way
+(`/gerrit-panel:…`): they are turned into the other tools' ways the same. When the card opens a kit gerrit agent, the
+row **用 Claude Codex omp 開** under the list picks the tool (this computer remembers; none picked: `gerrit.json`'s
+`agent.tool`, else Claude). Codex has no `--plugin-dir`: a Codex gerrit agent is only the kit one.
+agent 可以是 Claude、Codex 或 omp：面板問 Herdr 它是哪一種，用那個工具叫 skill 的寫法送（Claude `/gerrit-review`、Codex
+`$gerrit-review`、omp `/skill:gerrit-review`）。自己改的按鈕照 Claude 的寫法（`/gerrit-panel:…`）寫就好，會自動換。
+要開新的 kit gerrit agent 時，清單下面那排「用 Claude Codex omp 開」選工具（這台電腦記得；沒選就用 gerrit.json 的
+`agent.tool`，再沒有就是 Claude）。Codex 沒有 `--plugin-dir`，只能用 kit 的 gerrit agent。
+
 A kit gerrit agent, in a kit source (see [docs/kit.md](kit.md)): `agents/gerrit.md` with `skills: [gerrit-review,
 gerrit-comments, gerrit-why-blocked, gerrit-draft-replies]` (in the public agentkit-library) and `mcp: [gerrit]`, and
 `mcp/gerrit.yaml`:
@@ -453,9 +464,12 @@ It comes with the mod: linking (macOS) or copying (Windows) the gerrit mod again
 ```
 
 (macOS: `"/Users/you/src/gerrit-mcp-server"`, `"/Users/you/.config/herdr-app/mods/gerrit/claude-plugin"` and
-`"/Users/you/gerrit-agent"`.) Quit and reopen Herdr. An agent already open keeps its old plugins: close its tab and
+`"/Users/you/gerrit-agent"`.) omp takes the same `--plugin-dir`s: `"start": ["omp", "--plugin-dir", …]` (the panel
+sees `omp` and calls `/skill:gerrit-panel/review`; or say `"tool": "omp"`). Codex can't: use the kit gerrit agent
+(§7). Quit and reopen Herdr. An agent already open keeps its old plugins: close its tab and
 press a preset again.
 第二個 `--plugin-dir` 是按鈕要叫的 skill：Herdr 家目錄裡 `mods/gerrit/claude-plugin`，跟著 gerrit mod 一起裝、一起更新。
+omp 也吃一樣的 `--plugin-dir`，把 `"claude"` 換成 `"omp"` 就好；Codex 不行，用 §7 kit 的 gerrit agent。
 已經開著的 agent 要關掉重開才會有。
 
 **6. Try it**: open a change in the panel → **Review**. With no Gerrit agent open, one opens in a new tab of this

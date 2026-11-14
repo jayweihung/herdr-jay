@@ -26,6 +26,13 @@ The theme's selected color is see-through (`#ffffff17`); the mouse over the sele
 so the card went white and its name could not be read. Now it is a little brighter than the others, as meant.
 選中的卡片滑鼠移上去不會再整張變白（字看不到）；只會比旁邊亮一點。
 
+## 2026-11-15, Gerrit panel: Codex and omp agents too
+Needs: mods.
+- 問 agent works with a Codex or omp gerrit agent, not only Claude Code: the panel calls the skill each tool's way
+  (Codex `$gerrit-review`, omp `/skill:gerrit-review`). Opening a kit gerrit agent, the card's row 用 Claude Codex omp 開
+  picks the tool; `gerrit.json` may say `agent.tool`. omp also works with `agent.start` and the two `--plugin-dir`s
+  (docs/gerrit.md §7, §8).
+
 ## 2026-11-15, a Codex at its usage limit too
 Needs: mods, kit (0.6.6).
 - A Codex that stops at its plan's usage limit gets the same red chip and 繼續 once it resets (kit 0.6.6 reads it

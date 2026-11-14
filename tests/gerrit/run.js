@@ -812,6 +812,20 @@ test("ask an agent: only Gerrit agents are listed (a kit gerrit agent by its fol
   g.agentAddr = null; g.save("agent", "");
   await g.askAgent(c, { label: "R", text: "/gerrit-panel:review {change}" }, cx);
   assert.deepEqual(H.opened.at(-1), ["hc", "send", "t5", "/gerrit-review 7"]);
+  // each tool calls a skill its own way (Herdr says which tool the agent is)
+  H.agents[1].app = "codex";
+  await g.askAgent(c, { label: "R", text: "/gerrit-panel:review {change}" }, cx);
+  assert.deepEqual(H.opened.at(-1), ["hc", "send", "t5", "$gerrit-review 7"], "Codex: $skill");
+  H.agents[1].app = "omp";
+  await g.askAgent(c, { label: "R", text: "/gerrit-panel:why-blocked {change}" }, cx);
+  assert.deepEqual(H.opened.at(-1), ["hc", "send", "t5", "/skill:gerrit-why-blocked 7"], "omp: /skill:name");
+  g.agentAddr = "t3w"; H.agents[0].app = "omp";
+  await g.askAgent(c, { label: "R", text: "/gerrit-panel:review {change}" }, cx);
+  assert.deepEqual(H.opened.at(-1), ["hc", "send", "t3w", "/skill:gerrit-panel/review 7"], "omp with the plugin (--plugin-dir): /skill:plugin/name");
+  H.agents[0].app = "claude-code";
+  await g.askAgent(c, { label: "R", text: "/gerrit-panel:review {change}" }, cx);
+  assert.deepEqual(H.opened.at(-1), ["hc", "send", "t3w", "/gerrit-panel:review 7"]);
+  g.agentAddr = null;
   rmSync(dir, { recursive: true, force: true });
   // a fresh copy (another tab) sees the remembered one too; when its pane is closed it is forgotten
   const kept = H.store; const g2 = freshView(G); H.store = kept; g2.cfg = g.cfg;
@@ -846,7 +860,27 @@ test("ask an agent with none open, the kit sources having a gerrit agent: the Ki
   await g.askAgent(c, { label: "Review", text: "/gerrit-panel:review {change} {patchset}" }, cx);
   H.afters.splice(0).forEach((f) => f(cx));
   assert.deepEqual(H.store["kit.place.ask"], []); assert.match(g.ask.error, /Kit 面板沒有接手/);
+  // opened with the tool picked in the card (Claude, Codex, omp), that tool's way of calling the skill
+  assert.match(renderText(g), /用\nClaude\nCodex\nomp\n開/);
+  H.store["kit.place.ask"] = []; g.save("tool", "codex");
+  await g.askAgent(c, { label: "Review", text: "/gerrit-panel:review {change} {patchset}" }, cx);
+  assert.deepEqual([H.store["kit.place.ask"][0].tool, H.store["kit.place.ask"][0].task], ["codex", "$gerrit-review 7 2"]);
+  H.store["kit.place.ask"] = []; g.save("tool", "omp");
+  await g.askAgent(c, { label: "Review", text: "/gerrit-panel:review {change} {patchset}" }, cx);
+  assert.deepEqual([H.store["kit.place.ask"][0].tool, H.store["kit.place.ask"][0].task], ["omp", "/skill:gerrit-review 7 2"]);
+  H.store["kit.place.ask"] = []; g.save("tool", ""); H.afters = [];
+  // none picked: gerrit.json's agent.tool
+  g.cfg = { ...g.cfg, agent: { tool: "codex" } };
+  await g.askAgent(c, { label: "Review", text: "/gerrit-panel:review {change} {patchset}" }, cx);
+  assert.equal(H.store["kit.place.ask"][0].tool, "codex");
+  H.store["kit.place.ask"] = []; H.afters = [];
+  // no kit gerrit agent: gerrit.json's agent.start; omp's way when it starts omp (with the plugin folders)
   delete H.store["kit.agents.data.v1"];
+  g.cfg = { ...g.cfg, agent: { start: ["/opt/homebrew/bin/omp", "--plugin-dir", "/x/gerrit-mcp-server"] } };
+  H.runAnswer = (n) => (n === "tab.new" ? { tab: "tb9", terminal: "t9z" } : null);
+  await g.askAgent(c, { label: "Review", text: "/gerrit-panel:review {change} {patchset}" }, cx);
+  assert.equal(H.runs.at(-1)[1].task, "/skill:gerrit-panel/review 7 2");
+  H.runAnswer = null; delete H.store["gerrit.agents.v1"];
 });
 
 test("ask an agent: presets call the gerrit-panel skills; ✎ edits them (saved for every copy), 還原預設 brings the built-in ones back", async (G) => {

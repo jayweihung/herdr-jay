@@ -1,0 +1,187 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: jayweihung <3034830+jayweihung@users.noreply.github.com>
+Date: Sat, 14 Nov 2026 16:45:18 +0800
+Subject: [PATCH 7/7] feat: edits in a linked mod, layout or settings file
+ reload it
+
+The home folder's OS watcher (FSEvents, inotify) doesn't follow symlinks, so a
+mod or layout kept in its own repo and linked into ~/.config/herdr-app never
+reloaded when edited there. At start, links in mods/, layouts/, themes/ and the
+three settings files whose targets are outside home are watched too (a linked
+file through its folder), and changes there count as the link's path.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/files.rs | 113 ++++++++++++++++++++++++++++++++++++++++++++++++---
+ 1 file changed, 107 insertions(+), 6 deletions(-)
+
+diff --git a/src/files.rs b/src/files.rs
+index fc78035..cac2911 100644
+--- a/src/files.rs
++++ b/src/files.rs
+@@ -53,7 +53,54 @@ impl FileEvents {
+     }
+ }
+ 
+-fn changes(base: &Path, event: notify::Result<notify::Event>) -> (Changed, bool) {
++/// A file or folder in the home folder that is a link to somewhere else (a mod
++/// or a layout kept in its own repo): the OS watcher on the home folder doesn't
++/// follow it, so its target is watched too and changes there count as `rel`'s.
++#[derive(Clone, Debug, PartialEq)]
++struct Link {
++    target: PathBuf,
++    rel: PathBuf,
++    dir: bool,
++}
++
++/// The links in the places `watched` covers, whose targets are outside `root`
++/// (read once at start; a link made later is watched after a restart).
++fn links(root: &Path) -> Vec<Link> {
++    let mut found = Vec::new();
++    let mut look = |rel: PathBuf| {
++        let path = root.join(&rel);
++        if !std::fs::symlink_metadata(&path).is_ok_and(|m| m.file_type().is_symlink()) {
++            return;
++        }
++        let Ok(target) = path.canonicalize() else { return };
++        if !target.starts_with(root) {
++            found.push(Link { dir: target.is_dir(), target, rel });
++        }
++    };
++    for name in ["settings.json", "keys.json", "programs.json"] {
++        look(PathBuf::from(name));
++    }
++    for folder in ["mods", "layouts", "themes"] {
++        for entry in std::fs::read_dir(root.join(folder)).into_iter().flatten().flatten() {
++            look(Path::new(folder).join(entry.file_name()));
++        }
++    }
++    found
++}
++
++/// A path the OS reported, as a path in the home folder (through a link's target).
++fn in_home(base: &Path, links: &[Link], path: &Path) -> Option<PathBuf> {
++    if let Ok(rel) = path.strip_prefix(base) {
++        return Some(rel.to_path_buf());
++    }
++    links.iter().find_map(|l| if l.dir {
++        path.strip_prefix(&l.target).ok().map(|rest| l.rel.join(rest))
++    } else {
++        (path == l.target).then(|| l.rel.clone())
++    })
++}
++
++fn changes(base: &Path, links: &[Link], event: notify::Result<notify::Event>) -> (Changed, bool) {
+     let Ok(event) = event else { return (Vec::new(), true) };
+     if !event.need_rescan() && matches!(event.kind, notify::EventKind::Access(_)) {
+         return (Vec::new(), false);
+@@ -61,8 +108,8 @@ fn changes(base: &Path, event: notify::Result<notify::Event>) -> (Changed, bool)
+     let rescan = event.need_rescan() || event.paths.iter().any(|path| {
+         base.starts_with(path) || path.strip_prefix(base).is_ok_and(|relative| relative.starts_with("mods") && mod_of(relative).is_none())
+     });
+-    let changed = event.paths.iter().filter_map(|path| path.strip_prefix(base).ok())
+-        .filter(|path| watched(path)).map(Path::to_path_buf).collect();
++    let changed = event.paths.iter().filter_map(|path| in_home(base, links, path))
++        .filter(|path| watched(path)).collect();
+     (changed, rescan)
+ }
+ 
+@@ -75,11 +122,13 @@ pub fn watch(home: &Path, #[cfg(test)] executor: gpui::BackgroundExecutor) -> Op
+     let tx = test_notifications(tx, executor);
+     let root = home.canonicalize().unwrap_or_else(|_| home.to_path_buf());
+     let base = root.clone();
++    let linked = links(&root);
++    let targets = linked.clone();
+     let revisions = Arc::new(Mutex::new(Revisions::default()));
+     let event_revisions = revisions.clone();
+     let mut watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
+         let mut revisions = event_revisions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+-        let (changed, rescan) = changes(&base, event);
++        let (changed, rescan) = changes(&base, &targets, event);
+         revisions.changed(&changed, rescan);
+         drop(revisions);
+         if !changed.is_empty() {
+@@ -92,6 +141,13 @@ pub fn watch(home: &Path, #[cfg(test)] executor: gpui::BackgroundExecutor) -> Op
+     .map_err(|e| tracing::warn!("file watching unavailable ({e}); polling instead"))
+     .ok()?;
+     watcher.watch(&root, RecursiveMode::Recursive).map_err(|e| tracing::warn!("cannot watch {} ({e}); polling instead", root.display())).ok()?;
++    // A linked file is watched through its folder: editors save by replacing the file.
++    for l in &linked {
++        let (path, mode) = if l.dir { (l.target.as_path(), RecursiveMode::Recursive) } else { (l.target.parent().unwrap_or(&l.target), RecursiveMode::NonRecursive) };
++        if let Err(e) = watcher.watch(path, mode) {
++            tracing::warn!("cannot watch {} for {} ({e}); edit it through its link to reload", path.display(), l.rel.display());
++        }
++    }
+     WATCHER.set(std::sync::Mutex::new(watcher)).ok()?;
+     Some(FileEvents { changes: rx, root, revisions })
+ }
+@@ -460,7 +516,7 @@ mod tests {
+             let mut revisions = Revisions::default();
+             revisions.roots.insert("mods/one".into(), 0);
+             revisions.roots.insert("mods/two".into(), 0);
+-            let (changed, rescan) = changes(base, event);
++            let (changed, rescan) = changes(base, &[], event);
+             revisions.changed(&changed, rescan);
+             assert!(revisions.all > 0);
+             assert!(!changed.contains(&PathBuf::from("mods/one")));
+@@ -477,7 +533,7 @@ mod tests {
+         let event = notify::Event::new(notify::EventKind::Any)
+             .set_flag(notify::event::Flag::Rescan)
+             .add_path(base.join("mods/one/main.js"));
+-        let (changed, rescan) = changes(base, Ok(event));
++        let (changed, rescan) = changes(base, &[], Ok(event));
+         revisions.changed(&changed, rescan);
+         assert_eq!(changed, vec![PathBuf::from("mods/one/main.js")]);
+         assert!(revisions.all > 0);
+@@ -485,6 +541,51 @@ mod tests {
+         assert_eq!(revisions.roots[Path::new("mods/two")], 0);
+     }
+ 
++    #[test]
++    fn edits_in_a_linked_mod_or_layout_reload_it() {
++        let base = Path::new("/home/probe");
++        let links = [
++            Link { target: "/src/repo/mods/gerrit".into(), rel: "mods/gerrit".into(), dir: true },
++            Link { target: "/src/repo/layouts/jay.json".into(), rel: "layouts/jay.json".into(), dir: false },
++        ];
++        let event = |p: &str| Ok(notify::Event::new(notify::EventKind::Any).add_path(PathBuf::from(p)));
++        assert_eq!(changes(base, &links, event("/src/repo/mods/gerrit/review.js")).0, vec![PathBuf::from("mods/gerrit/review.js")]);
++        assert_eq!(changes(base, &links, event("/src/repo/layouts/jay.json")).0, vec![PathBuf::from("layouts/jay.json")]);
++        // the linked file's folder is watched: its neighbours are not this home's files
++        assert!(changes(base, &links, event("/src/repo/layouts/other.json")).0.is_empty());
++        assert!(changes(base, &links, event("/src/repo/README.md")).0.is_empty());
++        let mut revisions = Revisions::default();
++        let (changed, rescan) = changes(base, &links, event("/src/repo/mods/gerrit/main.js"));
++        revisions.changed(&changed, rescan);
++        assert!(revisions.roots[Path::new("mods/gerrit")] > 0);
++    }
++
++    #[cfg(unix)]
++    #[test]
++    fn links_finds_linked_mods_layouts_and_settings_outside_home() {
++        let dir = std::env::temp_dir().join(format!("herdr-links-{}", std::process::id()));
++        let (home, repo) = (dir.join("home"), dir.join("repo"));
++        for d in [home.join("mods/own"), home.join("layouts"), repo.join("mods/gerrit"), repo.join("layouts")] {
++            std::fs::create_dir_all(d).unwrap();
++        }
++        std::fs::write(repo.join("layouts/jay.json"), "{}").unwrap();
++        std::fs::write(repo.join("keys.json"), "{}").unwrap();
++        std::os::unix::fs::symlink(repo.join("mods/gerrit"), home.join("mods/gerrit")).unwrap();
++        std::os::unix::fs::symlink(repo.join("layouts/jay.json"), home.join("layouts/jay.json")).unwrap();
++        std::os::unix::fs::symlink(repo.join("keys.json"), home.join("keys.json")).unwrap();
++        std::os::unix::fs::symlink(home.join("mods/own"), home.join("mods/alias")).unwrap(); // inside home: already watched
++        let root = home.canonicalize().unwrap();
++        let mut found = links(&root);
++        found.sort_by(|a, b| a.rel.cmp(&b.rel));
++        let repo = repo.canonicalize().unwrap();
++        assert_eq!(found, vec![
++            Link { target: repo.join("keys.json"), rel: "keys.json".into(), dir: false },
++            Link { target: repo.join("layouts/jay.json"), rel: "layouts/jay.json".into(), dir: false },
++            Link { target: repo.join("mods/gerrit"), rel: "mods/gerrit".into(), dir: true },
++        ]);
++        let _ = std::fs::remove_dir_all(&dir);
++    }
++
+     #[test]
+     fn revision_provider_does_not_keep_receiver_alive_and_recovers_poison() {
+         let (tx, changes) = async_channel::unbounded();

@@ -9,6 +9,14 @@ says which) · **kit** = update kit itself on every machine where agents run (`k
 **snap hook** = a line in Claude Code's `settings.json` on each machine where you added the hook (the entry says
 which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/keys.md).
 
+## 2026-11-14, Herdr app: linked mods reload when edited
+
+Needs: **app** (rebuild with herdr-app patch 0007).
+
+- macOS links herdr-jay's mods into `~/.config/herdr-app/mods`; editing them in the repo now reloads them at once (before:
+  only after making the link again or restarting Herdr). Layouts, themes and settings files kept as links too.
+mod 用連結裝的，在 repo 裡改完就會自己重新載入（要用打了 0007 patch 的 app）。
+
 ## 2026-11-14, kit: the note gets room first in a narrow header
 
 Needs: **mods** (kit; Windows: copy it again).

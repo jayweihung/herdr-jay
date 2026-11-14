@@ -48,6 +48,20 @@ export function removal(list, group, name, path) {
   if (it.status === "used") return { args: ["rm", kind, it.name], kind, name: it.name, where: "account" };
   return null;
 }
+// just after /compact or /clear (or a new session) a Claude's status line says 0 until its next reply, so the chip
+// would read "讀取中" until then, however long it sits idle. Then Claude Code itself is asked (kit context --detail),
+// at most once every ZERO_EVERY per pane: -> true when a 0 from the quick ask should be asked that way
+export const ZERO_EVERY = 10 * 60 * 1000;
+export function askZero(d, before, tool, now = Date.now()) {
+  if (tool !== "claude" || !d || d.error || Number(d.used) || Number(d.pct)) return false;
+  return !(before?.zeroAt && now - before.zeroAt < ZERO_EVERY);
+}
+// the numbers from that ask, or the last ones it gave while the status line still says 0 (null: none)
+export function zeroNumbers(d, before) {
+  if (d && Number(d.used) && !d.error) return { used: d.used, window: d.window ?? null, pct: d.pct ?? null, model: d.model ?? null, exact: true };
+  return before?.zeroAt && Number(before.used) ? { used: before.used, window: before.window ?? null, pct: before.pct ?? null, model: before.model ?? null, exact: true } : null;
+}
+
 // the chip on a pane header: { has, pct (capped at 100, or null), nums "139k/400k" ("…" while asking, "—" none), copy }
 // nothing counted yet (0 tokens: just after /compact or /clear, or a new session, until its next reply; or kit still
 // reading): no 0 %, "讀取中" (loading: the chip breathes)

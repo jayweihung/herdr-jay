@@ -9,6 +9,15 @@ says which) · **kit** = update kit itself on every machine where agents run (`k
 **snap hook** = a line in Claude Code's `settings.json` on each machine where you added the hook (the entry says
 which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/keys.md).
 
+## 2026-11-15, the context chip after /compact: its real number, not 讀取中 until the next reply
+
+Needs: **mods**.
+
+Just after /compact or /clear a Claude's status line says 0 until it replies again, so the chip said 讀取中 for as
+long as the agent sat idle. Now the header asks Claude Code itself (`kit context --detail`, at most once every 10
+minutes per pane) and shows that number until the status line has one again.
+剛壓縮（或 /clear）完、還沒回話的 Claude，context 不會再一直「讀取中」：改問 Claude Code 拿真正的數字。
+
 ## 2026-11-15, 關係: a selected card under the mouse no longer turns white
 
 Needs: **mods**.

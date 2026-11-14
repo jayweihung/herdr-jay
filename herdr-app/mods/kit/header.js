@@ -27,7 +27,7 @@ import { h_flex, v_flex, InputState, Input } from "gpui-base";
 import { panes, spaces, agents, props, run, theme, hc, shared, setShared, openOverlay, closeOverlay, notify, settings } from "herdr";
 import { collectedFrom, AGENT_CACHE, AGENT_DATA, AGENT_WANT, CTX, NOTE, LIMIT_SENT, EDITORS, localGet, localSet, fs, stop, slash, shortDir, clean, spin, waiting, icon, textBlock,
   copyOnRight, btn, busyNow, takeBusy, giveBusy, markChanged, kit, kitJson, apiState, apiKnown, apiAtLeast, checkApi, apiCard, num, kfmt } from "./common.js";
-import { toolOf, ctxArgs, sendText, sendArgs, removal, ctxTips, summaryText, chipNumbers, level, howCounted, ago, catColorKey, barSegments,
+import { toolOf, ctxArgs, askZero, zeroNumbers, sendText, sendArgs, removal, ctxTips, summaryText, chipNumbers, level, howCounted, ago, catColorKey, barSegments,
   catShare, compactLine, noteArgs, noteView, headerFit, kitChipW, CTX_FULL, CTX_SHORT, limitOf, continueDue, CONTINUE_TEXT, usageLines, whenText } from "./context.js";
 
 const CTX_STALE = 15000, CTX_IDLE = 60000;   // how often to ask how full the context is: working / not
@@ -88,12 +88,27 @@ async function agentPid(term) {
 }
 // With withNote (kit api 1.4) also what it wrote about where it is (kit note --pid --json): note { text, at } | null (none),
 // undefined when not asked or the ask failed (the old one stays). -> { ctx, note }
-async function loadContext(machine, cwd, term, tool, withNote) {
+// before: what CTX had; a Claude whose status line says 0 (just compacted or cleared) is asked with --detail now and
+// then (askZero), so the chip has its real number (zeroAt: when) instead of "讀取中" until its next reply
+async function loadContext(machine, cwd, term, tool, withNote, before = null) {
   const pid = await agentPid(term);
   if (!pid) return { ctx: null, note: undefined };
   const r = await kit(ctxArgs(pid, tool, cwd), 60000, machine);
   let ctx = null, note;
   if (r.code === 0) try { const d = JSON.parse(r.out); ctx = d && typeof d === "object" ? d : null; } catch {}
+  if (ctx && !Number(ctx.used) && !Number(ctx.pct) && tool === "claude") {
+    let z = null;
+    if (askZero(ctx, before, tool)) {
+      const q = await kit(ctxArgs(pid, tool, cwd, true), 60000, machine);
+      if (q.code === 0) try { z = JSON.parse(q.out); } catch {}
+      const n = zeroNumbers(z, null);
+      // asked (got a number or not): not again for a while
+      ctx = n ? { ...ctx, ...n, zeroAt: Date.now() } : { ...ctx, zeroAt: Date.now() };
+    } else {
+      const n = zeroNumbers(null, before);
+      ctx = { ...ctx, ...(n ?? {}), zeroAt: before?.zeroAt ?? null };
+    }
+  }
   if (withNote) {
     const n = await kit(noteArgs(pid), 30000, machine);
     if (n.code === 0) try { const d = JSON.parse(n.out); if (d && typeof d === "object") note = d.text ? { text: d.text, at: d.at } : null; } catch {}
@@ -164,7 +179,7 @@ export class Header {
     setShared(CTX, { ...pruned(all), [w.key]: { ...(c ?? {}), busy: true, started, status: p.status } });
     cx.spawn(async (cx) => {
       let d = null, note;
-      try { ({ ctx: d, note } = await loadContext(w.machine, p.cwd, p.terminal, toolOf(p.app, p.program?.key), apiAtLeast(w.machine, 4))); } catch {}
+      try { ({ ctx: d, note } = await loadContext(w.machine, p.cwd, p.terminal, toolOf(p.app, p.program?.key), apiAtLeast(w.machine, 4), c)); } catch {}
       if (note !== undefined) setShared(NOTE, { ...pruned(shared(NOTE)), [w.key]: note });
       // a failed ask (no answer, kit busy, the machine away) keeps the numbers it had: only when it asked changes
       const before = (shared(CTX) ?? {})[w.key] ?? c ?? {};

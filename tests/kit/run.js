@@ -250,6 +250,18 @@ test("context window: the bar, the shares, the footer line, the chip's numbers (
   assert.deepEqual(X.chipNumbers({ pct: 0, used: 0, window: 400000 }), { has: false, pct: null, nums: "讀取中", copy: "", loading: true });
   assert.equal(X.chipNumbers({ pct: 0, used: 900, window: 400000 }).pct, 0, "a real count under 1 % stays");
   assert.equal(X.chipNumbers({ pct: 35, used: 139000, window: 400000 }).loading, false);
+  // just compacted (status line 0): Claude Code is asked with --detail, at most once every 10 minutes per pane
+  const zero = { tool: "claude", used: 0, pct: 0, window: 400000, source: "statusline" };
+  assert.equal(X.askZero(zero, null, "claude", 1e9), true);
+  assert.equal(X.askZero(zero, { zeroAt: 1e9 - 60000 }, "claude", 1e9), false, "asked a minute ago");
+  assert.equal(X.askZero(zero, { zeroAt: 1e9 - X.ZERO_EVERY }, "claude", 1e9), true, "ten minutes on: again");
+  assert.equal(X.askZero({ ...zero, used: 5 }, null, "claude"), false, "a real number");
+  assert.equal(X.askZero(zero, null, "codex"), false, "only Claude's status line says 0 like that");
+  assert.deepEqual(X.zeroNumbers({ used: 33100, window: 400000, pct: 8, model: "m", categories: [] }, null), { used: 33100, window: 400000, pct: 8, model: "m", exact: true });
+  assert.equal(X.zeroNumbers({ used: 0 }, null), null);
+  assert.deepEqual(X.zeroNumbers(null, { zeroAt: 5, used: 33100, window: 400000, pct: 8 }).used, 33100, "kept until asked again");
+  assert.equal(X.zeroNumbers(null, { used: 33100 }), null, "an old number from before the compaction is not kept");
+  assert.equal(X.chipNumbers({ ...zero, ...X.zeroNumbers({ used: 33100, window: 400000, pct: 8 }, null), zeroAt: 1 }).nums, "33k/400k");
   assert.deepEqual([X.level(null), X.level(69), X.level(70), X.level(90)], ["", "", "high", "full"]);
   assert.equal(X.howCounted({ exact: true, tool: "claude" }), "Claude Code 自己算的"); assert.equal(X.howCounted({ tool: "codex" }), "總數是 Codex 記的，細項估算");
   assert.equal(X.ago(1000, 1030000), "30 秒前"); assert.equal(X.ago(1000, 1000000 + 180000), "3 分鐘前");

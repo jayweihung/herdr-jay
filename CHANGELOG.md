@@ -24,9 +24,9 @@ Needs: **mods**; **kit** 0.6.8 for one download per repo, adding all at once, th
 - Agent popup: a row's 加到… / 拿掉 says 加入中… while kit runs, then ✓ 已加到… until the list is read again.
 - 收來的 skills: once a day `kit outdated --json` (kit 0.6.8) asks each author's git; rows and groups say 有新版 or
   連不到, 關係 has a line, ⟳ asks now, 收新版（N） collects them again by name (your own source: sent right after).
-- 怎麼省: the Skills line names the biggest ones kit can take off with their size, not "unused"; the tool-results
+- 怎麼省: no Skills line any more (it called skills unused without knowing); the tool-results
   line says to compact at a break (mid-task loses details) instead of asking the agent to read less.
-收自己倉的 skill：收好直接送出、可勾「加到整個帳號」、要簽章時給一鍵複製指令。關係圖：root 服務點得到、等你簽打開各機器、放大後不擠、「到了跟我說」不算在問你；agent 視窗按「加到…」後顯示加入中、✓ 已加到，不會像還能再按。收來的 skill 一天查一次原作者：標「有新版」「連不到」、一鍵收新版。「怎麼省」不再把 skill 說成用不到。
+收自己倉的 skill：收好直接送出、可勾「加到整個帳號」、要簽章時給一鍵複製指令。關係圖：root 服務點得到、等你簽打開各機器、放大後不擠、「到了跟我說」不算在問你；agent 視窗按「加到…」後顯示加入中、✓ 已加到，不會像還能再按。收來的 skill 一天查一次原作者：標「有新版」「連不到」、一鍵收新版。「怎麼省」拿掉 Skills 那條、工具結果那條改成告一段落再壓縮。
 
 ## 2026-11-15, Kit 送出: nothing to send is one line, not a box
 

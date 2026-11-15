@@ -195,12 +195,6 @@ export function ctxTips(d, canRemove = (_group, _name) => false) {
     const mine = items("mcp").filter((i) => canRemove("mcp", i.name)).map((i) => i.name);
     tips.push(`MCP 工具的說明佔了 ${kfmt(mcp)}（${share(mcp)}）：${mine.length ? `用不到的（${mine.join("、")}）可以在下面「MCP」拿掉` : "用不到的 MCP 伺服器可以關掉"}，開新的對話就省下來。`);
   }
-  const sk = cat("skills");
-  if (sk >= 3000 && sk >= used * 0.03) {
-    // the biggest ones kit can take off, with their size: which are not used is for you to say (nothing here knows)
-    const mine = items("skills").filter((i) => canRemove("skills", i.name)).slice(0, 3).map((i) => `${i.name} ${kfmt(i.tokens)}`);
-    tips.push(`Skills 的清單佔了 ${kfmt(sk)}（${share(sk)}）：${mine.length ? `佔最多的是 ${mine.join("、")}。這個對話用不到的，可以在下面拿掉` : "這個對話用不到的 skill 可以拿掉"}。`);
-  }
   const mem = [...items("memory"), ...items("instructions")].sort((a, b) => b.tokens - a.tokens)[0];
   if (mem && mem.tokens >= 2000)
     tips.push(`${mem.name} 有 ${kfmt(mem.tokens)}，每次對話都整份讀進來：不常用的內容可以搬到 skill（用到才讀）。`);

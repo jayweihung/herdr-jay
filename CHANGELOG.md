@@ -9,6 +9,18 @@ says which) · **kit** = update kit itself on every machine where agents run (`k
 **snap hook** = a line in Claude Code's `settings.json` on each machine where you added the hook (the entry says
 which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/keys.md).
 
+## 2026-11-16, Herdr app: web pages in mods, zoom a panel, the Agents right-click menu
+
+Needs: **app** (patches `0012`…`0022` for v0.1.15; [docs/patches.md](docs/patches.md)).
+
+- A mod can show a real web page (`web.new`, sites listed in its `mod.json`; macOS WebKit, Windows WebView2). The
+  page steps aside while a Herdr menu, dialog or popup is open, Herdr's shortcuts keep working while you type in it,
+  copy / paste stay in the page, and `persist: true` keeps a sign-in across restarts. **Windows: written but not yet
+  run there**; it needs the WebView2 Runtime ([windows.md §3](docs/windows.md#3-herdr-app)). No mod in herdr-jay uses
+  it yet.
+- `layout.zoom {id}`: a side panel can take its whole row (again: back), e.g. a ⤢ button in the panel.
+- Right-click an agent in the Agents list: compact, clear, new, continue, interrupt, pin, close.
+
 ## 2026-11-15, Kit: 這次用了 (what this conversation used)
 
 Needs: **mods**; **kit** 0.6.10.

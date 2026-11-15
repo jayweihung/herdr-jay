@@ -1,0 +1,169 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: jayweihung <3034830+jayweihung@users.noreply.github.com>
+Date: Mon, 16 Nov 2026 02:55:13 +0800
+Subject: [PATCH 19/22] fix: a zoomed layout node fills its row or column, and
+ quitting with a web page open no longer aborts
+
+---
+ src/web.rs    | 27 +++++++++++++++++++--------
+ src/window.rs | 28 ++++++++++++++++++++--------
+ 2 files changed, 39 insertions(+), 16 deletions(-)
+
+diff --git a/src/web.rs b/src/web.rs
+index 280aa9c..e9e903f 100644
+--- a/src/web.rs
++++ b/src/web.rs
+@@ -241,8 +241,19 @@ struct View {
+     zoom: f64,
+ }
+ 
++fn with_views_mut<R>(f: impl FnOnce(&mut HashMap<Key, View>) -> R) -> R {
++    VIEWS.with(|c| f(&mut c.borrow_mut()))
++}
++
++fn with_views<R>(f: impl FnOnce(&HashMap<Key, View>) -> R) -> R {
++    VIEWS.with(|c| f(&c.borrow()))
++}
++
+ thread_local! {
+-    static VIEWS: RefCell<HashMap<Key, View>> = RefCell::new(HashMap::new());
++    // Never dropped: at quit the main thread's locals go after AppKit is
++    // tearing down, and dropping a web view then aborts ("Herdr quit
++    // unexpectedly"). The process is ending; the system takes them back.
++    static VIEWS: std::mem::ManuallyDrop<RefCell<HashMap<Key, View>>> = std::mem::ManuallyDrop::new(RefCell::new(HashMap::new()));
+     /// Each copy's `nextWebEvent()` queue.
+     static EVENTS: RefCell<HashMap<u64, async_channel::Sender<Value>>> = RefCell::new(HashMap::new());
+     static SERIAL: Cell<u64> = const { Cell::new(0) };
+@@ -322,7 +333,7 @@ pub fn element(copy: u64, rules: &Rc<Rules>, id: &str, props: Value, children: V
+ 
+ /// Creates the page, or loads a new `src` into it.
+ fn ensure(key: &Key, spec: Spec, rules: &Rc<Rules>, window: &mut Window) -> Result<(), String> {
+-    let same = VIEWS.with_borrow_mut(|v| {
++    let same = with_views_mut(|v| {
+         let view = v.get_mut(key)?;
+         if view.spec.persist != spec.persist {
+             return Some(false);
+@@ -341,13 +352,13 @@ fn ensure(key: &Key, spec: Spec, rules: &Rc<Rules>, window: &mut Window) -> Resu
+     }
+     let page = imp::Page::new(window, key, &spec, rules.clone())?;
+     page.load(&spec.url);
+-    VIEWS.with_borrow_mut(|v| v.insert(key.clone(), View { page, spec, rect: None, painter: 0, zoom: 0.0 }));
++    with_views_mut(|v| v.insert(key.clone(), View { page, spec, rect: None, painter: 0, zoom: 0.0 }));
+     Ok(())
+ }
+ 
+ fn dispose(key: &Key) {
+     // Dropped outside the borrow: the page's teardown may call back.
+-    let gone = VIEWS.with_borrow_mut(|v| v.remove(key));
++    let gone = with_views_mut(|v| v.remove(key));
+     drop(gone);
+ }
+ 
+@@ -355,7 +366,7 @@ fn dispose(key: &Key) {
+ pub fn call(copy: u64, id: &str, action: &str) -> Result<(), String> {
+     let action = Action::parse(action)?;
+     let key = Key { copy, id: id.to_owned() };
+-    VIEWS.with_borrow(|v| {
++    with_views(|v| {
+         v.get(&key).map(|view| match action {
+             Action::Home => view.page.load(&view.spec.url),
+             other => view.page.act(other),
+@@ -435,7 +446,7 @@ impl Element for Probe {
+             });
+             (p.serial, p)
+         });
+-        VIEWS.with_borrow_mut(|v| {
++        with_views_mut(|v| {
+             if let Some(view) = v.get_mut(&self.key) {
+                 view.painter = serial;
+                 view.rect = Some(visible);
+@@ -469,7 +480,7 @@ pub fn frame_end(frame: Frame) -> impl IntoElement {
+ fn apply(frame: Frame, window: &mut Window, cx: &mut App) {
+     EVENTS.with_borrow_mut(|e| e.retain(|copy, tx| frame.alive.contains(copy) && !tx.is_closed()));
+     let here = imp::window_of(window);
+-    let dead: Vec<Key> = VIEWS.with_borrow(|v| v.iter().filter(|(k, view)| view.page.window() == here && !frame.alive.contains(&k.copy)).map(|(k, _)| k.clone()).collect());
++    let dead: Vec<Key> = with_views(|v| v.iter().filter(|(k, view)| view.page.window() == here && !frame.alive.contains(&k.copy)).map(|(k, _)| k.clone()).collect());
+     for key in dead {
+         dispose(&key);
+     }
+@@ -477,7 +488,7 @@ fn apply(frame: Frame, window: &mut Window, cx: &mut App) {
+     let focus = window.focused(cx);
+     let pending = FOCUS_PENDING.get();
+     let moved = GPUI_FOCUS.with_borrow(|f| *f != focus);
+-    VIEWS.with_borrow_mut(|v| {
++    with_views_mut(|v| {
+         for (key, view) in v.iter_mut().filter(|(_, view)| view.page.window() == here) {
+             let layer = frame.layer.get(&key.copy).copied().unwrap_or(0);
+             let shown = frame.shown.contains(&key.copy) && view.painter != 0;
+diff --git a/src/window.rs b/src/window.rs
+index 8d20de3..a10e300 100644
+--- a/src/window.rs
++++ b/src/window.rs
+@@ -390,7 +390,7 @@ pub struct AppWindow {
+     picked_theme: Option<crate::layout::ThemeChoice>,
+     /// layout.zoom: the node shown alone in its row or column, and the siblings that hid for it
+     /// (never saved: quitting, or a layout that changes, shows them again).
+-    zoom_hid: Option<(String, Vec<String>)>,
++    zoom_hid: Option<(String, Vec<String>, Option<Span>)>,
+     /// Whether the shown layout's file read and parsed (or is simply
+     /// missing): a broken one is never written over.
+     layout_file_ok: bool,
+@@ -1803,7 +1803,7 @@ impl AppWindow {
+         changed |= mods::publish_panes(Value::Array(panes));
+         changed |= mods::publish_focused(focused.unwrap_or(Value::Null));
+         changed |= mods::publish_floats(self.float_placements());
+-        changed |= mods::publish_layout(&self.chrome, self.zoom_hid.as_ref().map(|(id, _)| id.as_str()));
++        changed |= mods::publish_layout(&self.chrome, self.zoom_hid.as_ref().map(|(id, _, _)| id.as_str()));
+         if changed {
+             self.refresh_snapshot_mods(cx);
+         }
+@@ -3349,12 +3349,15 @@ impl AppWindow {
+                     return self.fail(format!("no node {id:?} in the shown layout"));
+                 }
+                 let mut again = false;
+-                if let Some((was, hid)) = self.zoom_hid.take() {
++                if let Some((was, hid, size)) = self.zoom_hid.take() {
+                     for h in hid {
+                         if let Some(n) = self.chrome.find_mut(&h) {
+                             n.hidden = false;
+                         }
+                     }
++                    if let Some(n) = self.chrome.find_mut(&was) {
++                        n.size = size;
++                    }
+                     again = was == id;
+                 }
+                 let mut hid = Vec::new();
+@@ -3368,8 +3371,12 @@ impl AppWindow {
+                         hid.push(c.id.clone());
+                     }
+                 }
+-                if !hid.is_empty() {
+-                    self.zoom_hid = Some((id, hid));
++                // Alone, it fills the row or column whatever size it had.
++                if !hid.is_empty()
++                    && let Some(n) = self.chrome.find_mut(&id)
++                {
++                    let size = n.size.replace(Span::Weight { weight: 1.0 });
++                    self.zoom_hid = Some((id, hid, size));
+                 }
+             }
+             "layout.resize" => {
+@@ -3534,9 +3541,14 @@ impl AppWindow {
+     /// The layout as it is without layout.zoom's hiding (what is saved).
+     fn unzoomed(&self) -> Node {
+         let mut n = self.chrome.clone();
+-        for h in self.zoom_hid.iter().flat_map(|(_, hid)| hid) {
+-            if let Some(x) = n.find_mut(h) {
+-                x.hidden = false;
++        if let Some((id, hid, size)) = &self.zoom_hid {
++            for h in hid {
++                if let Some(x) = n.find_mut(h) {
++                    x.hidden = false;
++                }
++            }
++            if let Some(x) = n.find_mut(id) {
++                x.size = size.clone();
+             }
+         }
+         n

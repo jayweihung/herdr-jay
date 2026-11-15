@@ -226,7 +226,7 @@ git checkout v0.1.15
 git rev-parse --short HEAD                          # must be 9950887 (README versions table)
 git submodule update --init --recursive
 $j = "$env:USERPROFILE\src\herdr-jay"
-$pd = "$j\herdr-app\patches\v0.1.15"                # 5 patches: drag onto a space, a terminal's own icon, refused drop targets, a place in a space (docs/patches.md)
+$pd = "$j\herdr-app\patches\v0.1.15"                # 22 patches (docs/patches.md), among them web pages in mods and layout.zoom
 $ps = @(Get-ChildItem "$pd\*.patch" -ErrorAction SilentlyContinue | Sort-Object Name).FullName
 if ($ps) { git -c user.name=me -c user.email=me@local am -3 $ps } else { "no patches" }
 ```
@@ -256,6 +256,15 @@ Add it to PATH: [Add to PATH](#add-a-folder-to-path) with the first line `$add =
 **Check**: `herdr-app --version | Out-Host` → `herdr-app 0.1.15`. Then open **Herdr** once from the Start menu:
 it creates its home (`%USERPROFILE%\.config\herdr-app`, or `HERDR_APP_HOME` if you set it) with `keys.json`, `settings.json` and `mods\`.
 先從開始選單打開 Herdr 一次，它會建立設定目錄。
+
+**Web pages in mods** (patches `0015`…`0022`) use the **WebView2 Runtime**, part of Windows 11 and of current
+Windows 10 (it comes with Edge). Check: `Get-ItemProperty "HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}" -ErrorAction SilentlyContinue | Select-Object pv`
+shows a version (or the same path under `HKCU:\SOFTWARE\Microsoft\EdgeUpdate\Clients\…` for a per-user install).
+Missing: install the Evergreen Runtime from Microsoft, or ask the company software center. Without it a mod's web
+element shows "cannot open a web view" and the rest of Herdr works. **The Windows side is written and type-checked on a
+Mac, not yet run on Windows**: if a page is invisible, misplaced or keys get lost, photo + note which, and tell jay.
+網頁格（patch 0015–0022）要 WebView2 Runtime（Windows 11 內建，新的 Windows 10 也隨 Edge 有）。Windows 這部分還沒實機跑過，
+有問題拍照告訴 jay。
 
 ---
 
@@ -548,7 +557,8 @@ Windows 欄沒有日期的 tag 不要切過去，留在 `main`。 ZIP: delete th
 
 Only if the README table lists a newer version, **or the same version with different patches** (e.g. 2026-11-13: app v0.1.15 got two patches for dragging an agent onto a space, then three more for a terminal's own icon, refused drop targets and a place in a space; 2026-11-14: two more, 0006 a
 Gerrit review tab that closes with nvim and 0007 linked mods that reload: run the **app** blocks only; later that day core
-v0.1.21 got its `0001` (who sent to whom) and the app `0008` (its event): run **all** the blocks, core, server and app). Order: **core** checkout block → its build block → [8.3](#83-core-on-the-linux-server)
+v0.1.21 got its `0001` (who sent to whom) and the app `0008` (its event): run **all** the blocks, core, server and app;
+2026-11-16: the app got `0009`…`0022`, among them web pages in mods and `layout.zoom`: run the **app** blocks only). Order: **core** checkout block → its build block → [8.3](#83-core-on-the-linux-server)
 (server) → **app** checkout block (`$repo = "herdr-app"`, the app version) → its build block.
 In the first line replace `<version from the README table>` with that version (e.g. `v0.1.21`).
 Paste each block with **Ctrl+V as one block** (not right-click, not line by line).

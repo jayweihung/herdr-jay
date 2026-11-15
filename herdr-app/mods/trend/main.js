@@ -9,7 +9,8 @@
 // 熱門：launchd 每小時跑 fetch.js（不花 token）寫 trend/；這個 mod 只讀。問問題才叫 trend agent（花 token）。
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
-import { theme, settings, notify, appHome, readTextFile, exec, run, layout, shared, setShared, agents, terminals, focused, spaces, window, hc as herdrHc, props as blockProps } from "herdr";
+import { theme, settings, notify, appHome, readTextFile, exec, run, layout, shared, setShared, agents, terminals, focused, spaces, window, web, webCall, nextWebEvent, hc as herdrHc, props as blockProps } from "herdr";
+import * as fsp from "fs/promises";
 import process from "process";
 
 const TOGGLE = "trend-toggle", PANEL = "trend-panel";
@@ -28,6 +29,17 @@ const toolOf = (x) => {
 // Written the Claude way (/last30days …); each tool calls a skill its own way
 const skillFor = (text, tool) => String(text).replace(/^\/last30days\b/, tool === "codex" ? "$last30days" : tool === "omp" ? "/skill:last30days" : "/last30days");
 const isTrendKit = (text) => /^agent:trend[ \t]*$/m.test(String(text ?? ""));
+// a terminal whose program in front is an agent (one Herdr hasn't heard from shows as its shell in agents())
+const runsAgent = (t) => /^(claude|codex|omp|pi)(\.exe|\.cmd)?$/i.test(String(t?.foreground?.argv?.[0] ?? "").split(/[\\/]/).pop());
+// The trend agent's reports: HTML it writes to <Herdr home>/mods/trend/.reports/ (hidden: a write there doesn't
+// reload the mod; inside the mod's folder: a web element may show it), named <YYYY-MM-DD-HHMM>-<topic>.html, with
+// <meta name="trend-topic" content="the topic as asked"> so a topic's row finds its report (agents/trend.md).
+const REPORT_CELL = "trend-report";
+const fileUrl = (p) => { const s = p.replace(/\\/g, "/"); return "file://" + (/^[A-Za-z]:/.test(s) ? "/" : "") + encodeURI(s).replace(/#/g, "%23").replace(/\?/g, "%3F"); };
+const unescape = (s) => (s == null ? null : String(s).replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&").trim());
+const metaTopic = (html) => unescape(/<meta\s+name=["']trend-topic["']\s+content=["']([^"']*)["']/i.exec(html)?.[1]);
+const htmlTitle = (html) => unescape(/<title[^>]*>([^<]*)<\/title>/i.exec(html)?.[1]) || null;
+const reportWhen = (name) => { const m = /^(\d{4})-(\d{2})-(\d{2})-(\d{2})(\d{2})/.exec(name); return m ? `${Number(m[2])}/${Number(m[3])} ${m[4]}:${m[5]}` : ""; };
 const PRESETS = [
   { label: "🔎 深入查", text: (r) => `/last30days ${r.topic}` },
   { label: "三句話說明", text: (r) => `用繁體中文三句話說明「${r.topic}」最近發生什麼事、為什麼大家在討論。這一題的來源在 ~/.config/herdr-app/trend/trends.json（topic 是 ${JSON.stringify(r.topic)}），先看那些連結，不夠再查。` },
@@ -82,7 +94,16 @@ export default class Trend extends View {
       this.box = InputState.new({ placeholder: "問 trend agent，例如：這週 AI 圈最大的事是什麼？" });
       this.box.on("submit", (_e, cx) => cx.spawn(async (cx) => this.askFree(cx))); // Enter
     }
+    this.view = "list";   // "list" (the topics), "reports", or a report's file name
     this.load(cx);
+    if (this.role !== "toggle") cx.spawn(async (cx) => {
+      for (;;) {
+        const e = await nextWebEvent();
+        if (e?.id !== REPORT_CELL) continue;
+        this.webNote = e.kind === "failed" ? `載入失敗：${e.error ?? ""}` : e.kind === "blocked" && e.url ? `已用瀏覽器開：${e.url}` : null;
+        cx.notify();
+      }
+    });
     cx.timer.every(15000, (cx) => this.load(cx)); // fetch.js writes once an hour; this also keeps 「幾分前」 fresh
     cx.timer.every(1000, (cx) => { if (this.kitChanged) { this.kitChanged = false; cx.notify(); } }); // a trend agent's folder found
   }
@@ -92,7 +113,57 @@ export default class Trend extends View {
     const [t, s] = await Promise.all([readTextFile(`${this.dir}/trends.json`).catch(() => null), readTextFile(`${this.dir}/status.json`).catch(() => null)]);
     try { this.data = t ? JSON.parse(t) : null; this.bad = null; } catch (e) { this.bad = `trends.json 讀不懂：${e.message ?? e}`; }
     try { this.status = s ? JSON.parse(s) : null; } catch { this.status = null; }
+    await this.loadReports();
     cx.notify();
+  }
+  get reportDir() { return `${appHome().replace(/\\/g, "/")}/mods/trend/.reports`; }
+  // the reports newest first, each file read once for its topic and title (a half-written one: again next time)
+  async loadReports() {
+    let names = [];
+    try { names = (await fsp.readdir(this.reportDir)).filter((n) => /\.html?$/i.test(n) && !n.startsWith(".")).sort().reverse(); } catch {}
+    this.reportInfo ??= new Map();
+    for (const n of names) {
+      if (this.reportInfo.has(n)) continue;
+      const html = (await readTextFile(`${this.reportDir}/${n}`).catch(() => null)) ?? "";
+      if (/<\/html>/i.test(html)) this.reportInfo.set(n, { topic: metaTopic(html), title: htmlTitle(html) });
+    }
+    const before = this.reports;
+    this.reports = names.filter((n) => this.reportInfo.has(n)).map((n) => ({ name: n, ...this.reportInfo.get(n) }));
+    // a new one: the tab-bar button says so (one copy: the button), once
+    if (this.role === "toggle" && before) for (const r of this.reports.filter((r) => !before.some((b) => b.name === r.name)))
+      notify({ title: "熱門：報告寫好了", body: r.title || r.topic || r.name, level: "success", timeout: 8000 });
+    if (this.view !== "list" && this.view !== "reports" && !this.reports.some((r) => r.name === this.view)) this.view = "reports";
+  }
+  reportFor(topic) { return (this.reports ?? []).find((r) => r.topic === topic) ?? null; }
+
+  tabButton(t, z, view, label) {
+    const on = this.view === view || (view === "reports" && this.view !== "list");
+    return div().id(`tab-${view}`).h(28).px(10).flex().items_center().rounded(6).cursor_pointer().font_semibold()
+      .bg(on ? t.selected : t.surface).text_color(on ? t.foreground : t.muted).hover((s) => s.bg(t.hover))
+      .on_mouse_down("left", stop).on_click((_e, cx) => { this.view = view; cx.notify(); }).child(label);
+  }
+  reportList(t, z) {
+    const list = v_flex().id("reports").flex_1().min_h(0).overflow_y_scrollbar();
+    if (!this.reports?.length) return list.child(div().p(14).text_color(t.muted).whitespace_normal()
+      .child("還沒有報告：在熱門按「🔎 深入查」，trend agent 查完會把報告寫在這裡。"));
+    for (const r of this.reports) list.child(v_flex().id(`r-${r.name}`).px(12).py(8).gap(2).border_b(1).border_color(t.border).cursor_pointer()
+      .hover((s) => s.bg(t.hover)).on_click((_e, cx) => { this.view = r.name; this.webNote = null; cx.notify(); })
+      .child(div().font_semibold().truncate().child(r.title || r.topic || r.name))
+      .child(div().text_size(z - 1.5).text_color(t.muted).truncate().child([reportWhen(r.name), r.topic].filter(Boolean).join(" · "))));
+    return list;
+  }
+  // a report as a web page (the system's WebKit / WebView2); links in it open in the browser
+  reportView(t, z) {
+    const r = (this.reports ?? []).find((x) => x.name === this.view);
+    const small = (id, label, fn) => div().id(id).h(26).px(8).flex().items_center().rounded(5).cursor_pointer().text_size(z - 1)
+      .bg(t.raised).hover((s) => s.bg(t.hover)).on_mouse_down("left", stop).on_click(fn).child(label);
+    return v_flex().flex_1().min_h(0)
+      .child(h_flex().h(34).px(8).gap(6).flex_none().items_center().border_b(1).border_color(t.border)
+        .child(small("rep-back", "← 報告", (_e, cx) => { this.view = "reports"; cx.notify(); }))
+        .child(div().flex_1().min_w(0).truncate().text_size(z - 1).text_color(t.muted).child(r?.title || r?.topic || this.view))
+        .child(small("rep-reload", "⟳", () => webCall(REPORT_CELL, "reload"))))
+      .when(Boolean(this.webNote), (el) => el.child(div().px(10).py(4).text_size(z - 1.5).text_color(t.muted).truncate().child(this.webNote)))
+      .child(div().flex_1().min_h(0).child(web.new(REPORT_CELL, { src: fileUrl(`${this.reportDir}/${this.view}`) })));
   }
   get results() { return Array.isArray(this.data?.results) ? this.data.results : []; }
   // a run killed midway (the Mac slept, shut down) never writes finished: after 30 minutes it isn't running
@@ -117,6 +188,13 @@ export default class Trend extends View {
   agentList() {
     let all = [];
     try { all = (agents() ?? []).filter((x) => x?.address); } catch {}
+    // an agent that never sent Herdr a status report shows as its shell, or not at all: the program in front decides
+    // (as kit's place.js does), so asking again doesn't open a second one
+    try {
+      const seen = new Set(all.map((x) => x.address));
+      for (const t of terminals() ?? []) if (t?.address && !seen.has(t.address) && runsAgent(t))
+        all.push({ address: t.address, space: t.labels?.["herdr.space"] ?? null, title: t.title, app: t.foreground.argv[0] });
+    } catch {}
     const kit = this.kitAgents(all), here = this.currentSpace()?.id;
     return all.filter((x) => kit.has(x.address)).sort((a, b) => Number(b.space === here) - Number(a.space === here));
   }
@@ -204,7 +282,7 @@ export default class Trend extends View {
     const t = theme(), z = fs();
     return v_flex().id("trend").size_full().bg(t.surface).text_size(z).text_color(t.foreground)
       .child(this.header(t, z))
-      .child(this.list(t, z))
+      .child(this.view === "list" ? this.list(t, z) : this.view === "reports" ? this.reportList(t, z) : this.reportView(t, z))
       .child(this.askCard(t, z));
   }
 
@@ -240,7 +318,9 @@ export default class Trend extends View {
     const sources = Object.entries(this.data?.source_status ?? {});
     return v_flex().flex_none().border_b(1).border_color(t.border)
       .child(h_flex().px(10).py(6).gap(6).items_center()
-        .child(div().flex_1().min_w(0).truncate().font_semibold().child("熱門"))
+        .child(h_flex().flex_1().min_w(0).gap(2).items_center()
+          .child(this.tabButton(t, z, "list", "熱門"))
+          .child(this.tabButton(t, z, "reports", `報告${this.reports?.length ? ` ${this.reports.length}` : ""}`)))
         .child(btn("refresh", this.running ? "更新中…" : "↻ 現在更新", (_e, cx) => cx.spawn(async (cx) => this.kick(cx))))
         .when(Boolean(find(layout(), TOGGLE)), (el) => el.child(btn("hide", "✕", () => run("layout.hide", { id: PANEL })))))
       .child(h_flex().px(12).pb(4).gap(5).items_center().min_w(0)
@@ -287,7 +367,11 @@ export default class Trend extends View {
       div().id(`p-${r.rank}-${i}`).h(30).px(12).flex().items_center().rounded(6).cursor_pointer().font_semibold().text_size(z - 0.5)
         .bg(i === 0 ? t.solid : t.background).text_color(i === 0 ? t.solid_foreground : t.foreground).border_1().border_color(i === 0 ? t.solid : t.border).hover((s) => s.opacity(0.88))
         .on_mouse_down("left", stop).on_click((_e, cx) => { cx.stop_propagation(); cx.spawn(async (cx) => this.ask(`${p.label}：${r.topic}`, p.text(r), cx)); })
-        .child(this.asked?.sending === `${p.label}：${r.topic}` ? "送出中…" : p.label))));
+        .child(this.asked?.sending === `${p.label}：${r.topic}` ? "送出中…" : p.label)))
+      .when(Boolean(this.reportFor(r.topic)), (el) => el.child(div().id(`rep-${r.rank}`).h(30).px(12).flex().items_center().rounded(6).cursor_pointer()
+        .font_semibold().text_size(z - 0.5).bg(t.background).text_color(t.accent).border_1().border_color(t.accent).hover((s) => s.opacity(0.88))
+        .on_mouse_down("left", stop).on_click((_e, cx) => { cx.stop_propagation(); this.view = this.reportFor(r.topic).name; this.webNote = null; cx.notify(); })
+        .child("📄 看報告"))));
     return row;
   }
 

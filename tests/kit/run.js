@@ -2057,6 +2057,12 @@ test("place: one of each agent per space: dropped again where it already runs, i
   assert.ok(P.openHere({ id: "w/s1", machine: "w" }, "C:\\src\\reviewer"), "Windows paths: either slash, any case");
   H.agents = [{ address: "b/t1", space: "b/s1", tab: "b/tb1" }]; H.terminals = [{ address: "b/t1", cwd: "/home/amy/reviewer" }];
   assert.ok(P.openHere({ id: "b/s1", machine: "b", folder: "" }, "reviewer"), "a remote space without a folder: the agent's name");
+  // an agent that never reported to Herdr (agents() lacks it, or shows its shell): the program in front decides
+  H.agents = [];
+  H.terminals = [{ address: "t7", cwd: "/Users/amy/web/reviewer", labels: { "herdr.space": "s1", "herdr.tab": "tb7" }, foreground: { argv: ["claude", "a question"] } }];
+  assert.deepEqual(P.openHere(s1, "/Users/amy/web/reviewer"), { tab: "tb7", address: "t7" }, "claude in front counts");
+  H.terminals = [{ address: "t7", cwd: "/Users/amy/web/reviewer", labels: { "herdr.space": "s1", "herdr.tab": "tb7" }, foreground: { argv: ["/bin/zsh"] } }];
+  assert.equal(P.openHere(s1, "/Users/amy/web/reviewer"), null, "a shell left in its folder doesn't");
   // through placeAgent: shown, nothing else
   H.agents = [{ address: "t9", space: "s1", tab: "tb9" }]; H.terminals = [{ address: "t9", cwd: "/Users/amy/web/reviewer" }];
   assert.equal(P.placeAgent("reviewer", s1, "claude", cx), true);
@@ -2497,7 +2503,7 @@ test("更新版面: a layout with Kit's button but an older kit's kit-pane / kit
 
 // the files around the mod
 test("layouts: jay.json and jay-win.json are JSON, use mod kit with its roles; buttons right of the tabs (Mac), left (Windows)", () => {
-  for (const [f, order] of [["jay.json", ["tabs", "kit-agents-toggle", "kit-toggle", "gerrit-toggle"]], ["jay-win.json", ["kit-agents-toggle", "kit-toggle", "gerrit-toggle", "tabs"]]]) {
+  for (const [f, order] of [["jay.json", ["tabs", "kit-agents-toggle", "kit-toggle", "gerrit-toggle", "trend-toggle"]], ["jay-win.json", ["kit-agents-toggle", "kit-toggle", "gerrit-toggle", "trend-toggle", "tabs"]]]) {
     const text = readFileSync(join(ROOT, "herdr-app", "layouts", f), "utf8");
     const l = JSON.parse(text);
     assert.doesNotMatch(text, /"mod": "kit-(agents|pane|panel)"/, f);

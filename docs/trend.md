@@ -18,6 +18,11 @@ A tab-bar button **熱門** and a panel, like Gerrit's (macOS and Windows):
   the Kit button must be in the layout) and it starts on the question. Pick Claude / Codex / omp for the next one it
   opens. The answer is in the agent's own tab. Drag trend from the Agents panel onto a space to keep one there.
   問問題才花 token：送給這個 space 的 trend agent；沒有就先開一個。從 Agents 面板把 trend 拖到 space 也可以。
+- **報告**: a deep dive ends as an HTML page the agent writes to `<Herdr home>/mods/trend/.reports/`
+  (`<YYYY-MM-DD-HHMM>-<topic>.html`, `<meta name="trend-topic" content="<the topic as asked>">`, `agents/trend.md` says
+  how). The panel's 報告 tab lists them newest first and shows one as a web page (the system's WebKit / WebView2;
+  its links open in the browser); a topic with a report gets **📄 看報告**, and the button posts a notification when a
+  new one is written. 深入查的結果是一頁 HTML，面板的「報告」分頁用網頁顯示；有報告的主題多一顆「📄 看報告」。
 
 ## Install / 安裝
 
@@ -108,3 +113,4 @@ Windows 一樣：複製 mod，用工作排程器每小時跑；公司電腦先�
 
 `~/.config/herdr-app/trend/`: `trends.json` (last30days' discovery JSON, replaced only by a run that worked),
 `status.json` (`started`, `finished`, `ok`, `error`), `last.log` (the last run's output), `proxy` (yours, optional).
+`<Herdr home>/mods/trend/.reports/`: the agent's reports (hidden: writing one doesn't reload the mod; git ignores it).

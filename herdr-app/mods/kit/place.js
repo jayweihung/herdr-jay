@@ -101,9 +101,16 @@ export function openHere(space, dir, live = liveNow()) {
   const a = live.agents.find((x) => x?.space === space?.id && at(live.cwds.get(x.address)));
   return a ? { tab: a.tab, address: a.address } : null;
 }
-// the running agents and every terminal's folder, read once for several openHere
+// the running agents and every terminal's folder, read once for several openHere. An agent that never sent Herdr a
+// status report shows as its shell in agents() (kit place starts it inside the user's shell) or not at all: a terminal
+// whose program in front is claude / codex / omp counts too, so a place doesn't open a second one beside it.
+const AGENT_PROGRAM = /^(claude|codex|omp|pi)(\.exe|\.cmd)?$/i;
+export const runsAgent = (t) => AGENT_PROGRAM.test(String(t?.foreground?.argv?.[0] ?? "").split(/[\\/]/).pop());
 export function liveNow() {
-  return { agents: agents() ?? [], cwds: new Map((terminals() ?? []).map((t) => [t?.address, t?.cwd])) };
+  const known = agents() ?? [], terms = terminals() ?? [], seen = new Set(known.map((a) => a?.address));
+  const quiet = terms.filter((t) => t?.address && !seen.has(t.address) && runsAgent(t))
+    .map((t) => ({ address: t.address, space: t.labels?.["herdr.space"] ?? null, tab: t.labels?.["herdr.tab"] ?? null }));
+  return { agents: [...known, ...quiet], cwds: new Map(terms.map((t) => [t?.address, t?.cwd])) };
 }
 // the ids of the spaces where that agent already runs
 export function openSpaces(agent, live = liveNow()) {

@@ -1,1 +1,1 @@
-{ "place": "none", "title": "熱門", "focusable": false }
+{ "place": "none", "title": "熱門", "focusable": false, "web": { "allow": [] } }

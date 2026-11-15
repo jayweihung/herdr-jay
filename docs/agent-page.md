@@ -15,8 +15,13 @@ agent 右邊一格：第一個分頁「進度」是等你、正在做、還沒�
 
 - **Only local files** the agent wrote into this mod's folder. No web sites: a link to one opens in the system
   browser. 只開 agent 寫在這個 mod 資料夾裡的檔，不開網站；頁面裡的網址連結用系統瀏覽器開。
-- **Agents on this computer.** The page is a file on the computer Herdr runs on, so an agent on another machine
-  (over ssh) can't put one here. 只給同一台電腦上的 agent。
+- **An agent on another machine** (a Herdr machine over ssh) writes the same folder there, under the home of the user
+  Herdr connects as: `~/.config/herdr-app/mods/agent-page/pages/<its terminal id>/`. The pane lists it there every
+  15 s (through Herdr's connection) and copies what changed with `scp` over the machine's ssh target (`hc machine ls`),
+  so the pages show here. Needs `scp` here and key login to that target (as Herdr's own connection). Files deleted
+  there stay here. 別台機器上的 agent 寫在那台同一個位置（Herdr 連線用的帳號的家目錄），面板每 15 秒去看，有變就用 scp 抄過來。
+  An agent running as another user there (e.g. root) writes into that user's folder and makes the files readable
+  (`chmod a+r`). 用別的帳號（例如 root）跑的 agent 寫到連線帳號的資料夾，並讓檔案可讀。
 - Needs the Herdr build with web elements and `props.pane` (app patches 0015–0024, [patches.md](patches.md)): macOS
   14 or later; Windows with the WebView2 Runtime (not run on Windows yet).
   要有網頁格的 Herdr（app patch 0015–0024）。
@@ -40,7 +45,8 @@ The pages go in the mod's `pages/` folder (git ignores it). 頁面放在 mod 的
 
 ## For the agent / 給 agent 的步驟
 
-The folder is `<Herdr home>/mods/agent-page/pages/<your terminal id>/` (make it first, e.g. `mkdir -p`; the mod may
+The folder is `<Herdr home>/mods/agent-page/pages/<your terminal id>/` (on another machine than Herdr's:
+`~/.config/herdr-app/mods/agent-page/pages/<your terminal id>/` in the home of the user Herdr connects as) (make it first, e.g. `mkdir -p`; the mod may
 not write there itself). `<Herdr home>`: `~/.config/herdr-app` (`$HERDR_APP_HOME` if set; Windows:
 `%USERPROFILE%\.config\herdr-app`). `<your terminal id>`: `$HC_TERMINAL_ID` (e.g. `t63`).
 

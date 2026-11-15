@@ -1473,7 +1473,7 @@ test("header: the Kit button opens the agent popup and the context chip the cont
     for (const m of s.matchAll(/role: "([a-z-]+)"/g)) assert.notEqual(M.main.roleOf({ role: m[1] }), "unknown", `${src}: role ${m[1]}`);
   }
 });
-test("header: the 說明頁 button (agent-page installed) opens agent-page right of an agent on this computer, again closes it; the menu offers it", async (M) => {
+test("header: the 說明頁 button (agent-page installed) opens agent-page right of an agent (on another machine: with machine and term), again closes it; the menu offers it", async (M) => {
   fresh(); fakeKit();
   H.files = { "/Users/amy/.config/herdr-app/mods/agent-page/main.js": "x", "/Users/amy/.config/herdr-app/mods/agent-files/main.js": "x" };
   H.spaces = [{ id: "s1", tabs: [{ id: "tab1" }] }];
@@ -1494,7 +1494,8 @@ test("header: the 說明頁 button (agent-page installed) opens agent-page right
   H.panes = [{ pane: "p2", terminal: "box/t3", tab: "tab2", cwd: "/h", status: "idle", program: { agent: true, name: "Codex" } }];
   const w = view(M, { role: "header", pane: "p2", terminal: "box/t3" }); await settle();
   w.part.hovered = true; render(w);
-  assert.ok(!ids(w).includes("kit-head-p-p2"), "not for an agent on another machine");
+  H.clicks["kit-head-p-p2"]({}, cx);
+  assert.deepEqual(H.runs.at(-1), ["pane.split", { direction: "right", pane: "p2", mod: "agent-page", props: { dir: "box_t3", beside: "p2", machine: "box", term: "t3" } }], "another machine: agent-page copies from there");
 });
 test("agent popup (and its old name pane): shows what the header's kit list said; kit there too old: the card, nothing run", async (M) => {
   fresh(); fakeKit();

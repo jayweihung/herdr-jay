@@ -34,8 +34,25 @@ globalThis.__stubs = {
   watchFolder: (dir) => new Promise((resolve, reject) => { H.watching.push(dir); H.wake = resolve; H.fail = reject; }),
   web: { new: (id, p) => { H.web.push([id, p.src]); return el; } },
   webCall: (id, action) => { H.calls.push([id, action]); return null; },
+  window: () => ({ platform: "macos" }),
+  // exec: the other machine's listing (H.remote: name -> text), scp copies those files into the local folder.
+  exec: async (cmd, args, opts) => {
+    H.execs.push([cmd, args, opts?.on ?? null]);
+    if (cmd === "sh" && opts?.on) {
+      const lines = Object.entries(H.remote ?? {}).map(([n, t]) => `${t.length}_${[...t].reduce((a, c) => a + c.charCodeAt(0), 0)} ${n}`);
+      return { code: 0, stdout: lines.map((l) => l + "\n").join(""), stderr: "" };
+    }
+    if (cmd === "scp") {
+      if (H.scpFails) return { code: 1, stdout: "", stderr: "ssh: connect to host box: Connection refused" };
+      const dest = args[args.length - 1];
+      for (const src of args.slice(3, -1)) { const n = src.split("/").pop(); writeFileSync(join(dest, n), H.remote[n]); }
+      return { code: 0, stdout: "", stderr: "" };
+    }
+    return { code: 0, stdout: "", stderr: "" };
+  },
+  hc: async (args) => ({ code: 0, stdout: JSON.stringify({ machines: [{ name: "box", target: "box-alias" }] }), stderr: "" }),
 };
-const cx = { notify() {}, stop_propagation() {}, spawn: (f) => { H.tasks.push(Promise.resolve().then(() => f(cx))); } };
+const cx = { notify() {}, stop_propagation() {}, timer: { every: (ms, f) => { H.every = f; } }, spawn: (f) => { H.tasks.push(Promise.resolve().then(() => f(cx))); } };
 async function settle() {
   // The mod's watch loop never ends, so don't wait for the tasks: let them run until they wait.
   for (let i = 0; i < 20; i++) await new Promise((r) => setTimeout(r, 5));
@@ -56,7 +73,7 @@ async function loadMod() {
 function world({ props = { dir: "t63", beside: "pA", pane: "pM" }, panes, shared = {} } = {}) {
   const home = mkdtempSync(join(tmpdir(), "agent-page-home-"));
   Object.assign(H, {
-    home, props, shared, runs: [], calls: [], web: [], tasks: [], strings: [], watching: [], wake: null,
+    home, props, shared, runs: [], calls: [], web: [], tasks: [], strings: [], watching: [], wake: null, execs: [], remote: null, scpFails: false, every: null,
     panes: panes ?? [{ pane: "pA", terminal: "t63", tab: "tb1" }, { pane: "pM", terminal: null, mod: "agent-page", tab: "tb1" }],
   });
   return join(home, "mods", "agent-page", "pages", "t63");
@@ -198,6 +215,38 @@ test("dir is a plain folder name; beside gone or missing: no focus", async (V) =
   const w = await open(V);
   assert.equal(w.dir, "default");
   assert.deepEqual(H.runs, []);
+});
+
+test("an agent on another machine: lists its folder there, copies what changed with scp over the machine's ssh target, shows it", async (V) => {
+  world({ props: { dir: "box_t3", beside: "pA", pane: "pM", machine: "box", term: "t3" } });
+  H.remote = { "status.json": STATUS({ doing: ["remote work"] }), "2026-11-16-0500-x.html": "<p>x</p>" };
+  const v = await open(V);
+  const list = H.execs.find(([c, , on]) => c === "sh" && on === "box");
+  assert.ok(list, "listed there");
+  assert.equal(list[1].at(-1), ".config/herdr-app/mods/agent-page/pages/t3");
+  const scp = H.execs.find(([c]) => c === "scp");
+  assert.deepEqual(scp[1].slice(0, 3), ["-q", "-o", "BatchMode=yes"]);
+  assert.ok(scp[1].includes("box-alias:.config/herdr-app/mods/agent-page/pages/t3/status.json"), scp[1].join(" "));
+  assert.equal(scp[1].at(-1), `${H.home}/mods/agent-page/pages/box_t3/`);
+  const s = render(v);
+  assert.match(s, /remote work/);
+  assert.match(s, /在 box/);
+  assert.equal(v.tab, "status", "the first copy doesn't jump to a page");
+  // nothing changed there: no scp; a new page there: copied and opened
+  H.execs = [];
+  H.every(cx); await settle();
+  assert.ok(!H.execs.some(([c]) => c === "scp"));
+  H.remote["2026-11-16-0600-y.html"] = "<p>y</p>";
+  H.every(cx); await settle();
+  const again = H.execs.find(([c]) => c === "scp");
+  assert.deepEqual(again[1].slice(3, -1), ["box-alias:.config/herdr-app/mods/agent-page/pages/t3/2026-11-16-0600-y.html"], "only what changed");
+  assert.equal(v.tab, "2026-11-16-0600-y.html");
+  // scp fails: says so on 進度
+  H.scpFails = true;
+  H.remote["status.json"] = STATUS({ doing: ["changed"] });
+  H.every(cx); await settle();
+  v.tab = "status";
+  assert.match(render(v), /從 box 拿頁面失敗：ssh: connect to host box: Connection refused/);
 });
 
 test("Windows paths become file:///C:/…", async (V) => {

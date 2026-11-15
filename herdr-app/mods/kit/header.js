@@ -126,8 +126,8 @@ const LAST_DETAIL = new Map();
 // agent-files mod, when there is one) and Kit, said again every few minutes; a pick ("agents.menu.pick") is done by the
 // header of the agent's pane
 const MENU_AGAIN = 120000;
-// the agent-page mod, when there is one: its pane beside an agent on this computer (its 進度 and the pages the agent
-// wrote). Its folder name is the terminal's id, made safe the way agent-page's main.js does (keep the two the same).
+// the agent-page mod, when there is one: its pane beside an agent (its 進度 and the pages the agent wrote; an agent on
+// another machine: agent-page copies them from there, given machine and term). Its folder name is the terminal's id, made safe the way agent-page's main.js does (keep the two the same).
 let pageMod = null;
 const hasMod = (mod) => readTextFile(`${appHome()}/mods/${mod}/main.js`).then((x) => x != null, () => false);
 function checkPage(cx) {
@@ -140,11 +140,15 @@ const pageOpen = (p) => {
   const open = shared(`agent-page/${pageDir(p.terminal)}`);
   return open && panes().some((x) => x.pane === open && x.mod === "agent-page") ? open : null;
 };
-const pageFor = (p) => pageMod && p.terminal && p.program?.agent && !placeOf(p).machine;
+const pageFor = (p) => pageMod && p.terminal && p.program?.agent;
 function togglePage(p) {
   const open = pageOpen(p);
   if (open) run("pane.close", { pane: open });
-  else run("pane.split", { direction: "right", pane: p.pane, mod: "agent-page", props: { dir: pageDir(p.terminal), beside: p.pane } });
+  else {
+    const machine = placeOf(p).machine, props = { dir: pageDir(p.terminal), beside: p.pane };
+    if (machine) Object.assign(props, { machine, term: String(p.terminal).split("/").pop() });
+    run("pane.split", { direction: "right", pane: p.pane, mod: "agent-page", props });
+  }
 }
 function offerMenu(cx) {
   const m = shared("agents.menu") ?? {};

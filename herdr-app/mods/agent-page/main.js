@@ -4,18 +4,26 @@
 // Opened from the ⎙ button in an agent pane's header (the kit mod), or by the agent:
 //   herdr-app do pane.split '{"direction":"right","pane":"<its pane>","mod":"agent-page","props":{"dir":"t63","beside":"<its pane>"}}'
 // (docs/agent-page.md: steps and status.json for agents.)
+// An agent on another machine (props.machine, props.term): it writes the same folder there, under the home of the
+// user Herdr connects as (~/.config/herdr-app/mods/agent-page/pages/<term>/); every SYNC ms this copy lists it there
+// (through Herdr's connection) and, when something changed, copies the changed files here with scp over the machine's
+// ssh target (hc machine ls), into pages/<dir>/. Files gone there stay here.
 // Only local files in this mod's folder: mod.json allows no site, so web links open in the system browser.
 // Opening it again for the same dir while one is open closes the new copy (props.pane is the copy's own pane,
 // shared "agent-page/<dir>" the one that's open). Either way the keyboard goes back to the agent's pane.
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { appHome, nextWebEvent, panes, props, run, settings, setShared, shared, theme, watchFolder, web, webCall } from "herdr";
+import { appHome, exec, hc, nextWebEvent, panes, props, run, settings, setShared, shared, theme, watchFolder, web, webCall, window } from "herdr";
 import * as fs from "fs/promises";
 
 const CELL = "page";
 const STATUS = "status.json";
 // Done items shown: the last DAYS days (older ones stay in the file, counted, not listed).
 const DAYS = 3;
+const SYNC = 15000;
+const REMOTE = ".config/herdr-app/mods/agent-page/pages";
+// On the other machine: "<cksum> <name>" per page and status.json, nothing when the folder isn't there.
+const LIST = 'cd "$HOME/$1" 2>/dev/null || exit 0; for f in *.html *.htm status.json; do [ -f "$f" ] && printf "%s %s\\n" "$(cksum < "$f" | tr " " _)" "$f"; done; exit 0';
 const stop = (_e, cx) => cx.stop_propagation();
 const size = () => Number(settings().ui_font_size) || 13;
 // A dir is a folder name: a terminal id ("t63"); "/" of a remote terminal's id becomes "_". (kit's header.js has the same.)
@@ -46,6 +54,7 @@ export default class AgentPage extends View {
     this.dir = clean(p.dir);
     this.me = p.pane;
     this.beside = p.beside;
+    this.remote = p.machine ? { machine: String(p.machine), term: clean(p.term ?? String(p.dir ?? "").split("/").pop()) } : null;
     // The agent makes the folder (a mod may not write here); the mod's own folder is watched, which on macOS and
     // Windows includes everything under it.
     this.root = `${appHome()}/mods/agent-page`;
@@ -63,6 +72,10 @@ export default class AgentPage extends View {
       }
       if (this.me) setShared(`agent-page/${this.dir}`, this.me);
       this.giveBack();
+      if (this.remote) {
+        this.sync(cx);
+        cx.timer.every(SYNC, (cx) => this.sync(cx));
+      }
       cx.spawn(async (cx) => {
         while (this.alive) {
           const e = await nextWebEvent();
@@ -104,6 +117,62 @@ export default class AgentPage extends View {
   duplicate() {
     const other = shared(`agent-page/${this.dir}`);
     return Boolean(this.me && other && other !== this.me && panes().some((x) => x.pane === other && x.mod === "agent-page"));
+  }
+
+  // The other machine's folder, copied here when it changed (one sync at a time).
+  sync(cx) {
+    if (!this.alive || this.syncing) return;
+    this.syncing = true;
+    cx.spawn(async (cx) => {
+      const { machine, term } = this.remote, rel = `${REMOTE}/${term}`;
+      try {
+        const r = await exec("sh", ["-c", LIST, "sh", rel], { on: machine, timeout: SYNC });
+        if (r.code !== 0) throw new Error(String(r.stderr || `exit ${r.code}`).trim());
+        const now = new Map(String(r.stdout).split("\n").filter(Boolean).map((l) => { const i = l.indexOf(" "); return [l.slice(i + 1), l.slice(0, i)]; }));
+        const before = this.listed ?? new Map();
+        const changed = [...now].filter(([n, sum]) => before.get(n) !== sum).map(([n]) => n);
+        if (changed.length) {
+          const target = await this.target(machine);
+          await this.makeFolder();
+          const c = await exec("scp", ["-q", "-o", "BatchMode=yes", ...changed.map((n) => `${target}:${rel}/${n}`), `${this.folder}/`], { timeout: 60000 });
+          if (c.code !== 0) throw new Error(String(c.stderr || `scp exit ${c.code}`).trim());
+          const pages = changed.filter(isPage).sort();
+          await this.read(this.listed ? pages[pages.length - 1] ?? null : null);
+        }
+        this.listed = now;
+        this.syncNote = null;
+      } catch (e) {
+        this.syncNote = `從 ${machine} 拿頁面失敗：${e.message ?? e}`;
+      } finally {
+        this.syncing = false;
+        cx.notify();
+      }
+    });
+  }
+
+  // The machine's ssh target (what Herdr connects with), else its name.
+  async target(machine) {
+    if (this.sshTarget) return this.sshTarget;
+    try {
+      const r = await hc(["machine", "ls", "--json"]);
+      const m = (JSON.parse(String(r.stdout)).machines ?? []).find((x) => x?.name === machine);
+      this.sshTarget = m?.target || machine;
+    } catch {
+      this.sshTarget = machine;
+    }
+    return this.sshTarget;
+  }
+
+  // fs.mkdir may refuse a linked mod's folder (it isn't under Herdr's home once the link is followed): then mkdir.
+  async makeFolder() {
+    try {
+      await fs.mkdir(this.folder, { recursive: true });
+    } catch {
+      const r = window()?.platform === "windows"
+        ? await exec("cmd", ["/c", "mkdir", this.folder.replace(/\//g, "\\")])
+        : await exec("mkdir", ["-p", this.folder]);
+      if (r.code !== 0) throw new Error(String(r.stderr || "mkdir").trim());
+    }
   }
 
   // pane.split focuses the new pane; the person was typing to the agent.
@@ -155,13 +224,16 @@ export default class AgentPage extends View {
   renderStatus(t, z) {
     const s = this.status, now = Date.now();
     const box = v_flex().id("ap-status").size_full().overflow_y_scrollbar().px(14).py(12).gap(14);
+    if (this.syncNote) box.child(div().whitespace_normal().text_size(z - 1).text_color(t.blocked).child(this.syncNote));
     if (this.statusError) box.child(div().text_size(z - 1).text_color(t.blocked).child(this.statusError));
     if (!s) {
-      return box.child(div().text_color(t.muted).child(
-        `還沒有進度。agent 把做完的、正在做的、還沒做的寫進 ${this.folder}/${STATUS}，就會顯示在這裡（docs/agent-page.md）。`));
+      const where = this.remote ? `${this.remote.machine} 上的 ~/${REMOTE}/${this.remote.term}/${STATUS}` : `${this.folder}/${STATUS}`;
+      return box.child(div().whitespace_normal().text_color(t.muted).child(
+        `還沒有進度。agent 把做完的、正在做的、還沒做的寫進 ${where}，就會顯示在這裡（docs/agent-page.md）。`));
     }
     box.child(h_flex().gap(8).items_center()
       .child(div().flex_1().min_w(0).truncate().font_semibold().child(text(s.title) || "進度"))
+      .when(Boolean(this.remote), (el) => el.child(div().flex_none().text_size(z - 2).text_color(t.dim).child(`在 ${this.remote.machine}`)))
       .when(Boolean(s.updated), (el) => el.child(div().flex_none().text_size(z - 2).text_color(t.dim).child(`更新 ${ago(s.updated, now)}`))));
     const waiting = list(s.waiting);
     if (waiting.length) {

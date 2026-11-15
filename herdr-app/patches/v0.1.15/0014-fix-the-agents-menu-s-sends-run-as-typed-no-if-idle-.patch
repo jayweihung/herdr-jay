@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: jayweihung <3034830+jayweihung@users.noreply.github.com>
 Date: Mon, 16 Nov 2026 00:57:45 +0800
-Subject: [PATCH 14/24] fix: the agents menu's sends run as typed (no --if
+Subject: [PATCH 14/25] fix: the agents menu's sends run as typed (no --if
  idle, closed once sent), say when sent, show short reasons and the row's name
 
 ---

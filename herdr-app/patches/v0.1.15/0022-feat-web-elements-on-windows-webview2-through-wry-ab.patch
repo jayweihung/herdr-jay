@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: jayweihung <3034830+jayweihung@users.noreply.github.com>
 Date: Mon, 16 Nov 2026 03:36:43 +0800
-Subject: [PATCH 22/24] feat: web elements on windows (webview2 through wry),
+Subject: [PATCH 22/25] feat: web elements on windows (webview2 through wry),
  above gpui's drawing; untested on windows
 
 ---

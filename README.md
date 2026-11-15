@@ -53,7 +53,7 @@ one was checked.
 
 | herdr-jay | Herdr app | Herdr core | core patches | Checked on macOS | Checked on Windows |
 |---|---|---|---|---|---|
-| `main` (now) | v0.1.15 (`9950887`) | v0.1.21 (`1b0393f`) | core: 1 (who sent messages to whom); app: 24 (drag onto a space, a terminal's own icon, refused drop targets, a place in a space and reordering agents, `tab.new` without a shell, linked mods reload, the sent event, background work shown as working, the Agents right-click menu, web pages in mods, `layout.zoom`, a mod pane knows its own pane; [docs/patches.md](docs/patches.md)) | 2026-11-16 | not yet (web pages: written for Windows, not run there yet) |
+| `main` (now) | v0.1.15 (`9950887`) | v0.1.21 (`1b0393f`) | core: 1 (who sent messages to whom); app: 25 (drag onto a space, a terminal's own icon, refused drop targets, a place in a space and reordering agents, `tab.new` without a shell, linked mods reload, the sent event, background work shown as working, the Agents right-click menu, web pages in mods, `layout.zoom`, a mod pane knows its own pane, a mod pane narrower than half; [docs/patches.md](docs/patches.md)) | 2026-11-16 | not yet (web pages: written for Windows, not run there yet) |
 
 The app needs at least the core in its `distribution/core-version` (v0.1.15: core 0.1.11).
 Neovim: **v0.12.6** (the Linux server builds this tag from source; anything ≥ 0.11 works with nvim-jay).

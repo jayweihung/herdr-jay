@@ -1,9 +1,17 @@
-# agent-page: an agent's HTML page beside it / agent 做的說明頁開在旁邊
+# agent-page: where an agent stands, and its pages, beside it / agent 的進度和說明頁開在旁邊
 
-An agent writes an HTML page (an explanation, a diagram, a comparison) and shows it in a Herdr pane right of
-itself, instead of opening a browser. The pane shows the newest page; when the agent writes another one (or rewrites
-it), the pane switches to it. ◀ ▶ step through the agent's earlier pages, ⟳ loads the page again.
-agent 寫一個 HTML 說明頁，開在自己右邊的 Herdr 格子裡，不用另開瀏覽器。寫新的頁面（或改舊的）格子就換過去；◀ ▶ 看之前的頁面。
+A pane right of an agent with tabs:
+
+- **進度** (first): where the agent's work stands, so you don't have to ask: **等你** (what it needs from you, with
+  the command to type), **正在做**, **還沒做**, and **做完的** of the last 3 days by day (older ones stay in the file,
+  counted). The agent keeps it in `status.json` (below); the tab redraws when it changes.
+- Then one tab per HTML page the agent wrote for you (a comparison, a design, a diagram), newest first. A new page
+  opens in its tab by itself; ⟳ loads it again.
+
+Open it with the page button in an agent pane's header (beside split / zoom / close; it stays lit while the pane is
+open, and closes it again), or **說明頁** in the Agents list's right-click menu (both from the kit mod), or by the agent.
+agent 右邊一格：第一個分頁「進度」是等你、正在做、還沒做、最近 3 天做完的；後面每個分頁是 agent 寫給你的一頁。
+用 agent 那格標題列的說明頁按鈕（再按一下關掉）、Agents 清單右鍵的「說明頁」，或 agent 自己開。
 
 - **Only local files** the agent wrote into this mod's folder. No web sites: a link to one opens in the system
   browser. 只開 agent 寫在這個 mod 資料夾裡的檔，不開網站；頁面裡的網址連結用系統瀏覽器開。
@@ -32,15 +40,36 @@ The pages go in the mod's `pages/` folder (git ignores it). 頁面放在 mod 的
 
 ## For the agent / 給 agent 的步驟
 
-1. **Write the page** to `<Herdr home>/mods/agent-page/pages/<your terminal id>/<time>-<topic>.html` (make the
-   folder first, e.g. `mkdir -p`; the mod may not write there itself):
-   - `<Herdr home>`: `~/.config/herdr-app` (`$HERDR_APP_HOME` if set; Windows: `%USERPROFILE%\.config\herdr-app`).
-   - `<your terminal id>`: `$HC_TERMINAL_ID` (e.g. `t63`).
-   - Start the name with the time, `2026-11-16-0430-topic.html`: names sort oldest to newest, and with no page
-     written since it opened the pane shows the last name.
+The folder is `<Herdr home>/mods/agent-page/pages/<your terminal id>/` (make it first, e.g. `mkdir -p`; the mod may
+not write there itself). `<Herdr home>`: `~/.config/herdr-app` (`$HERDR_APP_HOME` if set; Windows:
+`%USERPROFILE%\.config\herdr-app`). `<your terminal id>`: `$HC_TERMINAL_ID` (e.g. `t63`).
+
+**`status.json`: keep it current** at the same moments you'd write a progress line (a step done, a guess confirmed,
+stuck, waiting for the person, all done). Rewrite the whole file; keep done items (the pane shows the last 3 days).
+It's also your handoff: after a restart or a compacted conversation, read it first.
+
+```json
+{
+  "title": "t63 · what this agent works on",
+  "updated": "2026-11-16T05:05:00+08:00",
+  "waiting": [{ "text": "what you need from the person", "cmd": "the command to type, if any" }],
+  "doing":   [{ "text": "…", "project": "herdr-jay" }],
+  "todo":    [{ "text": "…", "project": "herdr-app" }],
+  "done":    [{ "text": "…", "project": "agentkit", "date": "2026-11-16" }],
+  "notes":   ["details for whoever continues (not shown)"]
+}
+```
+
+An item can be a plain string. `project` is a small label; `date` (YYYY-MM-DD) puts a done item under its day.
+進度寫在 `status.json`：做完一段、卡住、等人時更新整個檔；做完的留著（畫面只列最近 3 天）。它也是交接檔。
+
+**A page for the person:**
+
+1. **Write the page** to the folder as `<time>-<topic>.html`:
+   - Start the name with the time, `2026-11-16-0430-topic.html`: tabs are newest first, titled by the topic.
    - One self-contained file: inline CSS and scripts, or files next to it in the same folder. Nothing from the web
      (a CDN script won't load in a file page; links to sites open in the browser).
-2. **Open the pane once** (it stays open, and shows each new page by itself):
+2. **Open the pane** if it isn't (it stays open and shows each new page by itself; the person may have closed it):
 
    ```sh
    me=$(herdr-app ls | python3 -c 'import json,os,sys

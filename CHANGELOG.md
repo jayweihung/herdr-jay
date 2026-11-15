@@ -9,14 +9,16 @@ says which) · **kit** = update kit itself on every machine where agents run (`k
 **snap hook** = a line in Claude Code's `settings.json` on each machine where you added the hook (the entry says
 which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/keys.md).
 
-## 2026-11-16, agent-page: an agent's HTML page beside it
+## 2026-11-16, agent-page: where an agent stands, and its pages, beside it
 
-Needs: **app** (patches `0023`, `0024` for v0.1.15), **mods** (new `agent-page`: macOS `ln -s`, Windows copy;
-[docs/agent-page.md](docs/agent-page.md)).
+Needs: **app** (patches `0023`, `0024` for v0.1.15), **mods** (new `agent-page`, and `kit` for the button: macOS
+`ln -s`, Windows copy; [docs/agent-page.md](docs/agent-page.md)).
 
-- An agent writes an HTML page (an explanation, a diagram) and shows it in a pane right of itself; a new page shows
-  by itself, ◀ ▶ go through earlier ones. Local files only. Opening it again doesn't add a second pane, and the
-  keyboard goes back to the agent. agent 寫的說明頁開在它右邊，寫新的就換過去。
+- A pane right of an agent: the first tab, 進度, is where its work stands (等你 with the command to type, 正在做,
+  還沒做, 做完的 of the last 3 days), from a `status.json` the agent keeps; then one tab per HTML page it wrote for you
+  (a new one opens by itself). Local files only. agent 右邊一格：進度（等你、正在做、還沒做、最近 3 天做完的），後面是它寫給你的頁面。
+- Open it from the page button in an agent pane's header (again: closes it) or 說明頁 in the Agents right-click menu.
+  Opening it again doesn't add a second pane, and the keyboard goes back to the agent.
 - App: a mod pane gets its own `pane` in `props`; a linked mod's `file://` pages load on macOS (they were blank).
 
 ## 2026-11-16, Herdr app: web pages in mods, zoom a panel, the Agents right-click menu

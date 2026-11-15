@@ -70,52 +70,93 @@ async function changed(folder, names) { H.wake(names.map((n) => join(folder, n))
 const tests = [];
 const test = (name, f) => tests.push([name, f]);
 
-test("first copy: claims its dir, gives the keyboard back to the agent, watches the mod's folder, says it's empty", async (V) => {
-  const folder = world();
+const STATUS = (o) => JSON.stringify({ title: "t63 · demo", updated: new Date().toISOString(), ...o });
+const today = (n = 0) => { const d = new Date(); d.setDate(d.getDate() - n); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
+
+test("first copy: claims its dir, gives the keyboard back to the agent, watches the mod's folder; 進度 says nothing yet", async (V) => {
+  world();
   const v = await open(V);
   assert.equal(H.shared["agent-page/t63"], "pM");
   assert.deepEqual(H.runs, [["pane.focus", { pane: "pA" }]]);
   assert.deepEqual(H.watching, [`${H.home}/mods/agent-page`]);
-  assert.match(render(v), /還沒有頁面/);
+  assert.equal(v.tab, "status");
+  assert.match(render(v), /還沒有進度/);
   assert.equal(H.web.length, 0);
 });
 
-test("shows the newest page by name, and file:// of it", async (V) => {
+test("進度: waiting (with its command), doing, to do, done of the last 3 days by day; older counted, not listed", async (V) => {
+  const folder = world();
+  write(folder, "status.json", STATUS({
+    waiting: [{ text: "sign kit", cmd: "! kit approve" }], doing: [{ text: "the panel", project: "herdr-jay" }], todo: ["upgrade"],
+    done: [{ text: "today's", date: today() }, { text: "two days ago", date: today(2) }, { text: "old one", date: today(3) }, { text: "" }],
+  }));
+  const v = await open(V);
+  const s = render(v);
+  for (const x of ["t63 · demo", "等你（1）", "sign kit", "! kit approve", "正在做（1）", "the panel", "herdr-jay", "還沒做（1）", "upgrade", "（今天）", "today's", "two days ago", "更早的還有 1 項"]) assert.ok(s.includes(x), x);
+  assert.ok(!s.includes("old one"));
+  assert.ok(s.indexOf("today's") < s.indexOf("two days ago"), "newest day first");
+});
+
+test("進度: status.json rewritten is read again; broken JSON keeps the last good one and says so", async (V) => {
+  const folder = world();
+  write(folder, "status.json", STATUS({ doing: ["first"] }));
+  const v = await open(V);
+  write(folder, "status.json", STATUS({ doing: ["second"] }));
+  await changed(folder, ["status.json"]);
+  assert.match(render(v), /second/);
+  write(folder, "status.json", "{ half");
+  await changed(folder, ["status.json"]);
+  const s = render(v);
+  assert.match(s, /second/);
+  assert.match(s, /status\.json 讀不了/);
+  assert.equal(v.tab, "status", "a status change doesn't move the tab");
+});
+
+test("tabs: 進度 first, then pages newest first, titled without the time; a page is file:// of it", async (V) => {
   const folder = world();
   write(folder, "2026-11-16-0400-a.html");
-  write(folder, "2026-11-16-0430-b.html");
+  write(folder, "2026-11-16-0430-比較.html");
   write(folder, "notes.txt");
   const v = await open(V);
-  assert.match(render(v), /2026-11-16-0430-b\.html {2}· {2}2\/2/);
-  assert.equal(H.web.length, 1);
+  assert.deepEqual(v.names, ["2026-11-16-0430-比較.html", "2026-11-16-0400-a.html"]);
+  const s = render(v);
+  assert.ok(s.indexOf("進度") < s.indexOf("比較") && s.indexOf("比較") < s.indexOf("\na"), s);
+  assert.equal(v.tab, "status", "opens on 進度");
+  v.tab = v.names[0];
+  render(v);
   assert.equal(H.web[0][0], "page");
-  assert.ok(H.web[0][1].startsWith("file://"), H.web[0][1]);
-  assert.ok(H.web[0][1].endsWith("/mods/agent-page/pages/t63/2026-11-16-0430-b.html"), H.web[0][1]);
+  assert.ok(H.web[0][1].startsWith("file://") && H.web[0][1].endsWith("/mods/agent-page/pages/t63/2026-11-16-0430-%E6%AF%94%E8%BC%83.html"), H.web[0][1]);
 });
 
-test("a page written while open is shown; one rewritten in place reloads", async (V) => {
+test("a page written while open opens in its tab; one rewritten in place reloads; one deleted goes back to 進度", async (V) => {
   const folder = world();
   write(folder, "2026-11-16-0400-a.html");
-  write(folder, "2026-11-16-0430-b.html");
   const v = await open(V);
-  write(folder, "2026-11-16-0400-a.html", "<p>again</p>");
-  await changed(folder, ["2026-11-16-0400-a.html"]);
-  assert.match(render(v), /0400-a\.html {2}· {2}1\/2/);
+  write(folder, "2026-11-16-0500-b.html");
+  await changed(folder, ["2026-11-16-0500-b.html"]);
+  assert.equal(v.tab, "2026-11-16-0500-b.html");
   assert.deepEqual(H.calls, [], "a different page loads by src, no reload");
-  await changed(folder, ["2026-11-16-0400-a.html"]);
+  await changed(folder, ["2026-11-16-0500-b.html"]);
   assert.deepEqual(H.calls, [["page", "reload"]]);
-  assert.equal(H.watching.length, 3, "keeps watching");
+  rmSync(join(folder, "2026-11-16-0500-b.html"));
+  await changed(folder, [""]);
+  assert.equal(v.tab, "status");
+  assert.equal(H.watching.length, 4, "keeps watching");
 });
 
-test("events naming where a linked mod really is still count", async (V) => {
+test("events naming where a linked mod really is still count; other agents' folders don't", async (V) => {
   const folder = world();
   write(folder, "1.html");
-  write(folder, "2.html");
   const v = await open(V);
-  H.wake(["/Users/amy/src/jay/herdr-app/mods/agent-page/pages/t63/1.html", "/elsewhere/agent-page/pages/t9/3.html"]);
+  write(folder, "2.html");
+  H.wake(["/elsewhere/agent-page/pages/t9/3.html", "/Users/amy/src/jay/herdr-app/mods/agent-page/pages/t63/2.html"]);
   await settle();
-  assert.match(render(v), /1\.html {2}· {2}1\/2/);
+  assert.equal(v.tab, "2.html");
+  H.wake(["/elsewhere/agent-page/pages/t9/4.html"]);
+  await settle();
+  assert.equal(v.tab, "2.html");
 });
+
 
 test("web events: a failed load says why, the next load clears it", async (V) => {
   world();
@@ -127,30 +168,6 @@ test("web events: a failed load says why, the next load clears it", async (V) =>
   H.event({ id: "page", kind: "loaded" });
   await settle();
   assert.equal(v.note, null);
-});
-
-test("a change that isn't a page (or the folder itself) keeps the page shown", async (V) => {
-  const folder = world();
-  write(folder, "2026-11-16-0400-a.html");
-  write(folder, "2026-11-16-0430-b.html");
-  const v = await open(V);
-  v.step(-1);
-  write(folder, "pic.png", "x");
-  await changed(folder, ["pic.png"]);
-  assert.match(render(v), /0400-a\.html/);
-  H.wake([folder]);
-  await settle();
-  assert.match(render(v), /0400-a\.html/);
-});
-
-test("◀ ▶ step through the folder and stop at its ends", async (V) => {
-  const folder = world();
-  for (const n of ["1.html", "2.html", "3.html"]) write(folder, n);
-  const v = await open(V);
-  v.step(1);
-  assert.match(render(v), /3\.html {2}· {2}3\/3/);
-  v.step(-1); v.step(-1); v.step(-1);
-  assert.match(render(v), /1\.html {2}· {2}1\/3/);
 });
 
 test("opened again while one is open: the new copy closes itself and gives the keyboard back", async (V) => {
@@ -185,12 +202,10 @@ test("dir is a plain folder name; beside gone or missing: no focus", async (V) =
 
 test("Windows paths become file:///C:/…", async (V) => {
   world();
-  const v = new V();
-  v.init({}, cx);
-  await settle();
+  const v = await open(V);
   v.folder = "C:\\Users\\amy\\.config\\herdr-app\\mods\\agent-page\\pages\\t63";
-  v.name = "a b#1.html";
   v.names = ["a b#1.html"];
+  v.tab = "a b#1.html";
   render(v);
   assert.equal(H.web[0][1], "file:///C:/Users/amy/.config/herdr-app/mods/agent-page/pages/t63/a%20b%231.html");
 });

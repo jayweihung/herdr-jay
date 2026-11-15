@@ -19,7 +19,7 @@ jayweihung 的 Herdr 通用 mod 與設定。
 | **Linux server** as a Herdr machine over ssh / Linux server 當遠端機器 | [docs/linux-remote.md](docs/linux-remote.md) |
 | **nvim-jay** features, keys, macOS vs Windows, security / nvim 功能 | [docs/nvim-jay.md](docs/nvim-jay.md) |
 | **agent-files**: the agent's files in a popup, opened in nvim-jay or your editor / agent 改過的檔 | [docs/agent-files.md](docs/agent-files.md) |
-| **agent-page**: an agent's HTML page in a pane beside it / agent 的說明頁開在旁邊 | [docs/agent-page.md](docs/agent-page.md) |
+| **agent-page**: where an agent stands (進度) and the pages it wrote, beside it / agent 的進度和說明頁 | [docs/agent-page.md](docs/agent-page.md) |
 | **Gerrit panel**: dashboard, change details, notifications / Gerrit 面板 | [docs/gerrit.md](docs/gerrit.md) |
 | **kit in Herdr**: Kit button on every agent pane, repository and Agents panels / kit 面板 | [docs/kit.md](docs/kit.md) |
 | **jay's layout** / jay 的畫面排法 | [docs/layout.md](docs/layout.md) |
@@ -33,7 +33,7 @@ jayweihung 的 Herdr 通用 mod 與設定。
 |---|---|
 | `herdr-app/mods/nvim-jay` | Neovim beside your agent: follow the agent's files, live diff, file tree, comments to the agent, LSP, mouse |
 | `herdr-app/mods/agent-files` | `cmd-o` / `ctrl-shift-j`: the files the agent read or edited in a popup; opens one in nvim-jay or your editor (needs kit 0.4.0; split by turn with 0.4.1; [docs/agent-files.md](docs/agent-files.md)) |
-| `herdr-app/mods/agent-page` | an agent's HTML pages (explanations, diagrams) in a pane right of it; it shows each new page by itself (local files only; [docs/agent-page.md](docs/agent-page.md)) |
+| `herdr-app/mods/agent-page` | a pane right of an agent: 進度 (waiting for you, doing, to do, done in the last 3 days) and the HTML pages it wrote; the page button in its header opens it (local files only; [docs/agent-page.md](docs/agent-page.md)) |
 | `herdr-app/mods/kit` | kit (a separate tool, 0.3.0 or later) in Herdr: a Kit button and the context cell on every agent pane, the repository (rules / skills / MCP) and Agents panels ([docs/kit.md](docs/kit.md)) |
 | `herdr-app/mods/gerrit` | Gerrit beside your agents: 輪到你 / 我送出的 / 等我 review…, a change's votes, comment threads and files, notifications; `review.js`: 在 nvim 看, a change as files in nvim-jay's review mode ([docs/gerrit.md](docs/gerrit.md)) |
 | `herdr-app/mods/gerrit/claude-plugin` | the `gerrit-panel` Claude Code plugin: the skills the Gerrit panel's 問 agent buttons call (`/gerrit-panel:review` …), loaded with `--plugin-dir` ([docs/gerrit.md §8](docs/gerrit.md#8-a-gerrit-agent-step-by-step--gerrit-agent-安裝步驟)). The same four skills are in agentkit-library as `gerrit-review` … for a kit gerrit agent: change both together |

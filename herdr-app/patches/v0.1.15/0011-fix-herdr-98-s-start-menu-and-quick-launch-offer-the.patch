@@ -1,8 +1,8 @@
-From 6ad7232e7067b5097f42ee41204f4eb7a098e4ca Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: jayweihung <3034830+jayweihung@users.noreply.github.com>
 Date: Sun, 15 Nov 2026 02:40:18 +0800
-Subject: [PATCH] fix: herdr 98's start menu and quick launch offer the agents
- herdr knows, codex as codex --no-daemon
+Subject: [PATCH 11/13] fix: herdr 98's start menu and quick launch offer the
+ agents herdr knows, codex as codex --no-daemon
 
 The taskbar had its own agent list, started each one by its bare command (codex
 without --no-daemon, so its commands could run in a shared Codex daemon outside
@@ -133,6 +133,3 @@ index dbf5418..367106c 100644
        this.quick(u, "mines", "mines", "Mines", { app: "mines" }),
      ];
  
--- 
-2.54.0
-

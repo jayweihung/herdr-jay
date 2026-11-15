@@ -1,8 +1,8 @@
-From ef68faf304ab78293ca4e220b9d6c591d8968d70 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: jayweihung <3034830+jayweihung@users.noreply.github.com>
 Date: Sat, 14 Nov 2026 23:11:23 +0800
-Subject: [PATCH] feat: the Agents list shows an agent another mod says waits
- for you as needing you, red when long
+Subject: [PATCH 10/13] feat: the Agents list shows an agent another mod says
+ waits for you as needing you, red when long
 
 A mod that knows an agent waits for a person outside its own dialog (an OK it
 asked for and stopped on), or has waited long, puts it in shared
@@ -47,6 +47,3 @@ index f463519..c321029 100644
      this.listed = new Map(list.map((a) => [a.address, a.status]));
      const all = terminals();
      this.migratePins(all);
--- 
-2.54.0
-

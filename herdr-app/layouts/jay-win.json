@@ -119,6 +119,19 @@
               }
             },
             {
+              "id": "trend-toggle",
+              "type": "block",
+              "content": {
+                "mod": "trend",
+                "props": {
+                  "role": "toggle"
+                }
+              },
+              "size": {
+                "px": 76
+              }
+            },
+            {
               "id": "tabs",
               "type": "block",
               "content": {
@@ -220,6 +233,24 @@
                 "px": 460
               },
               "min": 340
+            },
+            {
+              "id": "trend-panel",
+              "type": "column",
+              "children": [
+                {
+                  "id": "trend",
+                  "type": "block",
+                  "content": {
+                    "mod": "trend"
+                  }
+                }
+              ],
+              "size": {
+                "px": 420
+              },
+              "min": 320,
+              "hidden": true
             },
             {
               "id": "kit-panel",

@@ -14,6 +14,7 @@ import process from "process";
 
 const TOGGLE = "trend-toggle", PANEL = "trend-panel";
 const JOB = "com.herdr-jay.trend";   // the launchd job that runs fetch.js (docs/trend.md)
+const TASK = "herdr-jay-trend";      // the same on Windows: a Task Scheduler task
 const HOUR = 3600000;                // its StartInterval
 const SEEN = "trend.seen.v1";        // the topics shown when the panel was last opened: the button counts the others
 // The Kit panel's (mods/kit): the agents its sources have, and the places it is asked to make. A kit trend agent
@@ -63,7 +64,9 @@ const copyOn = (value) => (_e, cx) => {
 // Only web links, with the system's own opener
 async function openLink(url) {
   if (!/^https?:\/\//i.test(url)) return;
-  await process.run(window()?.platform === "macos" ? "/usr/bin/open" : "xdg-open", [url]).catch(() => {});
+  const p = window()?.platform;
+  if (p === "windows") await process.run("C:\\Windows\\System32\\rundll32.exe", ["url.dll,FileProtocolHandler", url]).catch(() => {});
+  else await process.run(p === "macos" ? "/usr/bin/open" : "xdg-open", [url]).catch(() => {});
 }
 const shortLink = (url) => { try { const u = new URL(url); return `${u.hostname}${u.pathname.length > 1 ? u.pathname.slice(0, 40) : ""}`; } catch { return url.slice(0, 60); } };
 function find(node, id) {
@@ -96,12 +99,13 @@ export default class Trend extends View {
   get running() { return Boolean(this.status?.started && !this.status?.finished && Date.now() - Date.parse(this.status.started) < 1800000); }
   get failed() { return this.status?.ok === false ? this.status.error || "上次沒抓成功" : null; }
 
-  // ↻: run the launchd job now (it writes status.json at once: the ring shows on the next read)
+  // ↻: run the scheduled job now (launchd on macOS, Task Scheduler on Windows); it writes status.json at once
   async kick(cx) {
     this.msg = null;
     try {
-      const uid = (await exec("/usr/bin/id", ["-u"])).stdout.trim();
-      const r = await exec("/bin/launchctl", ["kickstart", `gui/${uid}/${JOB}`]);
+      const r = window()?.platform === "windows"
+        ? await exec("C:\\Windows\\System32\\schtasks.exe", ["/Run", "/TN", TASK])
+        : await exec("/bin/launchctl", ["kickstart", `gui/${(await exec("/usr/bin/id", ["-u"])).stdout.trim()}/${JOB}`]);
       if (r.code !== 0) this.msg = `排程還沒裝（docs/trend.md「安裝」）：${(r.stderr || r.stdout).trim().slice(0, 120)}`;
     } catch (e) { this.msg = `沒跑起來：${e?.message ?? e}`; }
     cx.timer.after(1500, (cx) => this.load(cx));

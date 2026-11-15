@@ -515,6 +515,7 @@ What gets updated, and where / 要更新的東西：
 | kit mod (optional) | PC (it asks kit on the server too) | the Windows block in [kit.md → Install](kit.md#install--安裝) | the CHANGELOG says **mods** or **kit** |
 | kit itself (optional) | PC and every machine where agents run | `kit self-update`, then `kit sync` (kit's own guide) | the CHANGELOG says **kit**, or the kit panel says so |
 | Gerrit panel (optional) | PC | copy `mods\gerrit` (8.4) | the CHANGELOG says **gerrit** |
+| 熱門 panel (optional) | PC | the Windows block in [trend.md → Install](trend.md#install--安裝) | the CHANGELOG says **mods** |
 | Neovim | PC (Windows build) and the server (**built on the server** from source) | new version (8.5) | only when the README says so (needs ≥ 0.11) |
 | pyright (optional) | the server | [linux-remote.md §3b](linux-remote.md#3b-python-go-to-definition-pyright-optional--python-跳定義選用) with the new version | only when the README says so |
 | Claude Code snap hook | wherever nvim-jay runs | nothing: nvim-jay rewrites the hook file. Except when the CHANGELOG says **snap hook**: then change the line in `settings.json` as it says (on the PC and the server) | the CHANGELOG says **snap hook** |

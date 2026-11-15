@@ -11,12 +11,13 @@ which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/key
 
 ## 2026-11-16, trend: what's trending, beside your agents
 
-Needs: **mods** (new `trend`, macOS `ln -s`), a launchd job, last30days and a trend agent in a kit source, and the
-layout blocks ([docs/trend.md](docs/trend.md) → Install).
+Needs: **mods** (new `trend`: macOS `ln -s`, Windows copy), **layout** (jay's layouts have the 熱門 button and
+panel), an hourly job (launchd / Task Scheduler), last30days and a trend agent in a kit source
+([docs/trend.md](docs/trend.md) → Install).
 
 - A tab-bar button 熱門 (topics you haven't seen; a ring while fetching) and its panel: what's trending on Reddit /
-  HN / Digg, each topic's numbers, why it's up, top comment and sources. launchd fetches it every hour with
-  last30days `--discover`, no model: no tokens. 熱門按鈕和面板：每小時抓一次，不花 token。
+  HN / Digg, each topic's numbers, why it's up, top comment and sources. Every hour launchd (macOS) or Task Scheduler
+  (Windows) runs `fetch.js`: last30days `--discover`, no model, no tokens. 熱門按鈕和面板：每小時抓一次，不花 token。
 - 🔎 深入查, 三句話說明 and a question box send to a kit trend agent in this space (`hc send`); none here: the Kit panel
   places one and it starts on the question, as Gerrit's 問 agent. 問問題才花 token，送給這個 space 的 trend agent。
 

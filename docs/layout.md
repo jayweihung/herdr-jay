@@ -4,12 +4,13 @@
 layout (copied from it) plus
 
 - buttons in the tab bar that open and close side panels: **Agents** and **Kit** (`herdr-app/mods/kit`,
-  [kit.md](kit.md)), **Gerrit** (`herdr-app/mods/gerrit`, [gerrit.md](gerrit.md));
+  [kit.md](kit.md)), **Gerrit** (`herdr-app/mods/gerrit`, [gerrit.md](gerrit.md)), **熱門** (`herdr-app/mods/trend`,
+  [trend.md](trend.md));
 - kit's bar on top of every terminal (the `kit` mod's `header` role: rules / skills / MCP, and the context cell)
   instead of Herdr's;
 - theme paper (light) / ink (dark); the sidebar opens on "changes".
 
-jay 用的 layout：從 Herdr 的 main 複製，加上 Agents、Kit、Gerrit 按鈕和面板、每個終端機上方的 Kit 列。
+jay 用的 layout：從 Herdr 的 main 複製，加上 Agents、Kit、Gerrit、熱門按鈕和面板、每個終端機上方的 Kit 列。
 
 **Two files** because Herdr draws the window buttons (─ □ ✕) at the right end of the tab bar on Windows: `jay-win.json`
 puts the three buttons **left** of the tabs so ✕ stays in the corner; `jay.json` puts them on the right (macOS keeps
@@ -17,7 +18,7 @@ its window buttons on the left). Otherwise the two are the same.
 Windows 的關閉鈕在分頁列最右邊，所以 Windows 版把三顆按鈕放在分頁左邊。
 
 **What it needs**: the `kit` mod and **kit** itself (a separate tool, 0.3.0 or later: see [kit.md](kit.md#needs--需要什麼);
-at the company from the company's own Git server, never from GitHub), and the `gerrit` mod. Without a mod, its
+at the company from the company's own Git server, never from GitHub), and the `gerrit` and `trend` mods. Without a mod, its
 place in the layout stays empty or shows an error (without `kit`, every terminal's top bar does); everything else
 works. Without kit, keep Herdr's `main`.
 需要 `kit` mod 和 kit 本身（kit 0.3.0 以上；公司從自己的 Git 伺服器拿，怎麼裝看 kit 的說明），以及 `gerrit` mod。沒有 kit 就繼續用 Herdr 的 main。

@@ -191,9 +191,7 @@ Kit 按鈕右邊的 `[context 35% 139k/400k]` 是這個 agent 的 context 用了
 
 **用量上限**（Claude 要 kit 0.6.5 以上，Codex 要 0.6.6 以上）：Claude 或 Codex 撞到方案的用量上限停下來（5 小時、每週，Codex 免費方案是每月），context 那格變成紅色的 `[上限 00:10 恢復]`，滑鼠停上去寫是哪一種上限。額度恢復後一分鐘，Herdr 替它打「繼續」（只打一次，只在它停著時打：閒置或做完，在工作或在問你時不打），格子先變黃 `[上限 已恢復，馬上繼續]`，打完就回到 context %，右上角跳一個通知。按那一格打開的 context 視窗最上面有「方案用量」：這個帳號 5 小時、每週用了幾 %、幾點重置（`kit usage`；Claude 的要 kit 的狀態列，Codex 的從它的對話檔讀；omp 的是 kit 0.6.7 起，照它用的模型那一家（例如 anthropic）問 `omp usage`，kit 在背景每 5 分鐘問一次；所有 agent 一起算），和「額度恢復後自動打繼續」的開關（這台電腦，預設開）。omp 撞到上限還認不出來（omp 沒留下撞到上限的紀錄可以讀）。Codex 是從它的對話檔裡最後一次的用量看出來的（`rate_limit_reached`）；工作區的額度（credits）用完沒有恢復時間，不算。
 
-**進度**（kit 0.6.0 以上）：agent 用 `kit note "剛做了什麼；下一步"` 寫了進度的話，資料夾後面會多一格 `[進度 改好 parser；下一步跑測試]`，顯示第一行；滑鼠停上去看全部和多久以前寫的，右鍵複製，超過兩小時變灰。跟 context 一起問（工作時每 15 秒，閒置時每分鐘），所以寫完最多等這麼久才出現。沒寫過就不顯示這格。Claude、omp 用 kit 0.6.0 就可以；Codex 在沙箱裡要 kit 0.6.1（kit 會在 Codex 的 config.toml 開放 `~/.config/agentkit/notes` 給它寫，開著的 Codex 要重開）。要 agent 自己寫，給它 rule `progress-note`（agentkit-library 有，`kit add rule progress-note`）。
-
-標題列窄的時候進度優先：資料夾先收起來（滑到進度上看得到資料夾），還不夠就 context 只留百分比、Kit 只留「Kit」兩字（數字都在滑鼠停上去的提示裡，按下去一樣打開），最後才把名字縮短。寬的時候全部照常顯示；沒寫進度時跟以前一樣。
+**進度**（kit 0.6.0 以上）：agent 用 `kit note "剛做了什麼；下一步"` 寫的進度在「關係」圖看：每個 agent 的方塊顯示第一行，滑鼠停上去看全部，超過兩小時變灰。窗格上方不顯示（2026-11-15 拿掉了，跟關係圖重複，又擠得只看得到半句）。窗格上方跟 context 一起問它（工作時每 15 秒，閒置時每分鐘），所以寫完最多等這麼久才出現。Claude、omp 用 kit 0.6.0 就可以；Codex 在沙箱裡要 kit 0.6.1（kit 會在 Codex 的 config.toml 開放 `~/.config/agentkit/notes` 給它寫，開著的 Codex 要重開）。要 agent 自己寫，給它 rule `progress-note`（agentkit-library 有，`kit add rule progress-note`）。
 
 標題列的東西都固定寬度：context 那格、狀態那格（在等你回答是紅色「!」（滑鼠停上去寫 Needs you）、做完是圓點、工作中什麼都不顯示，只佔一個圖示寬）寬度不變，分割／放大／關閉三顆按鈕一直佔著位置，滑鼠移上去才看得到、按得到，所以滑鼠移進移出、數字變動時，標題列不會跳。
 
@@ -663,7 +661,7 @@ Agents 面板上方有兩個分頁：「定義」是上面那些做好的 agent�
 | 安裝／更新（skill 自己的套件） | `kit install-deps <skill> [npm\|pip]` |
 | 窗格上方的 context 35%（每 15 秒，閒置時每分鐘） | `kit context --pid <pid> --tool <claude\|codex\|omp> --dir <資料夾>` |
 | 按 context 那格（細項） ／ 它的 ⟳ | `kit context --pid <pid> --tool <工具> --dir <資料夾> --detail` ／ 再加 `--fresh` |
-| 窗格上方的進度（跟 context 一起問） | `kit note --pid <pid> --json` |
+| 關係圖的進度（窗格上方跟 context 一起問） | `kit note --pid <pid> --json` |
 | 細項的「壓縮」／「清空重來」 | 在那個 agent 打 `/compact [要保留什麼]` ／ `/clear`（Codex、omp：`/new`），用 `hc send` |
 | 細項的「拿掉」 | `kit rm <種類> <名字>` ／ `kit rm --dir <資料夾> <種類> <名字>` |
 | 同步 | `kit sync` |

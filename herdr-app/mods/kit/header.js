@@ -12,8 +12,8 @@
 // How full the context is comes from
 //   kit context --pid <the agent's process> --tool <claude|codex|omp> --dir <its folder>
 // kept in CTX, asked again every 15 s while it works. A failed ask keeps the numbers it had. With kit api 1.4 the same
-// ask also gets what the agent wrote about where it is (kit note --pid <pid> --json, in NOTE), shown after the folder;
-// a narrow header gives it room first (headerFit in context.js: the folder, then the chips' numbers give way).
+// ask also gets what the agent wrote about where it is (kit note --pid <pid> --json, in NOTE), for 關係 (graph.js) to
+// show; the header itself doesn't (one place for it).
 //
 // context (props { role, target }): the popup the context chip opens, where the tokens go, like Claude Code's own
 // /context:  kit context ... --detail [--fresh]  on the agent's machine (kit keeps it a minute; ⟳ asks again). Its
@@ -24,11 +24,11 @@
 // What it computes (the bar, the numbers, the tips) is in context.js.
 import { div, svg } from "gpui-kit";
 import { h_flex, v_flex, InputState, Input } from "gpui-base";
-import { panes, spaces, agents, props, run, theme, hc, shared, setShared, openOverlay, closeOverlay, notify, settings } from "herdr";
+import { panes, spaces, agents, props, run, theme, hc, shared, setShared, openOverlay, closeOverlay, notify } from "herdr";
 import { collectedFrom, AGENT_CACHE, AGENT_DATA, AGENT_WANT, CTX, NOTE, LIMIT_SENT, EDITORS, localGet, localSet, fs, stop, slash, shortDir, clean, spin, waiting, icon, textBlock,
   copyOnRight, btn, busyNow, takeBusy, giveBusy, markChanged, kit, kitJson, apiState, apiKnown, apiAtLeast, checkApi, apiCard, num, kfmt } from "./common.js";
 import { toolOf, ctxArgs, askZero, zeroNumbers, sendText, sendArgs, removal, ctxTips, summaryText, chipNumbers, level, howCounted, ago, catColorKey, barSegments,
-  catShare, compactLine, noteArgs, noteView, headerFit, kitChipW, CTX_FULL, CTX_SHORT, limitOf, continueDue, CONTINUE_TEXT, usageLines, ompUsage, whenText } from "./context.js";
+  catShare, compactLine, noteArgs, CTX_FULL, NAME_MAX, limitOf, continueDue, CONTINUE_TEXT, usageLines, ompUsage, whenText } from "./context.js";
 
 const CTX_STALE = 15000, CTX_IDLE = 60000;   // how often to ask how full the context is: working / not
 const STALE = 60000, LOAD_TTL = 90000;   // look again after a minute; a load longer than this is taken as lost
@@ -219,50 +219,39 @@ export class Header {
 
   // [context 35% 139k/400k]: like the Kit chip, one width whatever it says (the header never moves); yellow from
   // 70 %, red from 90 %; a click opens where the tokens go, a right-click copies the numbers
-  // short (a narrow header with a note): [context 35%], the numbers in the tooltip
-  contextChip(t, p, short) {
+  contextChip(t, p) {
     const c = (shared(CTX) ?? {})[placeOf(p).key], lim = limitOf(c);
-    if (lim) return this.limitChip(t, p, short, lim);
+    if (lim) return this.limitChip(t, p, lim);
     const { has, pct, nums, copy, loading } = chipNumbers(c);
     const color = pct == null ? t.dim : levelColor(t, pct);
-    const chip = h_flex().id(`kit-ctx-${p.pane}`).flex_none().w(short ? CTX_SHORT : CTX_FULL).h(22).pl(2).pr(6).gap(5).items_center().rounded(6)
+    const chip = h_flex().id(`kit-ctx-${p.pane}`).flex_none().w(CTX_FULL).h(22).pl(2).pr(6).gap(5).items_center().rounded(6)
       .bg(t.surface).border_1().border_color(pct != null && pct >= 90 ? t.blocked : t.border).text_size(11).cursor_pointer()
       .hover((st) => st.bg(t.hover).border_color(t.accent))
       .on_mouse_down("left", stop)
-      .on_click((_e, cx) => { cx.stop_propagation(); this.openContext(p); }).tooltip(short && has ? `context 用了 ${nums}，按一下看細項` : "context 用了多少，按一下看細項")
+      .on_click((_e, cx) => { cx.stop_propagation(); this.openContext(p); }).tooltip("context 用了多少，按一下看細項")
       .child(div().h(16).px(5).flex().flex_none().items_center().rounded(4).bg(t.raised).font_semibold().text_color(t.foreground).child("context"))
       .when(pct != null, (el) => el.child(div().flex_none().font_semibold().text_color(color).child(`${pct}%`)))
-      // no number yet: "-" (short) or "讀取中", breathing like a card at work
+      // no number yet: "讀取中", breathing like a card at work
       .when(pct == null, (el) => el.child(div().id(`kit-ctx-wait-${p.pane}`).flex_none().min_w(0).truncate().text_color(t.dim)
-        .child(short ? "-" : nums).when(loading, (d) => d.loop("opacity", { from: 0.3, to: 1, period: 1400 }))))
-      .when(!short && pct != null, (el) => el.child(div().min_w(0).truncate().text_color(t.dim).child(nums)));
+        .child(nums).when(loading, (d) => d.loop("opacity", { from: 0.3, to: 1, period: 1400 }))))
+      .when(pct != null, (el) => el.child(div().min_w(0).truncate().text_color(t.dim).child(nums)));
     return has ? copyOnRight(chip, copy) : chip;
   }
 
   // [上限 00:10 恢復]: in the context chip's place while the agent is stopped at its plan's usage limit (red); once it
   // has reset and 繼續 is about to be typed: [上限 已恢復]. A click opens the context window (the usage is there)
-  limitChip(t, p, short, lim) {
+  limitChip(t, p, lim) {
     const when = whenText(lim.until), auto = autoContinue();
     const text = lim.back ? (auto ? "已恢復，馬上繼續" : "已恢復") : `${when} 恢復`;
     const tip = lim.back ? `${lim.name}上限已經恢復${auto ? `，會替它打「${CONTINUE_TEXT}」` : `；自動繼續關著，要自己叫它繼續`}`
       : `撞到${lim.name}上限，${when} 恢復${auto ? `；到時替它打「${CONTINUE_TEXT}」` : ""}。按一下看用量`;
-    return h_flex().id(`kit-ctx-${p.pane}`).flex_none().w(short ? CTX_SHORT : CTX_FULL).h(22).pl(2).pr(6).gap(5).items_center().rounded(6)
+    return h_flex().id(`kit-ctx-${p.pane}`).flex_none().w(CTX_FULL).h(22).pl(2).pr(6).gap(5).items_center().rounded(6)
       .bg(t.surface).border_1().border_color(lim.back ? t.working : t.blocked).text_size(11).cursor_pointer()
       .hover((st) => st.bg(t.hover).border_color(t.accent))
       .on_mouse_down("left", stop)
       .on_click((_e, cx) => { cx.stop_propagation(); this.openContext(p); }).tooltip(tip)
       .child(div().h(16).px(5).flex().flex_none().items_center().rounded(4).bg(lim.back ? t.working : t.blocked).font_semibold().text_color(t.background).child("上限"))
-      .when(!short, (el) => el.child(div().min_w(0).truncate().text_color(lim.back ? t.working : t.blocked).child(text)));
-  }
-
-  // [進度 改好 parser；下一步跑測試]: the first line of what the agent wrote (kit note), all of it in the tooltip, dim
-  // after two hours; a right-click copies it
-  noteChip(t, p, nv, dirHidden) {
-    const tip = dirHidden && p.cwd ? `${nv.tip}\n資料夾：${shortDir(p.cwd)}` : nv.tip;
-    const el = h_flex().id(`kit-note-${p.pane}`).flex_1().min_w(0).gap(5).items_center().text_size(11).tooltip(tip)
-      .child(div().h(16).px(5).flex().flex_none().items_center().rounded(4).bg(t.raised).font_semibold().text_color(t.foreground).child("進度"))
-      .child(div().min_w(0).truncate().text_color(nv.old ? t.dim : t.foreground).child(nv.line));
-    return copyOnRight(el, nv.copy);
+      .child(div().min_w(0).truncate().text_color(lim.back ? t.working : t.blocked).child(text));
   }
 
   openContext(p) {
@@ -280,7 +269,6 @@ export class Header {
       .on_click((_e, cx) => { cx.stop_propagation(); run(command, args); });
   }
 
-  // short (a narrow header with a note): just [Kit] (and its news), the counts in the tooltip; a problem always in words
   // what the Kit chip says: kit there can't be used (none, too old, newer than this mod): which, in red (the popup says
   // what to do); else this agent's counts
   kitSummary(p) {
@@ -289,9 +277,9 @@ export class Header {
       : c?.text ? c : summary(null);
   }
 
-  kitButton(t, p, short) {
+  kitButton(t, p) {
     const w = placeOf(p), s = this.kitSummary(p);
-    const color = s.level === "bad" ? t.blocked : t.dim, brief = short && Boolean(s.counts);
+    const color = s.level === "bad" ? t.blocked : t.dim;
     // [kit | 規則 1  skill 3  MCP 1]: the word kit says what it is, the numbers stand out from their labels
     const body = s.counts
       ? s.counts.map(([label, n]) => h_flex().gap(3).items_center()
@@ -308,10 +296,9 @@ export class Header {
           title: ((p.program?.agent || p.program?.shell) && p.program.name) || p.title || "", program: p.program ?? null };
         openOverlay({ mod: "kit", props: { role: "agent", target }, kind: "popup", width: POPUP_W, height: POPUP_H });
       })
-      .when(brief, (el) => el.tooltip(`${s.agent ? `${s.agent} · ` : ""}${s.text}，按一下看細項`))
       .child(div().h(16).px(5).flex().items_center().rounded(4).bg(t.raised).font_semibold().text_color(t.foreground).child("Kit"))
-      .when(Boolean(s.agent) && !brief, (el) => el.child(div().text_color(t.accent).child(s.agent)))
-      .children(brief ? [] : body)
+      .when(Boolean(s.agent), (el) => el.child(div().text_color(t.accent).child(s.agent)))
+      .children(body)
       .when(Boolean(s.news), (el) => el.child(div().px(4).rounded(4).bg(t.done).text_color(t.background).child(`${s.news} 新`)));
   }
 
@@ -321,10 +308,7 @@ export class Header {
     if (!p) return div();
     const name = ((p.program?.agent || p.program?.shell) && p.program.name) || p.title || p.program?.name || "shell";
     const pic = icon(p.program, 14, t.dim), st = p.status, pane = p.pane, agent = Boolean(p.terminal && p.program?.agent), live = this.hovered;
-    const nv = agent ? noteView((shared(NOTE) ?? {})[placeOf(p).key]) : null;   // what the agent wrote about where it is
     const ctxOn = agent && apiState(placeOf(p).machine)?.ok !== false;
-    // the note comes first: in a narrow header the folder, then the numbers, give way (headerFit)
-    const fit = headerFit(this.width ?? 0, { name, dir: shortDir(p.cwd), note: nv?.line ?? "", kitW: agent ? kitChipW(this.kitSummary(p)) : 0, ctx: ctxOn });
     // the status in a small box of one width (a red "!" for Needs you, a dot when done, else nothing): the header never moves
     const status = div().flex_none().w(16).h(22).flex().items_center().justify_center()
       .when(st === "blocked", (el) => el.child(div().flex_none().size(14).flex().items_center().justify_center().rounded(7).bg(t.blocked)
@@ -338,17 +322,12 @@ export class Header {
       .child(this.button(t, `kit-head-x-${pane}`, "close", "pane.close", { pane }, live));
     return h_flex().id(`kit-head-${pane}`).size_full().px(10).gap(8).items_center()
       .bg(t.background).border_b(1).border_color(t.border).text_size(12)
-      .on_size_change((size, cx) => {
-        const w = Math.round(size.width / (Number(settings()?.zoom) || 1));
-        if (w !== this.width) { this.width = w; cx.notify(); }
-      })
       .on_hover((hovered, cx) => { this.hovered = hovered; cx.notify(); })
       .on_click(() => run("pane.focus", { pane }))
       .when(Boolean(pic), (el) => el.child(pic))
-      .child(div().flex_none().truncate().max_w(fit.nameMax).font_medium().text_color(t.foreground).child(name))
-      .when(!nv || fit.dir, (el) => el.child(div().when(Boolean(nv), (el) => el.flex_none().max_w(200)).when(!nv, (el) => el.flex_1()).min_w(0).truncate().text_color(t.dim).child(shortDir(p.cwd))))
-      .when(Boolean(nv), (el) => el.child(this.noteChip(t, p, nv, !fit.dir)))
-      .when(agent, (el) => el.child(this.kitButton(t, p, fit.kit === "short")).when(ctxOn, (el) => el.child(this.contextChip(t, p, fit.ctx === "short"))))
+      .child(div().flex_none().truncate().max_w(NAME_MAX).font_medium().text_color(t.foreground).child(name))
+      .child(div().flex_1().min_w(0).truncate().text_color(t.dim).child(shortDir(p.cwd)))
+      .when(agent, (el) => el.child(this.kitButton(t, p)).when(ctxOn, (el) => el.child(this.contextChip(t, p))))
       .child(status)
       .child(buttons);
   }

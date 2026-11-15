@@ -9,6 +9,15 @@ says which) · **kit** = update kit itself on every machine where agents run (`k
 **snap hook** = a line in Claude Code's `settings.json` on each machine where you added the hook (the entry says
 which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/keys.md).
 
+## 2026-11-15, pane header: no 進度 chip (關係 shows it)
+
+Needs: **mods**.
+
+A pane's header no longer shows what the agent wrote with `kit note`: 關係 already shows it on each agent's box (hover
+for all of it), and the header only had room for half a sentence. The header is back to the name, the folder, Kit and
+context, all in full; the note is still asked with the context, for 關係.
+窗格上方不再顯示「進度」：關係圖每個 agent 的方塊上已經有（滑鼠停上去看全部），標題列又只擠得下半句。標題列回到名字、資料夾、Kit、context。
+
 ## 2026-11-15, 關係: a line's words stay readable when zoomed in
 
 Needs: **mods**.

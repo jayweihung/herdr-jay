@@ -26,6 +26,10 @@ Needs: **mods**; **kit** 0.6.8 for one download per repo, adding all at once, th
   連不到, 關係 has a line, ⟳ asks now, 收新版（N） collects them again by name (your own source: sent right after).
 - 收進來: a page's address pasted from the browser (…/tree/<branch>/<folder>) is collected from that branch (kit
   0.6.8 splits it; the panel passes look's ref on).
+- 等你放行: a commit the hook (agentkit-check, jay's own) blocks for what a file is (its mode, its type, a binary)
+  is a card in the Kit panel, and a 等你同意 line in 關係 (a click opens the panel). 放行並送出 lets that very content
+  through (allow.txt; changed later, asked again) and sends; 不要 leaves it unsent. Agents can't write that folder
+  (Claude: a deny rule; Codex: its sandbox).
 - 怎麼省: no Skills line any more (it called skills unused without knowing); the tool-results
   line says to compact at a break (mid-task loses details) instead of asking the agent to read less.
 收自己倉的 skill：收好直接送出、可勾「加到整個帳號」、要簽章時給一鍵複製指令。關係圖：root 服務點得到、等你簽打開各機器、放大後不擠、「到了跟我說」不算在問你；agent 視窗按「加到…」後顯示加入中、✓ 已加到，不會像還能再按。收來的 skill 一天查一次原作者：標「有新版」「連不到」、一鍵收新版。「怎麼省」拿掉 Skills 那條、工具結果那條改成告一段落再壓縮。

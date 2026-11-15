@@ -29,6 +29,8 @@ export const PUSH_CHECK = "kit.pushCheck.v1"; // source -> { sig, ok, text, bad,
                                                    // change (a collect, a new file): whether 送出 would go (repo.js)
 export const OUTDATED = "kit.outdated.v1";   // { at, err?, skills: { "source|name": { state, now, url, path, ref } } } kit outdated
                                                    // --json (kit api 1.8): what was collected, still the author's newest? (repo.js)
+export const ALLOW_ASK = "kit.allowAsk.v1"; // the text of ~/.config/agentkit-dev/ask.txt: files a commit hook blocked for what they are,
+                                                   // waiting for the owner's 放行 (repo.js)
 export const API = "kit.api.v1";               // machine ("" = this computer) -> what kit api said (see checkApi)
 
 // ---------- the layout's nodes (the panels are found and shown / hidden by these ids) ----------
@@ -411,6 +413,30 @@ export function outdatedLine(o) {
   const parts = [nw.length ? `原作者有新版：${few(nw)}` : "", gone.length ? `連不到原作者：${few(gone)}` : ""].filter(Boolean);
   return parts.length ? { kind: "kit", what: `Kit：收來的 skill ${parts.join("；")}。到 Kit 面板 Skills 看`, where: "這台", since: o.at ?? null, panel: "skill" } : null;
 }
+
+// 等你放行: the commit hook (agentkit-check) blocks a file for what it is (its mode, its type, a binary) unless the owner
+// let that very content through: allow.txt ("<blob> <path>"). What it blocked waits in ask.txt ("<repo> TAB <blob> TAB
+// <path> TAB <why>"), and as kit pending allow-<repo name>. Only the owner's click here writes allow.txt (agents are kept
+// off that folder). -> [{ repo, name, files: [{ path, blob, why: [..] }] }]
+export const devFile = (n) => `${slash(home())}/.config/agentkit-dev/${n}`;
+export function asksFrom(text) {
+  const by = new Map();
+  for (const line of String(text ?? "").split(/\r?\n/)) {
+    const [repo, blob, path, why] = line.split("\t");
+    if (!repo || !/^[0-9a-f]{40}$/.test(blob ?? "") || !path) continue;
+    const g = by.get(repo) ?? { repo, name: repo.replace(/\/+$/, "").split("/").pop(), files: [] };
+    const f = g.files.find((x) => x.path === path && x.blob === blob);
+    if (f) { if (why && !f.why.includes(why)) f.why.push(why); } else g.files.push({ path, blob, why: why ? [why] : [] });
+    by.set(repo, g);
+  }
+  return [...by.values()];
+}
+// allow.txt with these files added; ask.txt without that repo
+export const allowAdd = (text, files) => {
+  const have = String(text ?? "").split(/\r?\n/).filter(Boolean), add = files.map((f) => `${f.blob} ${f.path}`).filter((l) => !have.includes(l));
+  return [...have, ...add].join("\n") + "\n";
+};
+export const askDrop = (text, repo) => String(text ?? "").split(/\r?\n/).filter((l) => l && l.split("\t")[0] !== repo).map((l) => l + "\n").join("");
 
 // third_party.lock (kit collect: "name TAB url TAB path TAB ref TAB commit TAB license TAB date", # comments) ->
 // { name: "author/repo" } (the URL without scheme, user, host, .git: who it was collected from)

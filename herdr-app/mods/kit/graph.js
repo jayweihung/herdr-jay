@@ -541,8 +541,10 @@ export function alertsView(t, z, g, now = Date.now(), onSelect = null, { onNudge
     // the agent that waits (found by its pid): a click goes to its card, red past LONG_WAIT like waiting for you
     const hot = p.kind === "owner" && p.since && now - p.since >= LONG_WAIT;
     // a signature: the Kit panel's 各機器 tab (what each machine is at, and the command to sign)
-    items.push({ id: `pending-${i}`, text, color: p.signed != null ? t.dim : hot ? t.ansi1 : t.blocked, hot: Boolean(hot), who: p.who ?? null,
-      panel: p.panel ?? (p.kind === "sign" ? "machines" : null) });
+    // 放行 (the commit hook's allow-<repo>): the Kit panel, where it is decided, not the agent that pushed
+    const allow = /^allow-/.test(p.id ?? "");
+    items.push({ id: `pending-${i}`, text, color: p.signed != null ? t.dim : hot ? t.ansi1 : t.blocked, hot: Boolean(hot), who: allow ? null : p.who ?? null,
+      panel: p.panel ?? (p.kind === "sign" ? "machines" : allow ? "repo" : null) });
   }
   for (const n of (g.nodes ?? []).filter((x) => x.limit && x.status !== "working" && !x.down)) {
     const l = n.limit, at = whenText(l.until, now);

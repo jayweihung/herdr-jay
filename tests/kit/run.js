@@ -1872,6 +1872,37 @@ test("收來的: kit outdated --json once a day (kit api 1.8): 有新版 / 連�
   assert.equal(kitCalls("outdated").length, 0); assert.doesNotMatch(render(v2), /outdated-check|查原作者/);
 });
 
+test("等你放行: what the commit hook blocked (ask.txt) is a card; 放行並送出 adds that very content to allow.txt, clears the ask and kit pending, sends; 不要 only clears", async (M) => {
+  const C = M.common, b1 = "a".repeat(40), b2 = "b".repeat(40);
+  const ask = `/s/mine\t${b1}\tskills/x/run\tfile mode 100755 not allowed\n/s/mine\t${b1}\tskills/x/run\tfile type not allowed\n/s/mine\t${b2}\tskills/x/logo.png\tbinary file\n/s/other\t${b1}\ty\tz\nbad line\n`;
+  assert.deepEqual(C.asksFrom(ask).map((g) => [g.name, g.files.map((f) => [f.path, f.why.length])]), [["mine", [["skills/x/run", 2], ["skills/x/logo.png", 1]]], ["other", [["y", 1]]]]);
+  assert.equal(C.allowAdd(`${b1} skills/x/run\n`, C.asksFrom(ask)[0].files), `${b1} skills/x/run\n${b2} skills/x/logo.png\n`, "each line once");
+  assert.equal(C.askDrop(ask, "/s/mine"), `/s/other\t${b1}\ty\tz\nbad line\n`);
+  const run = async (click) => {
+    fresh();
+    fakeKit({ api: "1.8", list: { ...TEAM_LIST, sources: [{ name: "mine", source: "/s/mine", dir: "/s/mine", push: "direct", changed: ["skills/x/run"] }], items: [] },
+      push: () => ({ code: 0, stdout: `${JSON.stringify({ source: "mine", push: "direct", files: ["skills/x/run"], sent: true })}\n`, stderr: "" }) });
+    H.files = { "/Users/amy/.config/agentkit-dev/ask.txt": ask };
+    const v = view(M, { role: "repo" }); await settle(); await tick(); await settle();
+    const shown = render(v);
+    assert.match(shown, /等你放行：mine 送出被擋，2 個檔案/); assert.match(shown, /skills\/x\/run[\s\S]*file mode 100755 not allowed；file type not allowed/);
+    assert.match(shown, /agent 不能自己放行/);
+    H.clicks[`allow-${click}-mine`]({}, cx); await settle(); await settle();
+    return v;
+  };
+  const args = (sub) => kitCalls(sub).map((c) => c.argv.slice(c.argv[0] === "sh" ? 4 : 1));
+  let v = await run("yes");
+  assert.equal(H.files["/Users/amy/.config/agentkit-dev/allow.txt"], `${b1} skills/x/run\n${b2} skills/x/logo.png\n`);
+  assert.equal(H.files["/Users/amy/.config/agentkit-dev/ask.txt"], `/s/other\t${b1}\ty\tz\nbad line\n`, "the other repo still asks");
+  assert.deepEqual(args("pending"), [["pending", "done", "allow-mine"]]);
+  assert.deepEqual(args("push"), [["push", "--to", "mine", "--json"]]);
+  let shown = render(v); assert.match(shown, /已放行並送出：mine 推上去了/); assert.doesNotMatch(shown, /等你放行：mine/); assert.match(shown, /等你放行：other/);
+  v = await run("no");
+  assert.equal(H.files["/Users/amy/.config/agentkit-dev/allow.txt"], undefined, "nothing allowed");
+  assert.deepEqual([args("pending"), args("push")], [[["pending", "done", "allow-mine"]], []]);
+  assert.match(render(v), /沒放行：mine 的改動還在這台，沒有送出/);
+});
+
 // ---------- an agent in a space (place.js, agents.js): kit place, then a tab there ----------
 const AGENTS = { kit: "0.5.0", tools: ["claude", "codex"], available: {}, agents: [{ name: "reviewer", description: "看 PR", rules: [], skills: [], mcp: [], source: "team", path: "/s/agents/reviewer.md" }] };
 const PLACED = (dir, command = ["claude"], warnings = []) => ({ code: 0, stdout: `${JSON.stringify({ dir, agent: "reviewer", tool: command[0], command, warnings })}\n`, stderr: "" });
@@ -2592,7 +2623,7 @@ machinesTest("各機器: self-reported accounts (kit-machines.json): read, never
     "box:/var/report.json": JSON.stringify(root), "box:/big.json": " ".repeat(70000) };
   const { open } = await machinesPanel(M);
   const text = await open();
-  assert.deepEqual(H.reads.filter(([p]) => p !== SETTINGS && !p.endsWith("mcp-paste.txt")).map(([p, on]) => `${on}:${p}`).sort(), ["box:/big.json", "box:/none.json", "box:/var/report.json"]);
+  assert.deepEqual(H.reads.filter(([p]) => p !== SETTINGS && !p.endsWith("mcp-paste.txt") && !p.endsWith("agentkit-dev/ask.txt")).map(([p, on]) => `${on}:${p}`).sort(), ["box:/big.json", "box:/none.json", "box:/var/report.json"]);
   assert.ok(!H.calls.some((c) => c.on === "stranger"), "a machine this Herdr doesn't know: nothing asked");
   assert.ok(!H.calls.some((c) => c.argv.join(" ").includes("pwned") || c.argv.includes("sudo")), "nothing from a report is run");
   const r = rowOf("r:0");

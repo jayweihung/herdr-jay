@@ -14,7 +14,7 @@ import { theme, exec, run, layout, shared, setShared, window, readTextFile, writ
 import { DATA, LOAD, EDITORS, NODES, MSG, KIT_TAB, fs, mono, stop, slash, shortDir, clean, spin, waiting, find, textBlock, copyOnRight, btn,
   busyNow, dropStaleBusy, takeBusy, giveBusy, markChanged, kit, kitJson, apiState, apiKnown, apiAtLeast, checkApi, apiCard, messageBox, problemCard, versionCard,
   squeeze, newEditor, liveEditors, BUILD, PUSH_CHECK, checkProblems, checkLine, localGet, localSet, kitAction, loadNewest, loadingNow, isWindows, lockFrom, urlId, groupRows, collectedFrom,
-  OUTDATED, OUTDATED_TTL, outdatedFrom, outdatedOf, outdatedDone } from "./common.js";
+  OUTDATED, OUTDATED_TTL, outdatedFrom, outdatedOf, outdatedDone, ALLOW_ASK, devFile, asksFrom, allowAdd, askDrop } from "./common.js";
 export { lockFrom, urlId, groupRows };
 import { layoutNeeds, moveIntoBar } from "./layout.js";
 import { machinesTab, loadMachines, machinesDue, machinesLoading, agoText } from "./machines.js";
@@ -221,6 +221,8 @@ export class Repo {
       if (a.ok && !this.busy && !shared(COLLECT) && !this.loading) this.checkPush(cx);
       if (a.ok && !this.busy && !shared(COLLECT) && this.outdatedDue()) this.checkOutdated(cx);
       if (this.stage) cx.notify();   // its seconds
+      // 等你放行: what the commit hook blocked (read every few seconds; a change shows at once)
+      readTextFile(devFile("ask.txt")).catch(() => "").then((s) => { if ((s ?? "") !== (shared(ALLOW_ASK) ?? "")) { setShared(ALLOW_ASK, s ?? ""); cx.notify(); } });
     };
     tick(cx);
     cx.timer.every(2000, tick);
@@ -369,6 +371,7 @@ export class Repo {
     if (msg) root.child(this.message(t, z, msg));
     const sh = shared(SIGN_HINT);
     if (sh?.cmd) root.child(this.signCard(t, z, sh));
+    if (this.role === "repo") for (const g of asksFrom(shared(ALLOW_ASK))) root.child(this.allowCard(t, z, g));
     const d = this.data;
     if (!d) return root.child(div().p(14).child(waiting(t, z, "讀取中…")));
     if (d.error) return root.child(problemCard(t, z, this.where, d.error, d.code));
@@ -391,6 +394,42 @@ export class Repo {
           .on_mouse_down("left", stop).on_click((_e, cx) => { setShared(SIGN_HINT, null); cx.notify(); }).child("✕")))
       .child(copyOnRight(div().p(6).rounded(6).bg(t.background).font_family(mono()).text_size(z - 2).child(sh.cmd), sh.cmd))
       .child(div().text_size(z - 2).text_color(t.muted).child("在終端機貼上：kit 會列出改了什麼、問你，簽好就推上去。那台 kit sync 後就會用到（root 要站長同意）。在 Claude 裡用 ! 跑沒辦法問你，要自己加 --yes。"));
+  }
+
+  // 等你放行: a commit (kit push, yours or an agent's) the hook blocked for what some files are. You look (點檔名 opens
+  // it), then 放行並送出 (this very content only: changed later, it is asked again) or 不要
+  allowCard(t, z, g) {
+    const n = g.files.length, busy = Boolean(this.busy);
+    return v_flex().flex_none().mx(10).mt(8).p(8).gap(5).rounded(6).bg(t.raised).border_1().border_color(t.ansi1)
+      .child(div().font_semibold().child(`等你放行：${g.name} 送出被擋，${n} 個檔案`))
+      .children(g.files.map((f, i) => v_flex().gap(1)
+        .child(div().id(`allow-file-${g.name}-${i}`).font_family(mono()).text_size(z - 2).cursor_pointer().text_color(t.accent).hover((s) => s.underline())
+          .on_mouse_down("left", stop).on_click(() => openOutside(`${g.repo}/${f.path}`)).child(f.path))
+        .child(div().text_size(z - 2.5).text_color(t.muted).child(f.why.join("；")))))
+      .child(div().text_size(z - 2).text_color(t.muted).child("點檔名打開看。放行的是現在這份內容：之後檔案改了會再擋一次。只有你在這裡按才算，agent 不能自己放行。"))
+      .child(h_flex().gap(6)
+        .child(btn(t, z, `allow-yes-${g.name}`, "放行並送出", { small: true, kind: "primary", off: busy, on: (cx) => this.allowFiles(g, true, cx) }))
+        .child(btn(t, z, `allow-no-${g.name}`, "不要", { small: true, off: busy, on: (cx) => this.allowFiles(g, false, cx) })));
+  }
+  allowFiles(g, yes, cx) {
+    if (!this.startBusy(yes ? "放行" : "不放行", LONG)) return;
+    cx.notify();
+    cx.spawn(async (cx) => {
+      try {
+        // writeTextFile writes only over what was read (null: a new file)
+        if (yes) { const cur = await readTextFile(devFile("allow.txt")).catch(() => null); await writeTextFile(devFile("allow.txt"), allowAdd(cur, g.files), cur); }
+        const was = await readTextFile(devFile("ask.txt")).catch(() => null), ask = askDrop(was, g.repo);
+        if (was != null) await writeTextFile(devFile("ask.txt"), ask, was);
+        setShared(ALLOW_ASK, ask);
+        await kit(["pending", "done", `allow-${g.name}`], SHORT).catch(() => null);
+        const src = (this.data?.sources ?? []).find((s) => slash(s.dir ?? "").replace(/\/+$/, "") === g.repo.replace(/\/+$/, ""));
+        if (!yes) { this.setMsg({ ok: true, label: "不放行", text: `沒放行：${g.name} 的改動還在這台，沒有送出。`, at: Date.now() }); return; }
+        if (!src) { this.setMsg({ ok: true, label: "放行", text: `已放行 ${g.files.length} 個檔案。${g.name} 不是 kit 的來源：請再 commit／push 一次。`, at: Date.now() }); return; }
+        const r = await pushJson(src.name, false, LONG).catch((e) => ({ sent: false, text: String(e?.message ?? e) }));
+        this.setMsg({ ok: r.sent, label: "送出", text: r.sent ? `已放行並送出：${src.name} 推上去了。` : `已放行，但送出 ${src.name} 沒成功：\n${r.text}`, at: Date.now() });
+        this.changed();
+      } finally { this.endBusy(); try { cx.notify(); } catch {} }
+    });
   }
 
   // ---------- the repository ----------

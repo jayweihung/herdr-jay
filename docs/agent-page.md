@@ -22,9 +22,9 @@ agent 右邊一格：第一個分頁「進度」是等你、正在做、還沒�
   there stay here. 別台機器上的 agent 寫在那台同一個位置（Herdr 連線用的帳號的家目錄），面板每 15 秒去看，有變就用 scp 抄過來。
   An agent running as another user there (e.g. root) writes into that user's folder and makes the files readable
   (`chmod a+r`). 用別的帳號（例如 root）跑的 agent 寫到連線帳號的資料夾，並讓檔案可讀。
-- Needs the Herdr build with web elements and `props.pane` (app patches 0015–0024, [patches.md](patches.md)): macOS
+- Needs the Herdr build with web elements and `props.pane` (app patches 0015–0025, [patches.md](patches.md)): macOS
   14 or later; Windows with the WebView2 Runtime (not run on Windows yet).
-  要有網頁格的 Herdr（app patch 0015–0024）。
+  要有網頁格的 Herdr（app patch 0015–0025）。
 
 ## Install / 安裝
 
@@ -83,7 +83,7 @@ An item can be a plain string. `project` is a small label; `date` (YYYY-MM-DD) p
    me=$(herdr-app ls | python3 -c 'import json,os,sys
    t=os.environ["HC_TERMINAL_ID"]
    print(next(x["pane"] for s in json.load(sys.stdin)["spaces"] for b in s["tabs"] for x in b["terminals"] if x["terminal"]==t))')
-   herdr-app do pane.split "{\"direction\":\"right\",\"pane\":\"$me\",\"mod\":\"agent-page\",\"props\":{\"dir\":\"$HC_TERMINAL_ID\",\"beside\":\"$me\"}}"
+   herdr-app do pane.split "{\"direction\":\"right\",\"pane\":\"$me\",\"mod\":\"agent-page\",\"props\":{\"dir\":\"$HC_TERMINAL_ID\",\"beside\":\"$me\"},\"share\":0.35}"
    ```
 
    Running it again while the pane is open is harmless: the new copy sees the open one and closes itself. Either way
@@ -92,4 +92,5 @@ An item can be a plain string. `project` is a small label; `date` (YYYY-MM-DD) p
 3. Tell the person the page is open beside you, in one line.
 
 `props`: `dir` the folder under `.pages/` (letters, digits, `.` `_` `-`; anything else becomes `_`), `beside` the pane
-that gets the keyboard back. The app adds `pane` (the mod pane's own id).
+that gets the keyboard back. The app adds `pane` (the mod pane's own id). `share` 0.35: the pane takes about a third of the width, so
+the agent keeps most of it. `share` 0.35：說明頁只佔約三分之一寬，agent 那格比較大。

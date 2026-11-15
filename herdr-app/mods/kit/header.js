@@ -147,7 +147,7 @@ function togglePage(p) {
   else {
     const machine = placeOf(p).machine, props = { dir: pageDir(p.terminal), beside: p.pane };
     if (machine) Object.assign(props, { machine, term: String(p.terminal).split("/").pop() });
-    run("pane.split", { direction: "right", pane: p.pane, mod: "agent-page", props });
+    run("pane.split", { direction: "right", pane: p.pane, mod: "agent-page", props, share: 0.35 });
   }
 }
 function offerMenu(cx) {

@@ -1484,7 +1484,7 @@ test("header: the 說明頁 button (agent-page installed) opens agent-page right
   assert.ok(ids(v).includes("kit-head-p-p1"));
   H.runs = [];
   H.clicks["kit-head-p-p1"]({}, cx);
-  assert.deepEqual(H.runs.at(-1), ["pane.split", { direction: "right", pane: "p1", mod: "agent-page", props: { dir: "t1", beside: "p1" } }]);
+  assert.deepEqual(H.runs.at(-1), ["pane.split", { direction: "right", pane: "p1", mod: "agent-page", props: { dir: "t1", beside: "p1" }, share: 0.35 }]);
   H.store["agent-page/t1"] = "p9";
   H.panes.push({ pane: "p9", terminal: null, mod: "agent-page", tab: "tab1" });
   v.part.hovered = false; render(v);
@@ -1495,7 +1495,7 @@ test("header: the 說明頁 button (agent-page installed) opens agent-page right
   const w = view(M, { role: "header", pane: "p2", terminal: "box/t3" }); await settle();
   w.part.hovered = true; render(w);
   H.clicks["kit-head-p-p2"]({}, cx);
-  assert.deepEqual(H.runs.at(-1), ["pane.split", { direction: "right", pane: "p2", mod: "agent-page", props: { dir: "box_t3", beside: "p2", machine: "box", term: "t3" } }], "another machine: agent-page copies from there");
+  assert.deepEqual(H.runs.at(-1), ["pane.split", { direction: "right", pane: "p2", mod: "agent-page", props: { dir: "box_t3", beside: "p2", machine: "box", term: "t3" }, share: 0.35 }], "another machine: agent-page copies from there");
 });
 test("agent popup (and its old name pane): shows what the header's kit list said; kit there too old: the card, nothing run", async (M) => {
   fresh(); fakeKit();

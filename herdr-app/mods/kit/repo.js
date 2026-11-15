@@ -278,7 +278,8 @@ export class Repo {
     return checked;
   }
 
-  // 送出, step 1: what kit push would send from each changed source (--dry-run), shown for 確定送出
+  // 送出, step 1: what kit push would send from each changed source (--dry-run), shown for 確定送出; a source with
+  // nothing to send (no files, no error: already sent, e.g. kit add pushed it) gets no box, just a line saying so
   planPush(cx) {
     const dirty = this.data?.dirty ?? [];
     if (!dirty.length || !this.startBusy("檢查", SHORT * dirty.length)) return;
@@ -287,13 +288,18 @@ export class Repo {
     cx.notify();
     cx.spawn(async (cx) => {
       try {
-        const plan = [];
+        const plan = [], none = [];
         for (const x of dirty) {
           const j = await pushJson(x.name, true, SHORT);
-          plan.push({ name: x.name, push: j.push ?? x.push, ok: j.ok, files: j.files, text: j.text });
+          if (!j.ok && !j.code && j.files === "[]") none.push(x.name);
+          else plan.push({ name: x.name, push: j.push ?? x.push, ok: j.ok, files: j.files, text: j.text });
           this.keepCheck(x, j);
         }
-        this.plan = plan;
+        this.plan = plan.length ? plan : null;
+        if (none.length) {
+          this.setMsg({ ok: true, plain: true, text: `${none.join("、")}：沒有要送的，已經都送出去了。`, at: Date.now() });
+          this.changed();   // what showed it as changed is old: read the repository again
+        }
       } finally { this.stage = null; this.endBusy(); cx.notify(); }
     });
   }

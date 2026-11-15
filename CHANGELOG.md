@@ -9,6 +9,14 @@ says which) · **kit** = update kit itself on every machine where agents run (`k
 **snap hook** = a line in Claude Code's `settings.json` on each machine where you added the hook (the entry says
 which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/keys.md).
 
+## 2026-11-15, Kit 送出: nothing to send is one line, not a box
+
+Needs: **mods**.
+
+送出 on a source that has nothing left to send (it was already sent, e.g. `kit add` pushed it) no longer opens the
+送出前看一下 box with only 取消 in it: the panel says "<source>：沒有要送的，已經都送出去了。" and reads the repository again.
+沒有要送的時候不再跳只有「取消」的框，面板上寫一行就好。
+
 ## 2026-11-15, pane header: no 進度 chip (關係 shows it)
 
 Needs: **mods**.

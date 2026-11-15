@@ -1572,13 +1572,13 @@ test("送出: kit push --dry-run --json lists the files; 確定送出 checks the
   shown = render(v);
   assert.match(shown, /已送出分支/); assert.match(shown, /pulls\/7/); assert.match(shown, /改的檔案現在在送出的分支上/);
 });
-test("送出: nothing to send (files []) has no 確定送出; a failure shows kit's words (stderr), not the JSON", async (M) => {
+test("送出: nothing to send (files []) has no box, just a line; a failure shows kit's words (stderr), not the JSON", async (M) => {
   fresh(); fakeKit({ list: { ...TEAM_LIST, sources: [TEAM] }, push: () => ({ code: 0, stdout: `${JSON.stringify({ source: "team", dir: "/s", push: "pr", dry_run: true,
     files: [], skipped: ["notes.txt"], commit: null, branch: null, into: null, remotes: [], sent: false, pr_url: null, compare_url: null })}\n`, stderr: "kit：沒有要送的（team 裡沒有改過的 rule、skill、mcp、agent）\n" }) });
   let v = view(M, { role: "repo" }); await settle(); await tick();
   render(v); H.clicks.push({}, cx); await settle();
   let shown = render(v);
-  assert.match(shown, /沒有要送的/); assert.ok(!("push-team" in H.clicks), "no 確定送出");
+  assert.match(shown, /team：沒有要送的，已經都送出去了/); assert.doesNotMatch(shown, /送出前看一下/); assert.ok(!("push-team" in H.clicks), "no 確定送出");
   fresh(); fakeKit({ list: { ...TEAM_LIST, sources: [TEAM] }, push: () => kitError("check_failed", "kit check 有問題，什麼都沒送（改好再 kit push）") });
   v = view(M, { role: "repo" }); await settle(); await tick();
   render(v); H.clicks.push({}, cx); await settle();

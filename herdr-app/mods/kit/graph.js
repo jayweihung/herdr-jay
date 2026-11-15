@@ -279,25 +279,31 @@ export function colWidth(n, width) {
   if (!width || !n) return COL_W;
   return Math.max(170, Math.min(260, Math.floor((width - PAD * 2 - LOOP - (n - 1) * GAP_X) / n)));
 }
-// where each card is: address -> { x, y, w, top (its band's first row), band }, each column's title (heads), and the
-// whole drawing's size. Columns that don't fit the panel's width go on below, as many as fit in each band (like the
-// Agents list, top to bottom), so nothing needs scrolling sideways; not measured yet (0): one band.
+// where each card is: address -> { x, y, w, top (its band's first row), band, gx, gy (the gaps) }, each column's title
+// (heads), and the whole drawing's size. Columns that don't fit the panel's width go on below, as many as fit in each
+// band (like the Agents list, top to bottom), so nothing needs scrolling sideways; not measured yet (0): one band.
+// Room left over (a wide panel, the 放大 window) goes into the gaps, up to GAP_MAX between columns and a bit more
+// between rows, so the lines and their words aren't squeezed while half the window is empty.
+export const GAP_MAX = 240;
 export function layoutOf(cols, width = 0) {
   const fit = width ? Math.max(1, Math.floor((width - PAD * 2 - LOOP + GAP_X) / (170 + GAP_X))) : cols.length;
   const per = Math.max(1, Math.min(cols.length, fit)), cw = colWidth(per, width);
+  const left = width && per > 1 ? width - PAD * 2 - LOOP - per * cw - (per - 1) * GAP_X : 0;
+  const gx = GAP_X + Math.max(0, Math.min(GAP_MAX - GAP_X, Math.floor(left / (per - 1 || 1))));
+  const gy = GAP_Y + Math.round((gx - GAP_X) * 0.25);
   const at = {}, heads = [];
   let y = PAD;
   for (let b = 0; b * per < cols.length; b++) {
     const band = cols.slice(b * per, (b + 1) * per), top = y + HEAD;
     band.forEach((c, i) => {
-      const x = PAD + i * (cw + GAP_X);
+      const x = PAD + i * (cw + gx);
       heads.push({ x, y });
-      c.nodes.forEach((n, ri) => { at[n.address] = { x, y: top + ri * (NODE_H + GAP_Y), w: cw, top, band: b }; });
+      c.nodes.forEach((n, ri) => { at[n.address] = { x, y: top + ri * (NODE_H + gy), w: cw, top, band: b, gx, gy }; });
     });
     const rows = Math.max(1, ...band.map((c) => c.nodes.length));
-    y = top + rows * NODE_H + (rows - 1) * GAP_Y + GAP_Y + 8;
+    y = top + rows * NODE_H + (rows - 1) * gy + gy + 8;
   }
-  return { at, cw, heads, w: PAD * 2 + per * cw + (per - 1) * GAP_X + LOOP, h: y - GAP_Y - 8 + PAD };
+  return { at, cw, gx, gy, heads, w: PAD * 2 + per * cw + (per - 1) * gx + LOOP, h: y - gy - 8 + PAD };
 }
 
 // a line's curve: from the side of its card that faces the other one; between cards in one column it loops out
@@ -317,11 +323,11 @@ export function curveOf(p, q, both = false) {
   // past a column between them: around the cards on the way, not over them: out into the gap beside the sender,
   // along the space between two rows, into the gap beside the receiver (via: the corners); the label on that stretch
   // (also between bands: along the gap under the receiver's row, in its band)
-  const bands = (p.band ?? 0) !== (q.band ?? 0);
-  if (Math.abs(b[0] - a[0]) > COL_W + GAP_X || bands) {
-    const step = NODE_H + GAP_Y, top = p.top ?? PAD + HEAD;
-    const r = Math.max(1, Math.round(((a[1] + b[1]) / 2 - top + GAP_Y / 2) / step));
-    const y = (bands ? q.y + NODE_H + GAP_Y / 2 : top + r * step - GAP_Y / 2) + (both ? (right ? -4 : 4) : 0);
+  const bands = (p.band ?? 0) !== (q.band ?? 0), gx = p.gx ?? GAP_X, gy = p.gy ?? GAP_Y;
+  if (Math.abs(b[0] - a[0]) > COL_W + gx || bands) {
+    const step = NODE_H + gy, top = p.top ?? PAD + HEAD;
+    const r = Math.max(1, Math.round(((a[1] + b[1]) / 2 - top + gy / 2) / step));
+    const y = (bands ? q.y + NODE_H + gy / 2 : top + r * step - gy / 2) + (both ? (right ? -4 : 4) : 0);
     // a card's right side has its column's loops (out to LOOP + 8): pass them there, keep close on the left side
     const near = 20, past = LOOP + 30, ay = a[1] + 12;   // past: also past a loop's label (68 wide)
     const x1 = a[0] + (right ? past + off : -(near + off)), x2 = b[0] + (right ? -(near + off) : past + off);
@@ -342,11 +348,11 @@ export function arrowOf(c, b, size = 7) {
 // would cover the arrowhead): only its short text (the count; the list under the drawing has the time); one that
 // would cover an earlier one moves a row down, up, two down, two up, and stays put if all of those are taken
 export const labelWidth = (text, em) => Math.ceil([...text].reduce((s, c) => s + (c.charCodeAt(0) > 0x2e7f ? 1 : c === " " ? 0.3 : 0.55), 0) * em) + 12;
-export function labelSpots(labels, z) {
+export function labelSpots(labels, z, gap = GAP_X) {
   const em = Math.max(6, z - 3.5), h = Math.ceil(em * 1.45) + 2, out = [];
   const over = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
   for (const l0 of labels) {
-    const l = l0.short && labelWidth(l0.text, em) > GAP_X - 20 ? { ...l0, text: l0.short } : l0, w = labelWidth(l.text, em);
+    const l = l0.short && labelWidth(l0.text, em) > gap - 20 ? { ...l0, text: l0.short } : l0, w = labelWidth(l.text, em);
     const at = (d) => ({ ...l, x: l.mid[0] - w / 2, y: l.mid[1] - h / 2 + d * (h + 2), w, h });
     out.push([0, 1, -1, 2, -2].map(at).find((r) => !out.some((o) => over(o, r))) ?? at(0));
   }
@@ -357,7 +363,7 @@ const strokeW = (e) => (e.kind === "parent" ? 1.2 : Math.min(4, 1.2 + Math.log2(
 
 // the drawing: cards on a canvas with the lines under them; sel: the selected card's address
 export function graphView(t, z, g, sel, { onSelect, now = Date.now(), width = 0 } = {}) {
-  const { at, w, h, cw, heads } = layoutOf(g.cols, width);
+  const { at, w, h, cw, gx, heads } = layoutOf(g.cols, width);
   // a click on the empty part: nothing selected any more
   const canvas = div().id("kit-graph").relative().w(w).h(h).flex_none().on_click((_e, cx) => { if (sel) onSelect?.(null, cx); });
   const recent = (e) => now - e.at < 10 * MIN ? t.accent : now - e.at < HOUR ? t.muted : t.dim;
@@ -384,7 +390,7 @@ export function graphView(t, z, g, sel, { onSelect, now = Date.now(), width = 0 
   }
   // the labels after every line and arrowhead, so no line crosses one (zoomed in they grow past the gap the line
   // left for them); one that would sit on another goes a row up or down
-  for (const r of labelSpots(labels, z)) {
+  for (const r of labelSpots(labels, z, gx)) {
     canvas.child(div().absolute().left(r.x).top(r.y).w(r.w).h(r.h).flex().justify_center().items_center()
       .child(div().px(4).rounded(3).bg(t.surface).text_size(z - 3.5).text_color(r.color).child(r.text)));
   }
@@ -528,12 +534,15 @@ export function alertsView(t, z, g, now = Date.now(), onSelect = null, { onNudge
     items.push({ id: `clash-${c.nodes.join("-")}`, text: `同一個資料夾：${c.nodes.map(name).join("、")} 同時在 ${shortDir(c.dir)} 裡改東西`, color: t.working, who: c.nodes[0] });
   for (const [i, p] of pending.entries()) {
     const long = p.since ? `，等了 ${spanText(now - p.since)}` : "";
-    const text = p.kind === "sign" ? `等你簽：${p.what ?? `${p.name} 有 ${p.commits ?? "新的"} 個 commit 等核准`}（${p.where}${long}）。簽章在 Mac 親手做`
+    const text = p.kind === "sign" ? (p.signed != null ? `已簽（serial ${p.signed}）：${p.name}，等 ${p.where} 同步（kit sync）`
+        : `等你簽：${p.what ?? `${p.name} 有 ${p.commits ?? "新的"} 個 commit 等核准`}（${p.where}${long}）。簽章在 Mac 親手做`)
       : p.kind === "owner" ? `${p.here ? "等你同意" : "等站長同意"}：${String(p.what ?? "").replace(/^要你同意[：:]\s*/, "")}（${p.who ? `${name(p.who)} · ` : ""}${p.where}${long}）`
       : `${p.what}（${p.where}${long}）`;
     // the agent that waits (found by its pid): a click goes to its card, red past LONG_WAIT like waiting for you
     const hot = p.kind === "owner" && p.since && now - p.since >= LONG_WAIT;
-    items.push({ id: `pending-${i}`, text, color: hot ? t.ansi1 : t.blocked, hot: Boolean(hot), who: p.who ?? null, panel: p.panel ?? null });
+    // a signature: the Kit panel's 各機器 tab (what each machine is at, and the command to sign)
+    items.push({ id: `pending-${i}`, text, color: p.signed != null ? t.dim : hot ? t.ansi1 : t.blocked, hot: Boolean(hot), who: p.who ?? null,
+      panel: p.panel ?? (p.kind === "sign" ? "machines" : null) });
   }
   for (const n of (g.nodes ?? []).filter((x) => x.limit && x.status !== "working" && !x.down)) {
     const l = n.limit, at = whenText(l.until, now);
@@ -553,8 +562,8 @@ export function alertsView(t, z, g, now = Date.now(), onSelect = null, { onNudge
     color: t.dim, who: idle[0].address });
   if (!items.length) return null;
   const box = v_flex().gap(3).px(10).pt(2).pb(4);
-  // a click goes where the line is about: its agent's pane (and card), or the panel to fix it in (Kit); a line with
-  // nowhere to go (a signature, done on the Mac by hand) has no pointer and no ›
+  // a click goes where the line is about: its agent's pane (and card), or the panel to fix it in (Kit; a signature: its
+  // 各機器 tab); a line with nowhere to go has no pointer and no ›
   for (const i of items) {
     const go = i.who ? "agent" : i.panel && onPanel ? "panel" : null;
     box.child(h_flex().id(`kit-graph-alert-${i.id}`).gap(6).items_center().px(8).py(4).rounded(6).border_1().border_color(i.color)

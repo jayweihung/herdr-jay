@@ -81,7 +81,8 @@ export function readStatus(j) {
 }
 // kit status's pending (kit api 1.6): what waits for a person, each checked; none (an older kit): []
 //   { kind: "sign", name, what, commits, head, since, machine }   new commits of a source waiting for kit approve
-//   { kind: "owner", id, what, since, machine, dir, pid }          an agent or service waiting for the owner's OK
+//   { kind: "owner", id, what, since, machine, dir, pid, up }      an agent or service waiting for the owner's OK (up, kit
+//                                                                  api 1.8: its process and the ones above it, for its terminal)
 // since: Unix ms. Another kind: said by its what.
 export function pendingOf(list) {
   if (!Array.isArray(list)) return [];
@@ -89,6 +90,8 @@ export function pendingOf(list) {
     kind: str(p.kind, 20) ?? "?", what: str(p.what, 300), name: str(p.name, 100), commits: count(p.commits),
     since: Number.isFinite(p.since) && p.since > 0 ? p.since : null, machine: str(p.machine, 64), id: str(p.id, 100),
     dir: str(p.dir, 500), pid: Number.isInteger(p.pid) && p.pid > 0 ? p.pid : null,
+    up: Array.isArray(p.up) ? p.up.filter((x) => Number.isInteger(x) && x > 1).slice(0, 12) : [],
+    head: str(p.head, 64),
   })).filter((p) => p.what || p.name);
 }
 // what waits for a person on every machine and account the 各機器 load asked (rows), each with where it was read and

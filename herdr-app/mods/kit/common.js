@@ -10,6 +10,7 @@ export const DATA = "kit.data.v2";             // the repository's data ({ at: 0
 export const LOAD = "kit.load";                // { seq, at, done } the repository's load in progress; only the newest is kept
 export const BUSY = "kit.busy";                // { label, at, ttl, id, build } one kit action at a time; older than its ttl or another build's = finished
 export const EDITORS = "kit.editors";          // path -> { dirty, at } the files open in big windows
+export const KIT_TAB = "kit.tab";            // a tab another part asks the Kit panel to show (taken once, by the panel)
 export const MSG = (where) => `kit.msg.${where}`;   // kit's words after an action, per place (repo, agent:<key>, editor:<path>)
 // per agent pane (key = "<machine>|<folder>|<terminal>", machine empty for this computer); the pane header asks kit
 export const AGENT_CACHE = "kit.agent.v1";     // key -> { text, level, counts, news, started, at, busy }  the button's words

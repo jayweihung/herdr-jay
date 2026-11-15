@@ -24,7 +24,7 @@ import { v_flex, h_flex, Editor } from "gpui-base";
 import { theme, run, shared, setShared, readTextFile, writeTextFile, closeOverlay, openOverlay, props, spaces, focused, layout, agents, terminals, settings, panes, hc } from "herdr";
 import { AGENTS_DATA, AGENTS_LOAD, AGENTS_MSG, CTX, NOTE, NODES, fs, stop, isWindows, shortDir, spin, waiting, find, textBlock, copyOnRight, btn,
   busyNow, dropStaleBusy, giveBusy, markRepoStale, kit, kitJson, localKit, apiState, apiKnown, checkApi, apiCard, messageBox, problemCard, newEditor,
-  localGet, localSet, kitAction, loadNewest, loadingNow, LIMIT_SENT, DATA, PUSH_CHECK, checkLine } from "./common.js";
+  localGet, localSet, kitAction, loadNewest, loadingNow, LIMIT_SENT, DATA, PUSH_CHECK, KIT_TAB, checkLine } from "./common.js";
 import { ANIMALS, COLORS } from "./bot-models.js";
 import { readBot, withBot, pickBot, botIcon, botProblem, LiveBot } from "./bots.js";
 import { canDrag, draggable, dropLoop, requestPlace, takeAsks, placeClosed, placeDir, liveNow } from "./place.js";
@@ -66,12 +66,18 @@ export function pushStuck(data, checks) {
   }).map(([src, c]) => ({ kind: "kit", what: `Kit：${checkLine(src, c.bad)}，到 Kit 面板改好再送出`, where: "這台", since: c.at ?? null, panel: "repo" }));
 }   // every agent's status and focus, set when it changes (every mod re-renders)
 let whoBusy = false;
-export const whoOf = (p) => (p?.pid ? (shared(WHO) ?? {})[`${p.host ?? ""}|${p.pid}`]?.address || null : null);
+export const whoOf = (p) => (p?.pid || p?.up?.length ? (shared(WHO) ?? {})[`${p.host ?? ""}|${p.pid ?? p.up[0]}`]?.address || null : null);
+// a sign line this computer already signed (kit list --json's sign, kit api 1.8: its approved commit for that name is
+// the one waiting): the serial, else null. The account there just hasn't synced yet.
+export function signedHere(p, sign) {
+  if (p?.kind !== "sign" || !p.head || !Array.isArray(sign?.approved)) return null;
+  return sign.approved.some((a) => a?.name === p.name && a?.commit === p.head) ? (sign.serial ?? "?") : null;
+}
 function whoTick(cx) {
   if (whoBusy) return;
   const known = shared(WHO) ?? {};
-  const want = pendingRows(machinesData()?.rows).filter((p) => p.kind === "owner" && p.pid)
-    .filter((p) => { const w = known[`${p.host ?? ""}|${p.pid}`]; return !w || Date.now() - w.at > WHO_TTL; });
+  const want = pendingRows(machinesData()?.rows).filter((p) => p.kind === "owner" && (p.pid || p.up?.length))
+    .filter((p) => { const w = known[`${p.host ?? ""}|${p.pid ?? p.up[0]}`]; return !w || Date.now() - w.at > WHO_TTL; });
   if (!want.length) return;
   whoBusy = true;
   cx.spawn(async (cx) => {
@@ -79,6 +85,7 @@ function whoTick(cx) {
       const ags = agents(), terms = new Map((terminals() ?? []).map((r) => [r?.address, r]));
       const got = {};
       for (const p of want) {
+        const k = `${p.host ?? ""}|${p.pid ?? p.up[0]}`;
         const on = ags.filter((x) => (String(x.address).includes("/") ? String(x.address).split("/")[0] : null) === (p.host ?? null));
         const cwd = (x) => String(terms.get(x.address)?.foreground?.cwd || terms.get(x.address)?.cwd || "");
         on.sort((x, y) => (cwd(y) === p.dir) - (cwd(x) === p.dir));
@@ -87,9 +94,11 @@ function whoTick(cx) {
           const r = await hc(["get", x.address, "--json"]).catch(() => null);
           let j = {};
           try { j = JSON.parse(r?.stdout ?? "{}"); } catch {}
-          if (Number(j.foreground?.pid) === p.pid || Number(j.pid) === p.pid) { found = x.address; break; }
+          // its process, or (kit api 1.8) the terminal's own process above it: an agent run with sudo (root's service) too
+          const tp = Number(j.foreground?.pid), sp = Number(j.pid);
+          if ((p.pid && (tp === p.pid || sp === p.pid)) || (p.up ?? []).some((u) => u === tp || u === sp)) { found = x.address; break; }
         }
-        got[`${p.host ?? ""}|${p.pid}`] = { address: found, at: Date.now() };
+        got[k] = { address: found, at: Date.now() };
       }
       setShared(WHO, { ...(shared(WHO) ?? {}), ...got });
     } finally { whoBusy = false; cx.notify(); }
@@ -382,7 +391,8 @@ export class Agents {
   relations(t, z) {
     const f = focused(), shownSpace = f?.space ?? (spaces() ?? []).find((s) => s.active)?.id ?? null, now = Date.now();
     // waiting for the owner's OK: each pending's agent (its pid's terminal, whoTick), on the card and in the line
-    const pending = pendingRows(machinesData()?.rows).map((p) => ({ ...p, who: whoOf(p) }));
+    const sign = shared(DATA)?.sign;
+    const pending = pendingRows(machinesData()?.rows).map((p) => ({ ...p, who: whoOf(p), signed: signedHere(p, sign) }));
     const owner = {};
     for (const p of pending) if (p.kind === "owner" && p.who) owner[p.who] = { since: p.since, what: p.what, here: Boolean(p.here) };
     pending.push(...pushStuck(shared(DATA), shared(PUSH_CHECK)));
@@ -408,7 +418,10 @@ export class Agents {
           on: () => openOverlay({ mod: "kit", props: { role: "agents", big: true, scope: this.scope }, kind: "window", key: "kit-agents-big", width: 0.9, height: 0.85 }) }))))
       .child(alertsView(t, z, g, now, select, { nudged: this.nudged, onNudge: (w, cx) => this.nudge(g, w, cx), pending,
         // the Kit panel, shown if it was hidden (never hidden by a click here)
-        onPanel: () => { const n = find(layout(), NODES.repo); if (!n || n.hidden) run("layout.toggle", { id: NODES.repo }); } }) ?? div());
+        onPanel: (panel) => {
+          if (panel === "machines") setShared(KIT_TAB, "machines");   // the panel shows its 各機器 tab
+          const n = find(layout(), NODES.repo); if (!n || n.hidden) run("layout.toggle", { id: NODES.repo });
+        } }) ?? div());
     if (this.view === "time") {
       const span = SPANS.find(([k]) => k === this.span) ?? SPANS[1];
       return body

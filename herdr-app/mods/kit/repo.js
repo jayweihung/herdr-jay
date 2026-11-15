@@ -11,7 +11,7 @@
 import { div } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input, Editor, TextareaState, Textarea } from "gpui-base";
 import { theme, exec, run, layout, shared, setShared, window, readTextFile, writeTextFile, closeOverlay, openOverlay, appHome, notify, props as blockProps } from "herdr";
-import { DATA, LOAD, EDITORS, NODES, MSG, fs, mono, stop, slash, shortDir, clean, spin, waiting, find, textBlock, copyOnRight, btn,
+import { DATA, LOAD, EDITORS, NODES, MSG, KIT_TAB, fs, mono, stop, slash, shortDir, clean, spin, waiting, find, textBlock, copyOnRight, btn,
   busyNow, dropStaleBusy, takeBusy, giveBusy, markChanged, kit, kitJson, apiState, apiKnown, apiAtLeast, checkApi, apiCard, messageBox, problemCard, versionCard,
   squeeze, newEditor, liveEditors, BUILD, PUSH_CHECK, checkProblems, checkLine, localGet, localSet, kitAction, loadNewest, loadingNow, isWindows, lockFrom, urlId, groupRows, collectedFrom } from "./common.js";
 export { lockFrom, urlId, groupRows };
@@ -25,6 +25,18 @@ const STALE = 60000, LOAD_TTL = 90000;
 // build's task mid-run, and the panel goes on with what is left (the one in flight then goes last: its kit may still
 // be finishing). 39 skills take minutes; twice an edit had stopped a run, silently, a few in.
 const COLLECT = "kit.collecting";
+const SIGN_HINT = "kit.signHint";   // after 收進來 sent a source this computer signs for: { source, cmd, at }, until closed
+// 收進來 then 加到整個帳號 (own sources): ticked unless untick it once (kept on this computer)
+const addAfter = () => localGet("kit.collect.add") !== "0";
+// the command to sign SOURCE (kit api 1.8 remembers the approvals repo and key), when this computer signs for it
+// (kit list --json's sign names it); else null
+export function signHint(d, source) {
+  const s = d?.sign;
+  if (!s || !Array.isArray(s.approved) || !s.approved.some((a) => a?.name === source)) return null;
+  const dir = (d.sources ?? []).find((x) => x.name === source)?.dir;
+  if (!dir) return null;
+  return `kit approve ${/^[A-Za-z0-9_./~-]+$/.test(dir) ? dir : `'${dir.replace(/'/g, "'\\''")}'`} --push`;
+}
 const PUSH_KIND = { pr: "團隊 · 送出要審", direct: "自己的 · 直接推" };
 // whether 送出 would go, asked by itself (kit push --dry-run: kit check, about a minute on a big source) once the
 // changed files are other ones than last asked (a collect, a new file), so a change that can't be sent is said at
@@ -194,6 +206,9 @@ export class Repo {
     // marked it out of date (at: 0)
     const due = () => !this.loading && (!this.data || this.data.at === 0 || Date.now() - (this.data.at ?? 0) > STALE);
     const tick = (cx) => {
+      // a tab another part asked for (關係's 等你簽 line: 各機器), taken once
+      const want = shared(KIT_TAB);
+      if (want) { setShared(KIT_TAB, null); if (want !== this.kind) { this.kind = want; localSet("kit.kind", want); this.making = null; cx.notify(); } }
       // 各機器: only while its tab is the one shown (and the panel isn't hidden), then kept 10 minutes
       if (this.kind === "machines" && !find(layout(), NODES.repo)?.hidden && machinesDue()) loadMachines(cx);
       const a = apiKnown(null);
@@ -348,12 +363,30 @@ export class Repo {
     const api = apiState(null);
     if (api?.kind && !api.ok) return root.child(apiCard(t, z, api, null, this.where));
     if (msg) root.child(this.message(t, z, msg));
+    const sh = shared(SIGN_HINT);
+    if (sh?.cmd) root.child(this.signCard(t, z, sh));
     const d = this.data;
     if (!d) return root.child(div().p(14).child(waiting(t, z, "讀取中…")));
     if (d.error) return root.child(problemCard(t, z, this.where, d.error, d.code));
     if (d.kit_version_wanted) root.child(versionCard(t, z, this.where, d));
     if (this.plan) root.child(this.planCard(t, z));
     return root.child(this.edit ? this.editor(t, z) : this.repo(t, z, d));
+  }
+
+  // 收進來 sent a source that machines using signed versions (root) follow: the command to sign it, to copy (never run:
+  // signing is done by hand, in a terminal, where kit approve shows what changed and asks)
+  signCard(t, z, sh) {
+    return v_flex().flex_none().mx(10).mt(8).p(8).gap(5).rounded(6).bg(t.raised).border_1().border_color(t.working)
+      .child(h_flex().gap(6).items_center()
+        .child(div().flex_1().min_w(0).font_semibold().child(`要給用簽過版本的機器（例如 root）用：請簽 ${sh.source}`))
+        .child(btn(t, z, "sign-copy", "複製指令", { small: true, kind: "primary", on: (cx) => {
+          cx.write_to_clipboard(sh.cmd);
+          notify({ title: "已複製簽章指令", body: `${sh.cmd}\n（只複製，沒有執行。在終端機貼上：會先列出改了什麼再問你）`, level: "success", timeout: 4000 });
+        } }))
+        .child(div().id("sign-close").flex_none().px(4).cursor_pointer().text_color(t.muted).hover((s) => s.text_color(t.foreground))
+          .on_mouse_down("left", stop).on_click((_e, cx) => { setShared(SIGN_HINT, null); cx.notify(); }).child("✕")))
+      .child(copyOnRight(div().p(6).rounded(6).bg(t.background).font_family(mono()).text_size(z - 2).child(sh.cmd), sh.cmd))
+      .child(div().text_size(z - 2).text_color(t.muted).child("在終端機貼上：kit 會列出改了什麼、問你，簽好就推上去。那台 kit sync 後就會用到（root 要站長同意）。在 Claude 裡用 ! 跑沒辦法問你，要自己加 --yes。"));
   }
 
   // ---------- the repository ----------
@@ -572,7 +605,7 @@ export class Repo {
       lines.push(note(`${lk.id} 還不在 ${lk.source} 的允許清單（kit.yaml 的 collect_sources）。按下去會一起加進清單，之後這個作者的東西就能收。`, t.working)); }
     else if (!lk.allowed) { block = block ?? "不在允許清單";
       lines.push(note(`${lk.id} 不在 ${lk.source} 的允許清單。這是團隊的倉，要請維護者把它加進 kit.yaml 的 collect_sources 才能收。`, t.ansi1)); }
-    if (!multi) lines.push(note("收進來後：用 git diff 看收了哪些檔案 → 清單上面黃色那條按「送出」送上去 → 要用它就在 agent 視窗上的 Kit 清單按「加到這個資料夾」（在家目錄開的 agent 是「加到整個帳號」）。"));
+    if (!multi && !block) lines.push(...this.afterNotes(t, z, lk));
     const act = block ? div().flex_none().text_size(z - 2).text_color(t.ansi1).child(`不能收：${block}`)
       : multi ? div().flex_none().text_size(z - 2).text_color(m.sel.includes(i) ? t.foreground : t.dim).child(m.sel.includes(i) ? "✓ 勾了" : "沒勾")
       : btn(t, z, "collect", this.busy === "收" ? "收進來中…" : label, { small: true, kind: "primary", off: Boolean(this.busy), on: (cx) => this.collect(x, allow, cx) });
@@ -597,7 +630,7 @@ export class Repo {
     if (again) all.child(note(`其中 ${again} 個之前收過：會整份換成這次下載的版本。`, t.working));
     if (allow) all.child(note(`${lk.id} 會一起加進 ${lk.source} 的允許清單。`, t.working));
     all.child(note("會一個一個收（每個都重新下載一次，大的 repo 要等一下）；不能收的會跳過，最後列出來。收好一個就出現在 Skills 清單「收來的」底下（照網址分一組），不用等全部收完。"));
-    all.child(note("收進來後：用 git diff 看收了哪些檔案 → 清單上面黃色那條按「送出」送上去 → 要用哪個，就在 agent 視窗上的 Kit 清單按「加到這個資料夾」。"));
+    all.children(this.afterNotes(t, z, lk));
     all.child(h_flex().gap(6).items_center()
       .child(btn(t, z, "collect-many", this.busy === "收" ? "收進來中…" : `${allow ? "加進清單並收進來" : "收進來"}（${picked.length} 個）`,
         { small: true, kind: "primary", off: Boolean(this.busy) || !picked.length, on: (cx) => this.collectMany(picked, allow, cx) })));
@@ -736,25 +769,25 @@ export class Repo {
     });
   }
 
-  // 收進來: kit collect at the commit just looked at's URL, the folder picked, --allow when it was offered; then open it
-  collect(x, allow, cx) {
-    const m = this.making, lk = m?.look;
-    if (!lk) return;
-    if (!this.startBusy("收", LONG)) return;
-    cx.notify();
-    cx.spawn(async (cx) => {
-      try {
-        const r = await kit(["collect", lk.url, "--to", lk.source, "--path", x.path, ...(allow ? ["--allow"] : [])], LONG);
-        if (r.code !== 0) { this.setMsg({ ok: false, label: "收進來", text: clean(r.err || r.out), at: Date.now() }); return; }
-        this.making = null;
-        this.newUrl.set_value("");
-        this.setMsg({ ok: true, label: "收進來", text: clean([r.out, r.err].filter(Boolean).join("\n")), at: Date.now() });
-        const d = await loadNewest(LOAD, DATA, loadRepo);
-        const it = (d.items ?? []).find((i) => i.kind === "skill" && i.name === x.name);
-        if (it) await this.openItem(it, cx);
-      } finally { this.endBusy(); cx.notify(); }
-    });
+  // what happens after 收進來, under its button: your own source is sent right away (unless it has other changes) and
+  // 加到整個帳號 (ticked: kept on this computer); a team source goes through 送出 (a PR)
+  afterNotes(t, z, lk) {
+    const note = (s, c = t.muted) => div().text_size(z - 1.5).text_color(c).child(s);
+    if (lk.push !== "direct") return [note("收進來後：用 git diff 看收了哪些檔案 → 清單上面黃色那條按「送出」開 PR → 合併、kit sync 後，在 agent 視窗上的 Kit 清單加到要用的地方。")];
+    const other = (this.data?.dirty ?? []).some((y) => y.name === lk.source), on = addAfter();
+    return [
+      note(other ? `${lk.source} 還有別的改動沒送：收好不會自動送出，請按清單上面黃色那條的「送出」一起看。`
+        : `收好就直接送出（${lk.source} 是你自己的倉，剛才「下載看看」已經看過要收什麼）。`, other ? t.working : t.muted),
+      h_flex().id("collect-add").gap(6).items_center().cursor_pointer().text_size(z - 1.5).on_mouse_down("left", stop)
+        .on_click((_e, cx) => { localSet("kit.collect.add", on ? "0" : "1"); cx.notify(); })
+        .child(div().flex_none().size(14).rounded(3).border_1().border_color(on ? t.accent : t.border).bg(on ? t.accent : t.background)
+          .flex().items_center().justify_center().text_size(10).text_color(t.background).child(on ? "✓" : ""))
+        .child(div().text_color(t.foreground).child("收好後加到整個帳號（每個 agent 都讀得到；不勾就自己到 agent 視窗的 Kit 清單加）")),
+    ];
   }
+
+  // 收進來 (one): the same as several
+  collect(x, allow, cx) { this.collectMany([x], allow, cx); }
 
   // 收進來（N 個）: kit collect for each ticked one, one after another (kit writes the lock each time), the same URL and
   // --allow as one; what wasn't collected is listed with kit's reason; then the list, its group open
@@ -762,8 +795,12 @@ export class Repo {
     const m = this.making, lk = m?.look;
     if (!lk || !picked.length) return;
     if (!this.startBusy("收", LONG + SHORT * picked.length)) return;
+    // your own source (push: direct): sent right after (you looked at it in 下載看看) unless it has other changes not
+    // sent yet (those go through 送出, where you see them), and added to the whole account if 加到整個帳號 is ticked
+    const own = lk.push === "direct", other = (this.data?.dirty ?? []).some((y) => y.name === lk.source);
     setShared(COLLECT, { url: lk.url, id: lk.id, source: lk.source, allow: Boolean(allow), todo: picked.map((x) => ({ name: x.name, path: x.path })),
-      total: picked.length, ok: [], bad: [], build: BUILD });
+      total: picked.length, ok: [], bad: [], build: BUILD, push: lk.push ?? null, send: own && !other, other: own && other, add: own && addAfter() });
+    setShared(SIGN_HINT, null);
     // its group open from the start: each one collected shows in the list right away, not only when all are done
     // (a long run that showed nothing new for minutes read as failed)
     const g = urlId(lk.url);
@@ -783,10 +820,11 @@ export class Repo {
     this.runCollect(cx);
   }
 
-  // one kit collect after another off the shared list, which is written after each; the message once all were tried
+  // one kit collect after another off the shared list, which is written after each; then (all tried, some collected)
+  // what comes after (afterCollect: send, add); the message once all that is done
   runCollect(cx) {
     cx.spawn(async (cx) => {
-      let j = shared(COLLECT);
+      let j = shared(COLLECT), after = [];
       try {
         while (j?.todo?.length) {
           const x = j.todo[0];
@@ -799,11 +837,12 @@ export class Repo {
           if (ok) loadNewest(LOAD, DATA, loadRepo).then(() => cx.notify(), () => {});   // not waited for: the next one starts now
           cx.notify();
         }
+        if (j && !j.todo?.length && j.ok.length) after = await this.afterCollect(j, cx);
       } finally {
         if (j && !j.todo?.length) {
           const { ok, bad } = j;
           const text = [ok.length ? `收了 ${ok.length} 個（${j.id}）：${ok.join("、")}` : "", bad.length ? `${bad.length} 個沒收：\n${bad.join("\n")}` : "",
-            ok.length ? "下一步：用 git diff 看收了哪些檔案 → 清單上面黃色那條按「送出」送上去。" : ""].filter(Boolean).join("\n\n");
+            ...after].filter(Boolean).join("\n\n");
           this.setMsg({ ok: ok.length > 0, label: "收進來", text: text || "什麼都沒收", at: Date.now() });
           setShared(COLLECT, null);
           if (ok.length && this.making?.look) { this.making = null; this.newUrl?.set_value(""); }
@@ -815,9 +854,38 @@ export class Repo {
     });
   }
 
+  // after 收進來: send your own source (kit push: it was looked at in 下載看看), add what was collected to the whole account
+  // (kit add skill a b c, kit api 1.8; an older kit one at a time); a source this computer signs for: the sign card.
+  // -> the message's lines
+  async afterCollect(j, cx) {
+    const lines = [], step = (what) => { setShared(COLLECT, { ...shared(COLLECT), after: what }); cx.notify(); };
+    let sent = false;
+    if (j.send) {
+      step(`送出 ${j.source}（kit check、commit、推上去）`);
+      const r = await pushJson(j.source, false, LONG).catch((e) => ({ sent: false, text: String(e?.message ?? e) }));
+      sent = r.sent;
+      lines.push(sent ? `已送出：${j.source} 推上去了。` : `送出 ${j.source} 沒成功（收的檔案還在）：\n${r.text}\n改好再按清單上面黃色那條的「送出」。`);
+    } else if (j.other) lines.push(`沒有自動送出：${j.source} 還有別的改動沒送。按清單上面黃色那條的「送出」，一起看過再送。`);
+    else lines.push("下一步：用 git diff 看收了哪些檔案 → 清單上面黃色那條按「送出」送上去（團隊的倉會開 PR，合併、kit sync 後才回到這裡）。");
+    if (j.add) {
+      step("加到整個帳號");
+      const bad = [];
+      if (apiAtLeast(null, 8)) { const r = await kit(["add", "skill", ...j.ok], LONG); if (r.code !== 0) bad.push(clean(r.err || r.out).trim()); }
+      else for (const n of j.ok) { const r = await kit(["add", "skill", n], SHORT); if (r.code !== 0) bad.push(`${n}：${clean(r.err || r.out).trim().split("\n").pop()}`); }
+      lines.push(bad.length ? `加到整個帳號沒有全部成功：\n${bad.join("\n")}` : "已加到整個帳號：agent 下次開（或 kit sync 之後）就讀得到。");
+    }
+    if (sent) {
+      const d = await loadNewest(LOAD, DATA, loadRepo).catch(() => null), cmd = signHint(d ?? this.data, j.source);
+      if (cmd) setShared(SIGN_HINT, { source: j.source, cmd, at: Date.now() });
+    }
+    this.changed();
+    return lines;
+  }
+
   // how far 收進來（N 個） is: a bar that fills, and the names
   collectProgress(t, z) {
     const j = shared(COLLECT), done = j.total - j.todo.length, next = j.todo[0]?.name;
+    if (!next && j.after) return this.working(t, z, `收完了 ${done}/${j.total}，${j.after}…`, done, j.total);
     const more = j.ok.length ? `（已收好 ${j.ok.length} 個，在下面清單${j.bad.length ? `；${j.bad.length} 個沒收` : ""}）` : j.bad.length ? `（${j.bad.length} 個沒收）` : "";
     return this.working(t, z, next ? `收進來中 ${done}/${j.total}：${next}${more}` : `收完了 ${done}/${j.total}${more}`, done, j.total);
   }

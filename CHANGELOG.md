@@ -9,6 +9,20 @@ says which) · **kit** = update kit itself on every machine where agents run (`k
 **snap hook** = a line in Claude Code's `settings.json` on each machine where you added the hook (the entry says
 which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/keys.md).
 
+## 2026-11-15, Kit: collecting skills takes fewer steps; 關係 finds root's service, 等你簽 opens 各機器, more room
+
+Needs: **mods**; **kit** 0.6.8 for one download per repo, adding all at once, the sign card, root's service found, 已簽.
+
+- 收進來 into your own source (push: direct): sent right away (you looked in 下載看看), and 收好後加到整個帳號 (ticked
+  by default) runs kit add for all of them. A source with other unsent changes is not sent (said why). A source this
+  computer signs: a card with 複製指令 (`kit approve <dir> --push`), copied only.
+- 關係: 等站長同意 finds an agent run with sudo (root's service) by the terminal's own process above it (kit 0.6.8's
+  `up`); 等你簽 opens the Kit panel's 各機器 tab; one this computer already signed is grey, 已簽（serial N）, waiting for
+  that account's sync.
+- 關係: the room a wide panel (放大) has left goes between the cards, not all at one end.
+- 問你: "tell me when it has happened" (機器到了跟我說) is not a question.
+收自己倉的 skill：收好直接送出、可勾「加到整個帳號」、要簽章時給一鍵複製指令。關係圖：root 服務點得到、等你簽打開各機器、放大後不擠、「到了跟我說」不算在問你。
+
 ## 2026-11-15, Kit 送出: nothing to send is one line, not a box
 
 Needs: **mods**.

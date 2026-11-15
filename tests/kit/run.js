@@ -525,6 +525,12 @@ test("關係: lines leave the facing side, loop out on the right in one column, 
   const cross = curveOf(mid.at.m, mid.at.z);
   assert.ok(cross.via, "between bands: around");
   assert.equal(layoutOf(cols3, 0).heads.length, 3);
+  // a wide panel (the 放大 window): the room left goes into the gaps, not one end; never past GAP_MAX; still fits
+  const wide = layoutOf(cols3, 1800), { GAP_X: GX, GAP_MAX } = M.graph;
+  assert.ok(wide.gx > GX && wide.gx <= GAP_MAX && wide.w <= 1800, `wide gaps ${wide.gx} ${wide.w}`);
+  assert.equal(wide.at.z.x - wide.at.m.x, wide.cw + wide.gx);
+  assert.ok(wide.at.b.y - wide.at.a.y > NODE_H + 24, "rows apart too");
+  assert.equal(layoutOf(cols3, 900).gx >= GX, true);
   const [tip, l, r] = arrowOf([0, 0], [10, 0]);
   assert.deepEqual(tip, [10, 0]);
   assert.ok(l[0] < 10 && r[0] < 10 && l[1] * r[1] < 0, "behind the tip, one on each side");
@@ -824,6 +830,31 @@ test("關係: 等站長同意 finds its agent by the pid kit pending keeps (hc g
   const out = render(v);
   assert.match(out, /等站長同意：升 kit（srv\/t1p · srv，等了 51 分）/);
   assert.match(out, /等站長同意 51 分/, "on its card");
+  // run with sudo (root's service): its claude isn't the terminal's program, but the terminal's shell is above it (up)
+  fresh(); fakeKit();
+  H.spaces = [{ id: "s1", name: "web", active: true, tabs: [] }];
+  H.agents = agents; H.terminals = terms.map((x) => ({ ...x, cwd: "/home/u/q" }));
+  H.store["kit.machines.v1"] = { done: true, at: Date.now(), rows: [{ key: "m:srv", machine: "srv", state: "ok",
+    pending: [{ kind: "owner", id: "r", what: "要你同意：root 升 kit", since: Date.now() - 5 * MIN, machine: "q", dir: "/root", pid: 9001, up: [9001, 9000, 555, 1] }] }] };
+  H.hcAnswer = (a) => (a[0] === "get" ? { code: 0, stdout: JSON.stringify({ pid: a[1] === "srv/t1p" ? 555 : 77 }), stderr: "" } : null);
+  const v2 = view(M, { role: "agents" }); await settle(); await tick(); await settle();
+  assert.match(render(v2), /等站長同意：root 升 kit（srv\/t1p · srv，等了 5 分）/, "found by the terminal's own process above it");
+});
+test("關係: 等你簽 opens the Kit panel's 各機器; one this computer already signed says it waits for that account's sync", (M) => {
+  const { alertsView } = M.graph, { signedHere } = M.agents;
+  const sign = { approvals: "/a", serial: 19, approved: [{ name: "lib", commit: "c".repeat(40) }] };
+  assert.equal(signedHere({ kind: "sign", name: "lib", head: "c".repeat(40) }, sign), 19);
+  assert.equal(signedHere({ kind: "sign", name: "lib", head: "d".repeat(40) }, sign), null);
+  assert.equal(signedHere({ kind: "sign", name: "lib", head: "c".repeat(40) }, null), null, "an older kit (no sign): as before");
+  const th = { raised: "#101010", border: "#303030", dim: "#505050", foreground: "#eeeeee", blocked: "#ff8800", ansi1: "#ff0000", hover: "#121212", done: "#3366ff" };
+  const g = M.graph.graphData({ agents: [], terms: [], space: null, now: Date.now() });
+  let opened = null;
+  H.texts = []; H.strings = []; H.clicks = {};
+  alertsView(th, 13, g, Date.now(), null, { pending: [{ kind: "sign", name: "lib", what: "lib 有 1 個新 commit 等核准", where: "srv root", since: Date.now() - 60000 },
+    { kind: "sign", name: "home", where: "srv root", signed: 20 }], onPanel: (p) => { opened = p; } });
+  const said = [...H.texts, ...H.strings].join("\n");
+  assert.match(said, /等你簽：lib 有 1 個新 commit 等核准（srv root/); assert.match(said, /已簽（serial 20）：home，等 srv root 同步/);
+  H.clicks["kit-graph-alert-pending-0"]({}, cx); assert.equal(opened, "machines");
 });
 test("關係: a Claude stopped at its usage limit (kit context's limit, api 1.7): until when; reset and not yet 繼續 is yours; 已自動繼續", (M) => {
   const { graphData, cardState, alertsView } = M.graph;
@@ -948,6 +979,8 @@ test("關係: an agent done and not looked at says what it said when it stopped 
   assert.deepEqual(["要推的話跟我說。", "要更新就回我「更新」。", "這樣可以嗎", "要不要先跑測試", "做好了。", "測試都過了，已推上去。"].map(asks), [true, true, true, true, false, false]);
   assert.deepEqual(["顏色和 skill 那兩件，之後想改再跟我說。", "有需要隨時告訴我。", "有問題再回我", "做好了。之後想改再跟我說。要推嗎？", "這樣可以嗎。之後再說。"].map(asks),
     [false, false, false, true, true], "a closing offer (later, any time, 再…) is not a question; a sentence that asks still is");
+  assert.deepEqual(["接下來就是等機器到貨。到了跟我說，我帶你做開箱。", "你那邊裝好跟我說", "機器到了嗎？"].map(asks), [false, false, true],
+    "tell me when it has happened: nothing to answer now");
   const gf = graphData({ agents: [ag("t3", "done", { focused: true }), ag("t4", "done")], terms: [{ address: "t3", status_ms: now - 2 * MIN }, { address: "t4", status_ms: now - 2 * MIN }],
     said: { t3: { at: now - 2 * MIN, text: "三個提交都還在本機，要推的話跟我說。" }, t4: { at: now - 2 * MIN, text: "做好了，測試都過。" } }, space: null, now });
   const sf = (a) => cardState(gf, gf.nodes.find((n) => n.address === a), now);
@@ -1679,6 +1712,50 @@ test("收進來（N 個）: several skills ticked (every one that can be, at fir
   assert.equal(v.part.making, null, "the box closes once something was collected");
   assert.deepEqual(JSON.parse(localStorage.getItem("kit.groups")), ["a/r"], "its group open in the list");
 });
+test("收進來, your own source (push: direct): sent right after, added to the whole account (ticked), the sign card when this computer signs it; other changes there: not sent", async (M) => {
+  const sk = (name) => ({ name, path: `skills/${name}`, description: name, license: "MIT", scripts: "", skipped: 0, valid: true, exists: "", dest: `/s/mine/skills/${name}/SKILL.md` });
+  const look = { url: "https://github.com/a/r", source: "mine", push: "direct", id: "github.com/a/r", allowed: true, can_allow: false, skills: [sk("tdd"), sk("grill")] };
+  const list = (changed) => ({ ...TEAM_LIST, sources: [{ name: "mine", source: "/s/mine", dir: "/s/mine", push: "direct", changed }],
+    sign: { approvals: "/s/appr", serial: 19, approved: [{ name: "mine", commit: "c".repeat(40) }] } });
+  const go = async (changed) => {
+    fresh(); fakeKit({ api: "1.8", list: list(changed), push: () => ({ code: 0, stdout: `${JSON.stringify({ source: "mine", push: "direct", files: ["skills/tdd/SKILL.md"], sent: true })}\n`, stderr: "kit：已送出\n" }) });
+    const base = H.answer;
+    H.answer = (argv) => { const a = argv[0] === "sh" ? argv.slice(4) : argv.slice(1);
+      return a[0] === "collect" ? (a.includes("--look") ? { code: 0, stdout: `${JSON.stringify(look)}\n`, stderr: "" } : { code: 0, stdout: "", stderr: "kit：已收\n" }) : base(argv); };
+    const v = view(M, { role: "repo" }); await settle(); await tick();
+    render(v); H.clicks.new({}, cx); render(v); H.clicks["mode-collect"]({}, cx);
+    v.part.newUrl.set_value("https://github.com/a/r");
+    render(v); H.clicks.look({}, cx); await settle();
+    return v;
+  };
+  let v = await go([]);
+  let shown = render(v);
+  assert.match(shown, /收好就直接送出（mine 是你自己的倉/); assert.match(shown, /收好後加到整個帳號/);
+  H.clicks["collect-many"]({}, cx); await settle(); await settle();
+  const args = (sub) => kitCalls(sub).map((c) => c.argv.slice(c.argv[0] === "sh" ? 4 : 1));
+  assert.deepEqual(args("push"), [["push", "--to", "mine", "--json"]], "sent once, no dry run (looked at in 下載看看)");
+  assert.deepEqual(args("add"), [["add", "skill", "tdd", "grill"]], "added in one go (kit api 1.8)");
+  shown = render(v);
+  assert.match(shown, /收了 2 個/); assert.match(shown, /已送出：mine 推上去了/); assert.match(shown, /已加到整個帳號/);
+  assert.match(shown, /請簽 mine/); assert.match(shown, /kit approve \/s\/mine --push/);
+  render(v); H.clicks["sign-copy"]({}, cx); assert.deepEqual(H.clipboard, ["kit approve /s/mine --push"], "copied, nothing run");
+  assert.equal(kitCalls("approve").length, 0);
+  render(v); H.clicks["sign-close"]({}, cx); assert.doesNotMatch(render(v), /請簽 mine/);
+  // unticked: not added (kept on this computer); other changes in the source: collected, not sent
+  v = await go(["rules/x.md"]);
+  render(v); H.clicks["collect-add"]({}, cx);
+  assert.equal(localStorage.getItem("kit.collect.add"), "0");
+  shown = render(v); assert.match(shown, /還有別的改動沒送：收好不會自動送出/);
+  H.clicks["collect-many"]({}, cx); await settle(); await settle();
+  assert.deepEqual([args("push"), args("add")], [[], []]);
+  assert.match(render(v), /沒有自動送出：mine 還有別的改動沒送/);
+  localStorage.removeItem("kit.collect.add");
+  // the command to sign: only for a source this computer signs (kit list's sign names it); a folder with a space quoted
+  const { signHint } = M.repo;
+  assert.equal(signHint({ sign: { approved: [{ name: "a" }] }, sources: [{ name: "a", dir: "/x/my src" }] }, "a"), "kit approve '/x/my src' --push");
+  assert.equal(signHint({ sign: { approved: [{ name: "b" }] }, sources: [{ name: "a", dir: "/x" }] }, "a"), null);
+  assert.equal(signHint({ sources: [{ name: "a", dir: "/x" }] }, "a"), null, "an older kit: no sign");
+});
 test("收進來（N 個）: a run the mod's reload (or a restart) stopped goes on with what is left, the one in flight last; one message at the end", async (M) => {
   fresh(); fakeKit({ list: TEAM_LIST });
   const base = H.answer;
@@ -2324,10 +2401,10 @@ machinesTest("各機器: plain values — api and kit versions compared, kit sta
   // kit api 1.6's pending: each field checked; root's report too; 關係 says them, where they were read
   const pend = X.readStatus({ ...STATUS(), pending: [
     { kind: "sign", name: "agentkit", what: "agentkit 有 3 個新 commit 等核准", commits: 3, head: SHA("e"), since: 5e11, machine: "srv", run: "x" },
-    { kind: "owner", id: "deploy", what: "要你同意：要上線 web", since: "soon", machine: "srv", pid: 9 }, { kind: "sign" }, "x"] }).pending;
+    { kind: "owner", id: "deploy", what: "要你同意：要上線 web", since: "soon", machine: "srv", pid: 9, up: [9, 7, "x", 1, 3] }, { kind: "sign" }, "x"] }).pending;
   assert.deepEqual(pend, [
-    { kind: "sign", what: "agentkit 有 3 個新 commit 等核准", name: "agentkit", commits: 3, since: 5e11, machine: "srv", id: null, dir: null, pid: null },
-    { kind: "owner", what: "要你同意：要上線 web", name: null, commits: null, since: null, machine: "srv", id: "deploy", dir: null, pid: 9 }]);
+    { kind: "sign", what: "agentkit 有 3 個新 commit 等核准", name: "agentkit", commits: 3, since: 5e11, machine: "srv", id: null, dir: null, pid: null, up: [], head: SHA("e") },
+    { kind: "owner", what: "要你同意：要上線 web", name: null, commits: null, since: null, machine: "srv", id: "deploy", dir: null, pid: 9, up: [9, 7, 3], head: null }]);
   const rows = [{ here: true, state: "ok", pending: [] }, { reported: true, label: "srv root", state: "ok", pending: pend }, { machine: "x", state: "down", pending: pend }];
   const pr = X.pendingRows(rows);
   assert.deepEqual(pr.map((p) => p.where), ["srv root", "srv root"], "only rows that answered");

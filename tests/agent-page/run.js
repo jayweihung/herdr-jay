@@ -25,7 +25,7 @@ const el = new Proxy(function () {}, {
   apply: () => el,
 });
 globalThis.__stubs = {
-  View: class {}, div: () => el, v_flex: () => el, h_flex: () => el,
+  View: class {}, div: () => el, v_flex: () => el, h_flex: () => el, TextView: { html: (_id, h) => { H.strings.push(h.replace(/<[^>]*>/g, "").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&")); return el; } },
   theme: () => new Proxy({}, { get: (_t, k) => (k === "then" ? undefined : "#334455") }),
   settings: () => ({ ui_font_size: 13 }), appHome: () => H.home,
   props: () => H.props, panes: () => H.panes, run: (name, args) => { H.runs.push([name, args]); },

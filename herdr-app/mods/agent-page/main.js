@@ -14,7 +14,7 @@
 // Opening it again for the same dir while one is open closes the new copy (props.pane is the copy's own pane,
 // shared "agent-page/<dir>" the one that's open). Either way the keyboard goes back to the agent's pane.
 import { View, div } from "gpui-kit";
-import { v_flex, h_flex } from "gpui-base";
+import { v_flex, h_flex, TextView } from "gpui-base";
 import { appHome, exec, hc, nextWebEvent, panes, props, run, settings, setShared, shared, theme, watchFolder, web, webCall, window } from "herdr";
 import * as fs from "fs/promises";
 
@@ -43,6 +43,9 @@ const day = (d) => {
   return isNaN(x) ? null : new Date(x.getFullYear(), x.getMonth(), x.getDate());
 };
 const text = (x) => (typeof x === "string" ? x : String(x?.text ?? ""));
+// Text the person can select and copy (cmd+C).
+const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+const sel = (id, s) => TextView.html(id, `<span>${esc(s)}</span>`).selectable(true);
 const list = (x) => (Array.isArray(x) ? x.filter((i) => text(i)) : []);
 const ago = (iso, now) => {
   const m = Math.round((now - new Date(iso)) / 60000);
@@ -238,23 +241,23 @@ export default class AgentPage extends View {
         `還沒有進度。agent 把做完的、正在做的、還沒做的寫進 ${where}，就會顯示在這裡（docs/agent-page.md）。`));
     }
     box.child(h_flex().gap(8).items_center()
-      .child(div().flex_1().min_w(0).truncate().font_semibold().child(text(s.title) || "進度"))
+      .child(div().flex_1().min_w(0).font_semibold().child(sel("ap-title", text(s.title) || "進度")))
       .when(Boolean(this.remote), (el) => el.child(div().flex_none().text_size(z - 2).text_color(t.dim).child(`在 ${this.remote.machine}`)))
       .when(Boolean(s.updated), (el) => el.child(div().flex_none().text_size(z - 2).text_color(t.dim).child(`更新 ${ago(s.updated, now)}`))));
     const waiting = list(s.waiting);
     if (waiting.length) {
       const w = v_flex().gap(6).p(10).rounded(8).border_1().border_color(t.blocked)
         .child(div().font_semibold().text_color(t.blocked).child(`等你（${waiting.length}）`));
-      for (const i of waiting) {
+      waiting.forEach((i, n) => {
         w.child(v_flex().gap(2)
-          .child(div().whitespace_normal().child(text(i)))
+          .child(div().child(sel(`ap-wait-${n}`, text(i))))
           .when(Boolean(i?.cmd), (el) => el.child(div().px(6).py(3).rounded(4).bg(t.raised).text_size(z - 1)
-            .font_family("Menlo").whitespace_normal().child(String(i.cmd)))));
-      }
+            .font_family("Menlo").child(sel(`ap-cmd-${n}`, String(i.cmd))))));
+      });
       box.child(w);
     }
-    box.child(this.section(t, z, "正在做", list(s.doing), t.accent));
-    box.child(this.section(t, z, "還沒做", list(s.todo), t.muted));
+    box.child(this.section(t, z, "正在做", list(s.doing), t.accent, "doing"));
+    box.child(this.section(t, z, "還沒做", list(s.todo), t.muted, "todo"));
     // Done: newest day first, the last DAYS days.
     const today = day(now), from = new Date(today.getFullYear(), today.getMonth(), today.getDate() - (DAYS - 1));
     const done = list(s.done), byDay = new Map();
@@ -271,25 +274,25 @@ export default class AgentPage extends View {
     for (const k of [...byDay.keys()].sort((a, b) => b - a)) {
       const g = byDay.get(k);
       d.child(div().pt(2).text_size(z - 1).text_color(t.dim).child(g.label));
-      for (const i of g.items) d.child(this.item(t, z, i, t.done, "✓"));
+      g.items.forEach((i, n) => d.child(this.item(t, z, i, t.done, "✓", `done-${k}-${n}`)));
     }
     if (older) d.child(div().text_size(z - 1).text_color(t.dim).child(`更早的還有 ${older} 項（沒列出）`));
     box.child(d);
     return box;
   }
 
-  section(t, z, label, items, color) {
+  section(t, z, label, items, color, key) {
     const v = v_flex().gap(6).child(div().font_semibold().child(`${label}${items.length ? `（${items.length}）` : ""}`));
     if (!items.length) return v.child(div().text_color(t.dim).child("沒有"));
-    for (const i of items) v.child(this.item(t, z, i, color, "•"));
+    items.forEach((i, n) => v.child(this.item(t, z, i, color, "•", `${key}-${n}`)));
     return v;
   }
 
   // One line: a mark, the text, and its project (if the agent named one).
-  item(t, z, i, color, mark) {
+  item(t, z, i, color, mark, key) {
     return h_flex().gap(8).items_start()
       .child(div().flex_none().w(12).text_color(color).child(mark))
-      .child(div().flex_1().min_w(0).whitespace_normal().child(text(i)))
+      .child(div().flex_1().min_w(0).child(sel(`ap-${key}`, text(i))))
       .when(Boolean(i?.project), (el) => el.child(div().flex_none().px(5).rounded(4).bg(t.raised).text_size(z - 2).text_color(t.muted).child(String(i.project))));
   }
 

@@ -186,6 +186,8 @@ the mod doesn't know shows a card 「不認得的 role」 naming it: check the s
 
 按鈕上的字：`…` 還在讀；`出錯了` 點開看原因；`沒有 kit`、`kit 太舊`、`mod 太舊`（紅色）看上面「需要什麼」的表，點開也會寫怎麼辦。
 
+**說明頁按鈕**：標題列右邊（分割、放大、關閉的左邊）多一個頁面圖示，裝了 agent-page mod、而且 agent 在這台電腦上才有：按了在這個 agent 右邊打開它的進度和說明頁，開著時圖示亮著，再按一下關掉。Agents 清單右鍵選單的「說明頁」也一樣（[agent-page.md](agent-page.md)）。
+
 Kit 按鈕右邊的 `[context 35% 139k/400k]` 是這個 agent 的 context 用了多少（`kit context`，滑鼠停上去有提示，70% 以上變黃、90% 以上變紅，最多寫 100%）。agent 在工作時每 15 秒問一次，閒置時每分鐘一次。問不到（kit 正忙、那台連不上）時，先留著上一次的數字；還沒問到時寫「讀取中」（一亮一暗，不寫 0%）。Claude 剛 /compact、/clear 完或剛開，到它下一次回話前狀態列都說 0，這時改問 Claude Code 自己（`kit context --detail`，同一格最多 10 分鐘問一次），顯示它算的數字，問不到數字時寫「—」。那台的 kit 不能用（上面的表）時不顯示這格。右鍵複製這些數字。
 
 **打開 context 視窗**：各部分用了多少要 kit 去問 Claude Code、再讀對話紀錄檔的尾巴，長的對話要幾秒。這段時間視窗先顯示已經知道的：

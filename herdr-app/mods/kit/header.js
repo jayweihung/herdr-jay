@@ -126,14 +126,36 @@ const LAST_DETAIL = new Map();
 // agent-files mod, when there is one) and Kit, said again every few minutes; a pick ("agents.menu.pick") is done by the
 // header of the agent's pane
 const MENU_AGAIN = 120000;
+// the agent-page mod, when there is one: its pane beside an agent on this computer (its 進度 and the pages the agent
+// wrote). Its folder name is the terminal's id, made safe the way agent-page's main.js does (keep the two the same).
+let pageMod = null;
+const hasMod = (mod) => readTextFile(`${appHome()}/mods/${mod}/main.js`).then((x) => x != null, () => false);
+function checkPage(cx) {
+  if (pageMod !== null || checkPage.busy) return;
+  checkPage.busy = true;
+  cx.spawn(async (cx) => { pageMod = await hasMod("agent-page"); checkPage.busy = false; cx.notify(); });
+}
+const pageDir = (term) => String(term ?? "").replace(/[^A-Za-z0-9._-]/g, "_").replace(/^\.+/, "") || "default";
+const pageOpen = (p) => {
+  const open = shared(`agent-page/${pageDir(p.terminal)}`);
+  return open && panes().some((x) => x.pane === open && x.mod === "agent-page") ? open : null;
+};
+const pageFor = (p) => pageMod && p.terminal && p.program?.agent && !placeOf(p).machine;
+function togglePage(p) {
+  const open = pageOpen(p);
+  if (open) run("pane.close", { pane: open });
+  else run("pane.split", { direction: "right", pane: p.pane, mod: "agent-page", props: { dir: pageDir(p.terminal), beside: p.pane } });
+}
 function offerMenu(cx) {
   const m = shared("agents.menu") ?? {};
   if (Date.now() - (m.kit?.at ?? 0) < MENU_AGAIN || offerMenu.busy) return;
   offerMenu.busy = true;
   cx.spawn(async () => {
     try {
-      const files = await readTextFile(`${appHome()}/mods/agent-files/main.js`).then((x) => x != null, () => false);
-      const items = [{ id: "context", label: "context 細項" }, ...(files ? [{ id: "files", label: "讀過、改過的檔案" }] : []), { id: "kit", label: "Kit：它用的規則、skill、MCP" }];
+      const files = await hasMod("agent-files");
+      pageMod = await hasMod("agent-page");
+      const items = [{ id: "context", label: "context 細項" }, ...(files ? [{ id: "files", label: "讀過、改過的檔案" }] : []),
+        ...(pageMod ? [{ id: "page", label: "說明頁：進度和它寫的頁面" }] : []), { id: "kit", label: "Kit：它用的規則、skill、MCP" }];
       setShared("agents.menu", { ...(shared("agents.menu") ?? {}), kit: { at: Date.now(), items } });
     } finally { offerMenu.busy = false; }
   });
@@ -166,6 +188,7 @@ export class Header {
   tick(cx) {
     const p = this.me();
     if (!p?.terminal || !p.program?.agent) return;
+    checkPage(cx);
     offerMenu(cx);
     const w = placeOf(p), api = apiKnown(w.machine);
     if (!api) { checkApi(w.machine, cx); return; }
@@ -287,6 +310,16 @@ export class Header {
       .on_click((_e, cx) => { cx.stop_propagation(); run(command, args); });
   }
 
+  // agent-page beside this agent: shown while it's open (in the accent color), else on hover like the others
+  pageButton(t, p, live) {
+    const on = Boolean(pageOpen(p));
+    const b = div().id(`kit-head-p-${p.pane}`).flex_none().p(3).rounded(4).text_color(on ? t.accent : t.dim)
+      .child(svg("mods/agent-page/icon.svg").size(14));
+    if (!live && !on) return b.invisible();
+    return b.tooltip(on ? "關掉說明頁" : "說明頁：進度和它寫的頁面").hover((s) => s.bg(t.hover).text_color(t.foreground))
+      .on_click((_e, cx) => { cx.stop_propagation(); togglePage(p); });
+  }
+
   // what the Kit chip says: kit there can't be used (none, too old, newer than this mod): which, in red (the popup says
   // what to do); else this agent's counts
   kitSummary(p) {
@@ -311,6 +344,7 @@ export class Header {
     if (k.id === "context") this.openContext(p);
     else if (k.id === "kit") this.openAgent(p);
     else if (k.id === "files") run("mod.open", { name: "agent-files" });
+    else if (k.id === "page" && pageFor(p) && !pageOpen(p)) togglePage(p);
   }
 
   kitButton(t, p) {
@@ -348,6 +382,7 @@ export class Header {
       .when(st === "done", (el) => el.child(div().size(7).flex_none().rounded(4).bg(t.done)));
     // split / zoom / close: always laid out (nothing moves; not over the chips, which a hover must reach), seen on hover
     const buttons = h_flex().flex_none().gap(2).items_center()
+      .when(pageFor(p), (el) => el.child(this.pageButton(t, p, live)))
       .child(this.button(t, `kit-head-r-${pane}`, "split-right", "pane.split", { direction: "right", pane }, live))
       .child(this.button(t, `kit-head-d-${pane}`, "split-down", "pane.split", { direction: "down", pane }, live))
       .child(this.button(t, `kit-head-z-${pane}`, p.zoomed ? "unzoom" : "zoom", "pane.zoom", { pane }, live))

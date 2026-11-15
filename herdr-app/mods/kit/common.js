@@ -323,6 +323,13 @@ export function readApi(r, machine = null) {
   return { ok: false, kind: "old", api, title: "kit 太舊",
     text: `${there}太舊：${api ? `kit api 是 ${api}，這個 mod 要 ${WANT} 以上` : "沒有 kit api"}（要 kit 0.3.0 以上）。\n${machine ? `在 ${machine} 的終端機` : "在終端機"}打  kit self-update，好了再按 ⟳。` };
 }
+// what a plugin has inside (kit list --json "parts", kit api 1.11): 裡面有：6 個 skill（a、b…）、hook; "" without it
+export function partsLine(p) {
+  if (!p) return "";
+  const many = (what, names) => (names?.length ? `${names.length} 個 ${what}（${names.join("、")}）` : "");
+  const bits = [many("skill", p.skills), many("指令", p.commands), many("agent", p.agents), many("MCP", p.mcp), p.hooks ? "hook" : ""].filter(Boolean);
+  return bits.length ? `裡面有：${bits.join("、")}` : "";
+}
 export function apiState(machine = null) { return (shared(API) ?? {})[machine ?? ""] ?? null; }
 // kit api there is known to be at least 1.<minor> (kit 0.5.0 is 1.3: kit place, kit new mcp --config); false when it is
 // older, or not known yet

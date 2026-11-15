@@ -207,6 +207,12 @@ test("這次用了: kit used's arguments, a row's count (a plugin: its skills to
   assert.equal(X.usedLine({ turn: 2, skills: [], mcp: [] }), "這次對話還沒用到 skill 或 MCP");
   assert.equal(X.usedLine(null), "");
 });
+test("a plugin's parts: one line, empty without them", ({ common: X }) => {
+  assert.equal(X.partsLine({ skills: ["pt", "pt-review"], commands: [], agents: [], mcp: [], hooks: true }), "裡面有：2 個 skill（pt、pt-review）、hook");
+  assert.equal(X.partsLine({ skills: [], commands: ["go"], agents: [], mcp: ["db"], hooks: false }), "裡面有：1 個 指令（go）、1 個 MCP（db）");
+  assert.equal(X.partsLine({ skills: [], commands: [], agents: [], mcp: [], hooks: false }), "");
+  assert.equal(X.partsLine(undefined), "");
+});
 test("context window: 拿掉 only what kit manages (folder: kit rm --dir; home: the account; required never)", ({ context: X }) => {
   const items = [{ kind: "skill", name: "a", status: "used" }, { kind: "rule", name: "sec", status: "required", path: "C:\\s\\rules\\sec.md" },
     { kind: "rule", name: "style", status: "used", path: "/s/rules/style.md" }, { kind: "mcp", name: "gerrit", status: "used" }, { kind: "skill", name: "b", status: "unused" }];
@@ -1466,6 +1472,29 @@ test("header: the Kit button opens the agent popup and the context chip the cont
     for (const m of s.matchAll(/openOverlay\(\{ mod: "([^"]+)"/g)) assert.equal(m[1], "kit", `${src}: openOverlay of ${m[1]}`);
     for (const m of s.matchAll(/role: "([a-z-]+)"/g)) assert.notEqual(M.main.roleOf({ role: m[1] }), "unknown", `${src}: role ${m[1]}`);
   }
+});
+test("header: the 說明頁 button (agent-page installed) opens agent-page right of an agent on this computer, again closes it; the menu offers it", async (M) => {
+  fresh(); fakeKit();
+  H.files = { "/Users/amy/.config/herdr-app/mods/agent-page/main.js": "x", "/Users/amy/.config/herdr-app/mods/agent-files/main.js": "x" };
+  H.spaces = [{ id: "s1", tabs: [{ id: "tab1" }] }];
+  H.panes = [{ pane: "p1", terminal: "t1", tab: "tab1", cwd: "/x", status: "idle", program: { agent: true, name: "Claude Code" }, app: "claude-code" }];
+  const v = view(M, { role: "header", pane: "p1", terminal: "t1" }); await settle(); await tick(); await settle();
+  assert.ok(H.store["agents.menu"].kit.items.some((i) => i.id === "page"), "in the Agents right-click menu");
+  v.part.hovered = true; render(v);
+  assert.ok(ids(v).includes("kit-head-p-p1"));
+  H.runs = [];
+  H.clicks["kit-head-p-p1"]({}, cx);
+  assert.deepEqual(H.runs.at(-1), ["pane.split", { direction: "right", pane: "p1", mod: "agent-page", props: { dir: "t1", beside: "p1" } }]);
+  H.store["agent-page/t1"] = "p9";
+  H.panes.push({ pane: "p9", terminal: null, mod: "agent-page", tab: "tab1" });
+  v.part.hovered = false; render(v);
+  H.clicks["kit-head-p-p1"]({}, cx);
+  assert.deepEqual(H.runs.at(-1), ["pane.close", { pane: "p9" }], "open: shown without hover, and closes it");
+  H.spaces = [{ id: "s2", machine: "box", tabs: [{ id: "tab2" }] }];
+  H.panes = [{ pane: "p2", terminal: "box/t3", tab: "tab2", cwd: "/h", status: "idle", program: { agent: true, name: "Codex" } }];
+  const w = view(M, { role: "header", pane: "p2", terminal: "box/t3" }); await settle();
+  w.part.hovered = true; render(w);
+  assert.ok(!ids(w).includes("kit-head-p-p2"), "not for an agent on another machine");
 });
 test("agent popup (and its old name pane): shows what the header's kit list said; kit there too old: the card, nothing run", async (M) => {
   fresh(); fakeKit();

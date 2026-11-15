@@ -14,7 +14,7 @@ import { theme, exec, run, layout, shared, setShared, window, readTextFile, writ
 import { DATA, LOAD, EDITORS, NODES, MSG, KIT_TAB, fs, mono, stop, slash, shortDir, clean, spin, waiting, find, textBlock, copyOnRight, btn,
   busyNow, dropStaleBusy, takeBusy, giveBusy, markChanged, kit, kitJson, apiState, apiKnown, apiAtLeast, checkApi, apiCard, messageBox, problemCard, versionCard,
   squeeze, newEditor, liveEditors, BUILD, PUSH_CHECK, checkProblems, checkLine, localGet, localSet, kitAction, loadNewest, loadingNow, isWindows, lockFrom, urlId, groupRows, collectedFrom,
-  OUTDATED, OUTDATED_TTL, outdatedFrom, outdatedOf, outdatedDone, outdatedLater, outdatedRemind, ALLOW_ASK, devFile, asksFrom, allowAdd, askDrop } from "./common.js";
+  OUTDATED, OUTDATED_TTL, outdatedFrom, outdatedOf, outdatedDone, outdatedLater, outdatedRemind, ALLOW_ASK, devFile, asksFrom, allowAdd, askDrop, partsLine } from "./common.js";
 export { lockFrom, urlId, groupRows };
 import { layoutNeeds, moveIntoBar } from "./layout.js";
 import { machinesTab, loadMachines, machinesDue, machinesLoading, agoText } from "./machines.js";
@@ -1049,7 +1049,8 @@ export class Repo {
           .when(Boolean(i.from) && outdatedOf(shared(OUTDATED), i) === "unreachable", (el) => el.child(badge("連不到", t.ansi1)))
           .when(i.status === "required", (el) => el.child(badge("團隊必備", t.accent))))
         .child(copyOnRight(div().min_w(0).truncate().text_size(z - 1.5).text_color(t.muted).child([from && i.from ? `收自 ${i.from}` : "", i.description_zh || i.description, i.src].filter(Boolean).join(" · ") || "（還沒寫說明）"),
-          i.description_zh || i.description || i.path)))
+          i.description_zh || i.description || i.path))
+        .when(Boolean(partsLine(i.parts)), (el) => el.child(div().text_size(z - 1.5).text_color(t.dim).child(partsLine(i.parts)))))
       .child(div().flex_none().text_color(t.dim).child("›"));
   }
 

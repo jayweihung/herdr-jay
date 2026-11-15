@@ -9,7 +9,7 @@ import { v_flex, h_flex, InputState, Input } from "gpui-base";
 import { theme, shared, setShared, closeOverlay, props } from "herdr";
 import { AGENT_CACHE, AGENT_DATA, AGENT_WANT, MSG, fs, mono, stop, shortDir, spin, waiting, icon, textBlock, copyOnRight, btn,
   busyNow, dropStaleBusy, giveBusy, apiState, checkApi, apiCard, messageBox, problemCard, versionCard, localGet, localSet,
-  kitAction, markChanged, squeeze, groupRows, kit, apiAtLeast } from "./common.js";
+  kitAction, markChanged, squeeze, groupRows, kit, apiAtLeast, partsLine } from "./common.js";
 import { POPUP_H, agentPid } from "./header.js";
 import { toolOf, usedArgs, usedOf, usedLine } from "./context.js";
 
@@ -281,7 +281,9 @@ export class AgentPopup {
     else if (!inDir) action.child(btn(t, z, `add-${i.kind}-${i.name}`, "加到整個帳號", { small: true, kind: "primary", off: busy, on: (cx) => this.rowAct(i, "used", `加到整個帳號 ${i.name}`, ["add", i.kind, i.name], cx, `已加到整個帳號：${i.name}。每個資料夾開新的對話都會讀到。`) }));
     const sub = [from && i.from ? `收自 ${i.from}` : "", i.description_zh || i.description, i.source].filter(Boolean).join(" · ");
     const row = h_flex().gap(8).items_center()
-      .child(this.descCol(t, z, `${i.kind}-${i.name}`, head, sub, i.description_zh || i.description || i.source || sub, i.description_zh ? i.description : "").flex_1())
+      .child(v_flex().flex_1().min_w(0).gap(1)
+        .child(this.descCol(t, z, `${i.kind}-${i.name}`, head, sub, i.description_zh || i.description || i.source || sub, i.description_zh ? i.description : ""))
+        .when(Boolean(partsLine(i.parts)), (el) => el.child(div().text_size(z - 1.5).text_color(t.dim).child(partsLine(i.parts)))))
       .child(action);
     // what is missing for it to run: programs (node, python ...), then its own npm packages
     const missing = (i.needs ?? []).filter((x) => !x.ok).map((x) => ({

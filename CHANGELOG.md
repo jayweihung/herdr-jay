@@ -13,8 +13,8 @@ which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/key
 
 Needs: **mods**; **kit** 0.6.8 for one download per repo, adding all at once, the sign card, root's service found, 已簽.
 
-- 收進來 into your own source (push: direct): sent right away (you looked in 下載看看), and 收好後加到整個帳號 (ticked
-  by default) runs kit add for all of them. A source with other unsent changes is not sent (said why). A source this
+- 收進來 into your own source (push: direct): sent right away (you looked in 下載看看), and 收好後加到整個帳號 (when
+  ticked) runs kit add for all of them. A source with other unsent changes is not sent (said why). A source this
   computer signs: a card with 複製指令 (`kit approve <dir> --push`), copied only.
 - 關係: 等站長同意 finds an agent run with sudo (root's service) by the terminal's own process above it (kit 0.6.8's
   `up`); 等你簽 opens the Kit panel's 各機器 tab; one this computer already signed is grey, 已簽（serial N）, waiting for
@@ -30,6 +30,8 @@ Needs: **mods**; **kit** 0.6.8 for one download per repo, adding all at once, th
   is a card in the Kit panel, and a 等你同意 line in 關係 (a click opens the panel). 放行並送出 lets that very content
   through (allow.txt; changed later, asked again) and sends; 不要 leaves it unsent. Agents can't write that folder
   (Claude: a deny rule; Codex: its sandbox).
+- 收進來: 收好後加到整個帳號 is off until you tick it (whether to use what you collect is yours to decide after
+  looking; ticked, it is remembered on this computer).
 - 怎麼省: no Skills line any more (it called skills unused without knowing); the tool-results
   line says to compact at a break (mid-task loses details) instead of asking the agent to read less.
 收自己倉的 skill：收好直接送出、可勾「加到整個帳號」、要簽章時給一鍵複製指令。關係圖：root 服務點得到、等你簽打開各機器、放大後不擠、「到了跟我說」不算在問你；agent 視窗按「加到…」後顯示加入中、✓ 已加到，不會像還能再按。收來的 skill 一天查一次原作者：標「有新版」「連不到」、一鍵收新版。「怎麼省」拿掉 Skills 那條、工具結果那條改成告一段落再壓縮。

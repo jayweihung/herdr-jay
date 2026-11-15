@@ -1751,6 +1751,8 @@ test("收進來, your own source (push: direct): sent right after, added to the 
   let v = await go([]);
   let shown = render(v);
   assert.match(shown, /收好就直接送出（mine 是你自己的倉/); assert.match(shown, /收好後加到整個帳號/);
+  H.clicks["collect-add"]({}, cx);
+  assert.equal(localStorage.getItem("kit.collect.add"), "1", "ticked: kept on this computer");
   H.clicks["collect-many"]({}, cx); await settle(); await settle();
   const args = (sub) => kitCalls(sub).map((c) => c.argv.slice(c.argv[0] === "sh" ? 4 : 1));
   assert.deepEqual(args("collect").filter((a) => !a.includes("--look")), [["collect", "https://github.com/a/r", "--to", "mine", "--path", "skills/tdd", "--ref", "dev"],
@@ -1763,10 +1765,9 @@ test("收進來, your own source (push: direct): sent right after, added to the 
   render(v); H.clicks["sign-copy"]({}, cx); assert.deepEqual(H.clipboard, ["kit approve /s/mine --push"], "copied, nothing run");
   assert.equal(kitCalls("approve").length, 0);
   render(v); H.clicks["sign-close"]({}, cx); assert.doesNotMatch(render(v), /請簽 mine/);
-  // unticked: not added (kept on this computer); other changes in the source: collected, not sent
+  // not ticked (the default): not added; other changes in the source: collected, not sent
+  localStorage.removeItem("kit.collect.add");
   v = await go(["rules/x.md"]);
-  render(v); H.clicks["collect-add"]({}, cx);
-  assert.equal(localStorage.getItem("kit.collect.add"), "0");
   shown = render(v); assert.match(shown, /還有別的改動沒送：收好不會自動送出/);
   H.clicks["collect-many"]({}, cx); await settle(); await settle();
   assert.deepEqual([args("push"), args("add")], [[], []]);

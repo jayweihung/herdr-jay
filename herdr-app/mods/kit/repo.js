@@ -28,7 +28,7 @@ const STALE = 60000, LOAD_TTL = 90000;
 const COLLECT = "kit.collecting";
 const SIGN_HINT = "kit.signHint";   // after 收進來 sent a source this computer signs for: { source, cmd, at }, until closed
 // 收進來 then 加到整個帳號 (own sources): ticked unless untick it once (kept on this computer)
-const addAfter = () => localGet("kit.collect.add") !== "0";
+const addAfter = () => localGet("kit.collect.add") === "1";   // off until ticked: whether to use it is decided after looking
 // the command to sign SOURCE (kit api 1.8 remembers the approvals repo and key), when this computer signs for it
 // (kit list --json's sign names it); else null
 export function signHint(d, source) {

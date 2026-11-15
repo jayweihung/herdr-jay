@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: jayweihung <3034830+jayweihung@users.noreply.github.com>
 Date: Sun, 15 Nov 2026 23:05:32 +0800
-Subject: [PATCH 12/22] feat: right-click an agent in the agents list for a
+Subject: [PATCH 12/24] feat: right-click an agent in the agents list for a
  menu: compact, clear, stop, continue, pin, close, and items other mods add
 
 ---

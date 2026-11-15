@@ -1,0 +1,31 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: jayweihung <3034830+jayweihung@users.noreply.github.com>
+Date: Mon, 16 Nov 2026 04:31:54 +0800
+Subject: [PATCH 24/24] fix: file pages of a linked mod load on macos
+ (canonical path, as the allow check uses)
+
+---
+ src/web/macos.rs | 10 ++++++++++
+ 1 file changed, 10 insertions(+)
+
+diff --git a/src/web/macos.rs b/src/web/macos.rs
+index 8e78d0b..dc97ce9 100644
+--- a/src/web/macos.rs
++++ b/src/web/macos.rs
+@@ -259,6 +259,16 @@ fn load_into(view: &WKWebView, url: &str, rules: &Rules) {
+     unsafe {
+         if url.starts_with("file:") {
+             if let Some(folder) = &rules.folder {
++                // The folder is canonical (a linked mod: where the link points), so the file must be too,
++                // or WebKit refuses to read it.
++                let real = url::Url::parse(url).ok().and_then(|mut x| {
++                    let path = std::fs::canonicalize(x.to_file_path().ok()?).ok()?;
++                    let fragment = x.fragment().map(str::to_owned);
++                    x = url::Url::from_file_path(path).ok()?;
++                    x.set_fragment(fragment.as_deref());
++                    NSURL::URLWithString(&NSString::from_str(x.as_str()))
++                });
++                let u = real.unwrap_or(u);
+                 view.loadFileURL_allowingReadAccessToURL(&u, &NSURL::fileURLWithPath(&NSString::from_str(&folder.to_string_lossy())));
+             }
+         } else {

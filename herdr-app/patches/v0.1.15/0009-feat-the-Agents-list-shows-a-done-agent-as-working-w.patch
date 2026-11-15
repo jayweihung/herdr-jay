@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: jayweihung <3034830+jayweihung@users.noreply.github.com>
 Date: Sat, 14 Nov 2026 19:27:21 +0800
-Subject: [PATCH 09/22] feat: the Agents list shows a done agent as working
+Subject: [PATCH 09/24] feat: the Agents list shows a done agent as working
  while another mod says its work goes on
 
 A mod that sees an agent's own work still running after its turn ended (a

@@ -9,6 +9,16 @@ says which) · **kit** = update kit itself on every machine where agents run (`k
 **snap hook** = a line in Claude Code's `settings.json` on each machine where you added the hook (the entry says
 which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/keys.md).
 
+## 2026-11-16, agent-page: an agent's HTML page beside it
+
+Needs: **app** (patches `0023`, `0024` for v0.1.15), **mods** (new `agent-page`: macOS `ln -s`, Windows copy;
+[docs/agent-page.md](docs/agent-page.md)).
+
+- An agent writes an HTML page (an explanation, a diagram) and shows it in a pane right of itself; a new page shows
+  by itself, ◀ ▶ go through earlier ones. Local files only. Opening it again doesn't add a second pane, and the
+  keyboard goes back to the agent. agent 寫的說明頁開在它右邊，寫新的就換過去。
+- App: a mod pane gets its own `pane` in `props`; a linked mod's `file://` pages load on macOS (they were blank).
+
 ## 2026-11-16, Herdr app: web pages in mods, zoom a panel, the Agents right-click menu
 
 Needs: **app** (patches `0012`…`0022` for v0.1.15; [docs/patches.md](docs/patches.md)).

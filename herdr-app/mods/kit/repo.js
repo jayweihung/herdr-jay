@@ -13,10 +13,11 @@ import { v_flex, h_flex, InputState, Input, Editor, TextareaState, Textarea } fr
 import { theme, exec, run, layout, shared, setShared, window, readTextFile, writeTextFile, closeOverlay, openOverlay, appHome, notify, props as blockProps } from "herdr";
 import { DATA, LOAD, EDITORS, NODES, MSG, KIT_TAB, fs, mono, stop, slash, shortDir, clean, spin, waiting, find, textBlock, copyOnRight, btn,
   busyNow, dropStaleBusy, takeBusy, giveBusy, markChanged, kit, kitJson, apiState, apiKnown, apiAtLeast, checkApi, apiCard, messageBox, problemCard, versionCard,
-  squeeze, newEditor, liveEditors, BUILD, PUSH_CHECK, checkProblems, checkLine, localGet, localSet, kitAction, loadNewest, loadingNow, isWindows, lockFrom, urlId, groupRows, collectedFrom } from "./common.js";
+  squeeze, newEditor, liveEditors, BUILD, PUSH_CHECK, checkProblems, checkLine, localGet, localSet, kitAction, loadNewest, loadingNow, isWindows, lockFrom, urlId, groupRows, collectedFrom,
+  OUTDATED, OUTDATED_TTL, outdatedFrom, outdatedOf, outdatedDone } from "./common.js";
 export { lockFrom, urlId, groupRows };
 import { layoutNeeds, moveIntoBar } from "./layout.js";
-import { machinesTab, loadMachines, machinesDue, machinesLoading } from "./machines.js";
+import { machinesTab, loadMachines, machinesDue, machinesLoading, agoText } from "./machines.js";
 
 const LONG = 600000, SHORT = 120000; // how long kit sync / push, and the other actions, may take
 const STALE = 60000, LOAD_TTL = 90000;
@@ -202,6 +203,8 @@ export class Repo {
     this.newUrl = InputState.new({ placeholder: "網址，例如 https://git.example.org/作者/repo" });
     this.newUrl.on("submit", (_e, cx) => this.look(cx));
     this.newUrl.on("change", (_e, cx) => { if (this.making?.look || this.making?.urlErr) { this.making.look = null; this.making.urlErr = null; cx.notify(); } });
+    // kit outdated's last answer, kept on this computer (asked again once a day)
+    if (!shared(OUTDATED)) { try { const o = JSON.parse(localGet("kit.outdated") || "null"); if (o?.skills) setShared(OUTDATED, o); } catch {} }
     // first whether kit is new enough (kit api); then load when there is nothing, it is a minute old, or someone
     // marked it out of date (at: 0)
     const due = () => !this.loading && (!this.data || this.data.at === 0 || Date.now() - (this.data.at ?? 0) > STALE);
@@ -216,6 +219,7 @@ export class Repo {
       if (a.ok && due() && !this.busy) this.refresh(cx);
       if (a.ok && shared(COLLECT) && !this.busy) this.resumeCollect(cx);
       if (a.ok && !this.busy && !shared(COLLECT) && !this.loading) this.checkPush(cx);
+      if (a.ok && !this.busy && !shared(COLLECT) && this.outdatedDue()) this.checkOutdated(cx);
       if (this.stage) cx.notify();   // its seconds
     };
     tick(cx);
@@ -474,7 +478,7 @@ export class Repo {
     const section = (text) => div().flex_none().px(8).pt(8).pb(2).text_size(z - 2).font_semibold().text_color(t.dim).child(text);
     if (theirs.length && groups[0].rows.length) body.child(section("自己寫的"));
     for (const i of groups[0].rows) body.child(this.repoRow(t, z, i));
-    if (theirs.length) body.child(section("收來的（照網址分）"));
+    if (theirs.length) body.child(this.theirsHead(t, z));
     for (const g of theirs) {
       if (g.rows.length === 1) { body.child(this.repoRow(t, z, g.rows[0], true)); continue; }
       const open = Boolean(f) || this.openGroups().includes(g.from);
@@ -809,6 +813,53 @@ export class Repo {
     this.runCollect(cx);
   }
 
+  // 收新版: kit collect <name> again for each collected skill whose author has a newer one (kit outdated), one source at
+  // a time (the first that has some); then as after 收進來 (your own source is sent right after when nothing else waits)
+  collectNew(cx) {
+    const o = shared(OUTDATED), rows = (this.data?.items ?? []).filter((i) => i.kind === "skill" && i.from && outdatedOf(o, i) === "new");
+    if (!rows.length) return;
+    const source = rows[0].src, picked = rows.filter((i) => i.src === source), s = (this.data?.sources ?? []).find((x) => x.name === source);
+    if (!this.startBusy("收", LONG + SHORT * picked.length)) return;
+    const own = s?.push === "direct", other = (this.data?.dirty ?? []).some((y) => y.name === source);
+    setShared(COLLECT, { url: null, id: "原作者的新版", source, allow: false, byName: true, todo: picked.map((i) => ({ name: i.name, path: "" })),
+      total: picked.length, ok: [], bad: [], build: BUILD, push: s?.push ?? null, send: own && !other, other: own && other, add: false });
+    setShared(SIGN_HINT, null);
+    cx.notify();
+    this.runCollect(cx);
+  }
+
+  // 收來的 still the authors' newest? kit outdated --json (kit api 1.8), when something was collected: once a day by
+  // itself, ⟳ asks now. A failed ask waits a day too (the line says it failed; ⟳ tries again)
+  outdatedDue() {
+    if (this.outBusy || !apiAtLeast(null, 8) || !(this.data?.items ?? []).some((i) => i.from)) return false;
+    return Date.now() - (shared(OUTDATED)?.at ?? 0) > OUTDATED_TTL;
+  }
+  checkOutdated(cx) {
+    if (this.outBusy) return;
+    this.outBusy = true;
+    cx.notify();
+    cx.spawn(async (cx) => {
+      try {
+        const { data, error } = kitJson(await kit(["outdated", "--json"], SHORT), "kit outdated --json");
+        const o = error ? { skills: {}, ...(shared(OUTDATED) ?? {}), at: Date.now(), err: error.message } : outdatedFrom(data);
+        setShared(OUTDATED, o);
+        localSet("kit.outdated", JSON.stringify(o));
+      } catch {} finally { this.outBusy = false; try { cx.notify(); } catch {} }
+    });
+  }
+  // 收來的's head: what kit outdated said (N 個有新版、M 個連不到原作者, when), ⟳, and 收新版（N）
+  theirsHead(t, z) {
+    const o = shared(OUTDATED), api = apiAtLeast(null, 8), mine = (this.data?.items ?? []).filter((i) => i.kind === "skill" && i.from);
+    const nNew = mine.filter((i) => outdatedOf(o, i) === "new").length, nGone = mine.filter((i) => outdatedOf(o, i) === "unreachable").length;
+    const said = !api ? "" : this.outBusy ? "查原作者有沒有新版…" : o?.err ? `沒查成功（${agoText(o.at)}）：${o.err}`
+      : !o?.at ? "" : `${[nNew ? `${nNew} 個有新版` : "", nGone ? `${nGone} 個連不到原作者` : ""].filter(Boolean).join("、") || "都是原作者最新的"}（${agoText(o.at)}查的）`;
+    return h_flex().flex_none().px(8).pt(8).pb(2).gap(6).items_center()
+      .child(div().flex_none().text_size(z - 2).font_semibold().text_color(t.dim).child("收來的（照網址分）"))
+      .child(div().flex_1().min_w(0).truncate().text_size(z - 2.5).text_color(o?.err || nGone ? t.ansi1 : nNew ? t.accent : t.dim).child(said))
+      .when(api, (el) => el.child(btn(t, z, "outdated-check", this.outBusy ? "查…" : "⟳", { tiny: true, off: Boolean(this.outBusy), on: (cx) => this.checkOutdated(cx) })))
+      .when(nNew > 0, (el) => el.child(btn(t, z, "outdated-collect", `收新版（${nNew}）`, { tiny: true, kind: "primary", off: Boolean(this.busy || shared(COLLECT)), on: (cx) => this.collectNew(cx) })));
+  }
+
   // a run another build started (or that stopped without ending): go on with what is left, in whichever copy takes the lock
   resumeCollect(cx) {
     let j = shared(COLLECT);
@@ -828,7 +879,7 @@ export class Repo {
       try {
         while (j?.todo?.length) {
           const x = j.todo[0];
-          const r = await kit(["collect", j.url, "--to", j.source, "--path", x.path, ...(j.allow ? ["--allow"] : [])], LONG)
+          const r = await kit(j.byName ? ["collect", x.name, "--to", j.source] : ["collect", j.url, "--to", j.source, "--path", x.path, ...(j.allow ? ["--allow"] : [])], LONG)
             .catch((e) => ({ code: 1, err: String(e?.message ?? e) }));
           const ok = r.code === 0;
           j = { ...j, todo: j.todo.slice(1), ok: ok ? [...j.ok, x.name] : j.ok,
@@ -845,6 +896,7 @@ export class Repo {
             ...after].filter(Boolean).join("\n\n");
           this.setMsg({ ok: ok.length > 0, label: "收進來", text: text || "什麼都沒收", at: Date.now() });
           setShared(COLLECT, null);
+          if (ok.length && shared(OUTDATED)) { const o = outdatedDone(shared(OUTDATED), j.source, ok); setShared(OUTDATED, o); localSet("kit.outdated", JSON.stringify(o)); }
           if (ok.length && this.making?.look) { this.making = null; this.newUrl?.set_value(""); }
         }
         this.endBusy();
@@ -914,7 +966,9 @@ export class Repo {
   openGroups() { try { const v = JSON.parse(localGet("kit.groups") || "[]"); return Array.isArray(v) ? v : []; } catch { return []; } }
   // a group's head: ▸ author/repo, how many, a dot when one changed; a click opens or closes it
   groupHead(t, z, g, open) {
-    const ch = g.rows.some((i) => i.changed);
+    const ch = g.rows.some((i) => i.changed), o = shared(OUTDATED);
+    const nNew = g.rows.filter((i) => outdatedOf(o, i) === "new").length, gone = g.rows.some((i) => outdatedOf(o, i) === "unreachable");
+    const badge = (text, color) => div().flex_none().px(5).rounded(4).text_size(z - 2.5).text_color(t.background).bg(color).child(text);
     return h_flex().id(`group-${g.from}`).gap(6).items_center().px(8).py(6).rounded(6).cursor_pointer()
       .hover((st) => st.bg(t.hover)).on_mouse_down("left", stop)
       .on_click((_e, cx) => {
@@ -926,6 +980,8 @@ export class Repo {
       .child(copyOnRight(div().min_w(0).truncate().font_semibold().child(g.from), g.from))
       .child(div().flex_none().text_size(z - 2).text_color(t.dim).child(`${g.rows.length} 個`))
       .when(ch, (el) => el.child(div().size(6).rounded(3).bg(t.working)))
+      .when(nNew > 0, (el) => el.child(badge(nNew === g.rows.length ? "有新版" : `${nNew} 個有新版`, t.accent)))
+      .when(gone, (el) => el.child(badge("連不到", t.ansi1)))
       .child(div().flex_1());
   }
 
@@ -942,6 +998,8 @@ export class Repo {
           .when(Boolean(i.changed), (el) => el.child(badge("改過", t.working)))
           .when(Boolean(checkBad(this.data, i.src)?.bad?.some((b) => b.kind === i.kind && b.name === i.name)), (el) => el.child(badge("送不出去", t.ansi1)))
           .when(Boolean(i.new), (el) => el.child(badge("新", t.done)))
+          .when(Boolean(i.from) && outdatedOf(shared(OUTDATED), i) === "new", (el) => el.child(badge("有新版", t.accent)))
+          .when(Boolean(i.from) && outdatedOf(shared(OUTDATED), i) === "unreachable", (el) => el.child(badge("連不到", t.ansi1)))
           .when(i.status === "required", (el) => el.child(badge("團隊必備", t.accent))))
         .child(copyOnRight(div().min_w(0).truncate().text_size(z - 1.5).text_color(t.muted).child([from && i.from ? `收自 ${i.from}` : "", i.description, i.src].filter(Boolean).join(" · ") || "（還沒寫說明）"),
           i.description || i.path)))

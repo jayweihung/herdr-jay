@@ -186,7 +186,7 @@ export function ctxTips(d, canRemove = (_group, _name) => false) {
     tips.push(`快滿了${at ? `（到 ${kfmt(at)} 會自動壓縮）` : ""}：告一段落時按下面的「壓縮」${c.with_text ? "（可以寫要保留什麼）" : ""}；要換別的事做，就「清空重來」。`);
   const tool = items("tool_results")[0];
   if (tool && tool.tokens >= 5000 && tool.tokens >= used * 0.2)
-    tips.push(`「${tool.name}」的呼叫和結果約 ${kfmt(tool.tokens)}（${share(tool.tokens)}）：請它只拿需要的部分（只讀需要的行、先搜尋再讀、輸出很長時只看頭尾），或這段做完就壓縮。`);
+    tips.push(`「${tool.name}」的呼叫和結果約 ${kfmt(tool.tokens)}（${share(tool.tokens)}）：是它讀檔、跑指令拿到的內容，它靠這些記得做到哪。告一段落時按下面的「壓縮」就省下來；做到一半壓縮，細節（例如錯誤訊息的原文）可能會忘。`);
   const att = items("attachments")[0];
   if (att && att.tokens >= 3000 && att.tokens >= used * 0.1)
     tips.push(`附加內容「${att.name}」約 ${kfmt(att.tokens)}（${share(att.tokens)}）：這是 Claude Code 自己加進對話的（例如 hook 的輸出、提到的檔案）。`);
@@ -197,8 +197,9 @@ export function ctxTips(d, canRemove = (_group, _name) => false) {
   }
   const sk = cat("skills");
   if (sk >= 3000 && sk >= used * 0.03) {
-    const mine = items("skills").filter((i) => canRemove("skills", i.name)).slice(0, 5).map((i) => i.name);
-    tips.push(`Skills 的清單佔了 ${kfmt(sk)}（${share(sk)}）：${mine.length ? `用不到的（例如 ${mine.join("、")}）可以在下面拿掉` : "用不到的 skill 可以拿掉"}。`);
+    // the biggest ones kit can take off, with their size: which are not used is for you to say (nothing here knows)
+    const mine = items("skills").filter((i) => canRemove("skills", i.name)).slice(0, 3).map((i) => `${i.name} ${kfmt(i.tokens)}`);
+    tips.push(`Skills 的清單佔了 ${kfmt(sk)}（${share(sk)}）：${mine.length ? `佔最多的是 ${mine.join("、")}。這個對話用不到的，可以在下面拿掉` : "這個對話用不到的 skill 可以拿掉"}。`);
   }
   const mem = [...items("memory"), ...items("instructions")].sort((a, b) => b.tokens - a.tokens)[0];
   if (mem && mem.tokens >= 2000)

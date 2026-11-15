@@ -24,7 +24,7 @@ import { v_flex, h_flex, Editor } from "gpui-base";
 import { theme, run, shared, setShared, readTextFile, writeTextFile, closeOverlay, openOverlay, props, spaces, focused, layout, agents, terminals, settings, panes, hc } from "herdr";
 import { AGENTS_DATA, AGENTS_LOAD, AGENTS_MSG, CTX, NOTE, NODES, fs, stop, isWindows, shortDir, spin, waiting, find, textBlock, copyOnRight, btn,
   busyNow, dropStaleBusy, giveBusy, markRepoStale, kit, kitJson, localKit, apiState, apiKnown, checkApi, apiCard, messageBox, problemCard, newEditor,
-  localGet, localSet, kitAction, loadNewest, loadingNow, LIMIT_SENT, DATA, PUSH_CHECK, KIT_TAB, checkLine } from "./common.js";
+  localGet, localSet, kitAction, loadNewest, loadingNow, LIMIT_SENT, DATA, PUSH_CHECK, KIT_TAB, checkLine, OUTDATED, outdatedLine } from "./common.js";
 import { ANIMALS, COLORS } from "./bot-models.js";
 import { readBot, withBot, pickBot, botIcon, botProblem, LiveBot } from "./bots.js";
 import { canDrag, draggable, dropLoop, requestPlace, takeAsks, placeClosed, placeDir, liveNow } from "./place.js";
@@ -396,6 +396,7 @@ export class Agents {
     const owner = {};
     for (const p of pending) if (p.kind === "owner" && p.who) owner[p.who] = { since: p.since, what: p.what, here: Boolean(p.here) };
     pending.push(...pushStuck(shared(DATA), shared(PUSH_CHECK)));
+    const ol = outdatedLine(shared(OUTDATED)); if (ol) pending.push(ol);   // collected skills whose author has a newer one, or is gone
     const ags = agents(), g = graphData({ agents: ags, terms: terminals(), names: sidebarNames(ags, panes(), spaces()), space: this.scope === "space" ? shownSpace : null, ctx: shared(CTX), notes: shared(NOTE), log: eventLog(), down: downMachines(), said: shared(SAID), subs: shared(SUBS), bg: shared(BG), steps: shared(STEPS), owner, limitSent: shared(LIMIT_SENT), now });
     if (this.sel && !g.nodes.some((n) => n.address === this.sel)) this.sel = null;
     const scope = (id, label) => btn(t, z, `kit-graph-scope-${id}`, label, { tiny: true, kind: this.scope === id ? "primary" : undefined,
@@ -419,7 +420,7 @@ export class Agents {
       .child(alertsView(t, z, g, now, select, { nudged: this.nudged, onNudge: (w, cx) => this.nudge(g, w, cx), pending,
         // the Kit panel, shown if it was hidden (never hidden by a click here)
         onPanel: (panel) => {
-          if (panel === "machines") setShared(KIT_TAB, "machines");   // the panel shows its 各機器 tab
+          if (panel === "machines" || panel === "skill") setShared(KIT_TAB, panel);   // the panel shows that tab (各機器, Skills)
           const n = find(layout(), NODES.repo); if (!n || n.hidden) run("layout.toggle", { id: NODES.repo });
         } }) ?? div());
     if (this.view === "time") {

@@ -27,6 +27,8 @@ export const PLACE_ASK = "kit.place.ask";          // [{ id, agent, space, tool,
                                                    // the tab-bar button (place.js), taken off as it starts them
 export const PUSH_CHECK = "kit.pushCheck.v1"; // source -> { sig, ok, text, bad, at } kit push --dry-run, asked by itself after a
                                                    // change (a collect, a new file): whether 送出 would go (repo.js)
+export const OUTDATED = "kit.outdated.v1";   // { at, err?, skills: { "source|name": { state, now, url, path, ref } } } kit outdated
+                                                   // --json (kit api 1.8): what was collected, still the author's newest? (repo.js)
 export const API = "kit.api.v1";               // machine ("" = this computer) -> what kit api said (see checkApi)
 
 // ---------- the layout's nodes (the panels are found and shown / hidden by these ids) ----------
@@ -384,6 +386,32 @@ export function versionCard(t, z, id, d) {
 }
 
 // ---------- what kit collect took, and from whom (the repository's Skills list, an agent's 還沒用的) ----------
+// whether what kit collect took is still its author's newest: kit outdated --json (kit api 1.8; it asks each author's
+// git) once a day, kept on this computer. state: latest, new (the author has a newer one), unreachable (the author's
+// repo can't be reached: gone, renamed, made private, or no network), skipped (no longer in collect_sources)
+export const OUTDATED_TTL = 24 * 3600000;
+export function outdatedFrom(data, at = Date.now()) {
+  const skills = {};
+  for (const s of data?.skills ?? []) if (s?.source && s?.name) skills[`${s.source}|${s.name}`] = { state: s.state ?? "", now: s.now ?? "", url: s.url ?? "", path: s.path ?? "", ref: s.ref ?? "" };
+  return { at, skills };
+}
+export const outdatedOf = (o, i) => o?.skills?.[`${i?.src ?? i?.source}|${i?.name}`]?.state ?? null;
+// the ones just collected again are the newest now
+export function outdatedDone(o, source, names) {
+  if (!o?.skills) return o;
+  const skills = { ...o.skills };
+  for (const n of names) { const k = `${source}|${n}`; if (skills[k]) skills[k] = { ...skills[k], state: "latest" }; }
+  return { ...o, skills };
+}
+// 關係's line about them (null: nothing to tell); a click opens the Kit panel's Skills
+export function outdatedLine(o) {
+  const all = Object.entries(o?.skills ?? {}), names = (st) => all.filter(([, v]) => v.state === st).map(([k]) => k.slice(k.indexOf("|") + 1));
+  const few = (xs) => xs.slice(0, 3).join("、") + (xs.length > 3 ? ` 等 ${xs.length} 個` : "");
+  const nw = names("new"), gone = names("unreachable");
+  const parts = [nw.length ? `原作者有新版：${few(nw)}` : "", gone.length ? `連不到原作者：${few(gone)}` : ""].filter(Boolean);
+  return parts.length ? { kind: "kit", what: `Kit：收來的 skill ${parts.join("；")}。到 Kit 面板 Skills 看`, where: "這台", since: o.at ?? null, panel: "skill" } : null;
+}
+
 // third_party.lock (kit collect: "name TAB url TAB path TAB ref TAB commit TAB license TAB date", # comments) ->
 // { name: "author/repo" } (the URL without scheme, user, host, .git: who it was collected from)
 export function lockFrom(text) {

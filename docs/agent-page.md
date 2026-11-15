@@ -18,7 +18,7 @@ agent 右邊一格：第一個分頁「進度」是等你、正在做、還沒�
 - **An agent on another machine** (a Herdr machine over ssh) writes the same folder there, under the home of the user
   Herdr connects as: `~/.config/herdr-app/mods/agent-page/pages/<its terminal id>/`. The pane lists it there every
   15 s (through Herdr's connection) and copies what changed with `scp` over the machine's ssh target (`hc machine ls`),
-  so the pages show here. Needs `scp` here and key login to that target (as Herdr's own connection). Files deleted
+  so the pages show here (in `.pages/<machine>_<id>/`). Needs `scp` here and key login to that target (as Herdr's own connection). Files deleted
   there stay here. 別台機器上的 agent 寫在那台同一個位置（Herdr 連線用的帳號的家目錄），面板每 15 秒去看，有變就用 scp 抄過來。
   An agent running as another user there (e.g. root) writes into that user's folder and makes the files readable
   (`chmod a+r`). 用別的帳號（例如 root）跑的 agent 寫到連線帳號的資料夾，並讓檔案可讀。
@@ -41,11 +41,13 @@ Copy-Item -Recurse -Force "$j\herdr-app\mods\agent-page" "$h\mods\"
 herdr-app check "$h\mods\agent-page" | Out-Host
 ```
 
-The pages go in the mod's `pages/` folder (git ignores it). 頁面放在 mod 的 `pages/` 底下，git 不收。
+The pages go in the mod's hidden `.pages/` folder (git ignores it). Hidden because Herdr reloads a mod when a file in
+its folder changes, except under hidden folders: with a plain `pages/`, every page or status written reloaded every
+open agent-page (it flickered; one on another machine copied again and again). 頁面放在 mod 的 `.pages/`（點開頭：Herdr 不會因為它變動而重新載入 mod），git 不收。
 
 ## For the agent / 給 agent 的步驟
 
-The folder is `<Herdr home>/mods/agent-page/pages/<your terminal id>/` (on another machine than Herdr's:
+The folder is `<Herdr home>/mods/agent-page/.pages/<your terminal id>/` (on another machine than Herdr's:
 `~/.config/herdr-app/mods/agent-page/pages/<your terminal id>/` in the home of the user Herdr connects as) (make it first, e.g. `mkdir -p`; the mod may
 not write there itself). `<Herdr home>`: `~/.config/herdr-app` (`$HERDR_APP_HOME` if set; Windows:
 `%USERPROFILE%\.config\herdr-app`). `<your terminal id>`: `$HC_TERMINAL_ID` (e.g. `t63`).
@@ -89,5 +91,5 @@ An item can be a plain string. `project` is a small label; `date` (YYYY-MM-DD) p
    再開一次也沒關係：新的那格看到已經有一格開著，會自己關掉。鍵盤會還給 agent 那格。
 3. Tell the person the page is open beside you, in one line.
 
-`props`: `dir` the folder under `pages/` (letters, digits, `.` `_` `-`; anything else becomes `_`), `beside` the pane
+`props`: `dir` the folder under `.pages/` (letters, digits, `.` `_` `-`; anything else becomes `_`), `beside` the pane
 that gets the keyboard back. The app adds `pane` (the mod pane's own id).

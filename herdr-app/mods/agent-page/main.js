@@ -1,13 +1,15 @@
 // An agent's pages in a pane beside it: the first tab, 進度, is where the agent's work stands (waiting for you, doing,
-// to do, done in the last DAYS days), from pages/<dir>/status.json; the other tabs are the HTML pages it wrote for you
-// (pages/<dir>/<time>-<topic>.html), newest first. A new page opens in its tab by itself; status.json is re-read.
+// to do, done in the last DAYS days), from .pages/<dir>/status.json; the other tabs are the HTML pages it wrote for you
+// (.pages/<dir>/<time>-<topic>.html), newest first. The folder is hidden (a dot) because Herdr reloads a mod when a
+// file in its folder changes, except under hidden folders: each page written would reload every copy of this mod.
+// A new page opens in its tab by itself; status.json is re-read.
 // Opened from the ⎙ button in an agent pane's header (the kit mod), or by the agent:
 //   herdr-app do pane.split '{"direction":"right","pane":"<its pane>","mod":"agent-page","props":{"dir":"t63","beside":"<its pane>"}}'
 // (docs/agent-page.md: steps and status.json for agents.)
 // An agent on another machine (props.machine, props.term): it writes the same folder there, under the home of the
 // user Herdr connects as (~/.config/herdr-app/mods/agent-page/pages/<term>/); every SYNC ms this copy lists it there
 // (through Herdr's connection) and, when something changed, copies the changed files here with scp over the machine's
-// ssh target (hc machine ls), into pages/<dir>/. Files gone there stay here.
+// ssh target (hc machine ls), into .pages/<dir>/. Files gone there stay here.
 // Only local files in this mod's folder: mod.json allows no site, so web links open in the system browser.
 // Opening it again for the same dir while one is open closes the new copy (props.pane is the copy's own pane,
 // shared "agent-page/<dir>" the one that's open). Either way the keyboard goes back to the agent's pane.
@@ -58,7 +60,7 @@ export default class AgentPage extends View {
     // The agent makes the folder (a mod may not write here); the mod's own folder is watched, which on macOS and
     // Windows includes everything under it.
     this.root = `${appHome()}/mods/agent-page`;
-    this.folder = `${this.root}/pages/${this.dir}`;
+    this.folder = `${this.root}/.pages/${this.dir}`;
     this.names = [];
     this.tab = "status";
     this.status = null;
@@ -70,8 +72,12 @@ export default class AgentPage extends View {
         this.giveBack();
         return;
       }
-      if (this.me) setShared(`agent-page/${this.dir}`, this.me);
-      this.giveBack();
+      // Only when this pane is new: a copy made again for the same pane (a machine's layout coming back from its
+      // core rebuilds the copies of that space) neither claims nor moves the focus, or each focus would rebuild it.
+      if (!this.me || shared(`agent-page/${this.dir}`) !== this.me) {
+        if (this.me) setShared(`agent-page/${this.dir}`, this.me);
+        this.giveBack();
+      }
       if (this.remote) {
         this.sync(cx);
         cx.timer.every(SYNC, (cx) => this.sync(cx));
@@ -100,7 +106,7 @@ export default class AgentPage extends View {
         }
         if (!this.alive) return;
         // By the end of the path: a linked mod's events may name the folder the link points to.
-        const mine = `/agent-page/pages/${this.dir}/`;
+        const mine = `/agent-page/.pages/${this.dir}/`;
         const files = changed.map((s) => s.replace(/\\/g, "/")).filter((f) => f.includes(mine)).map((f) => f.split("/").pop());
         const pages = files.filter(isPage);
         await this.read(pages.length ? pages[pages.length - 1] : null);

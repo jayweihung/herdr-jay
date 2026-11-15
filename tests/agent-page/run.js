@@ -76,7 +76,7 @@ function world({ props = { dir: "t63", beside: "pA", pane: "pM" }, panes, shared
     home, props, shared, runs: [], calls: [], web: [], tasks: [], strings: [], watching: [], wake: null, execs: [], remote: null, scpFails: false, every: null,
     panes: panes ?? [{ pane: "pA", terminal: "t63", tab: "tb1" }, { pane: "pM", terminal: null, mod: "agent-page", tab: "tb1" }],
   });
-  return join(home, "mods", "agent-page", "pages", "t63");
+  return join(home, "mods", "agent-page", ".pages", "t63");
 }
 const write = (folder, name, text = `<p>${name}</p>`) => { mkdirSync(folder, { recursive: true }); writeFileSync(join(folder, name), text); };
 async function open(V) { const v = new V(); v.init({}, cx); await settle(); return v; }
@@ -142,7 +142,7 @@ test("tabs: 進度 first, then pages newest first, titled without the time; a pa
   v.tab = v.names[0];
   render(v);
   assert.equal(H.web[0][0], "page");
-  assert.ok(H.web[0][1].startsWith("file://") && H.web[0][1].endsWith("/mods/agent-page/pages/t63/2026-11-16-0430-%E6%AF%94%E8%BC%83.html"), H.web[0][1]);
+  assert.ok(H.web[0][1].startsWith("file://") && H.web[0][1].endsWith("/mods/agent-page/.pages/t63/2026-11-16-0430-%E6%AF%94%E8%BC%83.html"), H.web[0][1]);
 });
 
 test("a page written while open opens in its tab; one rewritten in place reloads; one deleted goes back to 進度", async (V) => {
@@ -166,10 +166,10 @@ test("events naming where a linked mod really is still count; other agents' fold
   write(folder, "1.html");
   const v = await open(V);
   write(folder, "2.html");
-  H.wake(["/elsewhere/agent-page/pages/t9/3.html", "/Users/amy/src/jay/herdr-app/mods/agent-page/pages/t63/2.html"]);
+  H.wake(["/elsewhere/agent-page/.pages/t9/3.html", "/Users/amy/src/jay/herdr-app/mods/agent-page/.pages/t63/2.html"]);
   await settle();
   assert.equal(v.tab, "2.html");
-  H.wake(["/elsewhere/agent-page/pages/t9/4.html"]);
+  H.wake(["/elsewhere/agent-page/.pages/t9/4.html"]);
   await settle();
   assert.equal(v.tab, "2.html");
 });
@@ -227,7 +227,7 @@ test("an agent on another machine: lists its folder there, copies what changed w
   const scp = H.execs.find(([c]) => c === "scp");
   assert.deepEqual(scp[1].slice(0, 3), ["-q", "-o", "BatchMode=yes"]);
   assert.ok(scp[1].includes("box-alias:.config/herdr-app/mods/agent-page/pages/t3/status.json"), scp[1].join(" "));
-  assert.equal(scp[1].at(-1), `${H.home}/mods/agent-page/pages/box_t3/`);
+  assert.equal(scp[1].at(-1), `${H.home}/mods/agent-page/.pages/box_t3/`);
   const s = render(v);
   assert.match(s, /remote work/);
   assert.match(s, /在 box/);

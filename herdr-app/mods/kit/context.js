@@ -15,6 +15,33 @@ export function ctxArgs(pid, tool, cwd, detail = false, fresh = false) {
   if (detail && fresh) a.push("--fresh");
   return a;
 }
+// kit used's arguments (kit api 1.10): the skills and MCP servers this conversation used
+export function usedArgs(pid, tool, cwd) {
+  const a = ["used", "--pid", String(pid)];
+  if (tool) a.push("--tool", tool);
+  if (cwd) a.push("--dir", cwd);
+  a.push("--json");
+  return a;
+}
+// what kit used said about one row (a skill, an MCP server, a plugin: its skills together): { count, recent } (recent:
+// in the conversation's last turn), or null when this conversation has not used it
+export function usedOf(u, kind, name) {
+  if (!u || !name) return null;
+  const list = kind === "skill" ? (u.skills ?? []).filter((x) => x.name === name)
+    : kind === "mcp" ? (u.mcp ?? []).filter((x) => x.name === name)
+    : kind === "plugin" ? (u.skills ?? []).filter((x) => x.plugin === name) : [];
+  if (!list.length) return null;
+  const count = list.reduce((n, x) => n + (Number(x.count) || 0), 0);
+  return { count, recent: Number(u.turn) > 0 && list.some((x) => Number(x.turn) === Number(u.turn)) };
+}
+// the line above the list: everything this conversation used (also what is not kit's), the last used first
+export function usedLine(u) {
+  if (!u) return "";
+  const all = [...(u.skills ?? []).map((x) => ({ ...x, k: "skill" })), ...(u.mcp ?? []).map((x) => ({ ...x, k: "MCP" }))]
+    .sort((a, b) => (Number(b.turn) || 0) - (Number(a.turn) || 0));
+  if (!all.length) return "這次對話還沒用到 skill 或 MCP";
+  return `這次對話用了：${all.map((x) => `${x.k} ${x.name}（${x.count} 次${Number(u.turn) > 0 && Number(x.turn) === Number(u.turn) ? "・剛剛" : ""}）`).join("、")}`;
+}
 // the line typed into the agent: its tool's own command (kit context --detail names it); what to keep goes after
 // /compact only where the tool takes it, on one line
 export function sendText(cmds, what, keep) {

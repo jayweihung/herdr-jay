@@ -9,8 +9,9 @@ import { v_flex, h_flex, InputState, Input } from "gpui-base";
 import { theme, shared, setShared, closeOverlay, props } from "herdr";
 import { AGENT_CACHE, AGENT_DATA, AGENT_WANT, MSG, fs, mono, stop, shortDir, spin, waiting, icon, textBlock, copyOnRight, btn,
   busyNow, dropStaleBusy, giveBusy, apiState, checkApi, apiCard, messageBox, problemCard, versionCard, localGet, localSet,
-  kitAction, markChanged, squeeze, groupRows } from "./common.js";
-import { POPUP_H } from "./header.js";
+  kitAction, markChanged, squeeze, groupRows, kit, apiAtLeast } from "./common.js";
+import { POPUP_H, agentPid } from "./header.js";
+import { toolOf, usedArgs, usedOf, usedLine } from "./context.js";
 
 const LONG = 600000, SHORT = 120000; // how long kit sync and install, and the other actions, may take
 const LOAD_TTL = 90000;
@@ -34,7 +35,27 @@ export class AgentPopup {
     this.input = InputState.new({ placeholder: "找：名字、說明、從哪收的" });
     this.input.on("change", (_e, cx) => { this.filter = this.input.value().trim().toLowerCase(); cx.notify(); });
     checkApi(this.target.machine ?? null, cx);
-    cx.timer.every(2000, (cx) => { if (!this.data) cx.notify(); });   // so a load nobody answers shows up (render)
+    this.used = undefined;   // what this conversation used (kit used): undefined not asked yet, null asking or no answer
+    cx.timer.every(2000, (cx) => { if (!this.data) cx.notify(); if (this.used === undefined) this.loadUsed(cx); });   // (also: kit api known later)
+    this.loadUsed(cx);
+  }
+
+  // kit used (kit api 1.10) on the agent's machine: when the popup opens and on ⟳
+  loadUsed(cx) {
+    const tg = this.target ?? {}, machine = tg.machine ?? null;
+    if (this.usedBusy || !tg.term || !apiAtLeast(machine, 10)) return;
+    this.usedBusy = true; this.used = null;
+    cx.spawn(async (cx) => {
+      let u = null;
+      try {
+        const pid = await agentPid(tg.term);
+        if (pid) {
+          const r = await kit(usedArgs(pid, toolOf(tg.app, tg.program?.key), tg.cwd), 60000, machine);
+          if (r.code === 0) { const d = JSON.parse(r.out); if (d && typeof d === "object" && !d.note) u = d; }
+        }
+      } catch {}
+      this.used = u; this.usedBusy = false; cx.notify();
+    });
   }
 
   async close(_cx) { giveBusy(this.mine); this.mine = null; }
@@ -111,7 +132,7 @@ export class AgentPopup {
           .child(copyOnRight(div().truncate().text_size(z - 1.5).text_color(t.muted).child(this.loading ? `${where} · 讀取中…` : where),
             d?.here?.dir ?? tg.cwd ?? where))))
       .when(Boolean(canSync), (el) => el.child(btn(t, z, "sync", busy === "同步" ? "同步中…" : "同步", { small: true, off: Boolean(busy), on: (cx) => this.act("同步", ["sync"], cx, LONG) })))
-      .child(btn(t, z, "reload", this.loading ? spin(z - 2, t.dim) : "⟳", { small: true, off: this.loading, on: () => this.want() }))
+      .child(btn(t, z, "reload", this.loading ? spin(z - 2, t.dim) : "⟳", { small: true, off: this.loading, on: (cx) => { this.want(); this.loadUsed(cx); } }))
       .child(btn(t, z, "close", "✕", { small: true, on: () => closeOverlay(props()?.overlay) }));
   }
 
@@ -140,6 +161,9 @@ export class AgentPopup {
     }
     // 2. what it reads besides: kit's for the whole account (can be taken off) and its folder's / account's own (look only)
     body.child(div().font_semibold().child(ag ? "另外也讀到的" : "這個 agent 在用的"));
+    // what this conversation used so far (kit used): rules are always read, so only skills and MCP
+    if (apiAtLeast(this.target?.machine ?? null, 10)) body.child(div().text_size(z - 1.5).text_color(t.muted)
+      .child(this.usedBusy ? "這次對話用了：讀取中…" : this.used ? `${usedLine(this.used)}。規則每次對話都會帶。` : "這次對話用了什麼：讀不到（這個 agent 的對話紀錄找不到）"));
     for (const kind of ["rule", "skill", "mcp", "plugin"]) {
       const kitRows = items.filter((i) => i.kind === kind && (i.status === "used" || i.status === "required" || mine(i)) && hit(i));
       const ownRows = here.filter((i) => i.kind === kind && hit(i));
@@ -199,9 +223,17 @@ export class AgentPopup {
       .child(copyOnRight(div().min_w(0).truncate().font_semibold().child(shortDir(i.name)), i.name))
       .child(badge(i.scope === "user" ? "這個帳號（不是 kit 的）" : "這個資料夾"));
     if (i.tools && i.tools !== "claude") head.child(badge(i.tools === "codex omp" ? "Codex／omp" : i.tools));
+    this.usedBadge(t, z, head, i);
     const sub = i.description || shortDir(i.path);
     return this.descCol(t, z, `here-${i.scope}-${i.kind}-${i.path}-${i.name}`, head, sub, i.description || i.path)
       .px(8).py(4).rounded(6).hover((s) => s.bg(t.hover));
+  }
+
+  // 這次用了 N 次 (・剛剛: in the conversation's last turn) after a row's name, when this conversation used it
+  usedBadge(t, z, head, i) {
+    const u = usedOf(this.used, i.kind, i.name);
+    if (u) head.child(div().flex_none().px(5).rounded(4).text_size(z - 2.5).text_color(t.background).bg(u.recent ? t.accent : t.dim)
+      .child(`這次用了 ${u.count} 次${u.recent ? "・剛剛" : ""}`));
   }
 
   // a row's name and its one-line description; a click shows the whole description (wrapped, selectable) and, under
@@ -227,6 +259,7 @@ export class AgentPopup {
     if (i.status === "used") head.child(badge("Kit · 整個帳號", t.working));
     if (inDir) head.child(badge("Kit · 這個資料夾", t.done));
     if (i.new) head.child(badge("新", t.done));
+    this.usedBadge(t, z, head, i);
     const dirArgs = (verb) => [verb, "--dir", f.dir, i.kind, i.name];
     const fd = f ? shortDir(f.dir) : "";
     const action = h_flex().flex_none().gap(4).items_center();

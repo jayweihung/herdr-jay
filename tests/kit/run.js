@@ -193,6 +193,20 @@ test("context window: kit context's arguments, the tool from what the agent repo
   assert.equal(X.toolOf("pi", "x"), "omp"); assert.equal(X.toolOf(null, "claude"), "claude"); assert.equal(X.toolOf("claude-code"), "claude");
   assert.equal(X.toolOf("Codex"), "codex"); assert.equal(X.toolOf("bash", "shell"), null);
 });
+test("這次用了: kit used's arguments, a row's count (a plugin: its skills together), 剛剛 in the last turn, the line above the list", ({ context: X }) => {
+  assert.deepEqual(X.usedArgs(42, "omp", "/x y"), ["used", "--pid", "42", "--tool", "omp", "--dir", "/x y", "--json"]);
+  assert.deepEqual(X.usedArgs(42, null, ""), ["used", "--pid", "42", "--json"]);
+  const u = { turn: 3, skills: [{ name: "pt-review", plugin: "pt", count: 2, turn: 3 }, { name: "pt", plugin: "pt", count: 1, turn: 1 }, { name: "brainstorming", count: 1, turn: 2 }],
+    mcp: [{ name: "kit-ping", count: 4, turn: 1 }] };
+  assert.deepEqual(X.usedOf(u, "skill", "brainstorming"), { count: 1, recent: false });
+  assert.deepEqual(X.usedOf(u, "plugin", "pt"), { count: 3, recent: true });
+  assert.deepEqual(X.usedOf(u, "mcp", "kit-ping"), { count: 4, recent: false });
+  for (const a of [[u, "skill", "nope"], [u, "rule", "brainstorming"], [null, "skill", "pt"], [{ turn: 0, skills: [] }, "skill", "x"]]) assert.equal(X.usedOf(...a), null);
+  assert.deepEqual(X.usedOf({ turn: 0, skills: [{ name: "a", count: 1, turn: 0 }] }, "skill", "a"), { count: 1, recent: false });
+  assert.equal(X.usedLine(u), "這次對話用了：skill pt-review（2 次・剛剛）、skill brainstorming（1 次）、skill pt（1 次）、MCP kit-ping（4 次）");
+  assert.equal(X.usedLine({ turn: 2, skills: [], mcp: [] }), "這次對話還沒用到 skill 或 MCP");
+  assert.equal(X.usedLine(null), "");
+});
 test("context window: 拿掉 only what kit manages (folder: kit rm --dir; home: the account; required never)", ({ context: X }) => {
   const items = [{ kind: "skill", name: "a", status: "used" }, { kind: "rule", name: "sec", status: "required", path: "C:\\s\\rules\\sec.md" },
     { kind: "rule", name: "style", status: "used", path: "/s/rules/style.md" }, { kind: "mcp", name: "gerrit", status: "used" }, { kind: "skill", name: "b", status: "unused" }];

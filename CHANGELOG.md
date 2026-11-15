@@ -9,6 +9,14 @@ says which) · **kit** = update kit itself on every machine where agents run (`k
 **snap hook** = a line in Claude Code's `settings.json` on each machine where you added the hook (the entry says
 which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/keys.md).
 
+## 2026-11-15, Kit: 這次用了 (what this conversation used)
+
+Needs: **mods**; **kit** 0.6.10.
+
+- Agent popup: a line above 這個 agent 在用的 says which skills and MCP servers this conversation used so far (kit
+  0.6.10 `kit used`; Claude, Codex, omp), and those rows say 這次用了 N 次, with ・剛剛 when it was after the last
+  message you sent. ⟳ asks again. With an older kit the line is not shown.
+
 ## 2026-11-15, Kit: 外掛 (plugins) tab
 
 Needs: **mods**; **kit** 0.6.9.

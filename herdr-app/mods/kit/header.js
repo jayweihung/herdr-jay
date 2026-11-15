@@ -24,7 +24,7 @@
 // What it computes (the bar, the numbers, the tips) is in context.js.
 import { div, svg } from "gpui-kit";
 import { h_flex, v_flex, InputState, Input } from "gpui-base";
-import { panes, spaces, agents, props, run, theme, hc, shared, setShared, openOverlay, closeOverlay, notify } from "herdr";
+import { panes, spaces, agents, props, run, theme, hc, shared, setShared, openOverlay, closeOverlay, notify, appHome, readTextFile } from "herdr";
 import { collectedFrom, AGENT_CACHE, AGENT_DATA, AGENT_WANT, CTX, NOTE, LIMIT_SENT, EDITORS, localGet, localSet, fs, stop, slash, shortDir, clean, spin, waiting, icon, textBlock,
   copyOnRight, btn, busyNow, takeBusy, giveBusy, markChanged, kit, kitJson, apiState, apiKnown, apiAtLeast, checkApi, apiCard, num, kfmt } from "./common.js";
 import { toolOf, ctxArgs, askZero, zeroNumbers, sendText, sendArgs, removal, ctxTips, summaryText, chipNumbers, level, howCounted, ago, catColorKey, barSegments,
@@ -82,7 +82,7 @@ function summary(d) {
 
 // how full an agent's context is: kit context on the agent's machine, for its foreground process.
 // { numbers }, or null (this ask failed)
-async function agentPid(term) {
+export async function agentPid(term) {
   const g = term ? await hc(["get", term, "--json"]).catch(() => null) : null;
   try { const j = JSON.parse(g?.stdout ?? "{}"); return j.foreground?.pid ?? j.pid ?? null; } catch { return null; }
 }
@@ -122,6 +122,23 @@ const levelColor = (t, pct) => ({ full: t.blocked, high: t.working })[level(pct)
 // the context window's last answer per pane (key -> { d, at }): shown at once when the window opens again, while
 // kit context --detail asks anew (Claude Code's own count plus a read of the transcript's tail: seconds on a long one)
 const LAST_DETAIL = new Map();
+// the Agents list's right-click menu (Herdr's agents mod, shared "agents.menu"): context 細項, the files it touched (the
+// agent-files mod, when there is one) and Kit, said again every few minutes; a pick ("agents.menu.pick") is done by the
+// header of the agent's pane
+const MENU_AGAIN = 120000;
+function offerMenu(cx) {
+  const m = shared("agents.menu") ?? {};
+  if (Date.now() - (m.kit?.at ?? 0) < MENU_AGAIN || offerMenu.busy) return;
+  offerMenu.busy = true;
+  cx.spawn(async () => {
+    try {
+      const files = await readTextFile(`${appHome()}/mods/agent-files/main.js`).then((x) => x != null, () => false);
+      const items = [{ id: "context", label: "context 細項" }, ...(files ? [{ id: "files", label: "讀過、改過的檔案" }] : []), { id: "kit", label: "Kit：它用的規則、skill、MCP" }];
+      setShared("agents.menu", { ...(shared("agents.menu") ?? {}), kit: { at: Date.now(), items } });
+    } finally { offerMenu.busy = false; }
+  });
+}
+
 export class Header {
   constructor(role) { this.role = role; }
 
@@ -149,6 +166,7 @@ export class Header {
   tick(cx) {
     const p = this.me();
     if (!p?.terminal || !p.program?.agent) return;
+    offerMenu(cx);
     const w = placeOf(p), api = apiKnown(w.machine);
     if (!api) { checkApi(w.machine, cx); return; }
     if (!api.ok) return;
@@ -277,6 +295,24 @@ export class Header {
       : c?.text ? c : summary(null);
   }
 
+  openAgent(p) {
+    const w = placeOf(p);
+    const target = { key: w.key, term: p.terminal, machine: w.machine, space: w.space, cwd: p.cwd ?? null, app: p.app ?? null,
+      title: ((p.program?.agent || p.program?.shell) && p.program.name) || p.title || "", program: p.program ?? null };
+    openOverlay({ mod: "kit", props: { role: "agent", target }, kind: "popup", width: POPUP_W, height: POPUP_H });
+  }
+
+  // a pick in the Agents list's right-click menu for this pane's agent (the menu focused the pane first, so this header
+  // shows): once, and only a fresh one
+  menuPick(p) {
+    const k = shared("agents.menu.pick");
+    if (!k || k.mod !== "kit" || k.pane !== p.pane || Date.now() - (k.at ?? 0) > 10000) return;
+    setShared("agents.menu.pick", null);
+    if (k.id === "context") this.openContext(p);
+    else if (k.id === "kit") this.openAgent(p);
+    else if (k.id === "files") run("mod.open", { name: "agent-files" });
+  }
+
   kitButton(t, p) {
     const w = placeOf(p), s = this.kitSummary(p);
     const color = s.level === "bad" ? t.blocked : t.dim;
@@ -290,12 +326,7 @@ export class Header {
       .bg(t.surface).border_1().border_color(s.level === "bad" ? t.blocked : t.border).text_size(11)
       .hover((st) => st.bg(t.hover).border_color(t.accent))
       .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
-      .on_click((_e, cx) => {
-        cx.stop_propagation();
-        const target = { key: w.key, term: p.terminal, machine: w.machine, space: w.space, cwd: p.cwd ?? null,
-          title: ((p.program?.agent || p.program?.shell) && p.program.name) || p.title || "", program: p.program ?? null };
-        openOverlay({ mod: "kit", props: { role: "agent", target }, kind: "popup", width: POPUP_W, height: POPUP_H });
-      })
+      .on_click((_e, cx) => { cx.stop_propagation(); this.openAgent(p); })
       .child(div().h(16).px(5).flex().items_center().rounded(4).bg(t.raised).font_semibold().text_color(t.foreground).child("Kit"))
       .when(Boolean(s.agent), (el) => el.child(div().text_color(t.accent).child(s.agent)))
       .children(body)
@@ -306,6 +337,7 @@ export class Header {
     if (this.role === "context") return this.renderContext(cx);
     const t = theme(), p = this.me();
     if (!p) return div();
+    if (p.terminal && p.program?.agent) this.menuPick(p);
     const name = ((p.program?.agent || p.program?.shell) && p.program.name) || p.title || p.program?.name || "shell";
     const pic = icon(p.program, 14, t.dim), st = p.status, pane = p.pane, agent = Boolean(p.terminal && p.program?.agent), live = this.hovered;
     const ctxOn = agent && apiState(placeOf(p).machine)?.ok !== false;

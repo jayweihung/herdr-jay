@@ -782,11 +782,11 @@ export class Repo {
     return [
       note(other ? `${lk.source} 還有別的改動沒送：收好不會自動送出，請按清單上面黃色那條的「送出」一起看。`
         : `收好就直接送出（${lk.source} 是你自己的倉，剛才「下載看看」已經看過要收什麼）。`, other ? t.working : t.muted),
-      h_flex().id("collect-add").gap(6).items_center().cursor_pointer().text_size(z - 1.5).on_mouse_down("left", stop)
+      h_flex().id("collect-add").gap(6).items_start().cursor_pointer().text_size(z - 1.5).on_mouse_down("left", stop)
         .on_click((_e, cx) => { localSet("kit.collect.add", on ? "0" : "1"); cx.notify(); })
-        .child(div().flex_none().size(14).rounded(3).border_1().border_color(on ? t.accent : t.border).bg(on ? t.accent : t.background)
+        .child(div().flex_none().mt(2).size(14).rounded(3).border_1().border_color(on ? t.accent : t.border).bg(on ? t.accent : t.background)
           .flex().items_center().justify_center().text_size(10).text_color(t.background).child(on ? "✓" : ""))
-        .child(div().text_color(t.foreground).child("收好後加到整個帳號（每個 agent 都讀得到；不勾就自己到 agent 視窗的 Kit 清單加）")),
+        .child(div().flex_1().min_w(0).text_color(t.foreground).child("收好後加到整個帳號（每個 agent 都讀得到）")),   // flex_1 min_w 0: it wraps inside the card
     ];
   }
 

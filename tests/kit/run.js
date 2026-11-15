@@ -1833,6 +1833,15 @@ test("收來的: kit outdated --json once a day (kit api 1.8): 有新版 / 連�
   assert.deepEqual(C.outdatedLine(o), { kind: "kit", what: "Kit：收來的 skill 原作者有新版：tdd；連不到原作者：archify。到 Kit 面板 Skills 看", where: "這台", since: 5, panel: "skill" });
   assert.equal(C.outdatedLine(C.outdatedDone(C.outdatedDone(o, "mine", ["tdd"]), "mine", ["archify"])), null, "collected again: nothing to tell");
   assert.equal(C.outdatedLine(null), null);
+  // 先不收: no reminder for that version, 有新版先不收 instead; the author's next one reminds again; 再提醒 undoes it
+  const l = C.outdatedLater(o);
+  assert.equal(C.outdatedOf(l, { src: "mine", name: "tdd" }), "later");
+  assert.deepEqual(C.outdatedLine(l)?.what, "Kit：收來的 skill 連不到原作者：archify。到 Kit 面板 Skills 看");
+  const l2 = C.outdatedFrom({ skills: [{ source: "mine", name: "tdd", state: "new", now: "b" }] }, 6, l.later);
+  assert.equal(C.outdatedLine(l2), null, "checked again, the same newer one: still later");
+  const l3 = C.outdatedFrom({ skills: [{ source: "mine", name: "tdd", state: "new", now: "c" }] }, 7, l.later);
+  assert.equal(C.outdatedOf(l3, { src: "mine", name: "tdd" }), "new", "an even newer one reminds again");
+  assert.equal(C.outdatedOf(C.outdatedRemind(l), { src: "mine", name: "tdd" }), "new");
   // the panel
   const skill = (name) => ({ kind: "skill", name, status: "used", new: false, changed: false, source: "mine", description: `${name} desc`, path: `/x/skills/${name}/SKILL.md` });
   const row = (name, state) => ({ source: "mine", name, url: "https://github.com/a/r", path: `skills/${name}`, ref: "", commit: "a".repeat(40), now: state === "unreachable" ? "" : "b".repeat(40), state });

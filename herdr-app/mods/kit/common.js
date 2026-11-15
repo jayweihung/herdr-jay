@@ -390,14 +390,24 @@ export function versionCard(t, z, id, d) {
 // ---------- what kit collect took, and from whom (the repository's Skills list, an agent's 還沒用的) ----------
 // whether what kit collect took is still its author's newest: kit outdated --json (kit api 1.8; it asks each author's
 // git) once a day, kept on this computer. state: latest, new (the author has a newer one), unreachable (the author's
-// repo can't be reached: gone, renamed, made private, or no network), skipped (no longer in collect_sources)
+// repo can't be reached: gone, renamed, made private, or no network), skipped (no longer in collect_sources).
+// later: { "source|name": the author's commit } you looked at and said 先不收: that one is "later" (no reminder) until
+// the author has a newer one again
 export const OUTDATED_TTL = 24 * 3600000;
-export function outdatedFrom(data, at = Date.now()) {
+export function outdatedFrom(data, at = Date.now(), later = {}) {
   const skills = {};
   for (const s of data?.skills ?? []) if (s?.source && s?.name) skills[`${s.source}|${s.name}`] = { state: s.state ?? "", now: s.now ?? "", url: s.url ?? "", path: s.path ?? "", ref: s.ref ?? "" };
-  return { at, skills };
+  return { at, skills, later: later ?? {} };
 }
-export const outdatedOf = (o, i) => o?.skills?.[`${i?.src ?? i?.source}|${i?.name}`]?.state ?? null;
+const stateOf = (o, k) => { const v = o?.skills?.[k]; return v?.state === "new" && v.now && o?.later?.[k] === v.now ? "later" : v?.state ?? null; };
+export const outdatedOf = (o, i) => stateOf(o, `${i?.src ?? i?.source}|${i?.name}`);
+// 先不收: every one that has a newer version now is "later"; 再提醒: none is
+export function outdatedLater(o) {
+  const later = { ...(o?.later ?? {}) };
+  for (const [k, v] of Object.entries(o?.skills ?? {})) if (v.state === "new" && v.now) later[k] = v.now;
+  return { ...o, later };
+}
+export const outdatedRemind = (o) => ({ ...o, later: {} });
 // the ones just collected again are the newest now
 export function outdatedDone(o, source, names) {
   if (!o?.skills) return o;
@@ -407,7 +417,7 @@ export function outdatedDone(o, source, names) {
 }
 // 關係's line about them (null: nothing to tell); a click opens the Kit panel's Skills
 export function outdatedLine(o) {
-  const all = Object.entries(o?.skills ?? {}), names = (st) => all.filter(([, v]) => v.state === st).map(([k]) => k.slice(k.indexOf("|") + 1));
+  const all = Object.entries(o?.skills ?? {}), names = (st) => all.filter(([k]) => stateOf(o, k) === st).map(([k]) => k.slice(k.indexOf("|") + 1));
   const few = (xs) => xs.slice(0, 3).join("、") + (xs.length > 3 ? ` 等 ${xs.length} 個` : "");
   const nw = names("new"), gone = names("unreachable");
   const parts = [nw.length ? `原作者有新版：${few(nw)}` : "", gone.length ? `連不到原作者：${few(gone)}` : ""].filter(Boolean);

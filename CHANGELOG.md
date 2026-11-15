@@ -9,6 +9,22 @@ says which) · **kit** = update kit itself on every machine where agents run (`k
 **snap hook** = a line in Claude Code's `settings.json` on each machine where you added the hook (the entry says
 which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/keys.md).
 
+## 2026-11-15, Kit: 外掛 (plugins) tab
+
+Needs: **mods**; **kit** 0.6.9.
+
+- Kit panel: a 外掛 tab (kit 0.6.9 `plugin` items). ＋ 新增 collects one from a URL (the same 下載看看 → 收進來 as
+  skills; the note says its hooks run programs); 收好後加到整個帳號 runs `kit add plugin`. 收來的 groups, 有新版 and
+  收新版 count plugins too.
+- Agent popup: a plugin is for the whole account only; an agent started in a folder says so instead of a button.
+  A 外掛 section lists the ones in use.
+- Agent popup: click a skill, rule, MCP or plugin row to read its whole description (wrapped, selectable); click
+  again to fold it. Rules now have one (their first `# ` heading, kit 0.6.9).
+- Kit panel and agent popup: show the Chinese description when the item has one (`kit describe`, kit 0.6.9),
+  the original under it when unfolded; search finds both.
+- Kit panel Skills, 收來的: 先不收 stops the 有新版 reminder (in 關係 too) for the versions out now; the author's next
+  one reminds again. 再提醒 brings them back.
+
 ## 2026-11-15, Kit: collecting skills takes fewer steps; 關係 finds root's service, 等你簽 opens 各機器, more room
 
 Needs: **mods**; **kit** 0.6.8 for one download per repo, adding all at once, the sign card, root's service found, 已簽.

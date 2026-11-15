@@ -61,7 +61,7 @@ export async function loadAgent(machine, cwd, term) {
   if (error) return { error: error.message, code: error.code, machine, at };
   // the skills kit collect took: from whom (third_party.lock there), for the popup's groups
   const locks = await collectedFrom(data.sources, machine).catch(() => ({}));
-  const items = (data.items ?? []).map((i) => (i.kind === "skill" && locks[i.source]?.[i.name] ? { ...i, from: locks[i.source][i.name] } : i));
+  const items = (data.items ?? []).map((i) => ((i.kind === "skill" || i.kind === "plugin") && locks[i.source]?.[i.name] ? { ...i, from: locks[i.source][i.name] } : i));
   return { ...data, items, machine, at };
 }
 // the button's words: how many rules / skills / MCP this agent reads (kit's for the account, its folder's own,

@@ -22,6 +22,7 @@ export class AgentPopup {
     this.mine = null;    // the id of the action this copy started in kit.busy
     this.asking = null;  // the 安裝 waiting for 確定安裝
     try { this.folded = JSON.parse(localGet("kit.folded") || "{}"); } catch { this.folded = {}; }
+    this.shown = new Set();   // rows whose whole description is shown (descCol)
     dropStaleBusy();
     this.target = props()?.target ?? { key: "" };
     this.where = `agent:${this.target.key}`;
@@ -121,10 +122,10 @@ export class AgentPopup {
     const f = d.here?.folder, inDir = new Set(f?.items ?? []);
     this.folder = f ? { dir: f.dir, why: f.why, has: inDir } : null;
     const mine = (i) => inDir.has(`${i.kind}:${i.name}`);
-    const f0 = this.filter, hit = (i) => !f0 || [i.name, i.description, i.source, i.from, i.path].some((x) => String(x ?? "").toLowerCase().includes(f0));
+    const f0 = this.filter, hit = (i) => !f0 || [i.name, i.description, i.description_zh, i.source, i.from, i.path].some((x) => String(x ?? "").toLowerCase().includes(f0));
     const body = v_flex().id("kit-agent-body").flex_1().min_h(0).overflow_y_scrollbar().px(10).py(8).gap(8);
     body.child(Input.new(this.input).flex_none().h(28).px(8).rounded(6).border_1().border_color(t.border).bg(t.background).text_size(z - 1).text_color(t.foreground));
-    const kindName = { rule: "規則", skill: "Skills", mcp: "MCP" };
+    const kindName = { rule: "規則", skill: "Skills", mcp: "MCP", plugin: "外掛" };
     // 1. what kit run started it with: only this agent has it, for this run
     if (ag) {
       body.child(div().font_semibold().child(`這次啟動帶的（agent ${ag.name}）`));
@@ -139,7 +140,7 @@ export class AgentPopup {
     }
     // 2. what it reads besides: kit's for the whole account (can be taken off) and its folder's / account's own (look only)
     body.child(div().font_semibold().child(ag ? "另外也讀到的" : "這個 agent 在用的"));
-    for (const kind of ["rule", "skill", "mcp"]) {
+    for (const kind of ["rule", "skill", "mcp", "plugin"]) {
       const kitRows = items.filter((i) => i.kind === kind && (i.status === "used" || i.status === "required" || mine(i)) && hit(i));
       const ownRows = here.filter((i) => i.kind === kind && hit(i));
       const n = kitRows.length + ownRows.length;
@@ -199,9 +200,19 @@ export class AgentPopup {
       .child(badge(i.scope === "user" ? "這個帳號（不是 kit 的）" : "這個資料夾"));
     if (i.tools && i.tools !== "claude") head.child(badge(i.tools === "codex omp" ? "Codex／omp" : i.tools));
     const sub = i.description || shortDir(i.path);
-    return v_flex().id(`here-${i.scope}-${i.kind}-${i.path}-${i.name}`).px(8).py(4).gap(1).rounded(6).hover((s) => s.bg(t.hover))
+    return this.descCol(t, z, `here-${i.scope}-${i.kind}-${i.path}-${i.name}`, head, sub, i.description || i.path)
+      .px(8).py(4).rounded(6).hover((s) => s.bg(t.hover));
+  }
+
+  // a row's name and its one-line description; a click shows the whole description (wrapped, selectable) and, under
+  // it, the original when the line shown is kit describe's Chinese one; another click hides it
+  descCol(t, z, key, head, sub, full, orig = "") {
+    const open = this.shown.has(key);
+    return v_flex().id(`desc-${key}`).min_w(0).gap(1).cursor_pointer().on_mouse_down("left", stop)
+      .on_click((_e, cx) => { if (open) this.shown.delete(key); else this.shown.add(key); cx.notify(); })
       .child(head)
-      .when(Boolean(sub), (el) => el.child(copyOnRight(div().min_w(0).truncate().text_size(z - 1.5).text_color(t.muted).child(sub), i.description || i.path)));
+      .when(Boolean(sub) && !open, (el) => el.child(copyOnRight(div().min_w(0).truncate().text_size(z - 1.5).text_color(t.muted).child(sub), full)))
+      .when(Boolean(sub) && open, (el) => el.child(div().text_size(z - 1.5).text_color(t.muted).child(textBlock(`desc-text-${key}`, orig ? `${sub}\n\n原文：${orig}` : sub))));
   }
 
   // one of kit's things: for this folder (加到這個資料夾 / 從資料夾拿掉) and for the account (加到整個帳號 / 從帳號拿掉;
@@ -227,17 +238,17 @@ export class AgentPopup {
     // An agent started in a folder only changes that folder; the account is changed only from one started in the home
     // folder (there the folder buttons make no sense: the home folder is the account). No button that reaches further
     // than the folder the agent runs in.
-    if (pend) { /* its 加入中… / ✓ above */ } else if (canDir) {
+    if (pend) { /* its 加入中… / ✓ above */ } else if (canDir && i.kind === "plugin") {   // a plugin: the whole account only
+      action.child(div().text_size(z - 1.5).text_color(t.dim).child(i.status === "unused" ? "外掛只能加到整個帳號（在家目錄開的 agent 加）" : "整個帳號的"));
+    } else if (canDir) {
       if (inDir) action.child(btn(t, z, `rmdir-${i.kind}-${i.name}`, "從資料夾拿掉", { small: true, off: busy, on: (cx) => this.rowAct(i, "nodir", `從資料夾拿掉 ${i.name}`, dirArgs("rm"), cx, `已從 ${fd} 拿掉 ${i.name}。在 ${fd} 開新的對話就不會有了。`) }));
       else if (i.status === "unused") action.child(btn(t, z, `adddir-${i.kind}-${i.name}`, "加到這個資料夾", { small: true, kind: "primary", off: busy, on: (cx) => this.rowAct(i, "dir", `加到這個資料夾 ${i.name}`, dirArgs("add"), cx, `已加到 ${fd}：${i.name}。在 ${fd}（含子資料夾）開新的對話才會讀到，別的地方不受影響。`) }));
     } else if (i.status === "required") action.child(div().text_size(z - 1.5).text_color(t.dim).child("拿不掉"));
     else if (i.status === "used") action.child(btn(t, z, `rm-${i.kind}-${i.name}`, "從帳號拿掉", { small: true, off: busy, on: (cx) => this.rowAct(i, "unused", `從帳號拿掉 ${i.name}`, ["rm", i.kind, i.name], cx, `已從整個帳號拿掉 ${i.name}。開新的對話就不會有了。`) }));
     else if (!inDir) action.child(btn(t, z, `add-${i.kind}-${i.name}`, "加到整個帳號", { small: true, kind: "primary", off: busy, on: (cx) => this.rowAct(i, "used", `加到整個帳號 ${i.name}`, ["add", i.kind, i.name], cx, `已加到整個帳號：${i.name}。每個資料夾開新的對話都會讀到。`) }));
-    const sub = [from && i.from ? `收自 ${i.from}` : "", i.description, i.source].filter(Boolean).join(" · ");
+    const sub = [from && i.from ? `收自 ${i.from}` : "", i.description_zh || i.description, i.source].filter(Boolean).join(" · ");
     const row = h_flex().gap(8).items_center()
-      .child(v_flex().flex_1().min_w(0).gap(1)
-        .child(head)
-        .when(Boolean(sub), (el) => el.child(copyOnRight(div().min_w(0).truncate().text_size(z - 1.5).text_color(t.muted).child(sub), i.description || i.source || sub))))
+      .child(this.descCol(t, z, `${i.kind}-${i.name}`, head, sub, i.description_zh || i.description || i.source || sub, i.description_zh ? i.description : "").flex_1())
       .child(action);
     // what is missing for it to run: programs (node, python ...), then its own npm packages
     const missing = (i.needs ?? []).filter((x) => !x.ok).map((x) => ({

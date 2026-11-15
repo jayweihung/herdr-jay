@@ -802,7 +802,7 @@ export class Repo {
     // your own source (push: direct): sent right after (you looked at it in 下載看看) unless it has other changes not
     // sent yet (those go through 送出, where you see them), and added to the whole account if 加到整個帳號 is ticked
     const own = lk.push === "direct", other = (this.data?.dirty ?? []).some((y) => y.name === lk.source);
-    setShared(COLLECT, { url: lk.url, id: lk.id, source: lk.source, allow: Boolean(allow), todo: picked.map((x) => ({ name: x.name, path: x.path })),
+    setShared(COLLECT, { url: lk.url, ref: lk.ref || null, id: lk.id, source: lk.source, allow: Boolean(allow), todo: picked.map((x) => ({ name: x.name, path: x.path })),
       total: picked.length, ok: [], bad: [], build: BUILD, push: lk.push ?? null, send: own && !other, other: own && other, add: own && addAfter() });
     setShared(SIGN_HINT, null);
     // its group open from the start: each one collected shows in the list right away, not only when all are done
@@ -879,7 +879,7 @@ export class Repo {
       try {
         while (j?.todo?.length) {
           const x = j.todo[0];
-          const r = await kit(j.byName ? ["collect", x.name, "--to", j.source] : ["collect", j.url, "--to", j.source, "--path", x.path, ...(j.allow ? ["--allow"] : [])], LONG)
+          const r = await kit(j.byName ? ["collect", x.name, "--to", j.source] : ["collect", j.url, "--to", j.source, "--path", x.path, ...(j.ref ? ["--ref", j.ref] : []), ...(j.allow ? ["--allow"] : [])], LONG)
             .catch((e) => ({ code: 1, err: String(e?.message ?? e) }));
           const ok = r.code === 0;
           j = { ...j, todo: j.todo.slice(1), ok: ok ? [...j.ok, x.name] : j.ok,

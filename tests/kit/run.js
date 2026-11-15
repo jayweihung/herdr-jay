@@ -1734,7 +1734,7 @@ test("收進來（N 個）: several skills ticked (every one that can be, at fir
 });
 test("收進來, your own source (push: direct): sent right after, added to the whole account (ticked), the sign card when this computer signs it; other changes there: not sent", async (M) => {
   const sk = (name) => ({ name, path: `skills/${name}`, description: name, license: "MIT", scripts: "", skipped: 0, valid: true, exists: "", dest: `/s/mine/skills/${name}/SKILL.md` });
-  const look = { url: "https://github.com/a/r", source: "mine", push: "direct", id: "github.com/a/r", allowed: true, can_allow: false, skills: [sk("tdd"), sk("grill")] };
+  const look = { url: "https://github.com/a/r", ref: "dev", source: "mine", push: "direct", id: "github.com/a/r", allowed: true, can_allow: false, skills: [sk("tdd"), sk("grill")] };
   const list = (changed) => ({ ...TEAM_LIST, sources: [{ name: "mine", source: "/s/mine", dir: "/s/mine", push: "direct", changed }],
     sign: { approvals: "/s/appr", serial: 19, approved: [{ name: "mine", commit: "c".repeat(40) }] } });
   const go = async (changed) => {
@@ -1753,6 +1753,8 @@ test("收進來, your own source (push: direct): sent right after, added to the 
   assert.match(shown, /收好就直接送出（mine 是你自己的倉/); assert.match(shown, /收好後加到整個帳號/);
   H.clicks["collect-many"]({}, cx); await settle(); await settle();
   const args = (sub) => kitCalls(sub).map((c) => c.argv.slice(c.argv[0] === "sh" ? 4 : 1));
+  assert.deepEqual(args("collect").filter((a) => !a.includes("--look")), [["collect", "https://github.com/a/r", "--to", "mine", "--path", "skills/tdd", "--ref", "dev"],
+    ["collect", "https://github.com/a/r", "--to", "mine", "--path", "skills/grill", "--ref", "dev"]], "the branch kit took from a page's address (look's ref)");
   assert.deepEqual(args("push"), [["push", "--to", "mine", "--json"]], "sent once, no dry run (looked at in 下載看看)");
   assert.deepEqual(args("add"), [["add", "skill", "tdd", "grill"]], "added in one go (kit api 1.8)");
   shown = render(v);

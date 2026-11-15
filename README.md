@@ -21,6 +21,7 @@ jayweihung 的 Herdr 通用 mod 與設定。
 | **agent-files**: the agent's files in a popup, opened in nvim-jay or your editor / agent 改過的檔 | [docs/agent-files.md](docs/agent-files.md) |
 | **agent-page**: where an agent stands (進度) and the pages it wrote, beside it / agent 的進度和說明頁 | [docs/agent-page.md](docs/agent-page.md) |
 | **Gerrit panel**: dashboard, change details, notifications / Gerrit 面板 | [docs/gerrit.md](docs/gerrit.md) |
+| **trend**: what's trending on the social sites (hourly, no tokens) and a trend agent to ask / 熱門社群 | [docs/trend.md](docs/trend.md) |
 | **kit in Herdr**: Kit button on every agent pane, repository and Agents panels / kit 面板 | [docs/kit.md](docs/kit.md) |
 | **jay's layout** / jay 的畫面排法 | [docs/layout.md](docs/layout.md) |
 | New Herdr default keys per release / 各版新增的預設按鍵 | [docs/keys.md](docs/keys.md) |
@@ -37,6 +38,7 @@ jayweihung 的 Herdr 通用 mod 與設定。
 | `herdr-app/mods/kit` | kit (a separate tool, 0.3.0 or later) in Herdr: a Kit button and the context cell on every agent pane, the repository (rules / skills / MCP) and Agents panels ([docs/kit.md](docs/kit.md)) |
 | `herdr-app/mods/gerrit` | Gerrit beside your agents: 輪到你 / 我送出的 / 等我 review…, a change's votes, comment threads and files, notifications; `review.js`: 在 nvim 看, a change as files in nvim-jay's review mode ([docs/gerrit.md](docs/gerrit.md)) |
 | `herdr-app/mods/gerrit/claude-plugin` | the `gerrit-panel` Claude Code plugin: the skills the Gerrit panel's 問 agent buttons call (`/gerrit-panel:review` …), loaded with `--plugin-dir` ([docs/gerrit.md §8](docs/gerrit.md#8-a-gerrit-agent-step-by-step--gerrit-agent-安裝步驟)). The same four skills are in agentkit-library as `gerrit-review` … for a kit gerrit agent: change both together |
+| `herdr-app/mods/trend` | 熱門: what's trending on Reddit / HN / Digg, fetched hourly by launchd with last30days (`fetch.js`, no model, no tokens); a topic's 深入查 or your question goes to a kit trend agent, as Gerrit's 問 agent (macOS; [docs/trend.md](docs/trend.md)) |
 | `herdr-app/layouts/jay.json`, `jay-win.json` | jay's layout (macOS, Windows): Agents / Kit / Gerrit buttons and panels, the Kit bar on every terminal ([docs/layout.md](docs/layout.md)) |
 | `herdr-core/patches/<tag>/`, `herdr-app/patches/<tag>/` | changes to Herdr's own source (only what a mod can't do), one folder per official tag |
 | `docs/` | the guides above |

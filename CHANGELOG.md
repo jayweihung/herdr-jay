@@ -21,7 +21,8 @@ Needs: **mods**; **kit** 0.6.8 for one download per repo, adding all at once, th
   that account's sync.
 - 關係: the room a wide panel (放大) has left goes between the cards, not all at one end.
 - 問你: "tell me when it has happened" (機器到了跟我說) is not a question.
-收自己倉的 skill：收好直接送出、可勾「加到整個帳號」、要簽章時給一鍵複製指令。關係圖：root 服務點得到、等你簽打開各機器、放大後不擠、「到了跟我說」不算在問你。
+- Agent popup: a row's 加到… / 拿掉 says 加入中… while kit runs, then ✓ 已加到… until the list is read again.
+收自己倉的 skill：收好直接送出、可勾「加到整個帳號」、要簽章時給一鍵複製指令。關係圖：root 服務點得到、等你簽打開各機器、放大後不擠、「到了跟我說」不算在問你；agent 視窗按「加到…」後顯示加入中、✓ 已加到，不會像還能再按。
 
 ## 2026-11-15, Kit 送出: nothing to send is one line, not a box
 

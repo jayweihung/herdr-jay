@@ -1467,6 +1467,26 @@ test("agent popup (and its old name pane): shows what the header's kit list said
   assert.match(render(v), /kit 太舊/); assert.match(render(v), /在 box 的終端機/);
   assert.equal(kitCalls("list").length, 0);
 });
+test("agent popup: a row's 加到… says 加入中… while kit runs, then ✓ 已加到… until the list shows it (never looks pressable twice)", async (M) => {
+  fresh(); fakeKit();
+  const target = { key: "|/x|t1", term: "t1", machine: null, cwd: "/x", title: "Claude Code" };
+  const sk = (name, extra = {}) => ({ kind: "skill", name, status: "unused", source: "lib", description: `${name} desc`, ...extra });
+  H.store["kit.agent.data.v1"] = { [target.key]: { items: [sk("calm")], here: { items: [] } } };
+  H.store["kit.agent.v1"] = { [target.key]: { started: Date.now(), at: Date.now() } };
+  const v = view(M, { role: "agent", target }); await settle();
+  render(v);
+  const id = ["add-skill-calm", "adddir-skill-calm"].find((k) => k in H.clicks);
+  assert.ok(id, "a button to add it");
+  H.clicks[id]({}, cx);
+  let shown = render(v);
+  assert.match(shown, /加入中…/); assert.ok(!(id in H.clicks), "no button while kit runs");
+  await settle(); shown = render(v);
+  assert.match(shown, /✓ 已加到/); assert.ok(!(id in H.clicks), "done, the list not read again yet: still no button");
+  const used = id === "add-skill-calm" ? { status: "used" } : {};
+  H.store["kit.agent.data.v1"] = { [target.key]: { items: [sk("calm", used)], here: { items: id === "add-skill-calm" ? [] : [{ scope: "folder", kind: "skill", name: "calm" }] } } };
+  shown = render(v);
+  assert.doesNotMatch(shown, /✓ 已加到/, "the list shows it: the row as usual");
+});
 test("agent popup: 還沒用的 grouped by the URL a skill was collected from (third_party.lock there), closed until clicked; 找 over the whole list", async (M) => {
   fresh(); fakeKit();
   const target = { key: "|/x|t1", term: "t1", machine: null, cwd: "/x", title: "Claude Code" };

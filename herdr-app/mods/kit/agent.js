@@ -9,7 +9,7 @@ import { v_flex, h_flex, InputState, Input } from "gpui-base";
 import { theme, shared, setShared, closeOverlay, props } from "herdr";
 import { AGENT_CACHE, AGENT_DATA, AGENT_WANT, MSG, fs, mono, stop, shortDir, spin, waiting, icon, textBlock, copyOnRight, btn,
   busyNow, dropStaleBusy, giveBusy, apiState, checkApi, apiCard, messageBox, problemCard, versionCard, localGet, localSet,
-  kitAction, squeeze, groupRows } from "./common.js";
+  kitAction, markChanged, squeeze, groupRows } from "./common.js";
 import { POPUP_H } from "./header.js";
 
 const LONG = 600000, SHORT = 120000; // how long kit sync and install, and the other actions, may take
@@ -51,6 +51,28 @@ export class AgentPopup {
   // on that machine looks again
   act(label, args, cx, ttl = SHORT, okText = null) {
     kitAction(this, cx, { label, args, ttl, okText, machine: this.target?.machine ?? null, msg: MSG(this.where) });
+  }
+  // a row's add / rm: its button says 加入中… while kit runs, then ✓ 已… until the list (asked again) shows it, so it
+  // never looks like it can be pressed again. want: "used" | "unused" (the account), "dir" | "nodir" (this folder)
+  rowAct(i, want, label, args, cx, okText) {
+    const k = `${i.kind}:${i.name}`, machine = this.target?.machine ?? null;
+    const started = kitAction(this, cx, { label, args, ttl: SHORT, okText, machine, msg: MSG(this.where), after: () => {
+      const ok = shared(MSG(this.where))?.ok === true;
+      this.pend = { ...(this.pend ?? {}), [k]: ok ? { done: want, at: Date.now() } : null };
+      markChanged(machine);
+    } });
+    if (started) this.pend = { ...(this.pend ?? {}), [k]: { doing: want } };
+  }
+  // a row's add / rm in progress or done but not yet in the list: { doing } / { done }; null once the list shows it
+  // (or a minute later)
+  pendOf(i, inDir) {
+    const k = `${i.kind}:${i.name}`, p = this.pend?.[k];
+    if (!p) return null;
+    if (p.done) {
+      const now = { used: i.status === "used", unused: i.status !== "used", dir: inDir, nodir: !inDir }[p.done];
+      if (now || Date.now() - p.at > 60000) { this.pend[k] = null; return null; }
+    }
+    return p;
   }
 
   render(_cx) {
@@ -197,15 +219,20 @@ export class AgentPopup {
     const dirArgs = (verb) => [verb, "--dir", f.dir, i.kind, i.name];
     const fd = f ? shortDir(f.dir) : "";
     const action = h_flex().flex_none().gap(4).items_center();
+    const pend = this.pendOf(i, inDir);
+    const WORDS = { used: ["加入中…", "✓ 已加到整個帳號"], unused: ["拿掉中…", "✓ 已從帳號拿掉"], dir: ["加入中…", "✓ 已加到這個資料夾"], nodir: ["拿掉中…", "✓ 已從資料夾拿掉"] };
+    if (pend) action.child(pend.doing
+      ? h_flex().gap(4).items_center().px(8).h(24).rounded(6).bg(t.raised).text_size(z - 1.5).text_color(t.muted).child(spin(z - 3, t.muted)).child(WORDS[pend.doing][0])
+      : div().text_size(z - 1.5).text_color(t.done).child(WORDS[pend.done][1]));
     // An agent started in a folder only changes that folder; the account is changed only from one started in the home
     // folder (there the folder buttons make no sense: the home folder is the account). No button that reaches further
     // than the folder the agent runs in.
-    if (canDir) {
-      if (inDir) action.child(btn(t, z, `rmdir-${i.kind}-${i.name}`, "從資料夾拿掉", { small: true, off: busy, on: (cx) => this.act(`從資料夾拿掉 ${i.name}`, dirArgs("rm"), cx, SHORT, `已從 ${fd} 拿掉 ${i.name}。在 ${fd} 開新的對話就不會有了。`) }));
-      else if (i.status === "unused") action.child(btn(t, z, `adddir-${i.kind}-${i.name}`, "加到這個資料夾", { small: true, kind: "primary", off: busy, on: (cx) => this.act(`加到這個資料夾 ${i.name}`, dirArgs("add"), cx, SHORT, `已加到 ${fd}：${i.name}。在 ${fd}（含子資料夾）開新的對話才會讀到，別的地方不受影響。`) }));
+    if (pend) { /* its 加入中… / ✓ above */ } else if (canDir) {
+      if (inDir) action.child(btn(t, z, `rmdir-${i.kind}-${i.name}`, "從資料夾拿掉", { small: true, off: busy, on: (cx) => this.rowAct(i, "nodir", `從資料夾拿掉 ${i.name}`, dirArgs("rm"), cx, `已從 ${fd} 拿掉 ${i.name}。在 ${fd} 開新的對話就不會有了。`) }));
+      else if (i.status === "unused") action.child(btn(t, z, `adddir-${i.kind}-${i.name}`, "加到這個資料夾", { small: true, kind: "primary", off: busy, on: (cx) => this.rowAct(i, "dir", `加到這個資料夾 ${i.name}`, dirArgs("add"), cx, `已加到 ${fd}：${i.name}。在 ${fd}（含子資料夾）開新的對話才會讀到，別的地方不受影響。`) }));
     } else if (i.status === "required") action.child(div().text_size(z - 1.5).text_color(t.dim).child("拿不掉"));
-    else if (i.status === "used") action.child(btn(t, z, `rm-${i.kind}-${i.name}`, "從帳號拿掉", { small: true, off: busy, on: (cx) => this.act(`從帳號拿掉 ${i.name}`, ["rm", i.kind, i.name], cx, SHORT, `已從整個帳號拿掉 ${i.name}。開新的對話就不會有了。`) }));
-    else if (!inDir) action.child(btn(t, z, `add-${i.kind}-${i.name}`, "加到整個帳號", { small: true, kind: "primary", off: busy, on: (cx) => this.act(`加到整個帳號 ${i.name}`, ["add", i.kind, i.name], cx, SHORT, `已加到整個帳號：${i.name}。每個資料夾開新的對話都會讀到。`) }));
+    else if (i.status === "used") action.child(btn(t, z, `rm-${i.kind}-${i.name}`, "從帳號拿掉", { small: true, off: busy, on: (cx) => this.rowAct(i, "unused", `從帳號拿掉 ${i.name}`, ["rm", i.kind, i.name], cx, `已從整個帳號拿掉 ${i.name}。開新的對話就不會有了。`) }));
+    else if (!inDir) action.child(btn(t, z, `add-${i.kind}-${i.name}`, "加到整個帳號", { small: true, kind: "primary", off: busy, on: (cx) => this.rowAct(i, "used", `加到整個帳號 ${i.name}`, ["add", i.kind, i.name], cx, `已加到整個帳號：${i.name}。每個資料夾開新的對話都會讀到。`) }));
     const sub = [from && i.from ? `收自 ${i.from}` : "", i.description, i.source].filter(Boolean).join(" · ");
     const row = h_flex().gap(8).items_center()
       .child(v_flex().flex_1().min_w(0).gap(1)

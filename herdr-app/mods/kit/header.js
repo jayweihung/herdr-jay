@@ -633,11 +633,11 @@ export class Header {
       .child(div().font_semibold().child(`方案用量（${who}，這個帳號所有 agent 一起算）`));
     if (lim) box.child(div().text_size(z - 1).text_color(lim.back ? t.working : t.blocked)
       .child(lim.back ? `${lim.name}上限已經恢復${auto ? `，會替它打「${CONTINUE_TEXT}」` : "，要自己叫它繼續"}` : `撞到${lim.name}上限停下來了，${whenText(lim.until)} 恢復`));
-    // each window: its line, and under it a bar of how much is used (like the context bar below; a window that reset: empty)
+    // each window: its line, and under it a bar of how much is used (like the context bar below: the accent color, from 70 % working's, from 90 % red; a window that reset: empty)
     for (const [i, x] of lines.entries()) box.child(v_flex().id(`ctx-use-${i}`).gap(3).text_size(z - 1.5)
       .child(div().min_w(0).text_color(levelColor(t, x.pct)).child(x.text))
       .child(h_flex().id(`ctx-use-bar-${i}`).h(6).w_full().rounded(3).overflow_hidden().bg(t.border)
-        .child(div().h(6).flex_none().w(`${x.pct ?? 0}%`).bg(levelColor(t, x.pct)))));
+        .child(div().h(6).flex_none().w(`${x.pct ?? 0}%`).bg(({ full: t.blocked, high: t.working })[level(x.pct)] ?? t.accent))));
     if (use?.at) box.child(div().text_size(z - 2.5).text_color(t.dim).child(`${ago(Math.floor(use.at / 1000))}的數字`));
     box.child(h_flex().gap(6).items_center().text_size(z - 1.5)
       .child(div().flex_1().min_w(0).text_color(t.dim).child(`撞到上限停下來的 agent，額度恢復後自動打「${CONTINUE_TEXT}」：${auto ? "開" : "關"}`))

@@ -354,16 +354,20 @@ export default class Trend extends View {
     this.skip = ((await readTextFile(`${this.dir}/videos-skip.txt`).catch(() => null)) ?? "").split("\n").map((l) => l.trim().toLowerCase()).filter(Boolean);
     // the key points of the video playing, once the trend agent has written them (📝 整理重點)
     this.notes = this.playing ? await readTextFile(`${this.dir}/notes/${this.playing.id}.txt`).catch(() => null) : null;
-    try { this.feeds = f ? JSON.parse(f) : null; } catch { this.feeds = null; }
+    // the same text: the same object, so the list (shown, worked out from it) isn't worked out again
+    if (f !== this.feedsText) try { this.feeds = f ? JSON.parse(f) : null; this.feedsText = f; } catch { this.feeds = null; }
     // Reddit blocked the house's IP: the button says so, once (fetch.js waits 6, 12, 24 hours before trying again)
     const blocked = this.feeds?.redditBlockedAt ?? null;
     if (this.role === "toggle" && this.redditBlockedSeen !== undefined && blocked && blocked !== this.redditBlockedSeen)
       notify({ title: "熱門：Reddit 擋了家裡的 IP", body: this.feeds.errors?.reddit ?? "", level: "warning", timeout: 10000 });
     this.redditBlockedSeen = blocked;
     try { this.videos = v ? JSON.parse(v) : null; } catch { this.videos = null; }
-    try { this.data = t ? JSON.parse(t) : null; this.bad = null; } catch (e) { this.bad = `trends.json 讀不懂：${e.message ?? e}`; }
+    if (t !== this.dataText) try { this.data = t ? JSON.parse(t) : null; this.bad = null; this.dataText = t; } catch (e) { this.bad = `trends.json 讀不懂：${e.message ?? e}`; }
     try { this.status = s ? JSON.parse(s) : null; } catch { this.status = null; }
     await this.loadReports();
+    // the list worked out here, in a task (half a second allowed), not in render (50 ms: a long list there is cut
+    // off as 「This view could not be rendered」)
+    void this.shown;
     if (this.role !== "toggle" && !checking()) await this.writePages();
     cx.notify();
   }

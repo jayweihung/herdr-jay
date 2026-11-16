@@ -42,6 +42,8 @@ Needs: **mods** (Windows: copy `trend` again; macOS link: nothing).
   搜：最相關、最多人看、最新上傳，用「看」切換。
 - ⭐ 收藏 is split by the topic that found each video; and a topic chip keeps the 看 list (it showed all its videos,
   as did a reload). 收藏照當初搜到的主題分開放；點主題後「看」的清單不會跑掉。
+- The tabs' pages remember what you picked (the chip on top, 看, the ＋ box open) across the panel closing and Herdr
+  restarts; it lasted only as long as the page did. 上面選的分類、「看」都會記住，重開 Herdr 也一樣。
 
 ## 2026-11-16, trend: every 30 minutes
 

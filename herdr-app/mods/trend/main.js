@@ -636,10 +636,11 @@ export default class Trend extends View {
     return this.pageCell(t, LIST_CELL, "list.html");
   }
   // one of the pages in .view/ (its first write: a moment of 「載入中」). Its src carries the time it was written, so a
-  // new write loads it again, wherever the element went since (the same src never reloads)
+  // new write loads it again, wherever the element went since (the same src never reloads). persist: the page's
+  // localStorage (the chip, 看, the ＋ box) outlives the panel and Herdr restarts
   pageCell(t, cell, file) {
     if (this.written?.[file] === undefined) return div().flex_1().p(14).text_color(t.muted).child("載入中…");
-    return div().flex_1().min_h(0).child(web.new(cell, { src: `${fileUrl(`${this.viewDir}/${file}`)}?v=${this.written[file].at}` }));
+    return div().flex_1().min_h(0).child(web.new(cell, { src: `${fileUrl(`${this.viewDir}/${file}`)}?v=${this.written[file].at}`, persist: true }));
   }
   get viewDir() { return `${appHome().replace(/\\/g, "/")}/mods/trend/.view`; }
   async writePages() {

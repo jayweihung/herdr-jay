@@ -61,6 +61,7 @@ html,body{margin:0;background:var(--bg);color:var(--fg);font:${z}px/1.45 -apple-
 nav{position:sticky;top:0;z-index:1;display:flex;flex-wrap:wrap;gap:6px;padding:8px 10px;background:var(--bg);border-bottom:1px solid var(--border)}
 nav button{font:inherit;font-size:.88em;padding:2px 10px;border-radius:999px;border:1px solid var(--border);background:var(--raised);color:var(--muted);cursor:pointer}
 nav button.on{background:var(--accent);color:var(--accent-fg);border-color:var(--accent)}nav button:disabled{opacity:.4;cursor:default}
+nav button:not(.on):not(:disabled):hover{color:var(--fg);border-color:var(--accent)}
 h2{margin:14px 12px 6px;font-size:.85em;font-weight:600;color:var(--muted)}
 .card{margin:0 10px 8px;padding:9px 11px;border:1px solid var(--border);border-radius:9px;background:var(--raised)}
 .card[data-do]{cursor:pointer}.card[data-do]:hover{border-color:var(--accent)}
@@ -78,9 +79,9 @@ a.title:hover{text-decoration:underline}
 .excerpt{margin-top:5px;font-size:.92em;color:var(--fg);opacity:.85;white-space:pre-line;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
 .card:has(details[open]) .excerpt{display:none}
 .body{margin:6px 0;white-space:pre-line;overflow-wrap:anywhere;color:var(--fg)}
-details{margin-top:4px;font-size:.88em}summary{color:var(--muted);cursor:pointer}
+details{margin-top:4px;font-size:.88em}summary{color:var(--muted);cursor:pointer}summary:hover{color:var(--fg)}
 blockquote{margin:6px 0;padding-left:8px;border-left:2px solid var(--border);color:var(--muted)}
-.links a{display:block;color:var(--accent);text-decoration:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.links a{display:block;color:var(--accent);text-decoration:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.links a:hover{text-decoration:underline}
 .acts{display:flex;flex-wrap:wrap;gap:6px;margin-top:7px}
 .acts button{font:inherit;font-size:.85em;padding:3px 10px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--fg);cursor:pointer}
 .acts button.main{background:var(--solid);color:var(--solid-fg);border-color:var(--solid)}.acts button.rep{color:var(--accent);border-color:var(--accent)}
@@ -816,10 +817,10 @@ export default class Trend extends View {
       + `nav .x{margin-left:7px;opacity:.55}nav .x:hover{opacity:1;color:${t.ansi1}}nav button.addt{color:var(--accent);border-style:dashed}`
       + `#addbox{margin:10px 10px 4px;padding:10px;border:1px dashed var(--border);border-radius:9px}#addbox .hd{font-size:.85em;color:var(--muted);margin-bottom:8px}`
       + `#addform{display:flex;gap:6px;margin-bottom:8px}#addq{flex:1;min-width:0;font:inherit;padding:4px 8px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--fg)}`
-      + `#addbox button{font:inherit;font-size:.88em;padding:3px 10px;border-radius:6px;border:1px solid var(--border);background:var(--raised);color:var(--fg);cursor:pointer}`
+      + `#addbox button{font:inherit;font-size:.88em;padding:3px 10px;border-radius:6px;border:1px solid var(--border);background:var(--raised);color:var(--fg);cursor:pointer}#addbox button:hover{border-color:var(--accent)}`
       + `#addform button{background:var(--solid);color:var(--solid-fg);border-color:var(--solid)}.sugs{display:flex;flex-wrap:wrap;gap:6px}`
       + `.sortbar{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:10px 12px 0;font-size:.85em;color:var(--muted)}`
-      + `.sortbar button{font:inherit;padding:1px 9px;border-radius:999px;border:1px solid var(--border);background:var(--bg);color:var(--muted);cursor:pointer}`
+      + `.sortbar button{font:inherit;padding:1px 9px;border-radius:999px;border:1px solid var(--border);background:var(--bg);color:var(--muted);cursor:pointer}.sortbar button:not(.on):hover{color:var(--fg);border-color:var(--accent)}`
       + `.sortbar button.on{background:var(--raised);color:var(--fg);border-color:var(--accent)}</style>`
       + `<nav><button data-cat="all">全部 ${items.length}</button>${starred.length ? `<button data-cat="⭐ 收藏">⭐ 收藏 ${starred.length}</button>` : ""}`
       + `${groups.map(([q, xs]) => `<button data-cat="${esc(q)}">${esc(q)} ${this.searching?.has(q) ? "…" : xs.length}<span class="x" data-act="drop" data-q="${esc(q)}" title="拿掉這個主題和它的影片">✕</span></button>`).join("")}`

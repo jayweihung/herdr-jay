@@ -548,7 +548,7 @@ export class Agents {
     body.child(h_flex().gap(4).items_center().flex_wrap()
       .children(tools.length > 1 ? tools.map((tool) => div().id(`tool-${tool}`).px(8).py(2).rounded(5).text_size(z - 1.5).cursor_pointer()
         .bg(tool === cur ? t.selected : t.raised).text_color(tool === cur ? t.foreground : t.muted)
-        .border_1().border_color(tool === cur ? t.accent : t.raised)
+        .border_1().border_color(tool === cur ? t.accent : t.raised).hover((s) => (tool === cur ? s : s.bg(t.hover)))
         .on_mouse_down("left", stop).on_click((_e, cx) => { this.tool = tool; localSet("kit.agents.tool", tool); cx.notify(); })
         .child(TOOL_NAMES[tool] ?? tool)) : [])
       .child(div().flex_1())
@@ -616,10 +616,10 @@ export class Agents {
       })))
       .child(h_flex().gap(6).flex_wrap().items_center()
         .child(div().id("bot-color-own").h(22).px(8).rounded(11).flex().items_center().cursor_pointer().bg(animal?.main ?? t.raised)
-          .text_size(z - 2.5).text_color("#262a33").border_2().border_color(ring(!cur.color))
+          .text_size(z - 2.5).text_color("#262a33").border_2().border_color(ring(!cur.color)).hover((s) => s.opacity(0.8))
           .on_mouse_down("left", stop).on_click((_e, cx) => set({ animal: cur.animal, color: null })(cx)).child("原色"))
         .children(COLORS.map((c) => div().id(`bot-color-${c.key}`).size(22).rounded(11).cursor_pointer().bg(c.hex)
-          .border_2().border_color(ring(c.key === cur.color))
+          .border_2().border_color(ring(c.key === cur.color)).hover((s) => s.opacity(0.8))
           .on_mouse_down("left", stop).on_click((_e, cx) => set({ animal: cur.animal, color: c.key })(cx)))))
       .when(Boolean(problem), (el) => el.child(div().text_color(t.blocked).child(textBlock("kit-bots-problem", problem ?? ""))));
   }

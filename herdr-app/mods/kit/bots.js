@@ -155,7 +155,7 @@ export class LiveBot extends View {
     return true;
   }
   render() {
-    return div().id("kit-live-bot").flex_none().cursor_pointer()
+    return div().id("kit-live-bot").flex_none().cursor_pointer().hover((s) => s.opacity(0.85))
       .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
       .on_click((_e, cx) => { this.hello(); cx.notify(); })
       .child(polygonsView(this.polys ?? [], this.size));

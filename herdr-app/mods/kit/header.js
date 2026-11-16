@@ -684,7 +684,7 @@ export class Header {
   // one list (memory files, skills, MCP by server, what was said by kind and by tool, …): click to open; most first
   ctxGroup(t, z, g, list) {
     const items = g.items ?? [], open = Boolean(this.open[g.id]);
-    const head = h_flex().id(`g-${g.id}`).gap(6).items_center().cursor_pointer().on_mouse_down("left", stop)
+    const head = h_flex().id(`g-${g.id}`).gap(6).items_center().rounded(4).cursor_pointer().hover((s) => s.bg(t.hover)).on_mouse_down("left", stop)
       .on_click((_e, cx) => { this.open[g.id] = !open; cx.notify(); })
       .child(div().w(12).text_color(t.dim).child(open ? "▾" : "▸"))
       .child(div().flex_1().min_w(0).truncate().font_semibold().child(`${g.name}（${items.length}）`))
@@ -692,7 +692,7 @@ export class Header {
     if (!open) return head;
     const shown = this.more[g.id] ? items : items.slice(0, 40);
     const rows = v_flex().gap(1).pl(12).children(shown.map((it) => this.ctxItem(t, z, g, it, `${g.id}|${it.name}`, 0, list)));
-    if (shown.length < items.length) rows.child(div().id(`more-${g.id}`).px(4).py(2).cursor_pointer().text_size(z - 1.5).text_color(t.accent)
+    if (shown.length < items.length) rows.child(div().id(`more-${g.id}`).px(4).py(2).cursor_pointer().text_size(z - 1.5).text_color(t.accent).hover((s) => s.underline())
       .on_mouse_down("left", stop).on_click((_e, cx) => { this.more[g.id] = true; cx.notify(); }).child(`還有 ${items.length - shown.length} 個…`));
     return v_flex().gap(4).child(head).child(rows);
   }

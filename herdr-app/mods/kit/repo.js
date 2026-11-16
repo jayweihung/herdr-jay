@@ -561,7 +561,7 @@ export class Repo {
     const mode = kind === "plugin" ? "collect" : kind === "skill" ? (m.mode === "collect" ? "collect" : "write") : kind === "mcp" ? (m.mode === "paste" ? "paste" : "write") : "write";
     const note = (text, color) => div().text_size(z - 1.5).text_color(color ?? t.muted).child(text);
     const chip = (id, label, on, click) => div().id(id).px(8).py(3).rounded(5).text_size(z - 1.5).cursor_pointer()
-      .bg(on ? t.selected : t.surface).text_color(on ? t.foreground : t.muted).border_1().border_color(on ? t.accent : t.border)
+      .bg(on ? t.selected : t.surface).text_color(on ? t.foreground : t.muted).border_1().border_color(on ? t.accent : t.border).hover((s) => (on ? s : s.bg(t.hover)))
       .on_mouse_down("left", stop).on_click((_e, cx) => click(cx)).child(label);
     const box = v_flex().flex_none().mb(8).p(10).gap(8).rounded(8).bg(t.raised)
       .child(div().font_semibold().child(`新增${what}`));
@@ -823,7 +823,7 @@ export class Repo {
     return [
       note(other ? `${lk.source} 還有別的改動沒送：收好不會自動送出，請按清單上面黃色那條的「送出」一起看。`
         : `收好就直接送出（${lk.source} 是你自己的倉，剛才「下載看看」已經看過要收什麼）。`, other ? t.working : t.muted),
-      h_flex().id("collect-add").gap(6).items_start().cursor_pointer().text_size(z - 1.5).on_mouse_down("left", stop)
+      h_flex().id("collect-add").gap(6).items_start().rounded(4).cursor_pointer().hover((s) => s.bg(t.hover)).text_size(z - 1.5).on_mouse_down("left", stop)
         .on_click((_e, cx) => { localSet("kit.collect.add", on ? "0" : "1"); cx.notify(); })
         .child(div().flex_none().mt(2).size(14).rounded(3).border_1().border_color(on ? t.accent : t.border).bg(on ? t.accent : t.background)
           .flex().items_center().justify_center().text_size(10).text_color(t.background).child(on ? "✓" : ""))

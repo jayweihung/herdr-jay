@@ -1897,7 +1897,7 @@ export default class Gerrit extends View {
           .child(div().text_color(t.muted).child(`${who(m.author)} · 第 ${m.patch_set} 版 · ${ago(m.updated)}`))
           .child(div().whitespace_normal().child(textBlock(`th-${i}-${k}-text`, String(m.message ?? "").trim())))))
         .when(Boolean(shared(SAFE_CFG)?.auth) && c.status === "NEW", (el) => el.child(this.threadButtons(t, z, c, x)))));
-      if (list.length > shown.length || all) body.child(div().id("more-comments").text_size(z - 1).text_color(t.accent).cursor_pointer()
+      if (list.length > shown.length || all) body.child(div().id("more-comments").text_size(z - 1).text_color(t.accent).cursor_pointer().hover((s) => s.underline())
         .on_click((_e, cx) => { this.allComments = all ? null : c.id; cx.notify(); })
         .child(all ? "只看未解決的" : `還有 ${list.length - shown.length} 串已解決的，點一下看`));
     }

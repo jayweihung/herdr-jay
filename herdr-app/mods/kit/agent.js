@@ -209,7 +209,7 @@ export class AgentPopup {
   }
 
   secHead(t, z, id, title, folded, note) {
-    return h_flex().id(`sec-${id}`).gap(6).items_center().cursor_pointer().on_mouse_down("left", stop)
+    return h_flex().id(`sec-${id}`).gap(6).items_center().rounded(4).cursor_pointer().hover((s) => s.bg(t.hover)).on_mouse_down("left", stop)
       .on_click((_e, cx) => { this.folded[id] = !folded; localSet("kit.folded", JSON.stringify(this.folded)); cx.notify(); })
       .child(div().w(12).text_color(t.muted).child(folded ? "▸" : "▾"))
       .child(div().text_size(z - 0.5).child(title))

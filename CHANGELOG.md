@@ -9,6 +9,14 @@ says which) · **kit** = update kit itself on every machine where agents run (`k
 **snap hook** = a line in Claude Code's `settings.json` on each machine where you added the hook (the entry says
 which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/keys.md).
 
+## 2026-11-16, everything you can click answers the mouse
+
+Needs: **mods** (Windows: copy `kit`, `gerrit` and `trend` again; macOS links: nothing).
+
+- Buttons that showed no change under the mouse now do: kit's fold headers (規則、skill…, a context group), its
+  「還有 N 個…」, the tool and color pickers, the live bot, 「新增」's mode chips and 「收好後加到整個帳號」; Gerrit's
+  「還有 N 串已解決的」; 熱門's subject chips, 更多, its links, the 影片 tab's 加 and 看 buttons. 滑鼠移上去沒變化的按鈕都補上變化。
+
 ## 2026-11-16, trend: the 影片 tab's top row is your topics
 
 Needs: **mods** (Windows: copy `trend` again; macOS link: nothing).

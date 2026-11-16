@@ -13,6 +13,9 @@ A tab-bar button **熱門** and a panel, like Gerrit's (macOS and Windows):
   (click opens the browser, right-click copies) and **🔎 深入查** / **三句話說明**. The line under the title says when
   it last ran and when it runs next, and which sites answered (`✗ 讀不到` is not "nothing happened there"). **↻ 現在更新**
   runs it now. 面板：每個主題的數字和原因；點開看熱門留言、來源連結、深入查／三句話說明。標題下面寫上次和下次更新、哪些網站有回應。
+  last30days names 5 to 10 topics (it checks each across sites), so the list goes on to 20 with each site's own front
+  page, HN's and Digg's in turn (marked HN / Digg, under 「各站自己的熱門」; a story a topic already cites is left out).
+  last30days 只挑 5 到 10 題（每題跨站比對過），後面用 HN、Digg 自己的熱門輪流補到 20 條。
 - **Asking costs tokens, only when you ask.** The buttons and the box at the bottom send to a **kit trend agent** in
   this space (`hc send`), as Gerrit's 問 agent does: with none here, the Kit panel puts one in this space (`kit place`,
   the Kit button must be in the layout) and it starts on the question. Pick Claude / Codex / omp for the next one it
@@ -112,5 +115,6 @@ Windows 一樣：複製 mod，用工作排程器每小時跑；公司電腦先�
 ## Files / 檔案
 
 `~/.config/herdr-app/trend/`: `trends.json` (last30days' discovery JSON, replaced only by a run that worked),
-`status.json` (`started`, `finished`, `ok`, `error`), `last.log` (the last run's output), `proxy` (yours, optional).
+`status.json` (`started`, `finished`, `ok`, `error`), `last.log` (the last run's output), `proxy` (yours, optional),
+`feeds.json` (HN's front page and Digg's top stories of the last 24 h: `{ at, hn, digg, errors }`).
 `<Herdr home>/mods/trend/.reports/`: the agent's reports (hidden: writing one doesn't reload the mod; git ignores it).

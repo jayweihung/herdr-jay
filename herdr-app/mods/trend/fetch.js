@@ -45,5 +45,32 @@ else {
     fs.rmSync(tmp, { force: true });
   }
 }
-put("status.json", JSON.stringify({ started, finished: now(), ok: !error, error }) + "\n");
-process.exit(error ? 1 : 0);
+
+// last30days names at most 10 topics (and enriches 6): the panel fills up to 20 with each site's own front page,
+// ranked by that site. feeds.json: { at, hn: [...], digg: [...], errors: {...} }. Free, no keys, no model.
+// 不夠 20 題時，面板用各站自己的熱門（HN 首頁、Digg 排行）補上。
+async function feeds() {
+  const f = { at: now(), hn: [], digg: [], errors: {} };
+  try {
+    const r = await fetch("https://hn.algolia.com/api/v1/search?tags=front_page&hitsPerPage=30", { signal: AbortSignal.timeout(30000) });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    f.hn = ((await r.json()).hits ?? []).sort((a, b) => (b.points ?? 0) - (a.points ?? 0)).map((h) => ({
+      title: h.title, url: h.url || `https://news.ycombinator.com/item?id=${h.objectID}`,
+      discussion: `https://news.ycombinator.com/item?id=${h.objectID}`, points: h.points ?? 0, comments: h.num_comments ?? 0,
+    }));
+  } catch (e) { f.errors.hn = String(e.message ?? e).slice(0, 200); }
+  // digg-pp-cli on PATH (docs/trend.md): the stories of every Digg topic in the last 24 h, by Digg Score
+  const d = spawnSync(process.platform === "win32" ? "digg-pp-cli.exe" : "digg-pp-cli", ["top", "--limit", "30", "--agent"],
+    { encoding: "utf8", maxBuffer: 16 << 20, timeout: 120000, windowsHide: true });
+  try {
+    if (d.status !== 0) throw new Error(d.error?.message || (d.stderr ?? "").trim().split("\n").pop() || `exit ${d.status}`);
+    f.digg = (JSON.parse(d.stdout).results ?? []).map((s) => ({
+      title: s.title, url: s.url, description: s.description ?? "", score: s.diggScore ?? 0, sources: s.postCount ?? 0, topic: s.topic ?? "",
+    }));
+  } catch (e) { f.errors.digg = String(e.message ?? e).slice(0, 200); }
+  put("feeds.json", JSON.stringify(f) + "\n");
+}
+feeds().catch(() => {}).finally(() => {
+  put("status.json", JSON.stringify({ started, finished: now(), ok: !error, error }) + "\n");
+  process.exit(error ? 1 : 0);
+});

@@ -35,6 +35,7 @@ panel), an hourly job (launchd / Task Scheduler), last30days and a trend agent i
   places one and it starts on the question, as Gerrit's 問 agent. 問問題才花 token，送給這個 space 的 trend agent。
 - 報告 tab: the trend agent writes each deep dive as an HTML page; the panel shows it as a web page (needs the Herdr
   build with web elements), and a topic with a report gets 📄 看報告. 深入查寫成報告，在面板裡用網頁看。
+- The list shows 20: last30days' 5 to 10 topics, then HN's and Digg's own front pages in turn. 清單補到 20 條。
 - kit (and the 熱門 panel): an agent Herdr never heard a status from (shown as its shell) still counts when claude /
   codex / omp runs in front, so putting it in a space, or asking it again, doesn't open a second one.
   沒回報狀態的 agent 也認得出來，不會在同一個 space 再開一個。

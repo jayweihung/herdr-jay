@@ -42,9 +42,13 @@ const htmlTitle = (html) => unescape(/<title[^>]*>([^<]*)<\/title>/i.exec(html)?
 const reportWhen = (name) => { const m = /^(\d{4})-(\d{2})-(\d{2})-(\d{2})(\d{2})/.exec(name); return m ? `${Number(m[2])}/${Number(m[3])} ${m[4]}:${m[5]}` : ""; };
 const PRESETS = [
   { label: "🔎 深入查", text: (r) => `/last30days ${r.topic}` },
-  { label: "三句話說明", text: (r) => `用繁體中文三句話說明「${r.topic}」最近發生什麼事、為什麼大家在討論。這一題的來源在 ~/.config/herdr-app/trend/trends.json（topic 是 ${JSON.stringify(r.topic)}），先看那些連結，不夠再查。` },
+  { label: "三句話說明", text: (r) => r.feed
+    ? `用繁體中文三句話說明「${r.topic}」（${r.evidence_urls[0]}）最近發生什麼事、為什麼大家在討論。先看那個連結，不夠再查。`
+    : `用繁體中文三句話說明「${r.topic}」最近發生什麼事、為什麼大家在討論。這一題的來源在 ~/.config/herdr-app/trend/trends.json（topic 是 ${JSON.stringify(r.topic)}），先看那些連結，不夠再查。` },
 ];
 const MOMENTUM = { "new-this-week": "本週新", building: "升溫中" };
+const SHOWN = 20;   // last30days names 5 to 10 topics; the sites' own front pages fill the list to this many
+const DIGG_TOPIC = { ai: "AI", tech: "科技", "world-business": "國際商業", sports: "體育", science: "科學", gaming: "遊戲", entertainment: "娛樂" };
 const SOURCE = { hackernews: "HN", reddit: "Reddit", digg: "Digg", x: "X", grounding: "網頁", youtube: "YouTube", polymarket: "Polymarket", github: "GitHub" };
 const STATE = { "rate-limited": "被限流", "auth-failed": "登入失效", "payment-required": "額度用完", unreachable: "連不到", timeout: "逾時",
   "schema-drift": "讀不到（常是被擋）", "skipped-unconfigured": "沒設定", error: "出錯", partial: "部分", "no-results": "沒結果" };
@@ -110,7 +114,8 @@ export default class Trend extends View {
 
   get dir() { return `${appHome().replace(/\\/g, "/")}/trend`; }
   async load(cx) {
-    const [t, s] = await Promise.all([readTextFile(`${this.dir}/trends.json`).catch(() => null), readTextFile(`${this.dir}/status.json`).catch(() => null)]);
+    const [t, s, f] = await Promise.all(["trends.json", "status.json", "feeds.json"].map((n) => readTextFile(`${this.dir}/${n}`).catch(() => null)));
+    try { this.feeds = f ? JSON.parse(f) : null; } catch { this.feeds = null; }
     try { this.data = t ? JSON.parse(t) : null; this.bad = null; } catch (e) { this.bad = `trends.json 讀不懂：${e.message ?? e}`; }
     try { this.status = s ? JSON.parse(s) : null; } catch { this.status = null; }
     await this.loadReports();
@@ -166,6 +171,23 @@ export default class Trend extends View {
       .child(div().flex_1().min_h(0).child(web.new(REPORT_CELL, { src: fileUrl(`${this.reportDir}/${this.view}`) })));
   }
   get results() { return Array.isArray(this.data?.results) ? this.data.results : []; }
+  // What the list shows: last30days' topics, then HN's and Digg's own front pages taken in turn (each site's rank),
+  // skipping a story a topic already cites, up to SHOWN rows
+  get shown() {
+    const topics = this.results, cited = new Set(topics.flatMap((r) => r.evidence_urls ?? []));
+    const hn = (this.feeds?.hn ?? []).map((h) => ({ topic: h.title, feed: "HN", line: `HN ${num(h.points)} 分 · ${num(h.comments)} 留言`,
+      why_spiking: shortLink(h.url).split("/")[0], evidence_urls: [h.url, h.discussion].filter((u, i, a) => u && a.indexOf(u) === i) }));
+    const digg = (this.feeds?.digg ?? []).map((d) => ({ topic: d.title, feed: "Digg",
+      line: `Digg ${num(d.score)} 分 · ${d.sources} 個來源${DIGG_TOPIC[d.topic] ? ` · ${DIGG_TOPIC[d.topic]}` : ""}`,
+      why_spiking: d.description, evidence_urls: [d.url] }));
+    const out = [...topics], names = new Set(topics.map((r) => r.topic));
+    for (let i = 0; out.length < SHOWN && (i < hn.length || i < digg.length); i++)
+      for (const x of [hn[i], digg[i]]) if (x && out.length < SHOWN && !names.has(x.topic) && !x.evidence_urls.some((u) => cited.has(u))) {
+        names.add(x.topic);
+        out.push({ ...x, rank: out.length + 1 });
+      }
+    return out;
+  }
   // a run killed midway (the Mac slept, shut down) never writes finished: after 30 minutes it isn't running
   get running() { return Boolean(this.status?.started && !this.status?.finished && Date.now() - Date.parse(this.status.started) < 1800000); }
   get failed() { return this.status?.ok === false ? this.status.error || "上次沒抓成功" : null; }
@@ -290,7 +312,7 @@ export default class Trend extends View {
   renderToggle() {
     const t = theme(), node = find(layout(), PANEL), on = node && !node.hidden;
     const seen = new Set(Array.isArray(shared(SEEN)) ? shared(SEEN) : []);
-    const fresh = this.results.filter((r) => !seen.has(r.topic)).length;
+    const fresh = this.shown.filter((r) => !seen.has(r.topic)).length;
     const badge = this.running ? spin(12, t.muted)
       : this.failed ? div().text_color(t.ansi1).child("!")
       : fresh ? div().px(5).rounded(8).text_size(11).font_semibold().bg(t.blocked).text_color(t.background).child(String(fresh)) : null;
@@ -299,7 +321,7 @@ export default class Trend extends View {
         .text_size(12).bg(on ? t.selected : t.chrome).text_color(on ? t.foreground : t.muted)
         .hover((st) => st.bg(t.hover)).on_mouse_down("left", stop)
         .on_click((_e, cx) => {
-          if (!on) setShared(SEEN, this.results.map((r) => r.topic)); // opening it: what it shows now counts as seen
+          if (!on) setShared(SEEN, this.shown.map((r) => r.topic)); // opening it: what it shows now counts as seen
           run("layout.toggle", { id: PANEL });
           cx.notify();
         })
@@ -336,12 +358,16 @@ export default class Trend extends View {
 
   list(t, z) {
     const list = v_flex().id("list").flex_1().min_h(0).overflow_y_scrollbar();
-    if (!this.results.length) {
+    if (!this.shown.length) {
       const why = this.data?.outcome === "nothing-solid" ? `這一輪沒有夠強的熱門${this.data.weak_signal ? `（最接近的：${this.data.weak_signal}）` : ""}` : "還沒有主題";
       return list.child(div().p(14).text_color(t.muted).child(why));
     }
     const seen = new Set(Array.isArray(shared(SEEN)) ? shared(SEEN) : []);
-    for (const r of this.results) list.child(this.row(t, z, r, !seen.has(r.topic)));
+    this.shown.forEach((r, i) => {
+      if (r.feed && !this.shown[i - 1]?.feed) list.child(div().px(12).pt(10).pb(4).text_size(z - 1.5).text_color(t.dim)
+        .child("各站自己的熱門（沒經過 last30days 跨站比對）"));
+      list.child(this.row(t, z, r, !seen.has(r.topic)));
+    });
     return list;
   }
 
@@ -355,8 +381,9 @@ export default class Trend extends View {
         .child(div().w(18).flex_none().text_color(t.dim).child(String(r.rank)))
         .child(div().flex_1().min_w(0).truncate().font_semibold().on_mouse_down("right", copyOn(r.topic)).child(r.topic))
         .when(fresh, (el) => el.child(div().w(6).h(6).rounded(3).flex_none().bg(t.accent)))
-        .when(Boolean(MOMENTUM[r.momentum]), (el) => el.child(chip(MOMENTUM[r.momentum], r.momentum === "new-this-week" ? t.ansi2 : t.ansi3))))
-      .child(div().pl(24).text_size(z - 1.5).text_color(t.muted).truncate().child(engagementText(r.engagement) || (r.sources ?? []).map((s) => SOURCE[s] ?? s).join("、")));
+        .when(Boolean(MOMENTUM[r.momentum]), (el) => el.child(chip(MOMENTUM[r.momentum], r.momentum === "new-this-week" ? t.ansi2 : t.ansi3)))
+        .when(Boolean(r.feed), (el) => el.child(chip(r.feed, t.muted))))
+      .child(div().pl(24).text_size(z - 1.5).text_color(t.muted).truncate().child(r.line ?? (engagementText(r.engagement) || (r.sources ?? []).map((s) => SOURCE[s] ?? s).join("、"))));
     if (!open) return row.child(div().pl(24).text_size(z - 1.5).text_color(t.dim).truncate().child(why(r)));
     row.child(div().pl(24).text_size(z - 1).whitespace_normal().child(why(r)));
     if (r.top_comment) row.child(div().ml(24).pl(8).border_l(2).border_color(t.border).text_size(z - 1.5).text_color(t.muted).whitespace_normal().child(r.top_comment));

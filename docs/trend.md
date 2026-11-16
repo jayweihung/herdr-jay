@@ -162,8 +162,11 @@ the player (right-click copies it); **📝 重新整理** asks again. 懶得看�
 **建議的主題** at the top of the tab, no tokens: a channel you played 2 or more videos of, a word in the titles of 2
 or more of them (Chinese: a run of 2 to 4 characters in 3 or more), and what YouTube's own search box suggests for
 each of your searches (asked once a day each), as small chips (the reason when you hover one). **＋ 搜這個** puts it in
-`videos.txt` and searches it right away (`node fetch.js --videos`, 「正在搜」 meanwhile), **不要** in `videos-skip.txt` (not suggested again; no video is removed). 不用自己想主題：
-影片分頁上面會建議（看你點過的影片、YouTube 的搜尋建議），按「＋ 搜這個」加入或「不要」。
+`videos.txt` and searches it right away (`node fetch.js --videos`, 「正在搜」 meanwhile): its videos show under its own
+chip (a video stays under the search that found it first, never two). **不要** puts it in `videos-skip.txt`: not
+suggested again, and the videos it's about leave the tab at once: what it says beyond your searches' words, all of it
+in the title (`tzuyu owndays` → OWNDAYS; `twice 子瑜搞笑` → 搞笑); a starred video stays. Take a line out of
+`videos-skip.txt` to have them back. 不用自己想主題：「＋ 搜這個」加成主題並馬上搜；「不要」不再建議，相關影片也一起拿掉。
 
 **☆** on a card stars the video: it stays under **⭐ 收藏** for good (`trend/stars.json`), whatever the searches later
 find or drop (the list keeps only the newest 300, and a search taken out takes its videos); **⭐** unstars it.

@@ -278,6 +278,8 @@ export default class Trend extends View {
     }
     // the videos you starred (stars.json, the panel's own): kept for good, whatever the searches find or drop
     if (this.stars === undefined) try { this.stars = JSON.parse((await readTextFile(`${this.dir}/stars.json`).catch(() => null)) ?? "{}") ?? {}; } catch { this.stars = {}; }
+    // the suggestions you said 不要 to (videos-skip.txt): their videos leave the 影片 tab too (videosHtml)
+    this.skip = ((await readTextFile(`${this.dir}/videos-skip.txt`).catch(() => null)) ?? "").split("\n").map((l) => l.trim().toLowerCase()).filter(Boolean);
     // the key points of the video playing, once the trend agent has written them (📝 整理重點)
     this.notes = this.playing ? await readTextFile(`${this.dir}/notes/${this.playing.id}.txt`).catch(() => null) : null;
     try { this.feeds = f ? JSON.parse(f) : null; } catch { this.feeds = null; }
@@ -682,6 +684,7 @@ export default class Trend extends View {
       const q = (h.get("name") ?? "").trim();
       if (!q) return;
       (this.handled ??= new Set()).add(q);   // gone from the page now; videos.json drops it on the next run
+      if (act === "skip") (this.skip ??= []).push(q.toLowerCase());   // its videos go at once (videosHtml)
       cx.spawn(async (cx) => {
         const file = `${this.dir}/${act === "add" ? "videos.txt" : "videos-skip.txt"}`, was = await readTextFile(file).catch(() => null);
         await writeTextFile(file, `${was ?? ""}${was && !was.endsWith("\n") ? "\n" : ""}${q}\n`, was).catch(() => {});
@@ -755,7 +758,12 @@ export default class Trend extends View {
   // the videos: a chip per search (videos.txt's order), its videos as cards with YouTube's thumbnail, newest found
   // first; a card plays it (do=play&name=<id>). When found: a date, not 「幾分前」, so the page doesn't change every minute
   videosHtml() {
-    const v = this.videos ?? {}, items = v.items ?? [], t = theme(), sug = (v.suggest ?? []).filter((s) => !this.handled?.has(s.q));
+    const v = this.videos ?? {}, t = theme(), sug = (v.suggest ?? []).filter((s) => !this.handled?.has(s.q));
+    // 不要 to a suggestion hides the videos it's about: what it says beyond your searches' words ("tzuyu owndays" →
+    // owndays; "twice 子瑜搞笑" → 搞笑), all of it in the title; a starred video stays
+    const qwords = (v.queries ?? []).flatMap((q) => q.toLowerCase().split(/\s+/)).filter(Boolean);
+    const nots = (this.skip ?? []).map((s) => qwords.reduce((r, w) => r.split(w).join(" "), s).split(/\s+/).filter(Boolean)).filter((ws) => ws.length);
+    const items = (v.items ?? []).filter((x) => this.stars?.[x.id] || !nots.some((ws) => ws.every((w) => x.title.toLowerCase().includes(w))));
     const when = (s) => { const d = new Date(Date.parse(s)); return Number.isNaN(d.getTime()) ? "" : `${d.getMonth() + 1}/${d.getDate()} ${hhmm(d.getTime())} 找到`; };
     const errs = [...[...(this.searching ?? [])].map((q) => `<p class="err" style="color:var(--muted)">正在搜「${esc(q)}」…</p>`),
       ...Object.entries(v.errors ?? {}).map(([q, e]) => `<p class="err">${esc(q ? `「${q}」：${e}` : e)}</p>`)].join("");

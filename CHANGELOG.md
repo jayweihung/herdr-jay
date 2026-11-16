@@ -21,7 +21,8 @@ Needs: **mods** (Windows: copy `trend` again; macOS link: nothing).
   members' vlogs and a drama); ＋ 加主題 really searches now. 主題只收標題有一半以上關鍵字的影片；加主題現在真的會馬上搜。
 - A topic's first search takes any upload time (the official M/V, the music shows), the later ones this week's
   uploads; topics you have got that search once on the next run. 新主題第一次搜不限時間（正版 MV 也會出來），之後只搜這週新上傳的。
-- A topic's videos go most watched first. 每個主題的影片照觀看次數排，最多人看的在前面。
+- A topic's videos go most watched first; a 排序 bar sorts by 最多人看 / 最新上傳 / 最近找到 / 短的先 / 長的先.
+  每個主題的影片預設照觀看次數排，「排序」可以改成最新上傳、最近找到、片長。
 
 ## 2026-11-16, trend: every 30 minutes
 

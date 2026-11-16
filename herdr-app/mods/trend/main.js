@@ -201,6 +201,16 @@ const hhmm = (ms) => { const d = new Date(ms); return `${String(d.getHours()).pa
 const mmss = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 // the topics in videos.txt: one per line, # a comment
 const topicsOf = (text) => String(text ?? "").split("\n").map((l) => l.trim()).filter((l) => l && !l.startsWith("#"));
+// YouTube's "2 年前" / "3 天前" / "1 hour ago" as milliseconds (0: not said)
+const agoMs = (s) => {
+  const m = /(\d+)\s*(秒|分鐘|分|小時|天|週|周|個月|月|年|second|minute|hour|day|week|month|year)/i.exec(String(s ?? ""));
+  if (!m) return 0;
+  const u = m[2].toLowerCase(), unit = /^(秒|second)/.test(u) ? 1e3 : /^(分|minute)/.test(u) ? 6e4 : /^(小時|hour)/.test(u) ? 36e5
+    : /^(天|day)/.test(u) ? 864e5 : /^(週|周|week)/.test(u) ? 6048e5 : /^(個月|月|month)/.test(u) ? 2592e6 : 31536e6;
+  return Number(m[1]) * unit;
+};
+// "1:02:03" / "3:25" as seconds; a Short has no length shown, say 45 s
+const lengthOf = (s) => (/^shorts$/i.test(String(s)) ? 45 : String(s ?? "").split(":").reduce((n, p) => n * 60 + (Number(p) || 0), 0));
 // YouTube's view count as a number: "觀看次數：24,442,452次", "18萬次", "1.4萬", "2.3億", "1.2M views"
 const viewsOf = (s) => {
   const m = /([\d.,]+)\s*([萬万億亿KMB])?/i.exec(String(s ?? ""));
@@ -783,7 +793,9 @@ export default class Trend extends View {
     const items = (v.items ?? []).filter((x) => queries.includes(x.query) && (this.stars?.[x.id] || !nots.some((ws) => ws.every((w) => x.title.toLowerCase().includes(w)))));
     const when = (s) => { const d = new Date(Date.parse(s)); return Number.isNaN(d.getTime()) ? "" : `${d.getMonth() + 1}/${d.getDate()} ${hhmm(d.getTime())} 找到`; };
     const errs = Object.entries(v.errors ?? {}).filter(([q]) => !q || isTopic(q)).map(([q, e]) => `<p class="err">${esc(q ? `「${q}」：${e}` : e)}</p>`).join("");
-    const card = (x) => `<div class="card vid" data-do="play" data-name="${esc(x.id)}">`
+    // data-*: what the sort bar sorts by (views, when it was put up: found minus 「…前」, when found, length)
+    const card = (x) => `<div class="card vid" data-do="play" data-name="${esc(x.id)}" data-v="${viewsOf(x.views)}"`
+      + ` data-up="${agoMs(x.published) ? Date.parse(x.found) - agoMs(x.published) : 0}" data-found="${Date.parse(x.found) || 0}" data-len="${lengthOf(x.length)}">`
       + `<img src="https://i.ytimg.com/vi/${esc(x.id)}/mqdefault.jpg" alt="" loading="lazy"><div class="vb">`
       + `<div class="title">${esc(x.title)}</div>`
       + `<div class="meta">${esc([x.channel, x.length, x.published, x.views].filter(Boolean).join(" · "))}</div>`
@@ -800,13 +812,18 @@ export default class Trend extends View {
       + `#addbox{margin:10px 10px 4px;padding:10px;border:1px dashed var(--border);border-radius:9px}#addbox .hd{font-size:.85em;color:var(--muted);margin-bottom:8px}`
       + `#addform{display:flex;gap:6px;margin-bottom:8px}#addq{flex:1;min-width:0;font:inherit;padding:4px 8px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--fg)}`
       + `#addbox button{font:inherit;font-size:.88em;padding:3px 10px;border-radius:6px;border:1px solid var(--border);background:var(--raised);color:var(--fg);cursor:pointer}`
-      + `#addform button{background:var(--solid);color:var(--solid-fg);border-color:var(--solid)}.sugs{display:flex;flex-wrap:wrap;gap:6px}</style>`
+      + `#addform button{background:var(--solid);color:var(--solid-fg);border-color:var(--solid)}.sugs{display:flex;flex-wrap:wrap;gap:6px}`
+      + `.sortbar{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:10px 12px 0;font-size:.85em;color:var(--muted)}`
+      + `.sortbar button{font:inherit;padding:1px 9px;border-radius:999px;border:1px solid var(--border);background:var(--bg);color:var(--muted);cursor:pointer}`
+      + `.sortbar button.on{background:var(--raised);color:var(--fg);border-color:var(--accent)}</style>`
       + `<nav><button data-cat="all">全部 ${items.length}</button>${starred.length ? `<button data-cat="⭐ 收藏">⭐ 收藏 ${starred.length}</button>` : ""}`
       + `${groups.map(([q, xs]) => `<button data-cat="${esc(q)}">${esc(q)} ${this.searching?.has(q) ? "…" : xs.length}<span class="x" data-act="drop" data-q="${esc(q)}" title="拿掉這個主題和它的影片">✕</span></button>`).join("")}`
       + `<button class="addt" data-act="toggle">＋ 加主題</button></nav>`
       + `<main><div id="addbox" hidden><div class="hd">加主題：打一個 YouTube 搜尋，或點一個建議，馬上搜；影片會出現在它自己的分類</div>`
       + `<form id="addform"><input id="addq" placeholder="例如：TWICE 子瑜 直拍" autocomplete="off"><button>加</button></form>`
       + `${sug.length ? `<div class="sugs">${sug.map((s) => `<button data-act="add" data-q="${esc(s.q)}" title="${esc(s.why)}">＋ ${esc(s.q)}</button>`).join("")}</div>` : ""}</div>`
+      + `<div class="sortbar">排序：${[["views", "最多人看"], ["up", "最新上傳"], ["found", "最近找到"], ["short", "短的先"], ["long", "長的先"]]
+        .map(([k, l]) => `<button data-act="sort" data-q="${k}">${l}</button>`).join("")}</div>`
       + `${errs}${queries.length ? "" : '<p class="empty">還沒有主題：按上面的「＋ 加主題」</p>'}`
       + `${starred.length ? `<section data-cat="⭐ 收藏"><h2>⭐ 收藏</h2>${starred.map(card).join("")}</section>` : ""}`
       + `${groups.map(([q, xs]) => `<section data-cat="${esc(q)}"><h2>🔍 ${esc(q)}</h2>${status(q, xs.length) ? `<p class="empty">${status(q, xs.length)}</p>` : ""}${xs.map(card).join("")}</section>`).join("")}</main>`
@@ -814,8 +831,13 @@ export default class Trend extends View {
       + `<script>(()=>{const K="videos.html:add",box=document.getElementById("addbox"),inp=document.getElementById("addq");`
       + `const go=(a,q)=>{if(!q)return;location.hash="do="+a+"&name="+encodeURIComponent(q)+"&n="+Date.now();setTimeout(()=>history.replaceState(null,"",location.pathname),500)};`
       + `const open=(on)=>{box.hidden=!on;try{localStorage.setItem(K,on?"1":"")}catch{}};try{open(localStorage.getItem(K)==="1")}catch{}`
+      // the sort bar: each section's cards re-ordered here, the choice remembered (most watched as written)
+      + `const S="videos.html:sort",by={views:(c)=>-c.dataset.v,up:(c)=>-c.dataset.up,found:(c)=>-c.dataset.found,short:(c)=>+c.dataset.len,long:(c)=>-c.dataset.len};`
+      + `const sortBy=(k)=>{if(!by[k])k="views";for(const s of document.querySelectorAll("section")){const cs=[...s.querySelectorAll(":scope>.card.vid")];`
+      + `cs.sort((a,b)=>by[k](a)-by[k](b)).forEach((c)=>s.appendChild(c))}for(const b of document.querySelectorAll(".sortbar button"))b.classList.toggle("on",b.dataset.q===k);`
+      + `try{localStorage.setItem(S,k)}catch{}};try{sortBy(localStorage.getItem(S)||"views")}catch{sortBy("views")}`
       + `document.addEventListener("click",(e)=>{const b=e.target.closest("[data-act]");if(!b)return;e.preventDefault();e.stopPropagation();const a=b.dataset.act;`
-      + `if(a==="toggle"){open(box.hidden);if(!box.hidden)inp.focus();return}`
+      + `if(a==="toggle"){open(box.hidden);if(!box.hidden)inp.focus();return}if(a==="sort"){sortBy(b.dataset.q);return}`
       + `if(a==="drop"&&!confirm("拿掉主題「"+b.dataset.q+"」和它的影片？（收藏的會留著）"))return;go(a,b.dataset.q)},true);`
       + `document.getElementById("addform").addEventListener("submit",(e)=>{e.preventDefault();go("add",inp.value.trim());inp.value=""})})()</script>`);
   }

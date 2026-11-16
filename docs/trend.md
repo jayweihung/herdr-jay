@@ -154,7 +154,8 @@ it, the official M/V too), the later ones this week's uploads; no API key, no br
 videos and its Shorts shelves (a Short says `Shorts` for its length). Each card has YouTube's thumbnail, the title,
 channel, length, when it was posted and the views; a video stays under the topic that found it first, never two, and
 only if its title has at least half the topic's words (YouTube fills a thin week with unrelated videos). A topic's
-videos go most watched first.
+videos go most watched first; the **排序** bar under the topics also sorts by 最新上傳 (YouTube's 「…前」 from when it
+was found), 最近找到, 短的先 or 長的先 (a Short counts as 45 s), remembered.
 Click plays it in the panel (**← 影片** goes back). The list keeps the newest 300.
 影片分頁：上面一排就是主題（點一個只看它的影片、✕ 連影片一起拿掉、「＋ 加主題」打字或點建議，馬上搜）；點影片在面板裡播（⤢ 放大面板）。
 

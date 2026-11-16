@@ -117,7 +117,7 @@ git -c user.name=me -c user.email=me@local am -3 ~/src/herdr-jay/herdr-app/patch
 `git rev-parse` must print `034f8b8` (an older clone: `git fetch --tags --force` first). `git am` applies the 27 app
 patches ([patches.md](patches.md): dragging agents onto spaces, web pages in mods, selectable text in panels, …); if it
 fails: `git am --abort`, check the tag, try again.
-`git am` 套上 28 個 app patch（見 [patches.md](patches.md)：把 agent 拖到 space、mod 裡的網頁、面板文字可以複製……）。
+`git am` 套上 29 個 app patch（見 [patches.md](patches.md)：把 agent 拖到 space、mod 裡的網頁、面板文字可以複製……）。
 
 ```sh
 cd ~/src/herdr-app && just install

@@ -19,6 +19,20 @@ and the context popup's open lists stay.
 面板關掉再開、mod 重新載入或重開 Herdr，都回到你上次看的地方（分頁、change、檔案、搜尋、展開的區塊）。
 Needs: **mods** (Windows: copy `agent-page`, `gerrit` and `kit` again; macOS links: nothing).
 
+## 2026-11-16, trend: 熱門 has your topics, stars, 排列 and site chips
+
+Needs: **mods** (Windows: copy `trend` again; macOS link: nothing).
+
+- ＋ 加主題 in 熱門: your words, searched on HN, PTT, Reddit and Dcard at once and then about every hour, each its
+  own section (docs/trend.md「My topics」). 熱門也能加主題：馬上去四個站搜，之後約每小時一次。
+- ☆ on any card keeps it under ⭐ 收藏, by topic or subject; 排列: 最熱 / 最新進榜 / 升溫最快 / 留言最多; a chip per
+  site (HN, Reddit, PTT, Dcard, Threads, Digg). 收藏、排列、各站分類。
+- Brighter, still Herdr's: each site its own color (the theme's), section headings with an accent bar, cards that
+  lift under the mouse. 顏色亮一點，照 Herdr 主題。
+- The player's ✨ 背光 turns the player page's glow on and off (`glow=0`). 播放的背光可以開關。
+- `trend/proxy` now carries fetch.js's own requests too (PTT, HN, YouTube's search), not only last30days'.
+  代理也給 fetch.js 自己的請求用。
+
 ## 2026-11-16, the Agents menu's 壓縮 works again after Herdr was opened from a terminal
 
 App patch `0028`: Herdr opened from a terminal inside Herdr (an agent running `open`) kept that terminal's hc identity,

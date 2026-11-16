@@ -56,20 +56,31 @@ function pageHtml(body) {
   const t = theme(), z = fs();
   return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><style>
 :root{--bg:${t.surface};--fg:${t.foreground};--muted:${t.muted};--dim:${t.dim};--border:${t.border};--raised:${t.raised};--accent:${t.accent};
---accent-fg:${t.accent_foreground ?? t.background};--solid:${t.solid};--solid-fg:${t.solid_foreground};--green:${t.ansi2};--yellow:${t.ansi3}}
+--accent-fg:${t.accent_foreground ?? t.background};--solid:${t.solid};--solid-fg:${t.solid_foreground};--green:${t.ansi2};--yellow:${t.ansi3};
+--c1:${t.ansi1};--c2:${t.ansi2};--c3:${t.ansi3};--c4:${t.ansi4};--c5:${t.ansi5};--c6:${t.ansi6}}
 html,body{margin:0;background:var(--bg);color:var(--fg);font:${z}px/1.45 -apple-system,"PingFang TC","Microsoft JhengHei",system-ui,sans-serif}
 nav{position:sticky;top:0;z-index:1;display:flex;flex-wrap:wrap;gap:6px;padding:8px 10px;background:var(--bg);border-bottom:1px solid var(--border)}
 nav button{font:inherit;font-size:.88em;padding:2px 10px;border-radius:999px;border:1px solid var(--border);background:var(--raised);color:var(--muted);cursor:pointer}
 nav button.on{background:var(--accent);color:var(--accent-fg);border-color:var(--accent)}nav button:disabled{opacity:.4;cursor:default}
 nav button:not(.on):not(:disabled):hover{color:var(--fg);border-color:var(--accent)}
-h2{margin:14px 12px 6px;font-size:.85em;font-weight:600;color:var(--muted)}
-.card{margin:0 10px 8px;padding:9px 11px;border:1px solid var(--border);border-radius:9px;background:var(--raised)}
+h2{margin:16px 12px 7px;font-size:.9em;font-weight:700;color:var(--fg);display:flex;align-items:center;gap:7px}
+h2::before{content:"";width:3px;height:1em;border-radius:2px;background:var(--accent)}
+.card{margin:0 10px 8px;padding:9px 11px;border:1px solid var(--border);border-radius:9px;background:var(--raised);transition:border-color .15s,box-shadow .15s}
+.card:hover{box-shadow:0 3px 14px color-mix(in srgb,var(--accent) 14%,transparent)}
 .card[data-do]{cursor:pointer}.card[data-do]:hover{border-color:var(--accent)}
 .top{display:flex;gap:6px;align-items:flex-start}
 .title{flex:1;min-width:0;font-weight:600;color:var(--fg);text-decoration:none;overflow-wrap:anywhere}
-a.title:hover{text-decoration:underline}
+a.title:hover{color:var(--accent)}
 .chip{flex:none;margin-top:.15em;padding:1px 6px;border-radius:4px;font-size:.75em;background:var(--bg);color:var(--muted)}
-.chip.x{color:var(--accent)}.chip.new{color:var(--green)}.chip.up{color:var(--yellow)}
+.chip.x{color:var(--accent);background:color-mix(in srgb,var(--accent) 15%,transparent)}
+.chip.new{color:var(--green);background:color-mix(in srgb,var(--green) 15%,transparent)}.chip.up{color:var(--yellow);background:color-mix(in srgb,var(--yellow) 15%,transparent)}
+/* each site its own color (the theme's own ANSI ones): the card's left edge, its chip, its chip on top */
+.s-HN,.card[data-feed=HN]{--s:var(--c3)}.s-Reddit,.card[data-feed=Reddit]{--s:var(--c1)}.s-PTT,.card[data-feed=PTT]{--s:var(--c4)}
+.s-Dcard,.card[data-feed=Dcard]{--s:var(--c6)}.s-Threads,.card[data-feed=Threads]{--s:var(--c5)}.s-Digg,.card[data-feed=Digg]{--s:var(--c2)}
+.card[data-feed]:not([data-feed=""]){border-left:3px solid var(--s)}
+.chip.site[class*=" s-"]{font-weight:600;color:var(--s);background:color-mix(in srgb,var(--s) 15%,transparent)}
+nav button.s:not(:disabled){color:var(--s);border-color:color-mix(in srgb,var(--s) 45%,var(--border))}
+nav button.s.on{background:var(--s);color:var(--bg);border-color:var(--s)}
 .also{margin-top:5px;padding-left:8px;border-left:2px solid var(--border);font-size:.85em}
 .also a{display:block;color:var(--muted);text-decoration:none;overflow-wrap:anywhere}.also a:hover{color:var(--fg)}
 .also b{color:var(--accent);font-weight:600}.also span{margin-left:6px;color:var(--dim)}
@@ -90,8 +101,9 @@ blockquote{margin:6px 0;padding-left:8px;border-left:2px solid var(--border);col
 <script>
 const K=location.pathname.split("/").pop()+":",get=(k)=>{try{return localStorage.getItem(K+k)}catch{return null}},set=(k,v)=>{try{localStorage.setItem(K+k,v)}catch{}};
 const nav=document.querySelector("nav");
-// a chip shows its subject's sections; 升溫 and 新進榜 show those cards wherever they are
-const show=(c)=>{for(const b of document.querySelectorAll("nav button"))b.classList.toggle("on",b.dataset.cat===c);for(const s of document.querySelectorAll("section")){let any=false;for(const k of s.querySelectorAll(".card")){const ok=c==="all"||s.dataset.cat===c||(c==="rising"&&"rising" in k.dataset)||(c==="new"&&"new" in k.dataset);k.hidden=!ok;any||=ok}s.hidden=!any}set("cat",c)};
+// a chip shows its subject's sections (a section with data-show even with no cards: its 正在搜); 升溫 and 新進榜 show
+// those cards wherever they are, a site (site:PTT) its cards
+const show=(c)=>{for(const b of document.querySelectorAll("nav button"))b.classList.toggle("on",b.dataset.cat===c);for(const s of document.querySelectorAll("section")){let any=false;for(const k of s.querySelectorAll(".card")){const ok=c==="all"||s.dataset.cat===c||(c==="rising"&&"rising" in k.dataset)||(c==="new"&&"new" in k.dataset)||(String(c).startsWith("site:")&&(k.dataset.feeds||"").split(",").includes(c.slice(5)));k.hidden=!ok;any||=ok}s.hidden=!any&&!(s.hasAttribute("data-show")&&(c==="all"||s.dataset.cat===c))}set("cat",c)};
 if(nav){nav.onclick=(e)=>{const b=e.target.closest("button");if(b){show(b.dataset.cat);scrollTo(0,0)}};const c=get("cat");show([...nav.querySelectorAll("button")].some((b)=>b.dataset.cat===c)?c:"all")}
 document.querySelector("main").onclick=(e)=>{const b=e.target.closest("[data-do]");if(!b||e.target.closest("a"))return;const k=b.closest(".card").dataset;
 location.hash="do="+b.dataset.do+(k.topic?"&topic="+encodeURIComponent(k.topic):"")+(k.name?"&name="+encodeURIComponent(k.name):"")+"&n="+Date.now();
@@ -185,6 +197,35 @@ function similar(a, b) {
   let both = 0;
   for (const x of a) if (b.has(x)) both++;
   return both / (a.size + b.size - both || 1);
+}
+// Each site's rows (feeds.json's front pages and topics.json's searches alike) as the list's cards: title, the
+// site's own counters, its link(s); first, rise and body as fetch.js gave them, comments for 留言最多
+const FEEDS = ["hn", "reddit", "ptt", "dcard", "threads", "digg"];
+const moved = (x) => ({ first: x.first, rise: x.rise, body: x.body, comments: x.comments ?? 0, created: x.created });
+const ROW = {
+  hn: (h) => ({ topic: h.title, feed: "HN", line: `HN ${num(h.points)} 分 · ${num(h.comments)} 留言`, ...moved(h),
+    why_spiking: shortLink(h.url).split("/")[0], evidence_urls: [h.url, h.discussion].filter((u, i, a) => u && a.indexOf(u) === i) }),
+  reddit: (p) => ({ topic: p.title, feed: "Reddit", line: `Reddit ${num(p.score)} 分 · ${num(p.comments)} 留言`, sub: p.subreddit, ...moved(p),
+    why_spiking: [p.subreddit, shortLink(p.url).split("/")[0]].filter(Boolean).join(" · "), evidence_urls: [p.url, p.discussion].filter((u, i, a) => u && a.indexOf(u) === i) }),
+  ptt: (p) => ({ topic: p.title, feed: "PTT", line: `PTT ${p.score >= 100 ? "爆" : `${p.score} 推`} · ${p.board}`, board: p.board, ...moved(p),
+    why_spiking: [p.board, p.author].filter(Boolean).join(" · "), evidence_urls: [p.url] }),
+  dcard: (p) => ({ topic: p.title, feed: "Dcard", line: `Dcard ${num(p.score)} 心情 · ${num(p.comments)} 留言 · ${p.board}`, ...moved(p),
+    forum: p.forum, why_spiking: p.board, evidence_urls: [p.url] }),
+  threads: (p) => ({ topic: p.title, feed: "Threads", line: `Threads ${num(p.score)} 讚 · ${num(p.comments)} 回覆`, ...moved(p),
+    why_spiking: `@${p.author}`, evidence_urls: [p.url] }),
+  digg: (d) => ({ topic: d.title, feed: "Digg", ...moved(d), line: `Digg ${num(d.score)} 分 · ${d.sources} 個來源${DIGG_TOPIC[d.topic] ? ` · ${DIGG_TOPIC[d.topic]}` : ""}`,
+    why_spiking: d.description, evidence_urls: [d.url], digg: d.topic }),
+};
+// A story on several sites (or boards) is one card: a row whose title shares enough with an earlier row's joins it
+// (its .also); rank: its place
+function joined(list) {
+  const rows = [];
+  for (const x of list) {
+    const key = x.feed ? titleKey(x.topic) : null;   // last30days' topics stay on their own
+    const into = key && key.size >= 3 && rows.find((r) => r.key && r.key.size >= 3 && similar(r.key, key) >= SAME);
+    if (into) (into.also ??= []).push(x); else rows.push({ ...x, key, rank: rows.length + 1 });
+  }
+  return rows;
 }
 const SOURCE = { hackernews: "HN", reddit: "Reddit", digg: "Digg", x: "X", grounding: "網頁", youtube: "YouTube", polymarket: "Polymarket", github: "GitHub" };
 const STATE = { "rate-limited": "被限流", "auth-failed": "登入失效", "payment-required": "額度用完", unreachable: "連不到", timeout: "逾時",
@@ -286,7 +327,7 @@ export default class Trend extends View {
 
   get dir() { return `${appHome().replace(/\\/g, "/")}/trend`; }
   async load(cx) {
-    const [t, s, f, v, p] = await Promise.all(["trends.json", "status.json", "feeds.json", "videos.json", "player"].map((n) => readTextFile(`${this.dir}/${n}`).catch(() => null)));
+    const [t, s, f, v, p, tj] = await Promise.all(["trends.json", "status.json", "feeds.json", "videos.json", "player", "topics.json"].map((n) => readTextFile(`${this.dir}/${n}`).catch(() => null)));
     this.player = (p ?? "").split("\n")[0].trim();
     // how far you got in each video (progress.json): read once, then saved here when it changed
     const pf = `${this.dir}/progress.json`;
@@ -297,6 +338,11 @@ export default class Trend extends View {
     }
     // the videos you starred (stars.json, the panel's own): kept for good, whatever the searches find or drop
     if (this.stars === undefined) try { this.stars = JSON.parse((await readTextFile(`${this.dir}/stars.json`).catch(() => null)) ?? "{}") ?? {}; } catch { this.stars = {}; }
+    // 熱門's own: the cards you starred (hot-stars.json, by title), your topics (topics.txt, its ＋ and ✕ write it) and
+    // what fetch.js's searches found for them (topics.json; the same text: the same object, so topicRows stays)
+    if (this.hotStars === undefined) try { this.hotStars = JSON.parse((await readTextFile(`${this.dir}/hot-stars.json`).catch(() => null)) ?? "{}") ?? {}; } catch { this.hotStars = {}; }
+    this.hotQueries = topicsOf(await readTextFile(`${this.dir}/topics.txt`).catch(() => null));
+    if (tj !== this.topicsText) try { this.topicsData = tj ? JSON.parse(tj) : null; this.topicsText = tj; } catch { this.topicsData = null; }
     // your topics (videos.txt, which the 影片 tab's ＋ and ✕ write), and videos-skip.txt: a line there is never suggested
     // and hides the videos it's about (videosHtml)
     this.queries = topicsOf(await readTextFile(`${this.dir}/videos.txt`).catch(() => null));
@@ -365,12 +411,13 @@ export default class Trend extends View {
       .child(div().flex_1().min_h(0).child(web.new(REPORT_CELL, { src: fileUrl(`${this.reportDir}/${this.view}`) })));
   }
   // where a video plays: the player page in trend/player (?t=: from where you left it), else YouTube's watch page
-  // (&t=…s); playFrom is set when you press play, so the page doesn't reload as the progress comes in
+  // (&t=…s); playFrom is set when you press play, so the page doesn't reload as the progress comes in. glow=0: the
+  // player page's 背光 (the video's thumbnail blurred around it) off, as ✨ 背光 left it
   playSrc(x) {
     const from = this.playFrom > 0 ? this.playFrom : 0;
     if (!this.player?.includes("{id}")) return `https://www.youtube.com/watch?v=${x.id}${from ? `&t=${from}s` : ""}`;
-    const u = this.player.replace("{id}", x.id);
-    return from ? `${u}${u.includes("?") ? "&" : "?"}t=${from}` : u;
+    const u = this.player.replace("{id}", x.id), q = [from ? `t=${from}` : "", localStorage.getItem("glow") === "0" ? "glow=0" : ""].filter(Boolean).join("&");
+    return q ? `${u}${u.includes("?") ? "&" : "?"}${q}` : u;
   }
   // one video played here (the player page in trend/player, else YouTube's watch page); 📝 整理重點 asks the trend
   // agent (tokens) for its key points, which it writes to trend/notes/<id>.txt: shown under the player
@@ -381,6 +428,11 @@ export default class Trend extends View {
       .child(h_flex().h(34).px(8).gap(6).flex_none().items_center().border_b(1).border_color(t.border)
         .child(smallBtn(t, z, "vid-back", "← 影片", (_e, cx) => { this.playing = null; this.notes = null; cx.notify(); }))
         .child(div().flex_1().min_w(0).truncate().text_size(z - 1).text_color(t.muted).child(x.title))
+        .child(smallBtn(t, z, "vid-glow", localStorage.getItem("glow") === "0" ? "✨ 背光：關" : "✨ 背光：開", (_e, cx) => {
+          localStorage.setItem("glow", localStorage.getItem("glow") === "0" ? "1" : "0");
+          if (this.progress?.[x.id] > 5) this.playFrom = this.progress[x.id];   // the page reloads: on from where it was
+          cx.notify();
+        }))
         .child(smallBtn(t, z, "vid-notes", notes ? "📝 重新整理" : "📝 整理重點",
           (_e, cx) => cx.spawn(async (cx) => this.ask(label, notesAsk(x, `${this.dir}/notes/${x.id}.txt`), cx)))))
       .child(div().flex_1().min_h(0).child(web.new(VIDEO_CELL, { src: this.playSrc(x) })))
@@ -403,46 +455,41 @@ export default class Trend extends View {
   get shown() {
     if (this.shownOf && this.shownOf.data === this.data && this.shownOf.feeds === this.feeds) return this.shownOf.rows;
     const topics = this.results, cited = new Set(topics.flatMap((r) => r.evidence_urls ?? []));
-    const moved = (x) => ({ first: x.first, rise: x.rise, body: x.body });   // fetch.js: when it showed up, how its score rose, its text
-    const hn = (this.feeds?.hn ?? []).map((h) => ({ topic: h.title, feed: "HN", line: `HN ${num(h.points)} 分 · ${num(h.comments)} 留言`, ...moved(h),
-      why_spiking: shortLink(h.url).split("/")[0], evidence_urls: [h.url, h.discussion].filter((u, i, a) => u && a.indexOf(u) === i) }));
-    const digg = (this.feeds?.digg ?? []).map((d) => ({ topic: d.title, feed: "Digg", ...moved(d),
-      line: `Digg ${num(d.score)} 分 · ${d.sources} 個來源${DIGG_TOPIC[d.topic] ? ` · ${DIGG_TOPIC[d.topic]}` : ""}`,
-      why_spiking: d.description, evidence_urls: [d.url], digg: d.topic }));
-    const reddit = (this.feeds?.reddit ?? []).map((p) => ({ topic: p.title, feed: "Reddit", line: `Reddit ${num(p.score)} 分 · ${num(p.comments)} 留言`, sub: p.subreddit, ...moved(p),
-      why_spiking: [p.subreddit, shortLink(p.url).split("/")[0]].filter(Boolean).join(" · "), evidence_urls: [p.url, p.discussion].filter((u, i, a) => u && a.indexOf(u) === i) }));
-    const ptt = (this.feeds?.ptt ?? []).map((p) => ({ topic: p.title, feed: "PTT", line: `PTT ${p.score >= 100 ? "爆" : `${p.score} 推`} · ${p.board}`, board: p.board, ...moved(p),
-      why_spiking: [p.board, p.author].filter(Boolean).join(" · "), evidence_urls: [p.url] }));
-    const dcard = (this.feeds?.dcard ?? []).map((p) => ({ topic: p.title, feed: "Dcard", line: `Dcard ${num(p.score)} 心情 · ${num(p.comments)} 留言 · ${p.board}`, ...moved(p),
-      forum: p.forum, why_spiking: p.board, evidence_urls: [p.url] }));
-    const threads = (this.feeds?.threads ?? []).map((p) => ({ topic: p.title, feed: "Threads", line: `Threads ${num(p.score)} 讚 · ${num(p.comments)} 回覆`, ...moved(p),
-      why_spiking: `@${p.author}`, evidence_urls: [p.url] }));
-    const out = [...topics], names = new Set(topics.map((r) => r.topic)), feeds = [hn, reddit, ptt, dcard, threads, digg];
+    const out = [...topics], names = new Set(topics.map((r) => r.topic)), feeds = FEEDS.map((k) => (this.feeds?.[k] ?? []).map(ROW[k]));
     for (let i = 0; feeds.some((f) => i < f.length); i++)
       for (const x of feeds.map((f) => f[i])) if (x && !names.has(x.topic) && !x.evidence_urls.some((u) => cited.has(u))) {
         names.add(x.topic);
         out.push(x);
       }
-    const rows = [];
-    for (const x of out) {
-      const key = x.feed ? titleKey(x.topic) : null;   // last30days' topics stay on their own
-      const into = key && key.size >= 3 && rows.find((r) => r.key && r.key.size >= 3 && similar(r.key, key) >= SAME);
-      if (into) (into.also ??= []).push(x); else rows.push({ ...x, key, rank: rows.length + 1 });
-    }
+    const rows = joined(out);
     this.shownOf = { data: this.data, feeds: this.feeds, rows };
+    return rows;
+  }
+  // My topics (topics.txt, the ＋ above the list): what fetch.js's searches found for each, the sites taken in turn as
+  // in the list, each row with q (its topic); worked out again only when topics.json changes
+  get topicRows() {
+    const d = this.topicsData, qs = (this.hotQueries ?? []).join("\n");
+    if (this.topicRowsOf?.d === d && this.topicRowsOf.qs === qs) return this.topicRowsOf.rows;
+    const rows = new Map((this.hotQueries ?? []).map((q) => {
+      const lists = ["hn", "reddit", "ptt", "dcard"].map((k) => (d?.items?.[q]?.[k] ?? []).map((x) => ({ ...ROW[k](x), q })));
+      const out = [];
+      for (let i = 0; lists.some((l) => i < l.length); i++) for (const l of lists) if (l[i] && !out.some((x) => x.topic === l[i].topic)) out.push(l[i]);
+      return [q, joined(out)];
+    }));
+    this.topicRowsOf = { d, qs, rows };
     return rows;
   }
   // a run killed midway (the Mac slept, shut down) never writes finished: after 30 minutes it isn't running
   get running() { return Boolean(this.status?.started && !this.status?.finished && Date.now() - Date.parse(this.status.started) < 1800000); }
   get failed() { return this.status?.ok === false ? this.status.error || "上次沒抓成功" : null; }
 
-  // fetch.js --videos: the 影片 searches that are due (a new one is), with the node the job uses (Herdr's own PATH may
-  // lack Homebrew's)
-  async searchVideos() {
+  // fetch.js --videos / --topics: the 影片 or 熱門 topic searches that are due (a new one is), with the node the job
+  // uses (Herdr's own PATH may lack Homebrew's); a 熱門 topic opens Reddit's and Dcard's pages in Chrome: minutes
+  async searchNow(flag) {
     let node = "node";
     if (window()?.platform !== "windows") for (const p of ["/opt/homebrew/bin/node", "/usr/local/bin/node", "/usr/bin/node"])
       if (await fsp.exists(p).catch(() => false)) { node = p; break; }   // the mod's fs/promises has exists, not access
-    const r = await exec(node, [`${appHome().replace(/\\/g, "/")}/mods/trend/fetch.js`, "--videos"], { timeout: 180000 });
+    const r = await exec(node, [`${appHome().replace(/\\/g, "/")}/mods/trend/fetch.js`, flag], { timeout: 300000 });
     if (r?.code !== 0) throw new Error(String(r?.stderr || r?.stdout || `exit ${r?.code}`).trim().slice(0, 200));
   }
   // ↻: run the scheduled job now (launchd on macOS, Task Scheduler on Windows); it writes status.json at once
@@ -699,81 +746,155 @@ export default class Trend extends View {
       });
       return;
     }
-    // ＋ 加主題 (typed, or a suggestion clicked): into videos.txt and searched now (fetch.js --videos; 正在搜 meanwhile).
-    // ✕ on a topic: out of videos.txt, and its videos with it (a starred one stays under ⭐ 收藏)
-    if (act === "add" || act === "drop") {
-      const q = (h.get("name") ?? "").trim().replace(/\s+/g, " ");
+    // ☆ on a 熱門 card stars it (hot-stars.json, by title), kept under ⭐ 收藏 by the topic or subject it was under
+    if (act === "hstar") {
+      const id = h.get("topic") ?? "", x = this.rowOf(id);
+      if (!x || !this.hotStars) return;
+      if (this.hotStars[id]) delete this.hotStars[id];
+      else { const { key, ...row } = x; this.hotStars[id] = { ...row, under: x.q ?? categoryOf(x), starred: new Date().toISOString() }; }
+      const stars = JSON.stringify(this.hotStars) + "\n";
+      cx.spawn(async (cx) => {
+        const file = `${this.dir}/hot-stars.json`;
+        await writeTextFile(file, stars, await readTextFile(file).catch(() => null)).catch(() => {});
+        await this.writePages();
+        cx.notify();
+      });
+      return;
+    }
+    // ＋ 加主題 (typed, or a suggestion clicked): into videos.txt (熱門's tadd: topics.txt) and searched now (fetch.js
+    // --videos / --topics; 正在搜 meanwhile). ✕ on a topic (drop / tdrop): out of the file, and its results with it (a
+    // starred one stays under ⭐ 收藏)
+    if (["add", "drop", "tadd", "tdrop"].includes(act)) {
+      const q = (h.get("name") ?? "").trim().replace(/\s+/g, " "), hot = act.startsWith("t"), adding = act.endsWith("add");
       if (!q) return;
-      const file = `${this.dir}/videos.txt`;
+      const file = `${this.dir}/${hot ? "topics" : "videos"}.txt`, busy = hot ? (this.hotSearching ??= new Set()) : (this.searching ??= new Set());
       cx.spawn(async (cx) => {
         const was = await readTextFile(file).catch(() => null), lines = (was ?? "").split("\n");
         const same = (l) => l.trim().toLowerCase() === q.toLowerCase();
-        if (act === "add" && lines.some(same)) return;
-        const text = act === "add" ? `${was ?? ""}${was && !was.endsWith("\n") ? "\n" : ""}${q}\n` : lines.filter((l) => !same(l)).join("\n");
+        if (adding && lines.some(same)) return;
+        const text = adding ? `${was ?? ""}${was && !was.endsWith("\n") ? "\n" : ""}${q}\n` : lines.filter((l) => !same(l)).join("\n");
         if (!(await writeTextFile(file, text, was).then(() => true, () => false))) return;
-        this.queries = topicsOf(text);
-        if (act === "add") (this.searching ??= new Set()).add(q);
+        if (hot) this.hotQueries = topicsOf(text); else this.queries = topicsOf(text);
+        if (adding) busy.add(q);
         await this.writePages();
         cx.notify();
-        if (act !== "add") return;
-        // one search run at a time: two at once would both rewrite videos.json
-        this.searchRun = (this.searchRun ?? Promise.resolve()).then(() => this.searchVideos())
-          .catch((e) => notify({ title: `影片：「${q}」沒搜成`, body: String(e?.message ?? e), level: "error", timeout: 10000 }));
-        await this.searchRun;
-        this.searching.delete(q);
+        if (!adding) return;
+        // one search run at a time of each kind: two at once would both rewrite videos.json (topics.json)
+        const run = hot ? "topicRun" : "searchRun";
+        this[run] = (this[run] ?? Promise.resolve()).then(() => this.searchNow(hot ? "--topics" : "--videos"))
+          .catch((e) => notify({ title: `${hot ? "熱門" : "影片"}：「${q}」沒搜成`, body: String(e?.message ?? e), level: "error", timeout: 10000 }));
+        await this[run];
+        busy.delete(q);
         await this.load(cx);
       });
       return;
     }
-    const r = this.shown.find((x) => x.topic === h.get("topic"));
+    const r = this.rowOf(h.get("topic"));
     if (!r) return;
     if (act === "report" && this.reportFor(r.topic)) { this.view = this.reportFor(r.topic).name; this.webNote = null; cx.notify(); return; }
     const p = PRESETS[act === "deep" ? 0 : act === "three" ? 1 : -1];
     if (p) cx.spawn(async (cx) => this.ask(`${p.label}：${r.topic}`, p.text(r), cx));
   }
-  // the 熱門 list: subject chips (全部 and each subject with rows), then a card per row by subject
+  // a 熱門 card's row by its title: the list's, a topic's, or a starred one
+  rowOf(topic) {
+    return this.shown.find((x) => x.topic === topic) ?? [...this.topicRows.values()].flat().find((x) => x.topic === topic) ?? this.hotStars?.[topic] ?? null;
+  }
+  // the 熱門 list: chips on top (全部, ⭐ 收藏, 升溫, 新進榜; your topics with ✕ and ＋ 加主題; the subjects; the sites),
+  // an 排列 bar, then the cards: starred ones by where they were, each topic's, each subject's
   listHtml() {
-    const seen = new Set(Array.isArray(shared(SEEN)) ? shared(SEEN) : []);
+    const seen = new Set(Array.isArray(shared(SEEN)) ? shared(SEEN) : []), t = theme();
     const groups = new Map(CATS.map((c) => [c, []]));
     for (const r of this.shown) groups.get(categoryOf(r)).push(r);
-    const used = [...groups].filter(([, rows]) => rows.length);
+    const used = [...groups].filter(([, rows]) => rows.length), tops = [...this.topicRows];
+    const every = [...this.shown, ...tops.flatMap(([, rows]) => rows)];
     const since = Date.parse(this.feeds?.since ?? ""), hour = 3600000;
     // 升溫: its score up by 10 or more and a fifth or more in the last 1 to 3 hours; 新進榜: here for under 3 hours, once
     // fetch.js has kept history for 6 (before that, everything would look new)
     const rising = (x) => x.rise && x.rise.by >= 10 && x.rise.by >= 0.2 * Math.max(x.rise.from, 1);
     const fresh = (x) => x.first && Date.now() - Date.parse(x.first) < 3 * hour && Date.now() - since > 6 * hour;
+    // data-rank / data-first / data-up / data-c: what the 排列 bar sorts by (its place, when it showed up, its rise,
+    // its 留言); data-feeds: its sites, for the site chips
     const card = (r) => {
       const all = [r, ...(r.also ?? [])], up = all.filter(rising).sort((a, b) => b.rise.by - a.rise.by)[0];
-      const sites = new Set(all.map((x) => x.feed)).size;
+      const sites = new Set(all.map((x) => x.feed)).size, starred = Boolean(this.hotStars?.[r.topic]);
       const links = (r.evidence_urls ?? []).filter((u) => /^https?:\/\//i.test(u));
       const title = links[0] ? `<a class="title" href="${esc(links[0])}">${esc(r.topic)}</a>` : `<span class="title">${esc(r.topic)}</span>`;
       const line = r.line ?? (engagementText(r.engagement) || (r.sources ?? []).map((s) => SOURCE[s] ?? s).join("、"));
       // the post's own text (PTT, Dcard's excerpt, Threads, Reddit): its first lines on the card, all of it under 更多
       // (Threads' title is already its first 120 characters)
       const body = String(r.body ?? "").trim(), longer = body && !(r.feed === "Threads" && body.replace(/\s+/g, " ").length <= 120);
-      // a PTT post whose text fetch.js hasn't read yet (20 a run, best first) says so instead of showing only its link
-      const more = [longer ? `<div class="body">${esc(body)}</div>` : r.feed === "PTT" ? '<div class="body" style="color:var(--dim)">內文還沒讀到：每輪讀 20 篇，晚點再看</div>' : "",
+      // a front-page PTT post whose text fetch.js hasn't read yet (20 a run, best first) says so instead of showing only its link
+      const more = [longer ? `<div class="body">${esc(body)}</div>` : r.feed === "PTT" && !r.q ? '<div class="body" style="color:var(--dim)">內文還沒讀到：每輪讀 20 篇，晚點再看</div>' : "",
         r.top_comment ? `<blockquote>${esc(r.top_comment)}</blockquote>` : "",
         links.length ? `<div class="links">${links.slice(0, 6).map((u) => `<a href="${esc(u)}">↗ ${esc(shortLink(u))}</a>`).join("")}</div>` : ""].join("");
       // the same story elsewhere: each with its own numbers and link
       const also = r.also?.length ? `<div class="also">${r.also.map((a) => `<a href="${esc(a.evidence_urls[0])}"><b>${esc(a.feed)}</b> ${esc(a.topic)}<span>${esc(a.line ?? "")}</span></a>`).join("")}</div>` : "";
-      return `<div class="card" data-topic="${esc(r.topic)}"${up ? " data-rising" : ""}${all.some(fresh) ? " data-new" : ""}>`
-        + `<div class="top">${seen.has(r.topic) ? "" : '<span class="dot"></span>'}${title}`
+      const first = Math.max(...all.map((x) => Date.parse(x.first ?? x.created ?? "") || 0));
+      return `<div class="card" data-topic="${esc(r.topic)}" data-feed="${esc(r.feed ?? "")}" data-feeds="${esc([...new Set(all.map((x) => x.feed).filter(Boolean))].join(","))}"`
+        + ` data-rank="${r.rank ?? 0}" data-first="${first}" data-up="${up?.rise.by ?? 0}" data-c="${all.reduce((n, x) => n + (x.comments ?? 0), 0)}"`
+        + `${up ? " data-rising" : ""}${all.some(fresh) ? " data-new" : ""}>`
+        + `<div class="top">${seen.has(r.topic) || r.q ? "" : '<span class="dot"></span>'}${title}`
         + `${up ? `<span class="chip up">↑ +${num(up.rise.by)}・${up.rise.hours} 小時</span>` : ""}${all.some(fresh) ? '<span class="chip new">新進榜</span>' : ""}`
         + `${MOMENTUM[r.momentum] ? `<span class="chip ${r.momentum === "new-this-week" ? "new" : "up"}">${MOMENTUM[r.momentum]}</span>` : ""}`
         + `${r.also?.length ? `<span class="chip x">${sites > 1 ? `${sites} 站` : `${all.length} 篇`}</span>` : ""}`
-        + `<span class="chip${r.feed ? "" : " x"}">${esc(r.feed ?? "跨站")}</span></div>`
+        + `<span class="chip site${r.feed ? ` s-${esc(r.feed)}` : " x"}">${esc(r.feed ?? "跨站")}</span>`
+        + `<button class="star${starred ? " on" : ""}" data-do="hstar" title="${starred ? "取消收藏" : "收藏：一直留著"}">${starred ? "⭐" : "☆"}</button></div>`
         + `${line ? `<div class="meta">${esc(line)}</div>` : ""}${why(r) ? `<div class="why">${esc(why(r))}</div>` : ""}`
         + `${longer && r.feed !== "Threads" ? `<div class="excerpt">${esc(body)}</div>` : ""}${also}`
         + `${more ? `<details><summary>更多</summary>${more}</details>` : ""}`
         + `<div class="acts"><button class="main" data-do="deep">🔎 深入查</button><button data-do="three">三句話說明</button>`
         + `${this.reportFor(r.topic) ? '<button class="rep" data-do="report">📄 看報告</button>' : ""}</div></div>`;
     };
-    const nUp = this.shown.filter((r) => [r, ...(r.also ?? [])].some(rising)).length, nNew = this.shown.filter((r) => [r, ...(r.also ?? [])].some(fresh)).length;
-    // every subject has its chip (one with nothing this hour: greyed), so the set stays the same from hour to hour
-    return pageHtml(`<nav><button data-cat="all">全部 ${this.shown.length}</button><button data-cat="rising"${nUp ? "" : " disabled"}>🔥 升溫 ${nUp}</button>`
-      + `<button data-cat="new"${nNew ? "" : " disabled"}>🆕 新進榜 ${nNew}</button>${[...groups].map(([c, rows]) => `<button data-cat="${esc(c)}"${rows.length ? "" : " disabled"}>${esc(c)} ${rows.length}</button>`).join("")}</nav>`
-      + `<main>${used.map(([c, rows]) => `<section data-cat="${esc(c)}"><h2>${esc(c)}</h2>${rows.map(card).join("")}</section>`).join("")}</main>`);
+    const nUp = every.filter((r) => [r, ...(r.also ?? [])].some(rising)).length, nNew = every.filter((r) => [r, ...(r.also ?? [])].some(fresh)).length;
+    // ⭐ 收藏 by where each was (your topics' order, the subjects', then the rest), newest starred first in each
+    const starred = Object.values(this.hotStars ?? {}).sort((a, b) => String(b.starred).localeCompare(String(a.starred)));
+    const starUnder = [...new Set([...tops.map(([q]) => q), ...CATS, ...starred.map((x) => x.under ?? "")])]
+      .map((u) => [u, starred.filter((x) => (x.under ?? "") === u)]).filter(([, xs]) => xs.length);
+    const siteCount = (f) => every.filter((r) => [r, ...(r.also ?? [])].some((x) => x.feed === f)).length;
+    const d = this.topicsData ?? {}, siteName = { hn: "HN", ptt: "PTT", reddit: "Reddit", dcard: "Dcard" };
+    // a topic's state: 正在搜, or what its sites said (a block, a page it couldn't read)
+    const status = (q, n) => {
+      if (this.hotSearching?.has(q)) return '<p class="empty">正在搜…（Reddit、Dcard 要開瀏覽器，一兩分鐘）</p>';
+      const errs = Object.keys(siteName).map((s) => d.errors?.[`${s} ${q}`] ?? d.errors?.[s] ? `${siteName[s]}：${d.errors[`${s} ${q}`] ?? d.errors[s]}` : "").filter(Boolean);
+      return `${n ? "" : '<p class="empty">還沒有結果：下一輪搜（約一小時一次）</p>'}${errs.map((e) => `<p class="err">${esc(e)}</p>`).join("")}`;
+    };
+    return pageHtml(`<style>nav .br{flex-basis:100%;height:0}nav .x{margin-left:7px;opacity:.55}nav .x:hover{opacity:1;color:${t.ansi1}}`
+      + `nav button.addt{color:var(--accent);border-style:dashed}nav button.s{border-style:dotted}.err{margin:2px 12px;font-size:.85em;color:${t.ansi1}}`
+      + `.empty{margin:4px 12px 8px;font-size:.88em;color:var(--muted)}#addbox{margin:10px 10px 4px;padding:10px;border:1px dashed var(--border);border-radius:9px}`
+      + `#addbox .hd{font-size:.85em;color:var(--muted);margin-bottom:8px}#addform{display:flex;gap:6px}`
+      + `#addq{flex:1;min-width:0;font:inherit;padding:4px 8px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--fg)}`
+      + `#addform button{font:inherit;font-size:.88em;padding:3px 10px;border-radius:6px;border:1px solid var(--solid);background:var(--solid);color:var(--solid-fg);cursor:pointer}`
+      + `#addform button:hover{box-shadow:0 0 0 2px var(--accent)}.sortbar{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:10px 12px 0;font-size:.85em;color:var(--muted)}`
+      + `.sortbar button{font:inherit;padding:1px 9px;border-radius:999px;border:1px solid var(--border);background:var(--bg);color:var(--muted);cursor:pointer}`
+      + `.sortbar button:not(.on):hover{color:var(--fg);border-color:var(--accent)}.sortbar button.on{background:var(--raised);color:var(--fg);border-color:var(--accent)}`
+      + `.star{flex:none;border:0;background:none;padding:0 2px;font-size:1.1em;line-height:1.2;color:var(--muted);cursor:pointer}.star:hover,.star.on{color:var(--yellow)}</style>`
+      + `<nav><button data-cat="all">全部 ${every.length}</button>${starred.length ? `<button data-cat="⭐ 收藏">⭐ 收藏 ${starred.length}</button>` : ""}`
+      + `<button data-cat="rising"${nUp ? "" : " disabled"}>🔥 升溫 ${nUp}</button><button data-cat="new"${nNew ? "" : " disabled"}>🆕 新進榜 ${nNew}</button><i class="br"></i>`
+      + tops.map(([q, rows]) => `<button data-cat="🔍 ${esc(q)}">🔍 ${esc(q)} ${this.hotSearching?.has(q) ? "…" : rows.length}<span class="x" data-act="tdrop" data-q="${esc(q)}" title="拿掉這個主題">✕</span></button>`).join("")
+      + `<button class="addt" data-act="toggle">＋ 加主題</button><i class="br"></i>`
+      // every subject and site has its chip (one with nothing now: greyed), so the set stays the same from hour to hour
+      + [...groups].map(([c, rows]) => `<button data-cat="${esc(c)}"${rows.length ? "" : " disabled"}>${esc(c)} ${rows.length}</button>`).join("") + '<i class="br"></i>'
+      + ["HN", "Reddit", "PTT", "Dcard", "Threads", "Digg"].map((f) => `<button class="s s-${f}" data-cat="site:${f}"${siteCount(f) ? "" : " disabled"}>${f} ${siteCount(f)}</button>`).join("")
+      + `</nav><main><div id="addbox" hidden><div class="hd">加主題：打一個關鍵字（例：台積電、子瑜），馬上去 HN、PTT、Reddit、Dcard 搜，之後約每小時一次</div>`
+      + `<form id="addform"><input id="addq" placeholder="例如：台積電" autocomplete="off"><button>加</button></form></div>`
+      + `<div class="sortbar">排列：${[["hot", "最熱"], ["new", "最新進榜"], ["up", "升溫最快"], ["c", "留言最多"]].map(([k, l]) => `<button data-act="sort" data-k="${k}">${l}</button>`).join("")}</div>`
+      + starUnder.map(([u, xs]) => `<section data-cat="⭐ 收藏" data-keep><h2>⭐ 收藏${u ? ` · ${esc(u)}` : ""}</h2>${xs.map(card).join("")}</section>`).join("")
+      + tops.map(([q, rows]) => `<section data-cat="🔍 ${esc(q)}" data-show><h2>🔍 ${esc(q)}</h2>${status(q, rows.length)}${rows.map(card).join("")}</section>`).join("")
+      + used.map(([c, rows]) => `<section data-cat="${esc(c)}"><h2>${esc(c)}</h2>${rows.map(card).join("")}</section>`).join("") + "</main>"
+      // this page's own clicks, before pageHtml's: ＋ 加主題 opens the box (remembered), 加 adds, ✕ drops (asks first),
+      // 排列 reorders each section's cards (remembered; ⭐ 收藏 keeps its order)
+      + `<script>(()=>{const K="list.html:add",S="list.html:sort",box=document.getElementById("addbox"),inp=document.getElementById("addq");`
+      + `const go=(a,q)=>{if(!q)return;location.hash="do="+a+"&name="+encodeURIComponent(q)+"&n="+Date.now();setTimeout(()=>history.replaceState(null,"",location.pathname),500)};`
+      + `const open=(on)=>{box.hidden=!on;try{localStorage.setItem(K,on?"1":"")}catch{}};try{open(localStorage.getItem(K)==="1")}catch{}`
+      + `const by={hot:(c)=>+c.dataset.rank,new:(c)=>-c.dataset.first,up:(c)=>-c.dataset.up,c:(c)=>-c.dataset.c};`
+      + `const sortBy=(k)=>{if(!by[k])k="hot";for(const s of document.querySelectorAll("section:not([data-keep])"))[...s.querySelectorAll(":scope>.card")]`
+      + `.sort((a,b)=>by[k](a)-by[k](b)||a.dataset.rank-b.dataset.rank).forEach((c)=>s.appendChild(c));`
+      + `for(const b of document.querySelectorAll(".sortbar button"))b.classList.toggle("on",b.dataset.k===k);try{localStorage.setItem(S,k)}catch{}};`
+      + `try{sortBy(localStorage.getItem(S)||"hot")}catch{sortBy("hot")}`
+      + `document.addEventListener("click",(e)=>{const b=e.target.closest("[data-act]");if(!b)return;e.preventDefault();e.stopPropagation();const a=b.dataset.act;`
+      + `if(a==="toggle"){open(box.hidden);if(!box.hidden)inp.focus();return}if(a==="sort"){sortBy(b.dataset.k);return}`
+      + `if(a==="tdrop"&&!confirm("拿掉主題「"+b.dataset.q+"」？（收藏的會留著）"))return;go(a,b.dataset.q)},true);`
+      + `document.getElementById("addform").addEventListener("submit",(e)=>{e.preventDefault();go("tadd",inp.value.trim());inp.value=""})})()</script>`);
   }
   // the reports: a card each (title, when, the topic asked), newest first; a click opens it
   reportsHtml() {

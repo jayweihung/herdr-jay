@@ -14,8 +14,8 @@ company) shows up beside what's hot, from each site, and the list stops being on
 
 ## Non-goals
 - Threads search (needs a sign-in), any use of jay's sign-ins.
-- Searching through IPRoyal until jay says so in the root cell and root hands the account over (pending). The code
-  reads an optional local proxy file then; nothing until it exists.
+- IPRoyal: jay's call (2026-11-16) is to use it, no root needed; the account goes in `trend/proxy` (local, never in
+  this repo), and fetch.js's own requests go through it then. Chrome's pages stay direct (no password on its flag).
 
 ## Approaches (picked: A)
 - **A. Each site's own public way** (picked): HN's Algolia API; PTT's ALLPOST board search (it copies every board's

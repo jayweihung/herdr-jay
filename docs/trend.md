@@ -134,7 +134,29 @@ Windows 一樣：複製 mod，用工作排程器每 30 分鐘跑；公司電腦�
 | Digg | `npx -y @mvanhorn/printing-press-library@0.1.27 install digg --cli-only` (needs Go: `brew install go`); goes to `~/.local/bin` (Windows: put the folder it says on PATH) |
 | Reddit (last30days' own search) | Left out (`EXCLUDE_SOURCES=reddit` in `fetch.js`): Reddit answers unauthenticated searches with 403, from home and from a residential proxy alike (tried 2026-11-16); the panel's Reddit rows come from its page instead. For last30days' cross-site check: a ScrapeCreators key (`setup --github` in last30days, 10,000 free calls, then paid) with `LAST30DAYS_REDDIT_BACKEND=scrapecreators`, and take reddit out of `EXCLUDE_SOURCES` |
 | X | `AUTH_TOKEN` + `CT0` (x.com cookies: risks the account, jay's was suspended on 2026-11-16 after tries with last30days' bird), or `X_BEARER_TOKEN` / `XAI_API_KEY` (paid, no account), stored with `printf '%s\n' "$T" \| python3 …/last30days.py setup --store-key AUTH_TOKEN` into `~/.config/last30days/.env` |
-| A proxy | one line `http://user:pass@host:port` in `<Herdr home>/trend/proxy` (private: `chmod 600`): last30days' requests go through it (not Reddit's page) |
+| A proxy | one line `http://user:pass@host:port` in `<Herdr home>/trend/proxy` (private: `chmod 600`): last30days' requests and `fetch.js`'s own (PTT, HN, the topic searches without a browser, YouTube's search) go through it; not the Chrome pages (Reddit, Dcard, Threads: Chrome's `--proxy-server` takes no password) |
+
+## My topics, stars, 排列 and sites in 熱門 / 熱門的主題、收藏、排列、來源
+
+The chips on top of the list, row by row: **全部**, **⭐ 收藏**, **🔥 升溫**, **🆕 新進榜**; your topics (**🔍 …**, **✕**
+takes one out, it asks first) and **＋ 加主題**; the subjects; the sites (**HN**, **Reddit**, **PTT**, **Dcard**,
+**Threads**, **Digg**: one shows only that site's cards, a story on several sites under each). Each site has its
+color, from Herdr's theme: its chip, the card's left edge, the chip on the card.
+上面一排排：全部、收藏、升溫、新進榜；你的主題和「＋ 加主題」；分類；各站（點一個只看那站）。每站一個顏色（Herdr 主題的顏色）。
+
+**＋ 加主題**: type words (台積電, 子瑜), searched at once (`node fetch.js --topics`: a minute or two, Reddit and Dcard
+open Chrome) and then about every hour, on four sites, each its own way: HN's Algolia search (the last 7 days); PTT's
+ALLPOST board (every post is copied there) for the boards, then the 3 boards with most hits searched for their 推;
+Reddit's search page (top of the week) and Dcard's (newest first) in the headless Chrome the front pages use. A
+result stays if its title has at least half the topic's words and it's from the last 30 days, 15 a site. A block
+pauses that site for 6, 12, 24 hours, its front page too (each file's `<site>BlockedAt` is read by the other). The
+topics live in `trend/topics.txt`, one per line (`#` a comment); what was found in `trend/topics.json`.
+加主題：打關鍵字，馬上去 HN、PTT、Reddit、Dcard 搜，之後約每小時一次；標題要有主題一半的字、30 天內的才留，每站 15 則。被擋那站連熱門一起停。
+
+**☆** on a card keeps it under **⭐ 收藏** for good (`trend/hot-stars.json`), split by the topic or subject it was
+under. **排列**: 最熱 (each site's own order, in turn), 最新進榜 (when it showed up), 升溫最快 (its rise), 留言最多;
+⭐ 收藏 keeps newest starred first. The chip and the 排列 you picked are remembered, Herdr restarts too.
+☆ 收藏一直留著，照主題或分類分開放；排列：最熱、最新進榜、升溫最快、留言最多；選的都會記住。
 
 ## My videos / 我的影片
 
@@ -227,6 +249,11 @@ script from YouTube (`iframe_api` would run as your site, with your sign-in's co
 </script>
 ```
 
+**✨ 背光** above the player turns its glow on and off (remembered): the panel adds `glow=0` to the page's URL when
+off. A page may answer it by filling the space around the 16:9 video with the video's thumbnail
+(`https://i.ytimg.com/vi/<id>/maxresdefault.jpg`, blurred; `1.jpg`–`3.jpg` are frames at a quarter, half and three
+quarters of it): the video itself, on youtube.com, can't be read for its colors. 播放列的「✨ 背光」開關播放頁的背光（模糊的影片縮圖鋪在影片四周）。
+
 Its URL with `{id}` for the video goes in `<Herdr home>/trend/player` (one line, e.g.
 `https://www.example.com/yt.html?v={id}`), and its site in the mod's `mod.json` allow list. To keep your site out of
 this repo, the mod folder is then a folder of your own instead of one link: links to each file here but `mod.json`, a
@@ -250,7 +277,9 @@ the last day and Digg's top stories of the last 24 h: `{ at, since, hn, reddit, 
 each row with `first`, maybe `rise` and `body` (its text), and, for the sites read gently, `<site>At`, `<site>BlockedAt`,
 `<site>Blocks`), `ptt-text.json` (each PTT post's text, read once), `history.json`
 (`{ since, links: { <url>: { first, last, samples: [[time, score]…] } } }`), `reddit-profile/`,
-`dcard-profile/`, `threads-profile/` (the browser profiles those pages are opened with: their cookies only).
+`dcard-profile/`, `threads-profile/` (the browser profiles those pages are opened with: their cookies only),
+`topics.txt` (yours: 熱門's topics), `topics.json` (`{ queries, at, since, items: { <topic>: { hn, ptt, reddit, dcard } },
+done, errors, <site>BlockedAt, <site>Blocks }`), `hot-stars.json` (the panel's: 熱門's starred cards, by title).
 `<Herdr home>/mods/trend/.reports/`: the agent's reports (hidden: writing one doesn't reload the mod; git ignores it).
 `videos.txt` (yours: the searches), `videos-skip.txt` (searches not to suggest), `stars.json` (the videos you starred),
 `progress.json` (how far you got in each), `plays.json` (the videos you played,

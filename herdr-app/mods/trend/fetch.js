@@ -6,12 +6,15 @@
 //   last.log      the last run's own output
 //   videos.json   my videos: what YouTube's search found for each line of videos.txt (yours), kept, newest first, and
 //                 searches to suggest (from plays.json, the panel's, and YouTube's search box; videos-skip.txt: no)
+//   topics.json   my topics: what HN, PTT, Reddit and Dcard's searches found for each line of topics.txt (yours)
 // <last30days.py>: the skill's scripts/last30days.py in your kit source.
 // A proxy goes in <Herdr home>/trend/proxy, one line http://user:pass@host:port (keep it private: chmod 600 on macOS):
-// last30days' requests go through it (not Reddit's page below: a proxy didn't get past Reddit's 403 either).
+// last30days' requests and this script's own (the sites' searches and pages read without a browser) go through it;
+// not the Chrome pages (Reddit, Dcard, Threads): a proxy didn't get past Reddit's 403, and Chrome's --proxy-server
+// takes no password.
 // PYTHON: the Python to run it with (default python3; on Windows python). CHROME: the Chrome or Edge for the pages
 // read in a browser (Reddit, Dcard, Threads).
-// 每 30 分鐘抓一次全網熱門（不叫模型、不花 token）。代理寫在 trend/proxy 一行，只給 last30days 用。
+// 每 30 分鐘抓一次全網熱門（不叫模型、不花 token）。代理寫在 trend/proxy 一行：last30days 和這支程式自己的請求走它。
 const { spawn, spawnSync } = require("child_process");
 const fs = require("fs");
 const path = require("path");
@@ -23,20 +26,24 @@ const put = (name, text) => { fs.writeFileSync(path.join(out, `${name}.tmp`), te
 const now = () => new Date().toISOString().replace(/\.\d+Z$/, "Z");
 const started = now();
 // `node fetch.js --videos`: only the 影片 searches that are due (the panel runs it when you ＋ a search, so it shows
-// at once); no status.json, last30days or front pages / 只搜影片：面板按「＋」加主題時馬上跑
-const VIDEOS_ONLY = process.argv[2] === "--videos";
-if (!VIDEOS_ONLY) put("status.json", JSON.stringify({ started, finished: null, ok: null, error: null }) + "\n");
+// at once); `--topics`: only 熱門's topic searches that are due (its ＋). No status.json, last30days or front pages.
+// 只搜影片／只搜熱門主題：面板按「＋」加主題時馬上跑
+const VIDEOS_ONLY = process.argv[2] === "--videos", TOPICS_ONLY = process.argv[2] === "--topics";
+if (!VIDEOS_ONLY && !TOPICS_ONLY) put("status.json", JSON.stringify({ started, finished: null, ok: null, error: null }) + "\n");
 
 // EXCLUDE_SOURCES=reddit: last30days' own Reddit search only gets 403 (Reddit's rows come from its page, below), and
 // every try is one more hit from the house's IP / last30days 自己的 Reddit 搜尋只會 403，不讓它打
 const env = { ...process.env, PYTHONDONTWRITEBYTECODE: "1", EXCLUDE_SOURCES: "reddit" };   // no __pycache__ in the kit source (kit check: text files only)
 let proxy = "";
 try { proxy = fs.readFileSync(path.join(out, "proxy"), "utf8").split("\n")[0].trim(); } catch {}
-if (proxy) Object.assign(env, { HTTPS_PROXY: proxy, HTTP_PROXY: proxy, NO_PROXY: "localhost,127.0.0.1" });
+if (proxy) {
+  Object.assign(env, { HTTPS_PROXY: proxy, HTTP_PROXY: proxy, NO_PROXY: "localhost,127.0.0.1" });
+  require("http").setGlobalProxyFromEnv({ HTTPS_PROXY: proxy, HTTP_PROXY: proxy, NO_PROXY: "localhost,127.0.0.1" });   // this script's fetch()
+}
 
 let error = null;
 const l30 = process.argv[2];
-if (VIDEOS_ONLY) {}
+if (VIDEOS_ONLY || TOPICS_ONLY) {}
 else if (!l30 || !fs.existsSync(l30)) error = `找不到 last30days.py：排程給的路徑是「${l30 ?? ""}」（docs/trend.md「安裝」）`;
 else {
   const tmp = path.join(out, "trends.json.tmp");
@@ -69,6 +76,7 @@ const HOUR_MS = 3600000;
 async function gently(f, before, key, read, hours = 2) {
   const at = `${key}At`, blockedAt = `${key}BlockedAt`, blocks = `${key}Blocks`;
   for (const k of [key, at, blockedAt, blocks]) if (before?.[k] != null) f[k] = before[k];
+  sharedBlock(f, key, "topics.json");
   const pause = 6 * HOUR_MS * 2 ** Math.min(2, Math.max(0, (f[blocks] ?? 1) - 1));
   if (Date.now() - Date.parse(f[blockedAt] ?? "") < pause) throw new Error(`被擋了，${Math.round(pause / HOUR_MS)} 小時內不再試（${f[blockedAt]}）`);
   if (Date.now() - Date.parse(f[at] ?? "") < (hours + Math.random()) * HOUR_MS) return;
@@ -80,6 +88,19 @@ async function gently(f, before, key, read, hours = 2) {
   }
   Object.assign(f, { [at]: now(), [blockedAt]: null, [blocks]: 0 });
 }
+// A block seen by the front pages (feeds.json) or by a topic search (topics.json) pauses that site for both: the
+// other file's block, when it is the later one, comes into o (its <key>BlockedAt and <key>Blocks)
+function sharedBlock(o, key, file) {
+  let other = null;
+  try { other = JSON.parse(fs.readFileSync(path.join(out, file), "utf8")); } catch {}
+  const at = other?.[`${key}BlockedAt`];
+  if (at && !(Date.parse(o[`${key}BlockedAt`] ?? "") >= Date.parse(at))) Object.assign(o, { [`${key}BlockedAt`]: at, [`${key}Blocks`]: other[`${key}Blocks`] ?? 1 });
+}
+// how long a site's block still pauses it (6, 12, 24 hours after it), in ms; 0: not paused
+const pauseLeft = (o, key) => {
+  const at = Date.parse(o[`${key}BlockedAt`] ?? "");
+  return Number.isNaN(at) ? 0 : Math.max(0, at + 6 * HOUR_MS * 2 ** Math.min(2, Math.max(0, (o[`${key}Blocks`] ?? 1) - 1)) - Date.now());
+};
 
 // Reddit answers scripts (its .json, curl, Python, a "HeadlessChrome" browser) with 403 "blocked by network
 // security", even through a residential proxy; the installed Chrome or Edge, headless but saying it is a plain Chrome,
@@ -120,17 +141,21 @@ function chromeUa() {
   return (ua = process.platform === "win32" ? `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${v}.0.0.0 Safari/537.36`
     : `Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${v}.0.0.0 Safari/537.36`);
 }
-async function readReddit() {
+// a Reddit page as the installed Chrome renders it (--dump-dom), in its own profile, kept (nothing of yours is read);
+// a page holds 3 posts and loads more as you scroll: a 2000 px tall window
+function redditDom(url) {
   const exe = findChrome();
   if (!exe) throw new Error("沒有 Chrome 或 Edge（或設 CHROME）");
-  // its own profile, kept (nothing of yours is read); the page holds 3 posts and loads more as you scroll: a 2000 px tall window
   const r = spawnSync(exe, ["--headless=new", `--user-data-dir=${path.join(out, "reddit-profile")}`, "--no-first-run", "--no-default-browser-check",
     `--user-agent=${chromeUa()}`, "--accept-lang=zh-TW,zh,en-US,en", "--window-size=1200,2000", "--disable-blink-features=AutomationControlled",
-    "--virtual-time-budget=8000", "--dump-dom", REDDIT_URL], { encoding: "utf8", maxBuffer: 64 << 20, timeout: 120000, windowsHide: true });
+    "--virtual-time-budget=8000", "--dump-dom", url], { encoding: "utf8", maxBuffer: 64 << 20, timeout: 120000, windowsHide: true });
   const html = r.stdout ?? "";
   if (/blocked by network security/i.test(html)) throw new Blocked("被 Reddit 擋了（之後 6、12、24 小時再試一次）");
-  const posts = redditPosts(html);
-  if (!posts.length) throw new Error(r.error?.message || `頁面裡沒有貼文（${html.length} 字）`);
+  return { html, error: r.error?.message };
+}
+async function readReddit() {
+  const { html, error } = redditDom(REDDIT_URL), posts = redditPosts(html);
+  if (!posts.length) throw new Error(error || `頁面裡沒有貼文（${html.length} 字）`);
   return posts;
 }
 
@@ -154,17 +179,22 @@ async function pttGet(p) {
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
   return html;
 }
-async function readPtt() {
-  const get = pttGet;
-  const boards = [...(await get("/bbs/hotboards.html")).matchAll(/<div class="board-name">([^<]+)<\/div>/g)].map((m) => m[1]).filter((b) => !PTT_ADULT.test(b)).slice(0, PTT_BOARDS);
+// a board's list page (or its search's) as posts: title, link, 推 (爆 is 100, X1…XX below 0), when
+function pttList(html, board) {
   const posts = [];
-  for (const board of boards) for (const ent of (await get(`/bbs/${board}/search?q=recommend%3A50`)).split('<div class="r-ent">').slice(1)) {
+  for (const ent of html.split('<div class="r-ent">').slice(1)) {
     const a = /<a href="(\/bbs\/[^"]+\/M\.(\d+)\.[^"]+\.html)">([\s\S]*?)<\/a>/.exec(ent);
     if (!a) continue;   // deleted
     const s = /<div class="nrec">(?:<span[^>]*>([^<]*)<\/span>)?/.exec(ent)?.[1] ?? "";
     posts.push({ title: unescapeHtml(a[3]).trim(), url: PTT + a[1], board, author: /<div class="author">([^<]*)</.exec(ent)?.[1] ?? "",
       score: s === "爆" ? 100 : s.startsWith("X") ? -10 * (s[1] === "X" ? 10 : Number(s[1]) || 1) : Number(s) || 0, created: new Date(Number(a[2]) * 1000).toISOString() });
   }
+  return posts;
+}
+async function readPtt() {
+  const boards = [...(await pttGet("/bbs/hotboards.html")).matchAll(/<div class="board-name">([^<]+)<\/div>/g)].map((m) => m[1]).filter((b) => !PTT_ADULT.test(b)).slice(0, PTT_BOARDS);
+  const posts = [];
+  for (const board of boards) posts.push(...pttList(await pttGet(`/bbs/${board}/search?q=recommend%3A50`), board));
   if (!posts.length) throw new Error("熱門看板裡沒有文章");
   return posts.sort((x, y) => y.score - x.score || y.created.localeCompare(x.created));
 }
@@ -445,6 +475,117 @@ async function suggest(v, before, ua, paused) {
   v.suggest = [...found.values()].slice(0, 12);
 }
 
+// My topics (熱門's own, as 影片 has its): topics.txt holds one search per line (# starts a comment). Each is
+// searched on four sites, each its own way (tried 2026-11-16):
+//   hn      Algolia's search API, stories of the last 7 days
+//   ptt     ALLPOST, the board every post is copied to, names the boards (its own rows cut the titles and have no 推);
+//           the 3 boards with most hits are then searched themselves (pttGet: 5 s apart)
+//   reddit  its search page, top of the week, in the installed Chrome (--dump-dom, as its front page)
+//   dcard   its search page, newest first, in Chrome past Cloudflare: the page carries its results as JSON
+// A site and topic about once an hour (jay's call); a result stays only if its title has at least half the topic's
+// words, as in 影片. A block pauses the site for 6, 12, 24 hours, the front pages too (sharedBlock).
+// 我的主題：topics.txt 一行一個；每小時左右搜 HN、PTT、Reddit、Dcard；被擋那站連熱門一起停 6、12、24 小時。
+const TOPIC_SITES = ["hn", "ptt", "reddit", "dcard"], TOPIC_EVERY = 50 * 60000, TOPIC_KEEP = 15;
+async function hnSearch(q) {
+  const since = Math.floor(Date.now() / 1000) - 7 * 86400;
+  const r = await fetch(`https://hn.algolia.com/api/v1/search?query=${encodeURIComponent(q)}&tags=story&hitsPerPage=30&numericFilters=created_at_i>${since}`,
+    { signal: AbortSignal.timeout(30000) });
+  if (r.status === 429) throw new Blocked("被 HN 擋了（HTTP 429）");
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  return ((await r.json()).hits ?? []).map((h) => ({ title: h.title, url: h.url || `https://news.ycombinator.com/item?id=${h.objectID}`,
+    discussion: `https://news.ycombinator.com/item?id=${h.objectID}`, points: h.points ?? 0, comments: h.num_comments ?? 0, created: h.created_at }));
+}
+async function pttSearch(q) {
+  const hits = new Map();
+  for (const p of pttList(await pttGet(`/bbs/ALLPOST/search?q=${encodeURIComponent(q)}`), "ALLPOST")) {
+    const b = /\/bbs\/([^/]+)\//.exec(p.url)?.[1];
+    if (b && b !== "ALLPOST" && !PTT_ADULT.test(b)) hits.set(b, (hits.get(b) ?? 0) + 1);
+  }
+  const posts = [];
+  for (const [b] of [...hits].sort((x, y) => y[1] - x[1]).slice(0, 3)) posts.push(...pttList(await pttGet(`/bbs/${b}/search?q=${encodeURIComponent(q)}`), b));
+  return posts.sort((x, y) => y.score - x.score || y.created.localeCompare(x.created));
+}
+// Reddit's search page: each result is a post-title link, then its 票 and 則留言 (faceplate-number), its time
+// (faceplate-timeago) a little before the link
+function redditSearchPosts(html) {
+  const parts = html.split('data-testid="post-title-text"');
+  return parts.slice(1).map((p, i) => {
+    const href = /href="([^"]+)"/.exec(p)?.[1] ?? "", nums = [...p.split("search-telemetry-tracker")[0].matchAll(/<faceplate-number number="(\d+)"/g)].map((m) => Number(m[1]));
+    const ts = [...parts[i].matchAll(/<faceplate-timeago[^>]*ts="([^"]+)"/g)].pop()?.[1];
+    const discussion = href ? new URL(href, "https://www.reddit.com").href : "";
+    return { title: unescapeHtml(/>([\s\S]*?)<\/a>/.exec(p)?.[1]?.replace(/<[^>]+>/g, "") ?? "").replace(/\s+/g, " ").trim(), url: discussion, discussion,
+      subreddit: /\/(r\/[^/]+)\//.exec(href)?.[1] ?? "", score: nums[0] ?? 0, comments: nums[1] ?? 0, created: ts ? new Date(ts).toISOString() : undefined,
+      nsfw: /nsfw&quot;:true/.test(p.split("search-telemetry-tracker")[1] ?? "") };
+  }).filter((x) => x.title && x.discussion && !x.nsfw);
+}
+async function redditSearch(q) {
+  const { html, error } = redditDom(`https://www.reddit.com/search/?q=${encodeURIComponent(q)}&sort=top&t=week`);
+  if (html.length < 20000) throw new Error(error || `搜尋頁是空的（${html.length} 字）`);   // a search with no results is still a full page
+  return redditSearchPosts(html);
+}
+// Dcard's search page sends its results inside the page (Next's self.__next_f.push strings): each "searchPost"'s
+// post, read as JSON from its opening brace
+function objectAt(s, i) {
+  let depth = 0, inStr = false;
+  for (let j = i; j < s.length; j++) {
+    const c = s[j];
+    if (inStr) { if (c === "\\") j++; else if (c === '"') inStr = false; }
+    else if (c === '"') inStr = true;
+    else if (c === "{") depth++;
+    else if (c === "}" && --depth === 0) { try { return JSON.parse(s.slice(i, j + 1)); } catch { return null; } }
+  }
+  return null;
+}
+async function dcardSearch(q) {
+  const p = await chromePage("dcard", `https://www.dcard.tw/search?query=${encodeURIComponent(q)}&sort=created`, { keep: /^$/, wait: 8, stop: CF_BLOCK });
+  const text = [...p.html.matchAll(/self\.__next_f\.push\(\[1,("(?:[^"\\]|\\.)*")\]\)/g)].map((m) => { try { return JSON.parse(m[1]); } catch { return ""; } }).join("");
+  if (!text.includes('"searchPost"') && (CF_BLOCK.test(p.text) || /Just a moment|verify you are human/i.test(p.text))) throw new Blocked("被 Dcard 擋了（之後 6、12、24 小時再試一次）");
+  const posts = [];
+  for (const m of text.matchAll(/"searchPost":\{"post":/g)) { const o = objectAt(text, m.index + m[0].length); if (o?.id && o.title) posts.push(o); }
+  return posts.filter((x) => !x.nsfw && !x.unsafe && !DCARD_ADULT.test(x.forumAlias ?? "")).map((x) => ({ title: String(x.title).replace(/<[^>]+>/g, ""),
+    url: x.forumAlias ? `https://www.dcard.tw/f/${x.forumAlias}/p/${x.id}` : `https://www.dcard.tw/p/${x.id}`, score: x.likeCount ?? 0,
+    comments: x.totalCommentCount ?? x.commentCount ?? 0, board: x.forumName ?? x.forumAlias ?? "", forum: x.forumAlias, created: x.createdAt,
+    body: String(x.excerpt ?? "").replace(/<[^>]+>/g, "").trim() }));
+}
+const SEARCH = { hn: hnSearch, ptt: pttSearch, reddit: redditSearch, dcard: dcardSearch };
+async function topics() {
+  let queries = [], before = null, texts = {};
+  try { queries = fs.readFileSync(path.join(out, "topics.txt"), "utf8").split("\n").map((l) => l.trim()).filter((l) => l && !l.startsWith("#")); } catch {}
+  try { before = JSON.parse(fs.readFileSync(path.join(out, "topics.json"), "utf8")); } catch {}
+  try { texts = JSON.parse(fs.readFileSync(path.join(out, "ptt-text.json"), "utf8")); } catch {}
+  // a topic taken out of topics.txt goes with its results
+  const t = { queries, at: now(), items: {}, done: {}, errors: {} };
+  for (const s of TOPIC_SITES) for (const k of ["BlockedAt", "Blocks"]) if (before?.[s + k] != null) t[s + k] = before[s + k];
+  for (const q of queries) {
+    t.items[q] = {};
+    for (const s of TOPIC_SITES) { t.items[q][s] = before?.items?.[q]?.[s] ?? []; if (before?.done?.[`${s} ${q}`]) t.done[`${s} ${q}`] = before.done[`${s} ${q}`]; }
+  }
+  let asked = false;
+  for (const s of TOPIC_SITES) {
+    sharedBlock(t, s, "feeds.json");
+    if (pauseLeft(t, s) > 0) { t.errors[s] = `被擋了：${Math.ceil(pauseLeft(t, s) / HOUR_MS)} 小時後再試一次`; continue; }
+    for (const q of queries) {
+      const k = `${s} ${q}`;
+      if (Date.now() - Date.parse(t.done[k] ?? "") < TOPIC_EVERY) continue;
+      if (asked && s !== "ptt") await new Promise((ok) => setTimeout(ok, 3000 + Math.random() * 4000));   // pttGet keeps its own 5 s
+      asked = true;
+      try {
+        // the last 30 days only (PTT's search gives a board's newest 20 matches, however old)
+        const recent = (x) => !x.created || Date.now() - Date.parse(x.created) < 30 * 864e5;
+        t.items[q][s] = (await SEARCH[s](q)).filter((x) => about(q, x.title) && recent(x)).slice(0, TOPIC_KEEP)
+          .map((x) => (texts[x.url] && !x.body ? { ...x, body: texts[x.url] } : x));
+        t.done[k] = now();
+        Object.assign(t, { [`${s}BlockedAt`]: null, [`${s}Blocks`]: 0 });
+      } catch (e) {
+        t.errors[k] = String(e.message ?? e).slice(0, 200);
+        if (e instanceof Blocked) { Object.assign(t, { [`${s}BlockedAt`]: now(), [`${s}Blocks`]: (t[`${s}Blocks`] ?? 0) + 1 }); break; }
+      }
+    }
+  }
+  t.since = track(Object.values(t.items).flatMap((o) => Object.values(o).flat()));
+  put("topics.json", JSON.stringify(t) + "\n");
+}
+
 async function feeds() {
   const f = { at: now(), hn: [], reddit: [], ptt: [], dcard: [], threads: [], digg: [], errors: {} };
   let before = null;
@@ -473,21 +614,22 @@ async function feeds() {
       title: s.title, url: s.url, description: s.description ?? "", score: s.diggScore ?? 0, sources: s.postCount ?? 0, topic: s.topic ?? "",
     }));
   } catch (e) { f.errors.digg = String(e.message ?? e).slice(0, 200); }
-  track(f);
+  f.since = track(["hn", "reddit", "ptt", "dcard", "threads", "digg"].flatMap((s) => f[s] ?? []));
   put("feeds.json", JSON.stringify(f) + "\n");
 }
 
 // How each row moved: <Herdr home>/trend/history.json keeps, per link, when it was first seen and its score at each
 // run (the last 24; a link not seen for 2 days is dropped). Each row gets first (when it showed up) and rise (its
-// score now against its oldest one 1 to 3 hours ago, when higher); f.since: when the history began (the panel calls
+// score now against its oldest one 1 to 3 hours ago, when higher); gives when the history began (the panel calls
 // nothing new in its first hours).
 // 每則第一次出現的時間和每輪的分數（最近 24 次）：面板據此標「新進榜」「↑ 升溫」。
-function track(f) {
+// shortcut: a --topics run beside the scheduled one may lose one run's samples (both rewrite history.json); a lock if it shows
+function track(rows) {
   let h = {};
   try { h = JSON.parse(fs.readFileSync(path.join(out, "history.json"), "utf8")); } catch {}
   const t = Date.now(), at = now(), links = (h.links ??= {});
   h.since ??= at;
-  for (const site of ["hn", "reddit", "ptt", "dcard", "threads", "digg"]) for (const x of f[site] ?? []) {
+  for (const x of rows) {
     const score = x.score ?? x.points ?? 0, e = (links[x.url] ??= { first: at, samples: [] });
     e.last = at;
     e.samples = [...e.samples, [at, score]].slice(-24);
@@ -497,11 +639,12 @@ function track(f) {
     if (old && score > old[1]) x.rise = { by: score - old[1], from: old[1], hours: Math.max(1, Math.round((t - Date.parse(old[0])) / HOUR_MS)) };
   }
   for (const [u, e] of Object.entries(links)) if (t - Date.parse(e.last) > 48 * HOUR_MS) delete links[u];
-  f.since = h.since;
   put("history.json", JSON.stringify(h) + "\n");
+  return h.since;
 }
 if (VIDEOS_ONLY) videos().catch(() => {}).finally(() => process.exit(0));
-else feeds().catch(() => {}).then(videos).catch(() => {}).finally(() => {
+else if (TOPICS_ONLY) topics().catch(() => {}).finally(() => process.exit(0));
+else feeds().catch(() => {}).then(topics).catch(() => {}).then(videos).catch(() => {}).finally(() => {
   put("status.json", JSON.stringify({ started, finished: now(), ok: !error, error }) + "\n");
   process.exit(error ? 1 : 0);
 });

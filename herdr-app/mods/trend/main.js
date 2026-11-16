@@ -301,9 +301,9 @@ export default class Trend extends View {
       this.videoBox = InputState.new({ placeholder: "問這支影片，例如：這段在講什麼？" });
       this.videoBox.on("submit", (_e, cx) => cx.spawn(async (cx) => this.askFree(cx)));
     }
-    // where you were: the tab and the video you watched (localStorage, so a closed panel or a restart comes back to it)
+    // where you were: the tab (localStorage, so a closed panel or a restart comes back to it). Not the video: a new
+    // copy draws (and its page plays) even while the panel is hidden or off screen; its card says ▶ 上次看到 instead
     this.view = (this.role !== "toggle" && localStorage.getItem("view")) || "list";   // "list" (the topics), "videos", "reports", or a report's file name
-    if (this.role !== "toggle") try { this.playing = JSON.parse(localStorage.getItem("playing") || "null"); this.played = Boolean(this.playing); this.resume = this.played; } catch {}
     this.hideSeen = shared(VIDEO_STATE)?.hide;
     this.load(cx);
     if (this.role !== "toggle") cx.spawn(async (cx) => {
@@ -364,8 +364,6 @@ export default class Trend extends View {
       this.progressDirty = false;
       await writeTextFile(pf, JSON.stringify(this.progress) + "\n", await readTextFile(pf).catch(() => null)).catch(() => { this.progressDirty = true; });
     }
-    // the video you were watching last time: on from where it got to
-    if (this.resume) { this.resume = false; if (this.progress?.[this.playing?.id] > 5) this.playFrom = this.progress[this.playing.id]; }
     // the videos you starred (stars.json, the panel's own): kept for good, whatever the searches find or drop
     if (this.stars === undefined) try { this.stars = JSON.parse((await readTextFile(`${this.dir}/stars.json`).catch(() => null)) ?? "{}") ?? {}; } catch { this.stars = {}; }
     // 熱門's own: the cards you starred (hot-stars.json, by title), your topics (topics.txt, its ＋ and ✕ write it) and
@@ -644,12 +642,7 @@ export default class Trend extends View {
     this.keepPlace();
     // shown again after a hide: the video at once, not the list for the second the timer would take
     if (this.hiding && Date.now() - this.hidingAt > 400 && find(layout(), PANEL) && !find(layout(), PANEL).hidden) this.hiding = false;
-    const where = JSON.stringify([this.view, this.playing?.id ?? null]);
-    if (where !== this.savedWhere) {
-      this.savedWhere = where;
-      localStorage.setItem("view", this.view);
-      localStorage.setItem("playing", this.playing ? JSON.stringify(this.playing) : "");
-    }
+    if (this.view !== this.savedView) { this.savedView = this.view; localStorage.setItem("view", this.view); }
     return v_flex().id("trend").size_full().bg(t.surface).text_size(z).text_color(t.foreground)
       .child(this.header(t, z))
       .child(this.view === "list" ? this.list(t, z) : this.view === "videos" ? this.videoList(t, z) : this.view === "reports" ? this.reportList(t, z) : this.reportView(t, z))

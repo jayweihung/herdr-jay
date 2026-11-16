@@ -293,8 +293,9 @@ async function readThreads(before) {
 // 我的影片：videos.txt 一行一個搜尋；每個搜尋 3 小時最多一次；被擋就全部停 6、12、24 小時（全家共用一個 IP，寧可保守）。
 const VIDEO_EVERY = 3 * HOUR_MS, VIDEO_KEEP = 300;
 class Blocked extends Error {}
-async function ytSearch(q, ua, cookies) {
-  const r = await fetch(`https://www.youtube.com/results?search_query=${encodeURIComponent(q)}&sp=EgIIAw%3D%3D&hl=zh-TW&gl=TW`, {
+// all: any upload time (a topic's first search), else this week's uploads
+async function ytSearch(q, ua, cookies, all) {
+  const r = await fetch(`https://www.youtube.com/results?search_query=${encodeURIComponent(q)}${all ? "" : "&sp=EgIIAw%3D%3D"}&hl=zh-TW&gl=TW`, {
     headers: { "user-agent": ua, "accept-language": "zh-TW,zh;q=0.9", cookie: Object.entries(cookies).map(([k, v]) => `${k}=${v}`).join("; ") },
     signal: AbortSignal.timeout(30000) });
   for (const c of r.headers.getSetCookie()) { const m = /^([^=;\s]+)=([^;]*)/.exec(c); if (m) cookies[m[1]] = m[2]; }
@@ -334,21 +335,24 @@ async function videos() {
   try { before = JSON.parse(fs.readFileSync(path.join(out, "videos.json"), "utf8")); } catch {}
   // a search taken out of videos.txt takes its videos with it, and so does a video not about its search
   const v = { queries, searched: {}, items: (before?.items ?? []).filter((x) => queries.includes(x.query) && about(x.query, x.title)), errors: {},
-    blockedAt: before?.blockedAt ?? null, blocks: before?.blocks ?? 0, cookies: before?.cookies ?? {} };
+    blockedAt: before?.blockedAt ?? null, blocks: before?.blocks ?? 0, cookies: before?.cookies ?? {}, full: {} };
   for (const q of queries) if (before?.searched?.[q]) v.searched[q] = before.searched[q];
+  // full: a topic's first search took any upload time (YouTube's best for it, old ones too); later ones, this week's
+  for (const q of queries) if (before?.full?.[q]) v.full[q] = before.full[q];
   const left = () => (v.blockedAt ? Date.parse(v.blockedAt) + 6 * HOUR_MS * 2 ** Math.min(Math.max(v.blocks - 1, 0), 2) - Date.now() : 0);   // 6, 12, 24 hours
   const paused = left() > 0;
   if (v.blockedAt && !paused) v.cookies = {};   // the try after a block starts clean
   const ua = chromeUa();
   let asked = false;
   for (const q of paused ? [] : queries) {
-    if (Date.now() - Date.parse(v.searched[q] ?? "") < VIDEO_EVERY) continue;
+    if (v.full[q] && Date.now() - Date.parse(v.searched[q] ?? "") < VIDEO_EVERY) continue;
     if (asked) await new Promise((ok) => setTimeout(ok, 3000 + Math.random() * 4000));
     asked = true;
     try {
-      const have = new Set(v.items.map((x) => x.id)), at = now();
-      v.items = [...(await ytSearch(q, ua, v.cookies)).filter((x) => about(q, x.title) && !have.has(x.id) && have.add(x.id)).map((x) => ({ ...x, query: q, found: at })), ...v.items];
+      const have = new Set(v.items.map((x) => x.id)), at = now(), all = !v.full[q];
+      v.items = [...(await ytSearch(q, ua, v.cookies, all)).filter((x) => about(q, x.title) && !have.has(x.id) && have.add(x.id)).map((x) => ({ ...x, query: q, found: at })), ...v.items];
       v.searched[q] = at;
+      if (all) v.full[q] = at;
       Object.assign(v, { blockedAt: null, blocks: 0 });
     } catch (e) {
       v.errors[q] = String(e.message ?? e).slice(0, 200);

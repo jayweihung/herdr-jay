@@ -149,7 +149,8 @@ TWICE 子瑜
 TZUYU
 ```
 
-`fetch.js` reads YouTube's own search page (uploads of this week) for each: no API key, no browser, no tokens; its
+`fetch.js` reads YouTube's own search page for each: a topic's first search takes any upload time (YouTube's best for
+it, the official M/V too), the later ones this week's uploads; no API key, no browser, no tokens; its
 videos and its Shorts shelves (a Short says `Shorts` for its length). Each card has YouTube's thumbnail, the title,
 channel, length, when it was posted and the views; a video stays under the topic that found it first, never two, and
 only if its title has at least half the topic's words (YouTube fills a thin week with unrelated videos).

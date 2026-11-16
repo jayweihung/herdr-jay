@@ -19,6 +19,8 @@ Needs: **mods** (Windows: copy `trend` again; macOS link: nothing).
   「＋ 加主題」打字或點建議，馬上搜。
 - A topic keeps only videos whose title has at least half its words (YouTube filled 「tzuyu run away」 with other
   members' vlogs and a drama); ＋ 加主題 really searches now. 主題只收標題有一半以上關鍵字的影片；加主題現在真的會馬上搜。
+- A topic's first search takes any upload time (the official M/V, the music shows), the later ones this week's
+  uploads; topics you have got that search once on the next run. 新主題第一次搜不限時間（正版 MV 也會出來），之後只搜這週新上傳的。
 
 ## 2026-11-16, trend: every 30 minutes
 

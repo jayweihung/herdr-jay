@@ -17,20 +17,20 @@ A tab-bar button **熱門** and a panel, like Gerrit's (macOS and Windows):
   it last ran and when it runs next, and a 來源 line names each site once: ✓ when it answered (Reddit, PTT: how long
   ago its page was read), else why not (`讀不到` is not "nothing happened there"; right-click copies it). **↻ 現在更新**
   runs it now; **⤢** shows the panel alone in its row (again: back). 面板：每個主題的數字和原因；點開看熱門留言、來源連結、深入查／三句話說明。標題下面寫上次和下次更新、哪些網站有回應；⤢ 放大。
-  last30days names 5 to 10 topics (it checks each across sites, marked 跨站), so the list goes on to 60 with each
-  site's own front page, HN's, Reddit's (r/all, today), PTT's, Dcard's, Threads' and Digg's in turn (marked by site; a
-  story a topic already cites is left out). The 60 are grouped by subject (AI, 科技, 股票, 財經, 政治, 國際, 科學, 娛樂,
+  last30days names 5 to 10 topics (it checks each across sites, marked 跨站), then the list has everything each site's
+  own front page gave, HN's, Reddit's (r/all, today), PTT's, Dcard's, Threads' and Digg's in turn (marked by site; a
+  story a topic already cites is left out), about 200 rows, grouped by subject (AI, 科技, 股票, 財經, 政治, 國際, 科學, 娛樂,
   遊戲, 體育, 趣聞, 其他) from words in the title, Digg's topic, Reddit's subreddit, PTT's board or Dcard's forum: no
   model, so some land in the wrong group. Reddit's page is opened by your installed Chrome or Edge, headless, with a
-  profile of its own (Reddit blocks scripts with 403). PTT's is plain HTTP: its 4 most popular boards (hotboards,
+  profile of its own (Reddit blocks scripts with 403). PTT's is plain HTTP: its 8 most popular boards (hotboards,
   adult ones left out) and on each the posts with 50 推 or more (`over18=1` is the site's own age check, not a sign-in).
   Dcard's popular list is what https://www.dcard.tw/f fetches itself, in the same headless Chrome (its API gives
   scripts Cloudflare's 403). Threads has no trending list for a visitor: its front page shows its own pick (about 10
   posts a load), so each run's pick joins the last day's, most 讚 first, 30 kept. Each is read every 2 to 3 hours
   (Dcard 3 to 4); blocked, it waits 6, then 12, then 24 hours before one more try, and the 來源 line turns red.
-  last30days 只挑 5 到 10 題（每題跨站比對過，標「跨站」），後面用 HN、Reddit、PTT、Dcard、Threads、Digg 自己的熱門輪流補到
-  60 條，再依主題分組（看標題關鍵字、Digg 分類、Reddit／PTT／Dcard 看板；不叫模型，偶爾會分錯）。Reddit、Dcard、Threads 用本機
-  的 Chrome／Edge 無頭開（各自的設定檔，不讀你的登入）；PTT 用純 HTTP 抓熱門看板前 4 個的「推文 ≥ 50」；Threads 沒有訪客看得到的
+  last30days 只挑 5 到 10 題（每題跨站比對過，標「跨站」），後面放 HN、Reddit、PTT、Dcard、Threads、Digg 自己熱門的全部（約 200
+  條），依主題分組（看標題關鍵字、Digg 分類、Reddit／PTT／Dcard 看板；不叫模型，偶爾會分錯）。Reddit、Dcard、Threads 用本機
+  的 Chrome／Edge 無頭開（各自的設定檔，不讀你的登入）；PTT 用純 HTTP 抓熱門看板前 8 個的「推文 ≥ 50」；Threads 沒有訪客看得到的
   熱門榜，是首頁推薦累積 24 小時、依讚數排。每站 2 到 4 小時一次；被擋就停 6、12、24 小時。
 - **Asking costs tokens, only when you ask.** The buttons and the box at the bottom send to a **kit trend agent** in
   this space (`hc send`), as Gerrit's 問 agent does: with none here, the Kit panel puts one in this space (`kit place`,

@@ -9,6 +9,14 @@ says which) · **kit** = update kit itself on every machine where agents run (`k
 **snap hook** = a line in Claude Code's `settings.json` on each machine where you added the hook (the entry says
 which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/keys.md).
 
+## 2026-11-16, trend: the whole of each site's list, PTT's 8 boards
+
+Needs: **mods** (Windows: copy `trend` again; macOS link: nothing).
+
+- The 熱門 list shows everything the sites' own front pages gave (about 200 rows; the subject chips sort it) instead
+  of the first 60, and PTT reads its 8 most popular boards instead of 4. 熱門清單不再只放 60 條，各站抓到的全部都放（約 200
+  條，用主題鈕篩）；PTT 改抓熱門看板前 8 個。
+
 ## 2026-11-16, trend: Dcard and Threads in the list
 
 Needs: **mods** (Windows: copy `trend` again; macOS link: nothing), Chrome or Edge installed.

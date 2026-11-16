@@ -125,9 +125,9 @@ async function readReddit() {
 
 // PTT: plain HTTP is enough (tried 2026-11-16); over18=1 is the site's own age check, not a sign-in. The most popular
 // boards (hotboards.html, adult ones left out), and on each the site's own search recommend:50 (the newest 20 posts
-// with 50 or more 推), most 推 first; 爆 counts as 100. 5 requests, 5 seconds apart.
-// PTT：純 HTTP；熱門看板前 4 個（濾掉成人板），每板用站內搜尋「推文 ≥ 50」的最新 20 篇，依推文數排。
-const PTT = "https://www.ptt.cc", PTT_BOARDS = 4;
+// with 50 or more 推), most 推 first; 爆 counts as 100. 9 requests, 5 seconds apart.
+// PTT：純 HTTP；熱門看板前 8 個（濾掉成人板），每板用站內搜尋「推文 ≥ 50」的最新 20 篇，依推文數排。
+const PTT = "https://www.ptt.cc", PTT_BOARDS = 8;
 // shortcut: adult boards by name, add one when it shows up in hotboards
 const PTT_ADULT = /^(sex|AV|japanavgirls|Beauty|AdultPics|Hentai|PttSexy|feminine_sex|BB-Love)/i;
 const PTT_BLOCK = /請確認您已滿|Just a moment|cf-chl|Attention Required|verify you are human/i;

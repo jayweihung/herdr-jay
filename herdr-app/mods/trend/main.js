@@ -102,7 +102,6 @@ const PRESETS = [
     : `用繁體中文三句話說明「${r.topic}」最近發生什麼事、為什麼大家在討論。這一題的來源在 ~/.config/herdr-app/trend/trends.json（topic 是 ${JSON.stringify(r.topic)}），先看那些連結，不夠再查。` },
 ];
 const MOMENTUM = { "new-this-week": "本週新", building: "升溫中" };
-const SHOWN = 60;   // last30days names 5 to 10 topics; the sites' own front pages fill the list to this many
 const DIGG_TOPIC = { ai: "AI", tech: "科技", "world-business": "國際商業", sports: "體育", science: "科學", gaming: "遊戲", entertainment: "娛樂" };
 // The list by subject (no model, no tokens): AI and stock words in the title first, then what the site says (Digg's
 // topic, Reddit's subreddit), then the other words, then the site's usual (HN: 科技, Reddit's front page: 趣聞).
@@ -310,8 +309,8 @@ export default class Trend extends View {
     return this.pageCell(t, VIDEOS_CELL, "videos.html");
   }
   get results() { return Array.isArray(this.data?.results) ? this.data.results : []; }
-  // What the list shows: last30days' topics, then HN's, Reddit's, PTT's and Digg's own front pages taken in turn (each
-  // site's rank), skipping a story a topic already cites, up to SHOWN rows
+  // What the list shows: last30days' topics, then everything the sites' own front pages gave (HN, Reddit, PTT, Dcard,
+  // Threads, Digg), taken in turn (each site's rank), skipping a story a topic already cites; the subject chips sort it
   get shown() {
     const topics = this.results, cited = new Set(topics.flatMap((r) => r.evidence_urls ?? []));
     const hn = (this.feeds?.hn ?? []).map((h) => ({ topic: h.title, feed: "HN", line: `HN ${num(h.points)} 分 · ${num(h.comments)} 留言`,
@@ -328,8 +327,8 @@ export default class Trend extends View {
     const threads = (this.feeds?.threads ?? []).map((p) => ({ topic: p.title, feed: "Threads", line: `Threads ${num(p.score)} 讚 · ${num(p.comments)} 回覆`,
       why_spiking: `@${p.author}`, evidence_urls: [p.url] }));
     const out = [...topics], names = new Set(topics.map((r) => r.topic)), feeds = [hn, reddit, ptt, dcard, threads, digg];
-    for (let i = 0; out.length < SHOWN && feeds.some((f) => i < f.length); i++)
-      for (const x of feeds.map((f) => f[i])) if (x && out.length < SHOWN && !names.has(x.topic) && !x.evidence_urls.some((u) => cited.has(u))) {
+    for (let i = 0; feeds.some((f) => i < f.length); i++)
+      for (const x of feeds.map((f) => f[i])) if (x && !names.has(x.topic) && !x.evidence_urls.some((u) => cited.has(u))) {
         names.add(x.topic);
         out.push({ ...x, rank: out.length + 1 });
       }

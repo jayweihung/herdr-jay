@@ -90,7 +90,8 @@ it: `~/.config/herdr-app/trend/videos.txt`, one search per line.
 - 📝 整理重點 above a playing video: the trend agent writes its key points (from the subtitles), shown under the
   player. 播放時按「📝 整理重點」，trend agent 整理的重點顯示在播放器下面。
 - 建議的主題 at the top of the 影片 tab (no tokens): channels and title words from the videos you play, and YouTube's
-  search box suggestions for your searches; ＋ 加入 or 不要. 影片分頁上面自動建議新主題，按一下加入。
+  search box suggestions for your searches, as small chips: ＋ or ✕. 影片分頁上面自動建議新主題，按 ＋ 加入。
+- ☆ on a video's card keeps it under ⭐ 收藏 for good (stars.json). 喜歡的影片按 ☆ 收藏，不會被擠掉。
 - Leaving a video (← 影片, another tab) stops it: the player turns to a blank page (a web element lives on unseen).
   離開播放畫面影片就停。
 - A video goes on from where you left it (▶ 上次看到 on its card), with the player page in docs/trend.md「Just the

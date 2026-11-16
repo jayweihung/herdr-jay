@@ -160,9 +160,13 @@ the player (right-click copies it); **📝 重新整理** asks again. 懶得看�
 
 **建議的主題** at the top of the tab, no tokens: a channel you played 2 or more videos of, a word in the titles of 2
 or more of them (Chinese: a run of 2 to 4 characters in 3 or more), and what YouTube's own search box suggests for
-each of your searches (asked once a day each). **＋ 加入** puts it in `videos.txt` (searched on the next run, ↻ for
-now), **不要** in `videos-skip.txt` (not suggested again). 不用自己想主題：影片分頁上面會建議（看你點過的影片、YouTube
-的搜尋建議），按「＋ 加入」或「不要」。
+each of your searches (asked once a day each), as small chips (the reason when you hover one). **＋** puts it in
+`videos.txt` (searched on the next run, ↻ for now), **✕** in `videos-skip.txt` (not suggested again). 不用自己想主題：
+影片分頁上面會建議（看你點過的影片、YouTube 的搜尋建議），按「＋」加入或「✕」不要。
+
+**☆** on a card stars the video: it stays under **⭐ 收藏** for good (`trend/stars.json`), whatever the searches later
+find or drop (the list keeps only the newest 300, and a search taken out takes its videos); **⭐** unstars it.
+喜歡的影片按 ☆ 收藏，就一直留在「⭐ 收藏」，不會被擠掉。
 
 Gently, since every device in the house shares the IP (a production crawler's advice): each search at most every 3 hours, a few
 seconds apart, your Chrome's version in the user agent, YouTube's cookies kept between runs. A sign of a block (429,
@@ -237,6 +241,7 @@ each row with `first`, maybe `rise` and `body` (its text), and, for the sites re
 (`{ since, links: { <url>: { first, last, samples: [[time, score]…] } } }`), `reddit-profile/`,
 `dcard-profile/`, `threads-profile/` (the browser profiles those pages are opened with: their cookies only).
 `<Herdr home>/mods/trend/.reports/`: the agent's reports (hidden: writing one doesn't reload the mod; git ignores it).
-`videos.txt` (yours: the searches), `videos-skip.txt` (searches not to suggest), `plays.json` (the videos you played,
+`videos.txt` (yours: the searches), `videos-skip.txt` (searches not to suggest), `stars.json` (the videos you starred),
+`progress.json` (how far you got in each), `plays.json` (the videos you played,
 newest 300: the panel writes it) and `videos.json` (`{ queries, searched, items, errors, blockedAt, blocks, cookies,
 suggest, suggested }`) in the same `trend/` folder: the 影片 tab; `trend/player` (yours, optional): its player page.

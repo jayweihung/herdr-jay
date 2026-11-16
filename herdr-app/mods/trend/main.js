@@ -276,6 +276,8 @@ export default class Trend extends View {
       this.progressDirty = false;
       await writeTextFile(pf, JSON.stringify(this.progress) + "\n", await readTextFile(pf).catch(() => null)).catch(() => { this.progressDirty = true; });
     }
+    // the videos you starred (stars.json, the panel's own): kept for good, whatever the searches find or drop
+    if (this.stars === undefined) try { this.stars = JSON.parse((await readTextFile(`${this.dir}/stars.json`).catch(() => null)) ?? "{}") ?? {}; } catch { this.stars = {}; }
     // the key points of the video playing, once the trend agent has written them (📝 整理重點)
     this.notes = this.playing ? await readTextFile(`${this.dir}/notes/${this.playing.id}.txt`).catch(() => null) : null;
     try { this.feeds = f ? JSON.parse(f) : null; } catch { this.feeds = null; }
@@ -368,7 +370,7 @@ export default class Trend extends View {
   // (writePages): a chip per search, newest found first; a click plays it here
   videoList(t, z) {
     if (this.playing) return this.videoPlayer(t, z);
-    if (!this.videos?.queries?.length) return div().flex_1().p(14).text_color(t.muted).whitespace_normal()
+    if (!this.videos?.queries?.length && !Object.keys(this.stars ?? {}).length) return div().flex_1().p(14).text_color(t.muted).whitespace_normal()
       .child(`在 ${this.dir}/videos.txt 一行寫一個 YouTube 搜尋（例如 TWICE 子瑜），排程每 3 小時搜一次這週的新影片；按 ↻ 現在更新 馬上搜。`);
     return this.pageCell(t, VIDEOS_CELL, "videos.html");
   }
@@ -638,7 +640,7 @@ export default class Trend extends View {
       return;
     }
     if (act === "play") {
-      const x = this.videos?.items?.find((i) => i.id === h.get("name"));
+      const x = this.videos?.items?.find((i) => i.id === h.get("name")) ?? this.stars?.[h.get("name")];
       if (!x) return;
       this.playing = x; this.playFrom = this.progress?.[x.id] > 5 ? this.progress[x.id] : 0; this.played = true; this.notes = null; this.load(cx);
       // what you play: fetch.js suggests searches from it (channels, title words); the newest 300
@@ -648,6 +650,21 @@ export default class Trend extends View {
         try { plays = JSON.parse(was ?? "[]"); } catch {}
         plays = [{ id: x.id, title: x.title, channel: x.channel, query: x.query, at: new Date().toISOString() }, ...(Array.isArray(plays) ? plays : [])].slice(0, 300);
         await writeTextFile(file, JSON.stringify(plays) + "\n", was).catch(() => {});
+      });
+      return;
+    }
+    // ☆ on a card stars the video (kept in stars.json, shown under ⭐ 收藏 for good); ⭐ unstars it
+    if (act === "star") {
+      const id = h.get("name"), x = this.videos?.items?.find((i) => i.id === id) ?? this.stars?.[id];
+      if (!x || !this.stars) return;
+      if (this.stars[id]) delete this.stars[id];
+      else this.stars[id] = { ...x, starred: new Date().toISOString() };
+      const stars = JSON.stringify(this.stars) + "\n";
+      cx.spawn(async (cx) => {
+        const file = `${this.dir}/stars.json`;
+        await writeTextFile(file, stars, await readTextFile(file).catch(() => null)).catch(() => {});
+        await this.writePages();
+        cx.notify();
       });
       return;
     }
@@ -729,15 +746,21 @@ export default class Trend extends View {
       + `<img src="https://i.ytimg.com/vi/${esc(x.id)}/mqdefault.jpg" alt="" loading="lazy"><div class="vb">`
       + `<div class="title">${esc(x.title)}</div>`
       + `<div class="meta">${esc([x.channel, x.length, x.published, x.views].filter(Boolean).join(" · "))}</div>`
-      + `<div class="meta">${esc([when(x.found), this.progress?.[x.id] > 5 ? `▶ 上次看到 ${mmss(this.progress[x.id])}` : ""].filter(Boolean).join(" · "))}</div></div></div>`;
+      + `<div class="meta">${esc([when(x.found), this.progress?.[x.id] > 5 ? `▶ 上次看到 ${mmss(this.progress[x.id])}` : ""].filter(Boolean).join(" · "))}</div></div>`
+      + `<button class="star${this.stars?.[x.id] ? " on" : ""}" data-do="star" title="${this.stars?.[x.id] ? "取消收藏" : "收藏：一直留著"}">${this.stars?.[x.id] ? "⭐" : "☆"}</button></div>`;
+    const starred = Object.values(this.stars ?? {}).sort((a, b) => String(b.starred).localeCompare(String(a.starred)));
     const groups = (v.queries ?? []).map((q) => [q, items.filter((x) => x.query === q)]);
     return pageHtml(`<style>.vid{display:flex;gap:10px;align-items:flex-start}.vid img{flex:none;width:136px;aspect-ratio:16/9;object-fit:cover;border-radius:6px;background:var(--bg)}`
-      + `.vb{flex:1;min-width:0}.err{margin:8px 12px;font-size:.88em;color:${t.ansi1}}</style>`
-      + `<nav><button data-cat="all">全部 ${items.length}</button>${groups.map(([q, xs]) => `<button data-cat="${esc(q)}"${xs.length ? "" : " disabled"}>${esc(q)} ${xs.length}</button>`).join("")}</nav>`
-      + `<main>${sug.length ? `<h2>建議的主題（看你點過的影片和 YouTube 的搜尋建議）</h2>${sug.map((s) => `<div class="card" data-name="${esc(s.q)}">`
-        + `<div class="top"><span class="title">${esc(s.q)}</span></div><div class="meta">${esc(s.why)}</div>`
-        + `<div class="acts"><button class="main" data-do="add">＋ 加入</button><button data-do="skip">不要</button></div></div>`).join("")}` : ""}`
+      + `.vb{flex:1;min-width:0}.err{margin:8px 12px;font-size:.88em;color:${t.ansi1}}`
+      + `.star{flex:none;border:0;background:none;padding:0 2px;font-size:1.2em;line-height:1;color:var(--muted);cursor:pointer}.star:hover,.star.on{color:var(--yellow)}`
+      + `.sugs{display:flex;flex-wrap:wrap;gap:6px;margin:0 10px 8px}.card.pill{display:inline-flex;align-items:center;gap:6px;margin:0;padding:3px 4px 3px 10px}`
+      + `.pill button{font:inherit;font-size:.85em;padding:1px 7px;border-radius:5px;border:1px solid var(--border);background:var(--bg);color:var(--fg);cursor:pointer}</style>`
+      + `<nav><button data-cat="all">全部 ${items.length}</button>${starred.length ? `<button data-cat="⭐ 收藏">⭐ 收藏 ${starred.length}</button>` : ""}`
+      + `${groups.map(([q, xs]) => `<button data-cat="${esc(q)}"${xs.length ? "" : " disabled"}>${esc(q)} ${xs.length}</button>`).join("")}</nav>`
+      + `<main>${sug.length ? `<h2>建議的主題（滑過看原因）</h2><div class="sugs">${sug.map((s) => `<div class="card pill" data-name="${esc(s.q)}" title="${esc(s.why)}">`
+        + `<span>${esc(s.q)}</span><button data-do="add" title="加進 videos.txt">＋</button><button data-do="skip" title="不要，不再建議">✕</button></div>`).join("")}</div>` : ""}`
       + `${errs}${items.length ? "" : '<p class="err" style="color:var(--muted)">還沒找到影片</p>'}`
+      + `${starred.length ? `<section data-cat="⭐ 收藏"><h2>⭐ 收藏</h2>${starred.map(card).join("")}</section>` : ""}`
       + `${groups.filter(([, xs]) => xs.length).map(([q, xs]) => `<section data-cat="${esc(q)}"><h2>${esc(q)}</h2>${xs.map(card).join("")}</section>`).join("")}</main>`);
   }
 

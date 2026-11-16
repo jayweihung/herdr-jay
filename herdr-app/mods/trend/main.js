@@ -111,7 +111,6 @@ document.querySelector("main").onclick=(e)=>{const b=e.target.closest("[data-do]
 location.hash="do="+b.dataset.do+(k.topic?"&topic="+encodeURIComponent(k.topic):"")+(k.name?"&name="+encodeURIComponent(k.name):"")+"&n="+Date.now();
 setTimeout(()=>history.replaceState(null,"",location.pathname),500)};
 const y=Number(get("y"));if(y)scrollTo(0,y);addEventListener("scroll",()=>set("y",String(scrollY)),{passive:true});
-document.addEventListener("visibilitychange",()=>{location.hash="do=vis&name="+document.visibilityState+"&n="+Date.now()});
 </script></body></html>
 `;
 }
@@ -635,25 +634,18 @@ export default class Trend extends View {
     await this.ask(`問影片：${q}`, `關於 YouTube 影片「${x.title}」（${[x.channel, `https://www.youtube.com/watch?v=${x.id}`].filter(Boolean).join("，")}）：${q}\n先看它的字幕（沒有就說明和留言），不夠再查。用繁體中文回答。`, cx);
   }
 
-  // A video left for another tab turns blank (render); coming back loads it again, so while away it starts from where
-  // it got to, not from where you pressed play
-  keepPlace() {
-    const x = this.playing;
-    if (x && !this.watching && this.progress?.[x.id] > 5) this.playFrom = this.progress[x.id];
-  }
   render(cx) {
     if (this.role === "toggle") return this.renderToggle();
     const t = theme(), z = fs();
-    this.keepPlace();
     if (this.view !== this.savedView) { this.savedView = this.view; localStorage.setItem("view", this.view); }
     return v_flex().id("trend").size_full().bg(t.surface).text_size(z).text_color(t.foreground)
       .child(this.header(t, z))
       .child(this.view === "list" ? this.list(t, z) : this.view === "videos" ? this.videoList(t, z) : this.view === "reports" ? this.reportList(t, z) : this.reportView(t, z))
       .child(this.askCard(t, z))
-      // a video left (← 影片, another tab of the panel): a web element lives on unseen, so its page turns to a blank
-      // one, or the video would keep playing; drawn 1 px, only once a video was played. The panel hidden or off
-      // screen: the player page pauses itself (it hears the page go hidden)
-      .when(Boolean(this.played) && !this.watching, (el) => el.child(div().w(1).h(1).flex_none()
+      // ← 影片: a web element lives on unseen, so its page turns to a blank one, or the video would keep playing;
+      // drawn 1 px, only once a video was played. Another tab, the panel hidden or off screen: the player page
+      // pauses itself (it hears the page go hidden; tried 2026-11-16) and goes on when shown, no reload
+      .when(Boolean(this.played) && !this.playing, (el) => el.child(div().w(1).h(1).flex_none()
         .child(web.new(VIDEO_CELL, { src: fileUrl(`${this.viewDir}/blank.html`) }))));
   }
 
@@ -758,12 +750,6 @@ export default class Trend extends View {
     const h = new URLSearchParams(url.split("#")[1] ?? ""), n = h.get("n"), act = h.get("do");
     if (!act || !n || this.pageClicks?.has(n)) return;
     (this.pageClicks ??= new Set()).add(n);
-    // shortcut: temporary probe, does a hidden panel's page hear visibilitychange; remove once known
-    if (act === "vis") {
-      const file = `${this.dir}/vis-probe.log`, line = `${new Date().toISOString()} ${h.get("name")}\n`;
-      readTextFile(file).catch(() => null).then((was) => writeTextFile(file, (was ?? "") + line, was)).catch(() => {});
-      return;
-    }
     if (act === "open") {
       if (this.reports?.some((r) => r.name === h.get("name"))) { this.view = h.get("name"); this.webNote = null; cx.notify(); }
       return;

@@ -201,6 +201,13 @@ const hhmm = (ms) => { const d = new Date(ms); return `${String(d.getHours()).pa
 const mmss = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 // the topics in videos.txt: one per line, # a comment
 const topicsOf = (text) => String(text ?? "").split("\n").map((l) => l.trim()).filter((l) => l && !l.startsWith("#"));
+// YouTube's view count as a number: "觀看次數：24,442,452次", "18萬次", "1.4萬", "2.3億", "1.2M views"
+const viewsOf = (s) => {
+  const m = /([\d.,]+)\s*([萬万億亿KMB])?/i.exec(String(s ?? ""));
+  if (!m) return 0;
+  const unit = { 萬: 1e4, 万: 1e4, 億: 1e8, 亿: 1e8, k: 1e3, m: 1e6, b: 1e9 }[(m[2] ?? "").toLowerCase()] ?? 1;
+  return Number(m[1].replace(/,/g, "")) * unit || 0;
+};
 const num = (n) => (n >= 10000 ? `${(n / 1000).toFixed(0)}k` : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
 // "HN 4.7k 分 · 3.5k 留言 · Reddit 1.2k 分": each source's own counters, the ones people know
 function engagementText(e) {
@@ -783,7 +790,8 @@ export default class Trend extends View {
       + `<div class="meta">${esc([when(x.found), this.progress?.[x.id] > 5 ? `▶ 上次看到 ${mmss(this.progress[x.id])}` : ""].filter(Boolean).join(" · "))}</div></div>`
       + `<button class="star${this.stars?.[x.id] ? " on" : ""}" data-do="star" title="${this.stars?.[x.id] ? "取消收藏" : "收藏：一直留著"}">${this.stars?.[x.id] ? "⭐" : "☆"}</button></div>`;
     const starred = Object.values(this.stars ?? {}).sort((a, b) => String(b.starred).localeCompare(String(a.starred)));
-    const groups = queries.map((q) => [q, items.filter((x) => x.query === q)]);
+    // each topic's videos, the most watched first
+    const groups = queries.map((q) => [q, items.filter((x) => x.query === q).sort((a, b) => viewsOf(b.views) - viewsOf(a.views))]);
     const status = (q, n) => this.searching?.has(q) ? "正在搜…" : n ? "" : "這週還沒有影片";
     return pageHtml(`<style>.vid{display:flex;gap:10px;align-items:flex-start}.vid img{flex:none;width:136px;aspect-ratio:16/9;object-fit:cover;border-radius:6px;background:var(--bg)}`
       + `.vb{flex:1;min-width:0}.err{margin:8px 12px;font-size:.88em;color:${t.ansi1}}.empty{margin:4px 12px 10px;font-size:.88em;color:var(--muted)}`

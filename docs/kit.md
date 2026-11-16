@@ -195,7 +195,7 @@ Kit 按鈕右邊的 `[context 35% 139k/400k]` 是這個 agent 的 context 用了
 
 **用量上限**（Claude 要 kit 0.6.5 以上，Codex 要 0.6.6 以上）：Claude 或 Codex 撞到方案的用量上限停下來（5 小時、每週，Codex 免費方案是每月），context 那格變成紅色的 `[上限 00:10 恢復]`，滑鼠停上去寫是哪一種上限。額度恢復後一分鐘，Herdr 替它打「繼續」（只打一次，只在它停著時打：閒置或做完，在工作或在問你時不打），格子先變黃 `[上限 已恢復，馬上繼續]`，打完就回到 context %，右上角跳一個通知。按那一格打開的 context 視窗最上面有「方案用量」：這個帳號 5 小時、每週用了幾 %、幾點重置（`kit usage`；Claude 的要 kit 的狀態列，Codex 的從它的對話檔讀；omp 的是 kit 0.6.7 起，照它用的模型那一家（例如 anthropic）問 `omp usage`，kit 在背景每 5 分鐘問一次；所有 agent 一起算），和「額度恢復後自動打繼續」的開關（這台電腦，預設開）。omp 撞到上限還認不出來（omp 沒留下撞到上限的紀錄可以讀）。Codex 是從它的對話檔裡最後一次的用量看出來的（`rate_limit_reached`）；工作區的額度（credits）用完沒有恢復時間，不算。
 
-**進度**（kit 0.6.0 以上）：agent 用 `kit note "剛做了什麼；下一步"` 寫的進度在「關係」圖看：每個 agent 的方塊顯示第一行，滑鼠停上去看全部，超過兩小時變灰。窗格上方不顯示（2026-11-15 拿掉了，跟關係圖重複，又擠得只看得到半句）。窗格上方跟 context 一起問它（工作時每 15 秒，閒置時每分鐘），所以寫完最多等這麼久才出現。Claude、omp 用 kit 0.6.0 就可以；Codex 在沙箱裡要 kit 0.6.1（kit 會在 Codex 的 config.toml 開放 `~/.config/agentkit/notes` 給它寫，開著的 Codex 要重開）。要 agent 自己寫，給它 rule `progress-note`（agentkit-library 有，`kit add rule progress-note`）。
+**進度**（kit 0.6.0 以上）：agent 用 `kit note "剛做了什麼；下一步"` 寫的進度在「關係」圖看：每個 agent 的方塊顯示第一行，滑鼠停上去看全部，超過兩小時變灰。窗格上方不顯示（2026-11-15 拿掉了，跟關係圖重複，又擠得只看得到半句）。窗格上方跟 context 一起問它（工作時每 15 秒，閒置時每分鐘），所以寫完最多等這麼久才出現。Claude、omp 用 kit 0.6.0 就可以；Codex 在沙箱裡要 kit 0.6.1（kit 會在 Codex 的 config.toml 開放 `~/.config/agentkit/notes` 給它寫，開著的 Codex 要重開）。要 agent 自己寫，給它 rule `progress-note`（agentkit-library 有，`kit add rule progress-note`）；這條規則也叫在 Herdr 裡的 agent 同時更新旁邊說明頁的「進度」（`status.json`，[agent-page.md](agent-page.md)）。
 
 標題列的東西都固定寬度：context 那格、狀態那格（在等你回答是紅色「!」（滑鼠停上去寫 Needs you）、做完是圓點、工作中什麼都不顯示，只佔一個圖示寬）寬度不變，分割／放大／關閉三顆按鈕一直佔著位置，滑鼠移上去才看得到、按得到，所以滑鼠移進移出、數字變動時，標題列不會跳。
 

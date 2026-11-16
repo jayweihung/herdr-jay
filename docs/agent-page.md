@@ -55,6 +55,8 @@ not write there itself). `<Herdr home>`: `~/.config/herdr-app` (`$HERDR_APP_HOME
 **`status.json`: keep it current** at the same moments you'd write a progress line (a step done, a guess confirmed,
 stuck, waiting for the person, all done). Rewrite the whole file; keep done items (the pane shows the last 3 days).
 It's also your handoff: after a restart or a compacted conversation, read it first.
+Agents with kit's rule `progress-note` (agentkit-library, signed 2026-11-16) are told this in one line, so you
+don't have to ask each one. 有 kit 規則 `progress-note` 的 agent 會自己寫，不用一個一個交代。
 
 ```json
 {

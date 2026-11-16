@@ -49,6 +49,7 @@ const notesAsk = (x, file) => `用繁體中文整理這支 YouTube 影片的重�
 // and the mod asks the agent or opens the report; links in them open in the browser.
 // 面板的頁面用網頁畫：mod 寫 .view/*.html；網頁裡的按鈕改 #hash，mod 收到再去問 agent 或開報告。
 const LIST_CELL = "trend-list", REPORTS_CELL = "trend-reports", VIDEOS_CELL = "trend-videos";
+const PAGE_CELLS = { list: LIST_CELL, reports: REPORTS_CELL, videos: VIDEOS_CELL };   // a tab and the web element of its page
 const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 // a page in Herdr's colors and font size: <nav> chips filter the <section data-cat>s; [data-do] clicks set the #hash
 function pageHtml(body) {
@@ -276,7 +277,11 @@ export default class Trend extends View {
     const on = this.view === view || (view === "reports" && !["list", "videos"].includes(this.view));
     return div().id(`tab-${view}`).h(28).px(10).flex().items_center().rounded(6).cursor_pointer().font_semibold()
       .bg(on ? t.selected : t.surface).text_color(on ? t.foreground : t.muted).hover((s) => s.bg(t.hover))
-      .on_mouse_down("left", stop).on_click((_e, cx) => { this.view = view; cx.notify(); }).child(label);
+      .on_mouse_down("left", stop).on_click((_e, cx) => {
+        // its own tab again: its page back to the top of itself, wherever it went
+        if (this.view === view && PAGE_CELLS[view]) webCall(PAGE_CELLS[view], "home");
+        this.view = view; cx.notify();
+      }).child(label);
   }
   // the reports: a web page like the list's (writePages), newest first; a card opens its report
   reportList(t, z) {
@@ -537,29 +542,28 @@ export default class Trend extends View {
     }
     return this.pageCell(t, LIST_CELL, "list.html");
   }
-  // one of the pages in .view/ (its first write: a moment of 「載入中」)
+  // one of the pages in .view/ (its first write: a moment of 「載入中」). Its src carries the time it was written, so a
+  // new write loads it again, wherever the element went since (the same src never reloads)
   pageCell(t, cell, file) {
     if (this.written?.[file] === undefined) return div().flex_1().p(14).text_color(t.muted).child("載入中…");
-    return div().flex_1().min_h(0).child(web.new(cell, { src: fileUrl(`${this.viewDir}/${file}`) }));
+    return div().flex_1().min_h(0).child(web.new(cell, { src: `${fileUrl(`${this.viewDir}/${file}`)}?v=${this.written[file].at}` }));
   }
   get viewDir() { return `${appHome().replace(/\\/g, "/")}/mods/trend/.view`; }
   async writePages() {
-    await this.writePage("list.html", LIST_CELL, this.listHtml());
-    await this.writePage("reports.html", REPORTS_CELL, this.reportsHtml());
-    await this.writePage("videos.html", VIDEOS_CELL, this.videosHtml());
+    await this.writePage("list.html", this.listHtml());
+    await this.writePage("reports.html", this.reportsHtml());
+    await this.writePage("videos.html", this.videosHtml());
   }
-  // written only when it changed; a page already shown reloads (it keeps its subject and scroll: its localStorage)
-  async writePage(file, cell, html) {
+  // written only when it changed (the page keeps its subject and scroll: its localStorage)
+  async writePage(file, html) {
     this.written ??= {};
-    if (html === this.written[file]) return;
+    if (html === this.written[file]?.html) return;
     const path = `${this.viewDir}/${file}`;
     try {
       await fsp.mkdir(this.viewDir, { recursive: true });
       await writeTextFile(path, html, await readTextFile(path).catch(() => null));
     } catch { return; }   // tried again on the next load (15 s)
-    const first = this.written[file] === undefined;
-    this.written[file] = html;
-    if (!first) webCall(cell, "reload");
+    this.written[file] = { html, at: Date.now() };
   }
   // A click in a page: #do=deep|three|report&topic=… or do=open&name=…, &n=<the click's time>; each click once (a
   // reload repeats the url)

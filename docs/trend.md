@@ -4,8 +4,9 @@ A tab-bar button **熱門** and a panel, like Gerrit's (macOS and Windows):
 
 - **The list costs no tokens.** Every hour launchd (macOS) or Task Scheduler (Windows) runs
   [`fetch.js`](../herdr-app/mods/trend/fetch.js) with node:
-  [last30days](https://github.com/mvanhorn/last30days-skill) `--discover` (global: Reddit r/all, Hacker News, Digg when
-  `digg-pp-cli` is on PATH) without any model, into `~/.config/herdr-app/trend/trends.json`. The panel only reads it.
+  [last30days](https://github.com/mvanhorn/last30days-skill) `--discover` (global: Hacker News, Digg when `digg-pp-cli`
+  is on PATH; Reddit left out with `EXCLUDE_SOURCES=reddit`, its search only gets 403) without any model, into
+  `~/.config/herdr-app/trend/trends.json`. The panel only reads it.
   清單不花 token：launchd 每小時跑 last30days 的 discover（不叫模型），面板只讀結果。
 - **The button**: how many topics you haven't seen (opening the panel counts them as seen), a ring while fetching, a
   red `!` when the last run failed. 按鈕：沒看過的主題數、抓的時候轉圈、上次失敗是紅色 `!`。
@@ -112,7 +113,7 @@ Windows 一樣：複製 mod，用工作排程器每小時跑；公司電腦先�
 | Site | How |
 |---|---|
 | Digg | `npx -y @mvanhorn/printing-press-library@0.1.27 install digg --cli-only` (needs Go: `brew install go`); goes to `~/.local/bin` (Windows: put the folder it says on PATH) |
-| Reddit `✗ 讀不到` (last30days' own search) | Reddit answers unauthenticated searches with 403, from home and from a residential proxy alike (tried 2026-11-16); the panel's Reddit rows come from the page above instead. For last30days' cross-site check: a ScrapeCreators key (`setup --github` in last30days, 10,000 free calls, then paid) with `LAST30DAYS_REDDIT_BACKEND=scrapecreators` |
+| Reddit (last30days' own search) | Left out (`EXCLUDE_SOURCES=reddit` in `fetch.js`): Reddit answers unauthenticated searches with 403, from home and from a residential proxy alike (tried 2026-11-16); the panel's Reddit rows come from its page instead. For last30days' cross-site check: a ScrapeCreators key (`setup --github` in last30days, 10,000 free calls, then paid) with `LAST30DAYS_REDDIT_BACKEND=scrapecreators`, and take reddit out of `EXCLUDE_SOURCES` |
 | X | `AUTH_TOKEN` + `CT0` (x.com cookies: risks the account, jay's was suspended on 2026-11-16 after tries with last30days' bird), or `X_BEARER_TOKEN` / `XAI_API_KEY` (paid, no account), stored with `printf '%s\n' "$T" \| python3 …/last30days.py setup --store-key AUTH_TOKEN` into `~/.config/last30days/.env` |
 | A proxy | one line `http://user:pass@host:port` in `<Herdr home>/trend/proxy` (private: `chmod 600`): last30days' requests go through it (not Reddit's page) |
 

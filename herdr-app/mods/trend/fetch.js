@@ -22,7 +22,9 @@ const now = () => new Date().toISOString().replace(/\.\d+Z$/, "Z");
 const started = now();
 put("status.json", JSON.stringify({ started, finished: null, ok: null, error: null }) + "\n");
 
-const env = { ...process.env, PYTHONDONTWRITEBYTECODE: "1" };   // no __pycache__ in the kit source (kit check: text files only)
+// EXCLUDE_SOURCES=reddit: last30days' own Reddit search only gets 403 (Reddit's rows come from its page, below), and
+// every try is one more hit from the house's IP / last30days 自己的 Reddit 搜尋只會 403，不讓它打
+const env = { ...process.env, PYTHONDONTWRITEBYTECODE: "1", EXCLUDE_SOURCES: "reddit" };   // no __pycache__ in the kit source (kit check: text files only)
 let proxy = "";
 try { proxy = fs.readFileSync(path.join(out, "proxy"), "utf8").split("\n")[0].trim(); } catch {}
 if (proxy) Object.assign(env, { HTTPS_PROXY: proxy, HTTP_PROXY: proxy, NO_PROXY: "localhost,127.0.0.1" });

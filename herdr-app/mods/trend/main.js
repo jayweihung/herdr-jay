@@ -380,7 +380,8 @@ export default class Trend extends View {
     const line = this.running ? `更新中…（${ago(Date.parse(this.status.started)).replace("前", "開始")}，通常幾分鐘）`
       : this.bad ?? this.failed ?? (Number.isFinite(done) ? `更新於 ${ago(done)}${Number.isFinite(next) && next > Date.now() ? ` · 下次約 ${hhmm(next)}` : ""} · 不花 token` : "還沒有資料：排程還沒跑過（docs/trend.md「安裝」）");
     const red = Boolean(this.bad || (this.failed && !this.running));
-    const sources = Object.entries(this.data?.source_status ?? {});
+    // Reddit: fetch.js leaves it out of last30days (only 403 there); its own row below says how Reddit's page did
+    const sources = Object.entries(this.data?.source_status ?? {}).filter(([k]) => k !== "reddit");
     return v_flex().flex_none().border_b(1).border_color(t.border)
       .child(h_flex().px(10).py(6).gap(6).items_center()
         .child(h_flex().flex_1().min_w(0).gap(2).items_center()

@@ -84,6 +84,7 @@ blockquote{margin:6px 0;padding-left:8px;border-left:2px solid var(--border);col
 .acts{display:flex;flex-wrap:wrap;gap:6px;margin-top:7px}
 .acts button{font:inherit;font-size:.85em;padding:3px 10px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--fg);cursor:pointer}
 .acts button.main{background:var(--solid);color:var(--solid-fg);border-color:var(--solid)}.acts button.rep{color:var(--accent);border-color:var(--accent)}
+.acts button:hover{box-shadow:0 0 0 2px var(--accent)}.acts button:active{transform:translateY(1px)}
 </style></head><body>${body}
 <script>
 const K=location.pathname.split("/").pop()+":",get=(k)=>{try{return localStorage.getItem(K+k)}catch{return null}},set=(k,v)=>{try{localStorage.setItem(K+k,v)}catch{}};

@@ -437,7 +437,9 @@ export default class Trend extends View {
     return `${q ? `${u}${u.includes("?") ? "&" : "?"}${q}` : u}#${f}`;
   }
   // one video played here (the player page in trend/player, else YouTube's watch page); 📝 整理重點 asks the trend
-  // agent (tokens) for its key points, which it writes to trend/notes/<id>.txt: shown under the player
+  // agent (tokens) for its key points, which it writes to trend/notes/<id>.txt (kept: there again the next time the
+  // video plays). Under the player: a bar (its first line) that opens them, at most 240 px, so the player page keeps
+  // its height (the panel's video is as wide as the panel allows; the room below it is what the notes take)
   videoPlayer(t, z) {
     const x = this.playing, notes = this.notes?.trim(), label = `📝 整理重點：${x.title}`;
     const asked = this.asked?.sent === label || this.asked?.opening === label || this.asked?.sending === label;
@@ -453,8 +455,16 @@ export default class Trend extends View {
         .child(smallBtn(t, z, "vid-notes", notes ? "📝 重新整理" : "📝 整理重點",
           (_e, cx) => cx.spawn(async (cx) => this.ask(label, notesAsk(x, `${this.dir}/notes/${x.id}.txt`), cx)))))
       .child(div().flex_1().min_h(0).child(web.new(VIDEO_CELL, { src: this.playSrc(x) })))
-      .when(Boolean(notes), (el) => el.child(div().id("vid-notes-text").flex_1().min_h(0).overflow_y_scrollbar().px(12).py(8)
-        .border_t(1).border_color(t.border).whitespace_normal().on_mouse_down("right", copyOn(notes)).child(notes)))
+      .when(Boolean(notes), (el) => {
+        const open = localStorage.getItem("notesOpen") === "1";
+        return el.child(h_flex().id("vid-notes-bar").flex_none().h(30).px(12).gap(8).items_center().border_t(1).border_color(t.border).cursor_pointer()
+          .text_size(z - 1).text_color(t.muted).hover((s) => s.bg(t.hover)).on_mouse_down("left", stop)
+          .on_click((_e, cx) => { localStorage.setItem("notesOpen", open ? "0" : "1"); cx.notify(); })
+          .child(div().flex_none().text_color(t.foreground).child(open ? "▾ 📝 重點" : "▸ 📝 重點"))
+          .child(div().flex_1().min_w(0).truncate().child(open ? "收起" : notes.split("\n").find((l) => l.trim()) ?? "")))
+          .when(open, (el) => el.child(div().id("vid-notes-text").flex_none().max_h(240).overflow_y_scrollbar().px(12).py(8)
+            .whitespace_normal().on_mouse_down("right", copyOn(notes)).child(notes)));
+      })
       .when(!notes && asked, (el) => el.child(div().flex_none().px(12).py(8).border_t(1).border_color(t.border).text_color(t.muted)
         .whitespace_normal().child("trend agent 整理中，好了會出現在這裡。")));
   }

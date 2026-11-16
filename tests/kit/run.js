@@ -906,15 +906,15 @@ test("關係: a Claude stopped at its usage limit (kit context's limit, api 1.7)
 test("agents.waiting (for Herdr's own Agents list, app patch 0010): who waits for the owner's OK, and who waits for you too long", async (M) => {
   const MIN = 60000, now = 100 * MIN, { waitingNow } = M.agents;
   const terms = [{ address: "t1", status: "blocked", status_ms: now - 11 * MIN }, { address: "t2", status: "blocked", status_ms: now - MIN }, { address: "t3", status: "done", status_ms: now - 50 * MIN }];
-  const pending = [{ kind: "owner", who: "t3", since: now - 2 * MIN }, { kind: "owner", who: null, since: 1 }, { kind: "sign", who: "t9" }, { kind: "owner", who: "srv/t1p", since: now - 51 * MIN }];
-  assert.deepEqual(waitingNow(pending, terms, now), { t1: { since: now - 11 * MIN, hot: true }, t3: { since: now - 2 * MIN, hot: false }, "srv/t1p": { since: now - 51 * MIN, hot: true } },
+  const pending = [{ kind: "owner", who: "t3", since: now - 2 * MIN, what: "要你同意：裝  v2" }, { kind: "owner", who: null, since: 1 }, { kind: "sign", who: "t9" }, { kind: "owner", who: "srv/t1p", since: now - 51 * MIN }];
+  assert.deepEqual(waitingNow(pending, terms, now), { t1: { since: now - 11 * MIN, hot: true, why: "在等你允許或回答它（畫面上的提問）" }, t3: { since: now - 2 * MIN, hot: false, why: "要你同意：裝 v2" }, "srv/t1p": { since: now - 51 * MIN, hot: true, why: "" } },
     "blocked 1 minute: Herdr shows it already; signing has no agent");
   const ws = waitingNow([], [{ address: "t5", status: "done", status_ms: now - 2 * MIN }, { address: "t6", status: "done", status_ms: now - 2 * MIN },
     { address: "t7", status: "done", status_ms: now - 2 * MIN }, { address: "t8", status: "done", status_ms: now - 20 * MIN, report: { msg: "要我推上去嗎？" } }], now,
     { t5: { at: now - 2 * MIN, text: "要推的話跟我說。" }, t6: { at: now - 2 * MIN, text: "做好了。" }, t7: { at: now - 2 * MIN, text: "要推嗎？" } }, { t7: { at: now - MIN, jobs: ["make"] } });
-  assert.deepEqual(ws, { t5: { since: now - 2 * MIN, hot: false }, t8: { since: now - 20 * MIN, hot: true } }, "asking: in Herdr's list too (not while its own work runs)");
+  assert.deepEqual(ws, { t5: { since: now - 2 * MIN, hot: false, why: "要推的話跟我說。" }, t8: { since: now - 20 * MIN, hot: true, why: "要我推上去嗎？" } }, "asking: in Herdr's list too (not while its own work runs)");
   assert.deepEqual(waitingNow([], [{ address: "t5", status: "idle", status_ms: now - MIN }, { address: "t6", status: "idle", status_ms: now - MIN }], now,
-    { t5: { at: now - 3 * MIN, text: "要推的話跟我說。" }, t6: { at: now - 3 * MIN, text: "好了" } }), { t5: { since: now - 3 * MIN, hot: false } }, "looked at, not answered: still there");
+    { t5: { at: now - 3 * MIN, text: "要推的話跟我說。" }, t6: { at: now - 3 * MIN, text: "好了" } }), { t5: { since: now - 3 * MIN, hot: false, why: "要推的話跟我說。" } }, "looked at, not answered: still there");
   // the always-running button keeps it current: kit status (each 10 minutes), the agent by its pid, then the shared key
   fresh(); fakeKit();
   H.agents = [ag("srv/t1p", "done")]; H.terminals = [{ address: "srv/t1p", status_ms: Date.now() - 52 * MIN, cwd: "/q" }];

@@ -104,30 +104,33 @@ function whoTick(cx) {
     } finally { whoBusy = false; cx.notify(); }
   });
 }
-// For Herdr's own Agents list (app patch 0010): shared "agents.waiting" (address -> { since, hot }): an agent waiting
+// For Herdr's own Agents list (app patch 0010): shared "agents.waiting" (address -> { since, hot, why }): an agent waiting
 // for the owner's OK (kit pending add, its agent found above), one done that asks you, and one waiting for you
-// LONG_WAIT or more (hot: red).
+// LONG_WAIT or more (hot: red). why: what it waits for, in one line (the pending's text, the line that asks; agent-page
+// shows it under 等你).
 // Written only when it changes.
 // An agent done whose last words ask you something (said: the reply hook's lines; bg: its own work still running,
 // then it isn't asking yet) waits for you too, orange first.
+const oneLine = (t) => String(t ?? "").replace(/\s+/g, " ").trim().slice(0, 200);
 export function waitingNow(pending, terms, now = Date.now(), said = {}, bg = {}) {
   const out = {};
   for (const r of terms ?? []) {
     const st = typeof r?.status === "object" ? r.status?.state ?? r.status?.status : r?.status;
     const since = Number(r?.status_ms) || 0;
-    if (st === "blocked" && since && now - since >= LONG_WAIT) out[r.address] = { since, hot: true };
+    if (st === "blocked" && since && now - since >= LONG_WAIT) out[r.address] = { since, hot: true, why: "在等你允許或回答它（畫面上的提問）" };
     if (st === "done" && !(bg?.[r.address]?.at >= since && (bg[r.address].jobs ?? []).length)) {
       const msg = String((r?.report ?? (typeof r?.status === "object" ? r.status : null))?.msg ?? "");
-      if (asks(saidNow(said, r.address, since) || msg)) out[r.address] = { since, hot: Boolean(since) && now - since >= LONG_WAIT };
+      const line = saidNow(said, r.address, since) || msg;
+      if (asks(line)) out[r.address] = { since, hot: Boolean(since) && now - since >= LONG_WAIT, why: oneLine(line) };
     }
     // looked at (Herdr: idle) without an answer: the reply hook's line, written at its last stop
     const e = said?.[r.address];
-    if (st === "idle" && e?.text && asks(e.text)) out[r.address] = { since: e.at || since, hot: Boolean(e.at || since) && now - (e.at || since) >= LONG_WAIT };
+    if (st === "idle" && e?.text && asks(e.text)) out[r.address] = { since: e.at || since, hot: Boolean(e.at || since) && now - (e.at || since) >= LONG_WAIT, why: oneLine(e.text) };
   }
   for (const p of pending ?? []) {
     if (p.kind !== "owner" || !p.who) continue;
     const since = p.since ?? 0, hot = Boolean(since) && now - since >= LONG_WAIT;
-    out[p.who] = { since, hot: hot || Boolean(out[p.who]?.hot) };
+    out[p.who] = { since, hot: hot || Boolean(out[p.who]?.hot), why: oneLine(p.what) || out[p.who]?.why || "" };
   }
   return out;
 }
@@ -135,7 +138,7 @@ function publishWaiting() {
   const pending = pendingRows(machinesData()?.rows).map((p) => ({ ...p, who: whoOf(p) }));
   const next = waitingNow(pending, terminals(), Date.now(), shared(SAID) ?? {}, shared(BG) ?? {});
   const was = shared("agents.waiting") ?? {};
-  const key = (m) => JSON.stringify(Object.keys(m).sort().map((k) => [k, Boolean(m[k].hot)]));
+  const key = (m) => JSON.stringify(Object.keys(m).sort().map((k) => [k, Boolean(m[k].hot), m[k].why ?? ""]));
   if (key(next) !== key(was)) setShared("agents.waiting", next);
 }
 

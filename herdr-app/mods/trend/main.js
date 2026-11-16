@@ -116,6 +116,11 @@ export default class Trend extends View {
   async load(cx) {
     const [t, s, f] = await Promise.all(["trends.json", "status.json", "feeds.json"].map((n) => readTextFile(`${this.dir}/${n}`).catch(() => null)));
     try { this.feeds = f ? JSON.parse(f) : null; } catch { this.feeds = null; }
+    // Reddit blocked the house's IP: the button says so, once (fetch.js waits 6, 12, 24 hours before trying again)
+    const blocked = this.feeds?.redditBlockedAt ?? null;
+    if (this.role === "toggle" && this.redditBlockedSeen !== undefined && blocked && blocked !== this.redditBlockedSeen)
+      notify({ title: "熱門：Reddit 擋了家裡的 IP", body: this.feeds.errors?.reddit ?? "", level: "warning", timeout: 10000 });
+    this.redditBlockedSeen = blocked;
     try { this.data = t ? JSON.parse(t) : null; this.bad = null; } catch (e) { this.bad = `trends.json 讀不懂：${e.message ?? e}`; }
     try { this.status = s ? JSON.parse(s) : null; } catch { this.status = null; }
     await this.loadReports();
@@ -171,8 +176,8 @@ export default class Trend extends View {
       .child(div().flex_1().min_h(0).child(web.new(REPORT_CELL, { src: fileUrl(`${this.reportDir}/${this.view}`) })));
   }
   get results() { return Array.isArray(this.data?.results) ? this.data.results : []; }
-  // What the list shows: last30days' topics, then HN's and Digg's own front pages taken in turn (each site's rank),
-  // skipping a story a topic already cites, up to SHOWN rows
+  // What the list shows: last30days' topics, then HN's, Reddit's and Digg's own front pages taken in turn (each site's
+  // rank), skipping a story a topic already cites, up to SHOWN rows
   get shown() {
     const topics = this.results, cited = new Set(topics.flatMap((r) => r.evidence_urls ?? []));
     const hn = (this.feeds?.hn ?? []).map((h) => ({ topic: h.title, feed: "HN", line: `HN ${num(h.points)} 分 · ${num(h.comments)} 留言`,
@@ -180,9 +185,11 @@ export default class Trend extends View {
     const digg = (this.feeds?.digg ?? []).map((d) => ({ topic: d.title, feed: "Digg",
       line: `Digg ${num(d.score)} 分 · ${d.sources} 個來源${DIGG_TOPIC[d.topic] ? ` · ${DIGG_TOPIC[d.topic]}` : ""}`,
       why_spiking: d.description, evidence_urls: [d.url] }));
+    const reddit = (this.feeds?.reddit ?? []).map((p) => ({ topic: p.title, feed: "Reddit", line: `Reddit ${num(p.score)} 分 · ${num(p.comments)} 留言`,
+      why_spiking: [p.subreddit, shortLink(p.url).split("/")[0]].filter(Boolean).join(" · "), evidence_urls: [p.url, p.discussion].filter((u, i, a) => u && a.indexOf(u) === i) }));
     const out = [...topics], names = new Set(topics.map((r) => r.topic));
-    for (let i = 0; out.length < SHOWN && (i < hn.length || i < digg.length); i++)
-      for (const x of [hn[i], digg[i]]) if (x && out.length < SHOWN && !names.has(x.topic) && !x.evidence_urls.some((u) => cited.has(u))) {
+    for (let i = 0; out.length < SHOWN && (i < hn.length || i < reddit.length || i < digg.length); i++)
+      for (const x of [hn[i], reddit[i], digg[i]]) if (x && out.length < SHOWN && !names.has(x.topic) && !x.evidence_urls.some((u) => cited.has(u))) {
         names.add(x.topic);
         out.push({ ...x, rank: out.length + 1 });
       }
@@ -353,7 +360,14 @@ export default class Trend extends View {
         .on_mouse_down("right", copyOn(this.msg)).child(this.msg)))
       // which sites answered this run: a site that didn't isn't "nothing happened there"
       .when(sources.length > 0, (el) => el.child(h_flex().px(12).pb(6).gap(8).flex_wrap().text_size(z - 2).children(sources.map(([k, v]) =>
-        div().text_color(v === "ok" ? t.ansi2 : t.dim).child(`${SOURCE[k] ?? k} ${v === "ok" ? "✓" : `✗ ${STATE[v] ?? v}`}`)))));
+        div().text_color(v === "ok" ? t.ansi2 : t.dim).child(`${SOURCE[k] ?? k} ${v === "ok" ? "✓" : `✗ ${STATE[v] ?? v}`}`)))))
+      // and each site's own front page (the rows under 「各站自己的熱門」); Reddit's is fetched every 2 to 3 hours
+      .when(Boolean(this.feeds), (el) => el.child(h_flex().px(12).pb(6).gap(8).flex_wrap().text_size(z - 2).children([["hn", "HN"], ["reddit", "Reddit"], ["digg", "Digg"]].map(([k, name]) => {
+        const err = this.feeds.errors?.[k], n = this.feeds[k]?.length ?? 0;
+        const when = k === "reddit" && this.feeds.redditAt ? `（${ago(Date.parse(this.feeds.redditAt))}）` : "";
+        return div().id(`feed-${k}`).text_color(err ? (k === "reddit" && this.feeds.redditBlockedAt ? t.ansi1 : t.dim) : t.ansi2).on_mouse_down("right", copyOn(err ?? ""))
+          .child(`${name} 首頁 ${err ? `✗ ${err}` : n ? `✓${when}` : "—"}`);
+      }))));
   }
 
   list(t, z) {

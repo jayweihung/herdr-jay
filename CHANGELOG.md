@@ -9,6 +9,16 @@ says which) · **kit** = update kit itself on every machine where agents run (`k
 **snap hook** = a line in Claude Code's `settings.json` on each machine where you added the hook (the entry says
 which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/keys.md).
 
+## 2026-11-16, trend: Reddit's own front page in the list
+
+Needs: **mods** (Windows: copy `trend` again; macOS link: nothing), Chrome or Edge installed.
+
+- After last30days' topics, the list takes HN's, Reddit's (r/all, today) and Digg's front pages in turn. Reddit's page
+  is opened by your Chrome or Edge, headless with a profile of its own (Reddit blocks scripts and proxies with 403),
+  every 2 to 3 hours; blocked, it waits 6, 12, then 24 hours and the 熱門 button posts a notification. A line under
+  the title says how each front page did. 熱門清單多了 Reddit 今日熱門：用本機 Chrome／Edge 無頭開一頁（不讀你的登入），
+  2 到 3 小時一次；被擋就停 6、12、24 小時並跳通知。
+
 ## 2026-11-16, Herdr app v0.1.16, and text in mod panels can be copied
 
 Needs: **app** (build v0.1.16 with its 26 patches, `herdr-app/patches/v0.1.16/`; core unchanged, v0.1.21), restart

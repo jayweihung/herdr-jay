@@ -14,8 +14,12 @@ A tab-bar button **熱門** and a panel, like Gerrit's (macOS and Windows):
   it last ran and when it runs next, and which sites answered (`✗ 讀不到` is not "nothing happened there"). **↻ 現在更新**
   runs it now. 面板：每個主題的數字和原因；點開看熱門留言、來源連結、深入查／三句話說明。標題下面寫上次和下次更新、哪些網站有回應。
   last30days names 5 to 10 topics (it checks each across sites), so the list goes on to 20 with each site's own front
-  page, HN's and Digg's in turn (marked HN / Digg, under 「各站自己的熱門」; a story a topic already cites is left out).
-  last30days 只挑 5 到 10 題（每題跨站比對過），後面用 HN、Digg 自己的熱門輪流補到 20 條。
+  page, HN's, Reddit's (r/all, today) and Digg's in turn (marked HN / Reddit / Digg, under 「各站自己的熱門」; a story
+  a topic already cites is left out). Reddit's page is opened by your installed Chrome or Edge, headless, with a
+  profile of its own (Reddit blocks scripts with 403), every 2 to 3 hours; blocked, it waits 6, then 12, then 24 hours
+  before one more try, and the button posts a notification. A line under the title says how each front page did.
+  last30days 只挑 5 到 10 題（每題跨站比對過），後面用 HN、Reddit、Digg 自己的熱門輪流補到 20 條。Reddit 那頁用本機的
+  Chrome／Edge 無頭開（自己的設定檔，不讀你的登入），2 到 3 小時一次；被擋就停 6、12、24 小時，並跳通知。
 - **Asking costs tokens, only when you ask.** The buttons and the box at the bottom send to a **kit trend agent** in
   this space (`hc send`), as Gerrit's 問 agent does: with none here, the Kit panel puts one in this space (`kit place`,
   the Kit button must be in the layout) and it starts on the question. Pick Claude / Codex / omp for the next one it
@@ -108,13 +112,15 @@ Windows 一樣：複製 mod，用工作排程器每小時跑；公司電腦先�
 | Site | How |
 |---|---|
 | Digg | `npx -y @mvanhorn/printing-press-library@0.1.27 install digg --cli-only` (needs Go: `brew install go`); goes to `~/.local/bin` (Windows: put the folder it says on PATH) |
-| Reddit `✗ 讀不到` | Reddit answers unauthenticated searches with 403, from home and from a residential proxy alike (tried 2026-11-16). What works: a ScrapeCreators key (`setup --github` in last30days, 10,000 free calls, then paid) with `LAST30DAYS_REDDIT_BACKEND=scrapecreators` |
-| X | `AUTH_TOKEN` + `CT0` (x.com cookies), or `X_BEARER_TOKEN` / `XAI_API_KEY` (paid), stored with `printf '%s\n' "$T" \| python3 …/last30days.py setup --store-key AUTH_TOKEN` into `~/.config/last30days/.env` |
-| A proxy | one line `http://user:pass@host:port` in `<Herdr home>/trend/proxy` (private: `chmod 600`): the whole run goes through it |
+| Reddit `✗ 讀不到` (last30days' own search) | Reddit answers unauthenticated searches with 403, from home and from a residential proxy alike (tried 2026-11-16); the panel's Reddit rows come from the page above instead. For last30days' cross-site check: a ScrapeCreators key (`setup --github` in last30days, 10,000 free calls, then paid) with `LAST30DAYS_REDDIT_BACKEND=scrapecreators` |
+| X | `AUTH_TOKEN` + `CT0` (x.com cookies: risks the account, jay's was suspended on 2026-11-16 after tries with last30days' bird), or `X_BEARER_TOKEN` / `XAI_API_KEY` (paid, no account), stored with `printf '%s\n' "$T" \| python3 …/last30days.py setup --store-key AUTH_TOKEN` into `~/.config/last30days/.env` |
+| A proxy | one line `http://user:pass@host:port` in `<Herdr home>/trend/proxy` (private: `chmod 600`): last30days' requests go through it (not Reddit's page) |
 
 ## Files / 檔案
 
 `~/.config/herdr-app/trend/`: `trends.json` (last30days' discovery JSON, replaced only by a run that worked),
 `status.json` (`started`, `finished`, `ok`, `error`), `last.log` (the last run's output), `proxy` (yours, optional),
-`feeds.json` (HN's front page and Digg's top stories of the last 24 h: `{ at, hn, digg, errors }`).
+`feeds.json` (HN's front page, Reddit's r/all top of today and Digg's top stories of the last 24 h:
+`{ at, hn, reddit, digg, errors, redditAt, redditBlockedAt, redditBlocks }`), `reddit-profile/` (the browser profile
+Reddit's page is opened with: its cookies only).
 `<Herdr home>/mods/trend/.reports/`: the agent's reports (hidden: writing one doesn't reload the mod; git ignores it).

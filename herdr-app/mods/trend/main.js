@@ -97,6 +97,8 @@ blockquote{margin:6px 0;padding-left:8px;border-left:2px solid var(--border);col
 .acts button{font:inherit;font-size:.85em;padding:3px 10px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--fg);cursor:pointer}
 .acts button.main{background:var(--solid);color:var(--solid-fg);border-color:var(--solid)}.acts button.rep{color:var(--accent);border-color:var(--accent)}
 .acts button:hover{box-shadow:0 0 0 2px var(--accent)}.acts button:active{transform:translateY(1px)}
+.spin{display:inline-block;width:.75em;height:.75em;margin:0 5px 0 2px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:spin .8s linear infinite;vertical-align:-.1em}
+@keyframes spin{to{transform:rotate(360deg)}}.busy{color:var(--accent)!important;font-weight:600}
 </style></head><body>${body}
 <script>
 const K=location.pathname.split("/").pop()+":",get=(k)=>{try{return localStorage.getItem(K+k)}catch{return null}},set=(k,v)=>{try{localStorage.setItem(K+k,v)}catch{}};
@@ -368,7 +370,7 @@ export default class Trend extends View {
     // the list worked out here, in a task (half a second allowed), not in render (50 ms: a long list there is cut
     // off as 「This view could not be rendered」)
     void this.shown;
-    if (this.role !== "toggle" && !checking()) await this.writePages();
+    if (this.role !== "toggle" && !checking()) { await this.writePages(); this.searchMissed(cx); }
     cx.notify();
   }
   get reportDir() { return `${appHome().replace(/\\/g, "/")}/mods/trend/.reports`; }
@@ -814,17 +816,8 @@ export default class Trend extends View {
         const text = adding ? `${was ?? ""}${was && !was.endsWith("\n") ? "\n" : ""}${q}\n` : lines.filter((l) => !same(l)).join("\n");
         if (!(await writeTextFile(file, text, was).then(() => true, () => false))) return;
         if (hot) this.hotQueries = topicsOf(text); else this.queries = topicsOf(text);
-        if (adding) busy.add(q);
-        await this.writePages();
-        cx.notify();
-        if (!adding) return;
-        // one search run at a time of each kind: two at once would both rewrite videos.json (topics.json)
-        const run = hot ? "topicRun" : "searchRun";
-        this[run] = (this[run] ?? Promise.resolve()).then(() => this.searchNow(hot ? "--topics" : "--videos"))
-          .catch((e) => notify({ title: `${hot ? "熱門" : "影片"}：「${q}」沒搜成`, body: String(e?.message ?? e), level: "error", timeout: 10000 }));
-        await this[run];
-        busy.delete(q);
-        await this.load(cx);
+        if (adding) this.runSearch(hot, [q], cx);
+        else { await this.writePages(); cx.notify(); }
       });
       return;
     }
@@ -833,6 +826,30 @@ export default class Trend extends View {
     if (act === "report" && this.reportFor(r.topic)) { this.view = this.reportFor(r.topic).name; this.webNote = null; cx.notify(); return; }
     const p = PRESETS[act === "deep" ? 0 : act === "three" ? 1 : -1];
     if (p) cx.spawn(async (cx) => this.ask(`${p.label}：${r.topic}`, p.text(r), cx));
+  }
+  // fetch.js --videos / --topics for these topics now, 正在搜 on them meanwhile; one run at a time of each kind (two
+  // at once would both rewrite videos.json / topics.json)
+  runSearch(hot, qs, cx) {
+    const busy = hot ? (this.hotSearching ??= new Set()) : (this.searching ??= new Set()), run = hot ? "topicRun" : "searchRun";
+    for (const q of qs) busy.add(q);
+    cx.spawn(async (cx) => {
+      await this.writePages();
+      cx.notify();
+      this[run] = (this[run] ?? Promise.resolve()).then(() => this.searchNow(hot ? "--topics" : "--videos"))
+        .catch((e) => notify({ title: `${hot ? "熱門" : "影片"}：「${qs.join("、")}」沒搜成`, body: String(e?.message ?? e), level: "error", timeout: 10000 }));
+      await this[run];
+      for (const q of qs) busy.delete(q);
+      await this.load(cx);
+    });
+  }
+  // a topic never searched (its ＋'s search cut off, say by a reload of the mod): searched now, once a session
+  searchMissed(cx) {
+    const tried = (d, q) => Object.keys(d?.done ?? {}).some((k) => k.endsWith(` ${q}`)), healed = (this.healed ??= new Set());
+    for (const [hot, qs, d] of [[false, this.queries, this.videos], [true, this.hotQueries, this.topicsData]]) {
+      const missed = (qs ?? []).filter((q) => !healed.has(`${hot} ${q}`) && !(hot ? this.hotSearching : this.searching)?.has(q) && !tried(d, q));
+      for (const q of missed) healed.add(`${hot} ${q}`);
+      if (missed.length) this.runSearch(hot, missed, cx);
+    }
   }
   // a 熱門 card's row by its title: the list's, a topic's, or a starred one
   rowOf(topic) {
@@ -893,7 +910,7 @@ export default class Trend extends View {
     const d = this.topicsData ?? {}, siteName = { hn: "HN", ptt: "PTT", reddit: "Reddit", dcard: "Dcard" };
     // a topic's state: 正在搜, or what its sites said (a block, a page it couldn't read)
     const status = (q, n) => {
-      if (this.hotSearching?.has(q)) return '<p class="empty">正在搜…（Reddit、Dcard 要開瀏覽器，一兩分鐘）</p>';
+      if (this.hotSearching?.has(q)) return '<p class="empty busy"><span class="spin"></span>正在搜 HN、PTT、Reddit、Dcard…（Reddit、Dcard 要開瀏覽器，一兩分鐘）</p>';
       const errs = Object.keys(siteName).map((s) => d.errors?.[`${s} ${q}`] ?? d.errors?.[s] ? `${siteName[s]}：${d.errors[`${s} ${q}`] ?? d.errors[s]}` : "").filter(Boolean);
       return `${n ? "" : '<p class="empty">還沒有結果：下一輪搜（約一小時一次）</p>'}${errs.map((e) => `<p class="err">${esc(e)}</p>`).join("")}`;
     };
@@ -909,7 +926,7 @@ export default class Trend extends View {
       + `.star{flex:none;border:0;background:none;padding:0 2px;font-size:1.1em;line-height:1.2;color:var(--muted);cursor:pointer}.star:hover,.star.on{color:var(--yellow)}</style>`
       + `<nav><button data-cat="all">全部 ${every.length}</button>${starred.length ? `<button data-cat="⭐ 收藏">⭐ 收藏 ${starred.length}</button>` : ""}`
       + `<button data-cat="rising"${nUp ? "" : " disabled"}>🔥 升溫 ${nUp}</button><button data-cat="new"${nNew ? "" : " disabled"}>🆕 新進榜 ${nNew}</button><i class="br"></i>`
-      + tops.map(([q, rows]) => `<button data-cat="🔍 ${esc(q)}">🔍 ${esc(q)} ${this.hotSearching?.has(q) ? "…" : rows.length}<span class="x" data-act="tdrop" data-q="${esc(q)}" title="拿掉這個主題">✕</span></button>`).join("")
+      + tops.map(([q, rows]) => `<button data-cat="🔍 ${esc(q)}">🔍 ${esc(q)} ${this.hotSearching?.has(q) ? '<span class="spin"></span>' : rows.length}<span class="x" data-act="tdrop" data-q="${esc(q)}" title="拿掉這個主題">✕</span></button>`).join("")
       + `<button class="addt" data-act="toggle">＋ 加主題</button><i class="br"></i>`
       // every subject and site has its chip (one with nothing now: greyed), so the set stays the same from hour to hour
       + [...groups].map(([c, rows]) => `<button data-cat="${esc(c)}"${rows.length ? "" : " disabled"}>${esc(c)} ${rows.length}</button>`).join("") + '<i class="br"></i>'
@@ -971,7 +988,11 @@ export default class Trend extends View {
     const starTopics = [...new Set([...queries, ...starred.map((x) => x.query ?? "")])].map((q) => [q, starred.filter((x) => (x.query ?? "") === q)]).filter(([, xs]) => xs.length);
     // each topic's videos: all its lists' (the 看 bar shows one list at a time)
     const groups = queries.map((q) => [q, items.filter((x) => x.query === q)]);
-    const status = (q, n) => this.searching?.has(q) ? "正在搜…" : n ? "" : "還沒有影片";
+    // a topic's state under its heading: 正在搜 (turning), never searched yet, or searched and found nothing
+    const status = (q, n) => this.searching?.has(q) ? '<p class="empty busy"><span class="spin"></span>正在搜 YouTube…（三份清單，約半分鐘）</p>'
+      : n ? "" : Object.keys(v.done ?? {}).some((k) => k.endsWith(` ${q}`))
+        ? `<p class="empty">搜過了，沒有標題含「${esc(q)}」的影片：YouTube 上常用別的寫法，試試中英並列（例如「中文名 英文名」）</p>`
+        : '<p class="empty">還沒搜：馬上會搜</p>';
     return pageHtml(`<style>.vid{display:flex;gap:10px;align-items:flex-start}.vid[hidden]{display:none}.vid img{flex:none;width:136px;aspect-ratio:16/9;object-fit:cover;border-radius:6px;background:var(--bg)}`
       + `.vb{flex:1;min-width:0}.err{margin:8px 12px;font-size:.88em;color:${t.ansi1}}.empty{margin:4px 12px 10px;font-size:.88em;color:var(--muted)}`
       + `.star{flex:none;border:0;background:none;padding:0 2px;font-size:1.2em;line-height:1;color:var(--muted);cursor:pointer}.star:hover,.star.on{color:var(--yellow)}`
@@ -984,7 +1005,7 @@ export default class Trend extends View {
       + `.sortbar button{font:inherit;padding:1px 9px;border-radius:999px;border:1px solid var(--border);background:var(--bg);color:var(--muted);cursor:pointer}.sortbar button:not(.on):hover{color:var(--fg);border-color:var(--accent)}`
       + `.sortbar button.on{background:var(--raised);color:var(--fg);border-color:var(--accent)}</style>`
       + `<nav><button data-cat="all">全部 ${items.length}</button>${starred.length ? `<button data-cat="⭐ 收藏">⭐ 收藏 ${starred.length}</button>` : ""}`
-      + `${groups.map(([q, xs]) => `<button data-cat="${esc(q)}">${esc(q)} ${this.searching?.has(q) ? "…" : xs.length}<span class="x" data-act="drop" data-q="${esc(q)}" title="拿掉這個主題和它的影片">✕</span></button>`).join("")}`
+      + `${groups.map(([q, xs]) => `<button data-cat="${esc(q)}">${esc(q)} ${this.searching?.has(q) ? '<span class="spin"></span>' : xs.length}<span class="x" data-act="drop" data-q="${esc(q)}" title="拿掉這個主題和它的影片">✕</span></button>`).join("")}`
       + `<button class="addt" data-act="toggle">＋ 加主題</button></nav>`
       + `<main><div id="addbox" hidden><div class="hd">加主題：打一個 YouTube 搜尋，或點一個建議，馬上搜；影片會出現在它自己的分類</div>`
       + `<form id="addform"><input id="addq" placeholder="例如：TWICE 子瑜 直拍" autocomplete="off"><button>加</button></form>`
@@ -993,7 +1014,7 @@ export default class Trend extends View {
         .map(([k, l]) => `<button data-act="sort" data-q="${k}">${l}</button>`).join("")}</div>`
       + `${errs}${queries.length ? "" : '<p class="empty">還沒有主題：按上面的「＋ 加主題」</p>'}`
       + starTopics.map(([q, xs]) => `<section data-cat="⭐ 收藏" data-keep><h2>⭐ 收藏${q ? ` · ${esc(q)}` : ""}</h2>${xs.map(card).join("")}</section>`).join("")
-      + `${groups.map(([q, xs]) => `<section data-cat="${esc(q)}"><h2>🔍 ${esc(q)}</h2>${status(q, xs.length) ? `<p class="empty">${status(q, xs.length)}</p>` : ""}`
+      + `${groups.map(([q, xs]) => `<section data-cat="${esc(q)}" data-show><h2>🔍 ${esc(q)}</h2>${status(q, xs.length)}`
         + `<p class="empty none" hidden>這份清單還沒有影片</p>${xs.map(card).join("")}</section>`).join("")}</main>`
       // this page's own clicks, before pageHtml's: ＋ 加主題 opens the box (remembered), a suggestion or 加 adds, ✕ drops
       + `<script>(()=>{const K="videos.html:add",box=document.getElementById("addbox"),inp=document.getElementById("addq");`

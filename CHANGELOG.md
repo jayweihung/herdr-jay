@@ -24,6 +24,8 @@ Needs: **mods** (Windows: copy `trend` again; macOS link: nothing).
 - Each topic has three lists, each its own YouTube search, and a 看 bar picks one: 最相關 (YouTube's order, any
   time), 最多人看 (YouTube sorted by views), 最新上傳 (this week's, gathered 5 weeks). 每個主題三份清單，各自去 YouTube
   搜：最相關、最多人看、最新上傳，用「看」切換。
+- ⭐ 收藏 is split by the topic that found each video; and a topic chip keeps the 看 list (it showed all its videos,
+  as did a reload). 收藏照當初搜到的主題分開放；點主題後「看」的清單不會跑掉。
 
 ## 2026-11-16, trend: every 30 minutes
 

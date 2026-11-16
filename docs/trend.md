@@ -175,8 +175,9 @@ and hides the videos it's about: what it says beyond your topics' words, all of 
 OWNDAYS); a starred video stays. 加主題的框裡有建議（看你點過的影片、YouTube 的搜尋建議），點一下就加。
 
 **☆** on a card stars the video: it stays under **⭐ 收藏** for good (`trend/stars.json`), whatever the searches later
-find or drop (the list keeps only the newest 300, and a search taken out takes its videos); **⭐** unstars it.
-喜歡的影片按 ☆ 收藏，就一直留在「⭐ 收藏」，不會被擠掉。
+find or drop (the list keeps only the newest 600, and a search taken out takes its videos); **⭐** unstars it. 收藏 is
+split by the topic that found each video (a topic taken out keeps its heading there), newest starred first.
+喜歡的影片按 ☆ 收藏，就一直留在「⭐ 收藏」，不會被擠掉；收藏照當初搜到它的主題分開放。
 
 Gently, since every device in the house shares the IP (a production crawler's advice): each search at most every 3 hours, a few
 seconds apart, your Chrome's version in the user agent, YouTube's cookies kept between runs. A sign of a block (429,

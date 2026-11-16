@@ -803,7 +803,9 @@ export default class Trend extends View {
       + `<div class="meta">${esc([x.channel, x.length, x.published, x.views].filter(Boolean).join(" · "))}</div>`
       + `<div class="meta">${esc([when(x.found), this.progress?.[x.id] > 5 ? `▶ 上次看到 ${mmss(this.progress[x.id])}` : ""].filter(Boolean).join(" · "))}</div></div>`
       + `<button class="star${this.stars?.[x.id] ? " on" : ""}" data-do="star" title="${this.stars?.[x.id] ? "取消收藏" : "收藏：一直留著"}">${this.stars?.[x.id] ? "⭐" : "☆"}</button></div>`;
+    // ⭐ 收藏 by the topic that found each (your topics' order, then gone ones), newest starred first in each
     const starred = Object.values(this.stars ?? {}).sort((a, b) => String(b.starred).localeCompare(String(a.starred)));
+    const starTopics = [...new Set([...queries, ...starred.map((x) => x.query ?? "")])].map((q) => [q, starred.filter((x) => (x.query ?? "") === q)]).filter(([, xs]) => xs.length);
     // each topic's videos: all its lists' (the 看 bar shows one list at a time)
     const groups = queries.map((q) => [q, items.filter((x) => x.query === q)]);
     const status = (q, n) => this.searching?.has(q) ? "正在搜…" : n ? "" : "還沒有影片";
@@ -827,7 +829,7 @@ export default class Trend extends View {
       + `<div class="sortbar">看：${[["rel", "最相關"], ["views", "最多人看"], ["new", "最新上傳"]]
         .map(([k, l]) => `<button data-act="sort" data-q="${k}">${l}</button>`).join("")}</div>`
       + `${errs}${queries.length ? "" : '<p class="empty">還沒有主題：按上面的「＋ 加主題」</p>'}`
-      + `${starred.length ? `<section data-cat="⭐ 收藏" data-keep><h2>⭐ 收藏</h2>${starred.map(card).join("")}</section>` : ""}`
+      + starTopics.map(([q, xs]) => `<section data-cat="⭐ 收藏" data-keep><h2>⭐ 收藏${q ? ` · ${esc(q)}` : ""}</h2>${xs.map(card).join("")}</section>`).join("")
       + `${groups.map(([q, xs]) => `<section data-cat="${esc(q)}"><h2>🔍 ${esc(q)}</h2>${status(q, xs.length) ? `<p class="empty">${status(q, xs.length)}</p>` : ""}`
         + `<p class="empty none" hidden>這份清單還沒有影片</p>${xs.map(card).join("")}</section>`).join("")}</main>`
       // this page's own clicks, before pageHtml's: ＋ 加主題 opens the box (remembered), a suggestion or 加 adds, ✕ drops
@@ -839,9 +841,12 @@ export default class Trend extends View {
       + `const S="videos.html:list",by={rel:(c)=>+c.dataset.rel,views:(c)=>-c.dataset.v,new:(c)=>-c.dataset.up||+c.dataset.new};`
       + `const sortBy=(k)=>{if(!by[k])k="rel";for(const s of document.querySelectorAll("section")){const cs=[...s.querySelectorAll(":scope>.card.vid")];`
       + `const on=s.hasAttribute("data-keep")?cs:cs.filter((c)=>c.dataset[k]!=="");for(const c of cs)c.hidden=!on.includes(c);`
-      + `on.sort((a,b)=>by[k](a)-by[k](b)).forEach((c)=>s.appendChild(c));const none=s.querySelector(".none");if(none)none.hidden=!!on.length||!cs.length}`
+      + `if(!s.hasAttribute("data-keep"))on.sort((a,b)=>by[k](a)-by[k](b)).forEach((c)=>s.appendChild(c));const none=s.querySelector(".none");if(none)none.hidden=!!on.length||!cs.length}`
       + `for(const b of document.querySelectorAll(".sortbar button"))b.classList.toggle("on",b.dataset.q===k);try{localStorage.setItem(S,k)}catch{}};`
-      + `try{sortBy(localStorage.getItem(S)||"rel")}catch{sortBy("rel")}`
+      // pageHtml's script (after this one) and its chips (show) show all of a section's cards: the 看 list hides the
+      // others again after it
+      + `const again=()=>sortBy(document.querySelector(".sortbar button.on")?.dataset.q);try{sortBy(localStorage.getItem(S)||"rel")}catch{sortBy("rel")}`
+      + `addEventListener("DOMContentLoaded",again);document.addEventListener("click",(e)=>{if(e.target.closest("nav button"))again()});`
       + `document.addEventListener("click",(e)=>{const b=e.target.closest("[data-act]");if(!b)return;e.preventDefault();e.stopPropagation();const a=b.dataset.act;`
       + `if(a==="toggle"){open(box.hidden);if(!box.hidden)inp.focus();return}if(a==="sort"){sortBy(b.dataset.q);return}`
       + `if(a==="drop"&&!confirm("拿掉主題「"+b.dataset.q+"」和它的影片？（收藏的會留著）"))return;go(a,b.dataset.q)},true);`

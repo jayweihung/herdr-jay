@@ -17,9 +17,6 @@ const JOB = "com.herdr-jay.trend";   // the launchd job that runs fetch.js (docs
 const TASK = "herdr-jay-trend";      // the same on Windows: a Task Scheduler task
 const EVERY = 30 * 60000;            // its StartInterval: every 30 minutes
 const SEEN = "trend.seen.v1";        // the topics shown when the panel was last opened: the button counts the others
-// between the tab-bar button and the panel: { playing: the panel shows a video, hide: when the button asked it to
-// hide (the panel turns the video's page blank first: a hidden page plays on) }
-const VIDEO_STATE = "trend.video.v1";
 // The Kit panel's (mods/kit): the agents its sources have, and the places it is asked to make. A kit trend agent
 // placed in a space is a folder whose .agentkit says agent:trend (kit place).
 const KIT_AGENTS = "kit.agents.data.v1", KIT_PLACE_ASK = "kit.place.ask", KIT_TAKEN_WAIT = 8000;
@@ -304,7 +301,6 @@ export default class Trend extends View {
     // where you were: the tab (localStorage, so a closed panel or a restart comes back to it). Not the video: a new
     // copy draws (and its page plays) even while the panel is hidden or off screen; its card says ▶ 上次看到 instead
     this.view = (this.role !== "toggle" && localStorage.getItem("view")) || "list";   // "list" (the topics), "videos", "reports", or a report's file name
-    this.hideSeen = shared(VIDEO_STATE)?.hide;
     this.load(cx);
     if (this.role !== "toggle") cx.spawn(async (cx) => {
       for (;;) {
@@ -331,26 +327,7 @@ export default class Trend extends View {
       }
     });
     cx.timer.every(15000, (cx) => this.load(cx)); // fetch.js writes once an hour; this also keeps 「幾分前」 fresh
-    cx.timer.every(1000, (cx) => {
-      if (this.kitChanged) { this.kitChanged = false; cx.notify(); } // a trend agent's folder found
-      if (this.role === "toggle") return;
-      // the button's hide ask; shown again after a hide: the video comes back; whether a video shows, for the button
-      const s = shared(VIDEO_STATE) ?? {}, node = find(layout(), PANEL);
-      if (s.hide && s.hide !== this.hideSeen) { this.hideSeen = s.hide; this.hidePanel(cx); }
-      // hidden some other way (a key, the layout): the same blank page, if a hidden panel still draws
-      if (node?.hidden && this.watching) { this.hiding = true; this.hidingAt = Date.now(); cx.notify(); }
-      if (this.hiding && node && !node.hidden && Date.now() - this.hidingAt > 1500) { this.hiding = false; cx.notify(); }
-      if (Boolean(this.watching) !== Boolean(s.playing)) setShared(VIDEO_STATE, { ...s, playing: Boolean(this.watching) });
-    });
-  }
-  // ✕ (or the tab-bar button) while a video plays: its page turns blank first, then the panel hides (a hidden page
-  // would play on); shown again, the video comes back from where it got to (keepPlace)
-  hidePanel(cx) {
-    if (!this.watching) return run("layout.hide", { id: PANEL });
-    this.hiding = true;
-    this.hidingAt = Date.now();
-    cx.notify();
-    cx.timer.after(300, () => run("layout.hide", { id: PANEL }));
+    cx.timer.every(1000, (cx) => { if (this.kitChanged) { this.kitChanged = false; cx.notify(); } }); // a trend agent's folder found
   }
 
   get dir() { return `${appHome().replace(/\\/g, "/")}/trend`; }
@@ -472,8 +449,7 @@ export default class Trend extends View {
   // My videos: what fetch.js's YouTube searches (one per line of videos.txt) found, a web page like the list's
   // (writePages): a chip per search, newest found first; a click plays it here
   videoList(t, z) {
-    // hiding, or the progress not read yet (a restart): an empty space, not the list for a moment
-    if (this.playing) return this.hiding || this.progress === undefined ? div().flex_1().bg(theme().background) : this.videoPlayer(t, z);
+    if (this.playing) return this.videoPlayer(t, z);
     return this.pageCell(t, VIDEOS_CELL, "videos.html");
   }
   get results() { return Array.isArray(this.data?.results) ? this.data.results : []; }
@@ -621,7 +597,7 @@ export default class Trend extends View {
     });
     cx.notify();
   }
-  get watching() { return this.view === "videos" && !this.hiding ? this.playing : null; }
+  get watching() { return this.view === "videos" ? this.playing : null; }
   async askFree(cx) {
     const x = this.watching, box = x ? this.videoBox : this.box, q = box.value().trim();
     if (!q) return;
@@ -640,15 +616,14 @@ export default class Trend extends View {
     if (this.role === "toggle") return this.renderToggle();
     const t = theme(), z = fs();
     this.keepPlace();
-    // shown again after a hide: the video at once, not the list for the second the timer would take
-    if (this.hiding && Date.now() - this.hidingAt > 400 && find(layout(), PANEL) && !find(layout(), PANEL).hidden) this.hiding = false;
     if (this.view !== this.savedView) { this.savedView = this.view; localStorage.setItem("view", this.view); }
     return v_flex().id("trend").size_full().bg(t.surface).text_size(z).text_color(t.foreground)
       .child(this.header(t, z))
       .child(this.view === "list" ? this.list(t, z) : this.view === "videos" ? this.videoList(t, z) : this.view === "reports" ? this.reportList(t, z) : this.reportView(t, z))
       .child(this.askCard(t, z))
-      // a video left (← 影片, another tab, the panel hidden): a web element lives on unseen, so its page turns to a
-      // blank one, or the video would keep playing; drawn 1 px, only once a video was played
+      // a video left (← 影片, another tab of the panel): a web element lives on unseen, so its page turns to a blank
+      // one, or the video would keep playing; drawn 1 px, only once a video was played. The panel hidden or off
+      // screen: the player page pauses itself (it hears the page go hidden)
       .when(Boolean(this.played) && !this.watching, (el) => el.child(div().w(1).h(1).flex_none()
         .child(web.new(VIDEO_CELL, { src: fileUrl(`${this.viewDir}/blank.html`) }))));
   }
@@ -667,12 +642,6 @@ export default class Trend extends View {
         .hover((st) => st.bg(t.hover)).on_mouse_down("left", stop)
         .on_click((_e, cx) => {
           if (!on) setShared(SEEN, this.shown.map((r) => r.topic)); // opening it: what it shows now counts as seen
-          // a video showing: the panel stops it and hides itself; if it doesn't (gone), hidden from here
-          if (on && shared(VIDEO_STATE)?.playing) {
-            setShared(VIDEO_STATE, { ...shared(VIDEO_STATE), hide: Date.now() });
-            cx.timer.after(1800, () => { if (find(layout(), PANEL) && !find(layout(), PANEL).hidden) run("layout.hide", { id: PANEL }); });
-            return;
-          }
           run("layout.toggle", { id: PANEL });
           cx.notify();
         })
@@ -708,7 +677,7 @@ export default class Trend extends View {
           .child(this.tabButton(t, z, "reports", `報告${this.reports?.length ? ` ${this.reports.length}` : ""}`)))
         .child(btn("refresh", this.running ? "更新中…" : "↻ 現在更新", (_e, cx) => cx.spawn(async (cx) => this.kick(cx))))
         .when(Boolean(find(layout(), PANEL)), (el) => el.child(btn("zoom", "⤢", () => run("layout.zoom", { id: PANEL }))))   // alone in its row; again: back
-        .when(Boolean(find(layout(), TOGGLE)), (el) => el.child(btn("hide", "✕", (_e, cx) => this.hidePanel(cx)))))
+        .when(Boolean(find(layout(), TOGGLE)), (el) => el.child(btn("hide", "✕", () => run("layout.hide", { id: PANEL })))))
       .child(h_flex().px(12).pb(4).gap(5).items_center().min_w(0)
         .when(this.running, (el) => el.child(spin(z - 3, t.muted)))
         .child(div().id("status").flex_1().min_w(0).text_size(z - 1.5).truncate().text_color(red ? t.ansi1 : t.muted)

@@ -32,9 +32,9 @@ Needs: **mods** (Windows: copy `trend` again; macOS link: nothing).
 - The player's ✨ 背光 turns the player page's glow on and off (`glow=0`). 播放的背光可以開關。
 - `trend/proxy` now carries fetch.js's own requests too (PTT, HN, YouTube's search), not only last30days'.
   代理也給 fetch.js 自己的請求用。
-- The player: back from another tab it goes on where it got to; hiding the panel (its ✕, the tab-bar button) stops
-  it; the panel opens on the tab and video you left (a restart too); the ask box asks about the video playing.
-  影片切分頁回來接著播；收起面板會停；重開回到上次的分頁和影片；播影片時「問 agent」問的是這支影片。
+- The player: back from another tab it goes on where it got to; the panel opens on the tab you left (a restart too),
+  the video's card says ▶ 上次看到; the ask box asks about the video playing; the panel hidden, the player page pauses
+  itself when it hears the page go hidden. 影片切分頁回來接著播；重開回到上次的分頁；播影片時「問 agent」問這支影片；收起面板由播放頁自己暫停。
 
 ## 2026-11-16, the Agents menu's 壓縮 works again after Herdr was opened from a terminal
 

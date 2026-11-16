@@ -38,9 +38,11 @@ const REPORT_CELL = "trend-report";
 // mod.json's allow list, docs/trend.md), else YouTube's own watch page (mod.json allows www.youtube.com)
 const VIDEO_CELL = "trend-video";
 // 📝 整理重點: what the trend agent is asked (tokens, only when you press it); it writes plain text that the panel shows
-// under the player. One video's subtitles, once: a block stops it (the house's IP is every device's).
-const notesAsk = (x, file) => `用繁體中文整理這支 YouTube 影片的重點：https://www.youtube.com/watch?v=${x.id}（標題：${x.title}；頻道：${x.channel}）。`
-  + `先拿這支影片的字幕（例如 yt-dlp --skip-download --write-auto-subs --sub-langs "zh-Hant,zh-TW,zh,en,ko,ja"，或 youtube-transcript-api），只抓這一支、被擋就停，不要重試；`
+// under the player. The subtitles the panel already has first (player-extra.json, fetch.js --player: YouTube's
+// Android app's way, where yt-dlp's gets 429), else one fetch of its own; a block stops it (the house's IP).
+const notesAsk = (x, file, extra) => `用繁體中文整理這支 YouTube 影片的重點：https://www.youtube.com/watch?v=${x.id}（標題：${x.title}；頻道：${x.channel}）。`
+  + `字幕先用面板已經抓好的：${extra} 裡 "${x.id}" 的 cap（[[開始毫秒, 長度毫秒, 文字]…]）；那裡沒有就跑 node ${extra.replace(/trend\/player-extra\.json$/, "mods/trend/fetch.js")} --player ${x.id}（印出同樣格式的 JSON）。`
+  + `都沒有才用 yt-dlp --skip-download --write-auto-subs --sub-langs "zh-Hant,zh-TW,zh,en,ko,ja"，只抓這一支、被擋就停，不要重試；`
   + `沒有字幕就用影片說明和留言。寫成純文字（不要 markdown）：第一行一句話總結，接著 3 到 8 行「• 」開頭的重點（講到的時間點放前面，例如「• 02:15 …」），`
   + `最後一行寫「來源：字幕」或「來源：說明和留言」。存到 ${file}（資料夾不在就建立；先寫成同資料夾的 .tmp 檔再改名），寫好回一句就好。`;
 // The panel's pages are web pages (cards, subject chips to filter by, the full text): the mod writes them to
@@ -453,7 +455,7 @@ export default class Trend extends View {
           cx.notify();
         }))
         .child(smallBtn(t, z, "vid-notes", notes ? "📝 重新整理" : "📝 整理重點",
-          (_e, cx) => cx.spawn(async (cx) => this.ask(label, notesAsk(x, `${this.dir}/notes/${x.id}.txt`), cx)))))
+          (_e, cx) => cx.spawn(async (cx) => this.ask(label, notesAsk(x, `${this.dir}/notes/${x.id}.txt`, `${this.dir}/player-extra.json`), cx)))))
       .child(div().flex_1().min_h(0).child(web.new(VIDEO_CELL, { src: this.playSrc(x) })))
       .when(Boolean(notes), (el) => {
         const open = localStorage.getItem("notesOpen") === "1";
@@ -641,7 +643,8 @@ export default class Trend extends View {
     if (!q) return;
     box.set_value("");
     if (!x) return this.ask("你的問題", q, cx);
-    await this.ask(`問影片：${q}`, `關於 YouTube 影片「${x.title}」（${[x.channel, `https://www.youtube.com/watch?v=${x.id}`].filter(Boolean).join("，")}）：${q}\n先看它的字幕（沒有就說明和留言），不夠再查。用繁體中文回答。`, cx);
+    await this.ask(`問影片：${q}`, `關於 YouTube 影片「${x.title}」（${[x.channel, `https://www.youtube.com/watch?v=${x.id}`].filter(Boolean).join("，")}）：${q}\n`
+      + `先看它的字幕：${this.dir}/player-extra.json 裡 "${x.id}" 的 cap（[[開始毫秒, 長度毫秒, 文字]…]，面板已經抓好）；沒有再看說明和留言，不夠再查。用繁體中文回答。`, cx);
   }
 
   render(cx) {

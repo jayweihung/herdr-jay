@@ -846,8 +846,7 @@ export default class Trend extends View {
     if (p) cx.spawn(async (cx) => this.ask(`${p.label}：${r.topic}`, p.text(r), cx));
   }
   // fetch.js --videos / --topics for these topics now, 正在搜 on them meanwhile; one run at a time of each kind (two
-  // at once would both rewrite videos.json / topics.json). Runs in the caller's task, no spawn of its own: from inside a
-  // spawned task one didn't start (the ＋ of 周杰倫 and 瑪丹娜 searched nothing, 2026-11-16)
+  // at once would both rewrite videos.json / topics.json). Runs in the caller's task
   async runSearch(hot, qs, cx) {
     const busy = hot ? (this.hotSearching ??= new Set()) : (this.searching ??= new Set()), run = hot ? "topicRun" : "searchRun";
     for (const q of qs) busy.add(q);

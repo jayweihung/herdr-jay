@@ -111,6 +111,7 @@ document.querySelector("main").onclick=(e)=>{const b=e.target.closest("[data-do]
 location.hash="do="+b.dataset.do+(k.topic?"&topic="+encodeURIComponent(k.topic):"")+(k.name?"&name="+encodeURIComponent(k.name):"")+"&n="+Date.now();
 setTimeout(()=>history.replaceState(null,"",location.pathname),500)};
 const y=Number(get("y"));if(y)scrollTo(0,y);addEventListener("scroll",()=>set("y",String(scrollY)),{passive:true});
+document.addEventListener("visibilitychange",()=>{location.hash="do=vis&name="+document.visibilityState+"&n="+Date.now()});
 </script></body></html>
 `;
 }
@@ -757,6 +758,12 @@ export default class Trend extends View {
     const h = new URLSearchParams(url.split("#")[1] ?? ""), n = h.get("n"), act = h.get("do");
     if (!act || !n || this.pageClicks?.has(n)) return;
     (this.pageClicks ??= new Set()).add(n);
+    // shortcut: temporary probe, does a hidden panel's page hear visibilitychange; remove once known
+    if (act === "vis") {
+      const file = `${this.dir}/vis-probe.log`, line = `${new Date().toISOString()} ${h.get("name")}\n`;
+      readTextFile(file).catch(() => null).then((was) => writeTextFile(file, (was ?? "") + line, was)).catch(() => {});
+      return;
+    }
     if (act === "open") {
       if (this.reports?.some((r) => r.name === h.get("name"))) { this.view = h.get("name"); this.webNote = null; cx.notify(); }
       return;

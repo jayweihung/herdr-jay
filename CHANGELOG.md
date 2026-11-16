@@ -15,8 +15,9 @@ Needs: **mods** (Windows: copy `trend` again; macOS link: nothing), Chrome or Ed
 
 - After last30days' topics, the list takes HN's, Reddit's (r/all, today) and Digg's front pages in turn. Reddit's page
   is opened by your Chrome or Edge, headless with a profile of its own (Reddit blocks scripts and proxies with 403),
-  every 2 to 3 hours; blocked, it waits 6, 12, then 24 hours and the 熱門 button posts a notification. A line under
-  the title says how each front page did. 熱門清單多了 Reddit 今日熱門：用本機 Chrome／Edge 無頭開一頁（不讀你的登入），
+  every 2 to 3 hours; blocked, it waits 6, 12, then 24 hours and the 熱門 button posts a notification. last30days
+  itself runs without Reddit now (its search only got 403), and one 來源 line under the title names each site once
+  (✓, or why not). 熱門清單多了 Reddit 今日熱門：用本機 Chrome／Edge 無頭開一頁（不讀你的登入），
   2 到 3 小時一次；被擋就停 6、12、24 小時並跳通知。
 
 ## 2026-11-16, trend: 影片, your own YouTube searches

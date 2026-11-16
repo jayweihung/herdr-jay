@@ -380,8 +380,16 @@ export default class Trend extends View {
     const line = this.running ? `更新中…（${ago(Date.parse(this.status.started)).replace("前", "開始")}，通常幾分鐘）`
       : this.bad ?? this.failed ?? (Number.isFinite(done) ? `更新於 ${ago(done)}${Number.isFinite(next) && next > Date.now() ? ` · 下次約 ${hhmm(next)}` : ""} · 不花 token` : "還沒有資料：排程還沒跑過（docs/trend.md「安裝」）");
     const red = Boolean(this.bad || (this.failed && !this.running));
-    // Reddit: fetch.js leaves it out of last30days (only 403 there); its own row below says how Reddit's page did
-    const sources = Object.entries(this.data?.source_status ?? {}).filter(([k]) => k !== "reddit");
+    // One row, each site once: ✓ when it answered (last30days' search and the site's own front page), else why not.
+    // Reddit is only its front page (fetch.js leaves it out of last30days: 403 there). Right-click copies the reason.
+    const st = this.data?.source_status ?? {}, fe = this.feeds ?? {};
+    const site = (key, name, l30, feed) => {
+      const why = (l30 && st[l30] && st[l30] !== "ok" ? STATE[st[l30]] ?? st[l30] : null) ?? (feed ? fe.errors?.[feed] ?? null : null);
+      const ok = !why && (!feed || (fe[feed]?.length ?? 0) > 0);
+      return { key, name, why, ok, when: ok && feed === "reddit" && fe.redditAt ? ` ${ago(Date.parse(fe.redditAt))}` : "", red: feed === "reddit" && Boolean(fe.redditBlockedAt) };
+    };
+    const sites = [site("hn", "HN", "hackernews", "hn"), site("reddit", "Reddit", null, "reddit"), site("digg", "Digg", "digg", "digg"),
+      ...Object.keys(st).filter((k) => !["hackernews", "digg", "reddit"].includes(k)).map((k) => site(k, SOURCE[k] ?? k, k, null))];
     return v_flex().flex_none().border_b(1).border_color(t.border)
       .child(h_flex().px(10).py(6).gap(6).items_center()
         .child(h_flex().flex_1().min_w(0).gap(2).items_center()
@@ -397,16 +405,10 @@ export default class Trend extends View {
           .on_mouse_down("right", copyOn(line)).child(line)))
       .when(Boolean(this.msg), (el) => el.child(div().id("msg").px(12).pb(4).text_size(z - 1.5).text_color(t.ansi1).whitespace_normal()
         .on_mouse_down("right", copyOn(this.msg)).child(this.msg)))
-      // which sites answered this run: a site that didn't isn't "nothing happened there"
-      .when(sources.length > 0, (el) => el.child(h_flex().px(12).pb(6).gap(8).flex_wrap().text_size(z - 2).children(sources.map(([k, v]) =>
-        div().text_color(v === "ok" ? t.ansi2 : t.dim).child(`${SOURCE[k] ?? k} ${v === "ok" ? "✓" : `✗ ${STATE[v] ?? v}`}`)))))
-      // and each site's own front page (the rows under 「各站自己的熱門」); Reddit's is fetched every 2 to 3 hours
-      .when(Boolean(this.feeds), (el) => el.child(h_flex().px(12).pb(6).gap(8).flex_wrap().text_size(z - 2).children([["hn", "HN"], ["reddit", "Reddit"], ["digg", "Digg"]].map(([k, name]) => {
-        const err = this.feeds.errors?.[k], n = this.feeds[k]?.length ?? 0;
-        const when = k === "reddit" && this.feeds.redditAt ? `（${ago(Date.parse(this.feeds.redditAt))}）` : "";
-        return div().id(`feed-${k}`).text_color(err ? (k === "reddit" && this.feeds.redditBlockedAt ? t.ansi1 : t.dim) : t.ansi2).on_mouse_down("right", copyOn(err ?? ""))
-          .child(`${name} 首頁 ${err ? `✗ ${err}` : n ? `✓${when}` : "—"}`);
-      }))));
+      .when(Boolean(this.data || this.feeds), (el) => el.child(h_flex().px(12).pb(6).gap(10).flex_wrap().items_center().text_size(z - 2)
+        .child(div().text_color(t.dim).child("來源"))
+        .children(sites.map((s) => div().id(`site-${s.key}`).text_color(s.ok ? t.ansi2 : s.red ? t.ansi1 : t.dim).on_mouse_down("right", copyOn(s.why ?? ""))
+          .child(s.ok ? `${s.name} ✓${s.when}` : `${s.name} ${s.why ?? "—"}`)))));
   }
 
   list(t, z) {

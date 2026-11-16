@@ -192,6 +192,11 @@ const copyOn = (value) => (_e, cx) => {
   notify({ title: "已複製", body: text.length > 120 ? `${text.slice(0, 120)}…` : text, level: "success", timeout: 1500 });
 };
 const shortLink = (url) => { try { const u = new URL(url); return `${u.hostname}${u.pathname.length > 1 ? u.pathname.slice(0, 40) : ""}`; } catch { return url.slice(0, 60); } };
+// a web link in the system's browser
+function openLink(url) {
+  const p = window()?.platform;
+  (p === "windows" ? exec("C:\\Windows\\System32\\rundll32.exe", ["url.dll,FileProtocolHandler", url]) : exec(p === "macos" ? "/usr/bin/open" : "xdg-open", [url])).catch(() => {});
+}
 function find(node, id) {
   if (node?.id === id) return node;
   for (const c of node?.children ?? []) { const f = find(c, id); if (f) return f; }
@@ -210,6 +215,14 @@ export default class Trend extends View {
     if (this.role !== "toggle") cx.spawn(async (cx) => {
       for (;;) {
         const e = await nextWebEvent();
+        // our pages (and a report) stay ours: a link to a site mod.json allows (YouTube, for the player) would load
+        // in the element itself with no way back, so the page comes back and the link opens in the browser
+        if ([LIST_CELL, REPORTS_CELL, VIDEOS_CELL, REPORT_CELL].includes(e?.id) && e.kind === "url" && /^https?:/i.test(e.url ?? "")) {
+          webCall(e.id, e.id === REPORT_CELL ? "back" : "home");
+          if (Date.now() - (this.leftAt ?? 0) > 3000) openLink(e.url);   // its redirects come as more url events: one browser tab
+          this.leftAt = Date.now();
+          continue;
+        }
         if ((e?.id === LIST_CELL || e?.id === REPORTS_CELL || e?.id === VIDEOS_CELL) && e.kind === "url") { this.fromPage(e.url ?? "", cx); continue; }
         if (e?.id !== REPORT_CELL) continue;
         this.webNote = e.kind === "failed" ? `載入失敗：${e.error ?? ""}` : e.kind === "blocked" && e.url ? `已用瀏覽器開：${e.url}` : null;

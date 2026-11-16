@@ -84,7 +84,7 @@ it: `~/.config/herdr-app/trend/videos.txt`, one search per line.
 
 ## 2026-11-16, Herdr app v0.1.16, and text in mod panels can be copied
 
-Needs: **app** (build v0.1.16 with its 26 patches, `herdr-app/patches/v0.1.16/`; core unchanged, v0.1.21), restart
+Needs: **app** (build v0.1.16 with its 27 patches, `herdr-app/patches/v0.1.16/`; core unchanged, v0.1.21), restart
 Herdr.
 
 - App on the official v0.1.16 (`034f8b8`): the 25 patches moved onto it, unchanged in what they do. v0.1.16's own
@@ -93,6 +93,7 @@ Herdr.
 - New `0026`: text in every mod panel (Kit, 熱門, agent-page, Gerrit, …) can be selected by dragging across it and
   copied with the copy key; with nothing selected the key goes to the terminal as before, and a plain click still
   clicks. 所有 mod 面板的字都能拖曳選取、按複製鍵複製；沒選字時複製鍵照舊給終端機。
+- `0027`: the license notices list the web element's crates (no behavior change). 授權清單補齊。
 - The v0.1.15 folder stays for a machine still on that tag. 還在 v0.1.15 的機器照舊用那個資料夾。
 - Windows, in order: `git pull` herdr-jay ([windows.md](docs/windows.md) 8.1) → the **app** blocks of 8.2 with
   `$tag = "v0.1.16"` → quit and reopen Herdr → try copying text in the Kit panel. Then `kit self-update; kit sync`

@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: jayweihung <3034830+jayweihung@users.noreply.github.com>
 Date: Sat, 14 Nov 2026 23:11:23 +0800
-Subject: [PATCH 10/26] feat: the Agents list shows an agent another mod says
+Subject: [PATCH 10/27] feat: the Agents list shows an agent another mod says
  waits for you as needing you, red when long
 
 A mod that knows an agent waits for a person outside its own dialog (an OK it

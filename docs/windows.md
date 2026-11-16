@@ -226,7 +226,7 @@ git checkout v0.1.16
 git rev-parse --short HEAD                          # must be 034f8b8 (README versions table)
 git submodule update --init --recursive
 $j = "$env:USERPROFILE\src\herdr-jay"
-$pd = "$j\herdr-app\patches\v0.1.16"                # 26 patches (docs/patches.md), among them web pages in mods, layout.zoom and selectable text
+$pd = "$j\herdr-app\patches\v0.1.16"                # 27 patches (docs/patches.md), among them web pages in mods, layout.zoom and selectable text
 $ps = @(Get-ChildItem "$pd\*.patch" -ErrorAction SilentlyContinue | Sort-Object Name).FullName
 if ($ps) { git -c user.name=me -c user.email=me@local am -3 $ps } else { "no patches" }
 ```
@@ -560,7 +560,7 @@ Only if the README table lists a newer version, **or the same version with diffe
 Gerrit review tab that closes with nvim and 0007 linked mods that reload: run the **app** blocks only; later that day core
 v0.1.21 got its `0001` (who sent to whom) and the app `0008` (its event): run **all** the blocks, core, server and app;
 2026-11-16: the app got `0009`…`0022`, among them web pages in mods and `layout.zoom`: run the **app** blocks only; later that day the app moved to
-**v0.1.16** with 26 patches, `0026` text in mod panels can be selected and copied: run the **app** blocks only, with
+**v0.1.16** with 27 patches, `0026` text in mod panels can be selected and copied: run the **app** blocks only, with
 `$tag = "v0.1.16"`; the core stays v0.1.21). Order: **core** checkout block → its build block → [8.3](#83-core-on-the-linux-server)
 (server) → **app** checkout block (`$repo = "herdr-app"`, the app version) → its build block.
 In the first line replace `<version from the README table>` with that version (e.g. `v0.1.21`).

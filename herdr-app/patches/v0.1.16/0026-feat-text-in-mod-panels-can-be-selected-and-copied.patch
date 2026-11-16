@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: jayweihung <3034830+jayweihung@users.noreply.github.com>
 Date: Mon, 16 Nov 2026 07:20:08 +0800
-Subject: [PATCH 26/26] feat: text in mod panels can be selected and copied
+Subject: [PATCH 26/27] feat: text in mod panels can be selected and copied
 
 ---
  defaults/AGENTS.md                            |  12 +-

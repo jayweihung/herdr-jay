@@ -37,6 +37,12 @@ const REPORT_CELL = "trend-report";
 // a video played in the panel: the player page in <Herdr home>/trend/player (a URL with {id}; its site in your local
 // mod.json's allow list, docs/trend.md), else YouTube's own watch page (mod.json allows www.youtube.com)
 const VIDEO_CELL = "trend-video";
+// 📝 整理重點: what the trend agent is asked (tokens, only when you press it); it writes plain text that the panel shows
+// under the player. One video's subtitles, once: a block stops it (the house's IP is every device's).
+const notesAsk = (x, file) => `用繁體中文整理這支 YouTube 影片的重點：https://www.youtube.com/watch?v=${x.id}（標題：${x.title}；頻道：${x.channel}）。`
+  + `先拿這支影片的字幕（例如 yt-dlp --skip-download --write-auto-subs --sub-langs "zh-Hant,zh-TW,zh,en,ko,ja"，或 youtube-transcript-api），只抓這一支、被擋就停，不要重試；`
+  + `沒有字幕就用影片說明和留言。寫成純文字（不要 markdown）：第一行一句話總結，接著 3 到 8 行「• 」開頭的重點（講到的時間點放前面，例如「• 02:15 …」），`
+  + `最後一行寫「來源：字幕」或「來源：說明和留言」。存到 ${file}（資料夾不在就建立；先寫成同資料夾的 .tmp 檔再改名），寫好回一句就好。`;
 // The panel's pages are web pages (cards, subject chips to filter by, the full text): the mod writes them to
 // <Herdr home>/mods/trend/.view/ (hidden: a write doesn't reload the mod) whenever what they show changes. A click
 // in one sets the page's #hash (do=<what>&topic=…|name=…&n=<the click's time>), which comes back as a "url" event
@@ -196,6 +202,8 @@ export default class Trend extends View {
   async load(cx) {
     const [t, s, f, v, p] = await Promise.all(["trends.json", "status.json", "feeds.json", "videos.json", "player"].map((n) => readTextFile(`${this.dir}/${n}`).catch(() => null)));
     this.player = (p ?? "").split("\n")[0].trim();
+    // the key points of the video playing, once the trend agent has written them (📝 整理重點)
+    this.notes = this.playing ? await readTextFile(`${this.dir}/notes/${this.playing.id}.txt`).catch(() => null) : null;
     try { this.feeds = f ? JSON.parse(f) : null; } catch { this.feeds = null; }
     // Reddit blocked the house's IP: the button says so, once (fetch.js waits 6, 12, 24 hours before trying again)
     const blocked = this.feeds?.redditBlockedAt ?? null;
@@ -253,14 +261,22 @@ export default class Trend extends View {
       .when(Boolean(this.webNote), (el) => el.child(div().px(10).py(4).text_size(z - 1.5).text_color(t.muted).truncate().child(this.webNote)))
       .child(div().flex_1().min_h(0).child(web.new(REPORT_CELL, { src: fileUrl(`${this.reportDir}/${this.view}`) })));
   }
-  // one video played here: YouTube's own watch page; ← goes back to the list
+  // one video played here (the player page in trend/player, else YouTube's watch page); 📝 整理重點 asks the trend
+  // agent (tokens) for its key points, which it writes to trend/notes/<id>.txt: shown under the player
   videoPlayer(t, z) {
-    const x = this.playing;
+    const x = this.playing, notes = this.notes?.trim(), label = `📝 整理重點：${x.title}`;
+    const asked = this.asked?.sent === label || this.asked?.opening === label || this.asked?.sending === label;
     return v_flex().flex_1().min_h(0)
       .child(h_flex().h(34).px(8).gap(6).flex_none().items_center().border_b(1).border_color(t.border)
-        .child(smallBtn(t, z, "vid-back", "← 影片", (_e, cx) => { this.playing = null; cx.notify(); }))
-        .child(div().flex_1().min_w(0).truncate().text_size(z - 1).text_color(t.muted).child(x.title)))
-      .child(div().flex_1().min_h(0).child(web.new(VIDEO_CELL, { src: this.player?.includes("{id}") ? this.player.replace("{id}", x.id) : `https://www.youtube.com/watch?v=${x.id}` })));
+        .child(smallBtn(t, z, "vid-back", "← 影片", (_e, cx) => { this.playing = null; this.notes = null; cx.notify(); }))
+        .child(div().flex_1().min_w(0).truncate().text_size(z - 1).text_color(t.muted).child(x.title))
+        .child(smallBtn(t, z, "vid-notes", notes ? "📝 重新整理" : "📝 整理重點",
+          (_e, cx) => cx.spawn(async (cx) => this.ask(label, notesAsk(x, `${this.dir}/notes/${x.id}.txt`), cx)))))
+      .child(div().flex_1().min_h(0).child(web.new(VIDEO_CELL, { src: this.player?.includes("{id}") ? this.player.replace("{id}", x.id) : `https://www.youtube.com/watch?v=${x.id}` })))
+      .when(Boolean(notes), (el) => el.child(div().id("vid-notes-text").flex_1().min_h(0).overflow_y_scrollbar().px(12).py(8)
+        .border_t(1).border_color(t.border).whitespace_normal().on_mouse_down("right", copyOn(notes)).child(notes)))
+      .when(!notes && asked, (el) => el.child(div().flex_none().px(12).py(8).border_t(1).border_color(t.border).text_color(t.muted)
+        .whitespace_normal().child("trend agent 整理中，好了會出現在這裡。")));
   }
   // My videos: what fetch.js's YouTube searches (one per line of videos.txt) found, a web page like the list's
   // (writePages): a chip per search, newest found first; a click plays it here
@@ -514,7 +530,7 @@ export default class Trend extends View {
     }
     if (act === "play") {
       const x = this.videos?.items?.find((i) => i.id === h.get("name"));
-      if (x) { this.playing = x; cx.notify(); }
+      if (x) { this.playing = x; this.notes = null; this.load(cx); }
       return;
     }
     const r = this.shown.find((x) => x.topic === h.get("topic"));

@@ -139,6 +139,12 @@ click plays it in the panel (**← 影片** goes back). A search taken out of th
 keeps the newest 300.
 影片分頁：videos.txt 一行一個搜尋，點一下在面板裡播（⤢ 放大面板）。
 
+**📝 整理重點** above a playing video asks the trend agent (as the list's buttons do: tokens, only when you press
+it) for the video's key points: it gets that one video's subtitles (or, without them, its description and comments)
+and writes a one-line summary and 3 to 8 points with times to `<Herdr home>/trend/notes/<id>.txt`, which shows under
+the player (right-click copies it); **📝 重新整理** asks again. 懶得看整支：按「📝 整理重點」，trend agent 整理好的重點會
+出現在播放器下面。
+
 Gently, since every device in the house shares the IP (a production crawler's advice): each search at most every 3 hours, a few
 seconds apart, your Chrome's version in the user agent, YouTube's cookies kept between runs. A sign of a block (429,
 the consent or "sorry" page, "confirm you're not a bot", a page without results data) stops all searches for 6 hours,

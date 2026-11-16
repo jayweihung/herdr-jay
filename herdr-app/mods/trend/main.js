@@ -9,9 +9,8 @@
 // 熱門：launchd 每小時跑 fetch.js（不花 token）寫 trend/；這個 mod 只讀。問問題才叫 trend agent（花 token）。
 import { View, div, svg, image } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
-import { theme, settings, notify, appHome, readTextFile, exec, run, layout, shared, setShared, agents, terminals, focused, spaces, window, web, webCall, nextWebEvent, hc as herdrHc, props as blockProps } from "herdr";
+import { theme, settings, notify, appHome, readTextFile, writeTextFile, checking, exec, run, layout, shared, setShared, agents, terminals, focused, spaces, window, web, webCall, nextWebEvent, hc as herdrHc, props as blockProps } from "herdr";
 import * as fsp from "fs/promises";
-import process from "process";
 
 const TOGGLE = "trend-toggle", PANEL = "trend-panel";
 const JOB = "com.herdr-jay.trend";   // the launchd job that runs fetch.js (docs/trend.md)
@@ -38,6 +37,53 @@ const REPORT_CELL = "trend-report";
 // a video played in the panel: the player page in <Herdr home>/trend/player (a URL with {id}; its site in your local
 // mod.json's allow list, docs/trend.md), else YouTube's own watch page (mod.json allows www.youtube.com)
 const VIDEO_CELL = "trend-video";
+// The panel's pages are web pages (cards, subject chips to filter by, the full text): the mod writes them to
+// <Herdr home>/mods/trend/.view/ (hidden: a write doesn't reload the mod) whenever what they show changes. A click
+// in one sets the page's #hash (do=<what>&topic=…|name=…&n=<the click's time>), which comes back as a "url" event
+// and the mod asks the agent or opens the report; links in them open in the browser.
+// 面板的頁面用網頁畫：mod 寫 .view/*.html；網頁裡的按鈕改 #hash，mod 收到再去問 agent 或開報告。
+const LIST_CELL = "trend-list", REPORTS_CELL = "trend-reports";
+const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+// a page in Herdr's colors and font size: <nav> chips filter the <section data-cat>s; [data-do] clicks set the #hash
+function pageHtml(body) {
+  const t = theme(), z = fs();
+  return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><style>
+:root{--bg:${t.surface};--fg:${t.foreground};--muted:${t.muted};--dim:${t.dim};--border:${t.border};--raised:${t.raised};--accent:${t.accent};
+--accent-fg:${t.accent_foreground ?? t.background};--solid:${t.solid};--solid-fg:${t.solid_foreground};--green:${t.ansi2};--yellow:${t.ansi3}}
+html,body{margin:0;background:var(--bg);color:var(--fg);font:${z}px/1.45 -apple-system,"PingFang TC","Microsoft JhengHei",system-ui,sans-serif}
+nav{position:sticky;top:0;z-index:1;display:flex;flex-wrap:wrap;gap:6px;padding:8px 10px;background:var(--bg);border-bottom:1px solid var(--border)}
+nav button{font:inherit;font-size:.88em;padding:2px 10px;border-radius:999px;border:1px solid var(--border);background:var(--raised);color:var(--muted);cursor:pointer}
+nav button.on{background:var(--accent);color:var(--accent-fg);border-color:var(--accent)}nav button:disabled{opacity:.4;cursor:default}
+h2{margin:14px 12px 6px;font-size:.85em;font-weight:600;color:var(--muted)}
+.card{margin:0 10px 8px;padding:9px 11px;border:1px solid var(--border);border-radius:9px;background:var(--raised)}
+.card[data-do]{cursor:pointer}.card[data-do]:hover{border-color:var(--accent)}
+.top{display:flex;gap:6px;align-items:flex-start}
+.title{flex:1;min-width:0;font-weight:600;color:var(--fg);text-decoration:none;overflow-wrap:anywhere}
+a.title:hover{text-decoration:underline}
+.chip{flex:none;margin-top:.15em;padding:1px 6px;border-radius:4px;font-size:.75em;background:var(--bg);color:var(--muted)}
+.chip.x{color:var(--accent)}.chip.new{color:var(--green)}.chip.up{color:var(--yellow)}
+.dot{flex:none;width:6px;height:6px;margin-top:.55em;border-radius:3px;background:var(--accent)}
+.meta{margin-top:2px;font-size:.85em;color:var(--muted)}
+.why{margin-top:3px;font-size:.9em;color:var(--dim);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+details{margin-top:4px;font-size:.88em}summary{color:var(--muted);cursor:pointer}
+blockquote{margin:6px 0;padding-left:8px;border-left:2px solid var(--border);color:var(--muted)}
+.links a{display:block;color:var(--accent);text-decoration:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.acts{display:flex;flex-wrap:wrap;gap:6px;margin-top:7px}
+.acts button{font:inherit;font-size:.85em;padding:3px 10px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--fg);cursor:pointer}
+.acts button.main{background:var(--solid);color:var(--solid-fg);border-color:var(--solid)}.acts button.rep{color:var(--accent);border-color:var(--accent)}
+</style></head><body>${body}
+<script>
+const get=(k)=>{try{return localStorage.getItem(k)}catch{return null}},set=(k,v)=>{try{localStorage.setItem(k,v)}catch{}};
+const nav=document.querySelector("nav");
+const show=(c)=>{for(const b of document.querySelectorAll("nav button"))b.classList.toggle("on",b.dataset.cat===c);for(const s of document.querySelectorAll("section"))s.hidden=c!=="all"&&s.dataset.cat!==c;set("cat",c)};
+if(nav){nav.onclick=(e)=>{const b=e.target.closest("button");if(b){show(b.dataset.cat);scrollTo(0,0)}};const c=get("cat");show([...nav.querySelectorAll("button")].some((b)=>b.dataset.cat===c)?c:"all")}
+document.querySelector("main").onclick=(e)=>{const b=e.target.closest("[data-do]");if(!b||e.target.closest("a"))return;const k=b.closest(".card").dataset;
+location.hash="do="+b.dataset.do+(k.topic?"&topic="+encodeURIComponent(k.topic):"")+(k.name?"&name="+encodeURIComponent(k.name):"")+"&n="+Date.now();
+setTimeout(()=>history.replaceState(null,"",location.pathname),500)};
+const y=Number(get("y"));if(y)scrollTo(0,y);addEventListener("scroll",()=>set("y",String(scrollY)),{passive:true});
+</script></body></html>
+`;
+}
 const fileUrl = (p) => { const s = p.replace(/\\/g, "/"); return "file://" + (/^[A-Za-z]:/.test(s) ? "/" : "") + encodeURI(s).replace(/#/g, "%23").replace(/\?/g, "%3F"); };
 const unescape = (s) => (s == null ? null : String(s).replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&").trim());
 const metaTopic = (html) => unescape(/<meta\s+name=["']trend-topic["']\s+content=["']([^"']*)["']/i.exec(html)?.[1]);
@@ -52,34 +98,39 @@ const PRESETS = [
 const MOMENTUM = { "new-this-week": "本週新", building: "升溫中" };
 const SHOWN = 20;   // last30days names 5 to 10 topics; the sites' own front pages fill the list to this many
 const DIGG_TOPIC = { ai: "AI", tech: "科技", "world-business": "國際商業", sports: "體育", science: "科學", gaming: "遊戲", entertainment: "娛樂" };
-// The list by subject (no model, no tokens): words in the title first, then what the site says (Digg's topic,
-// Reddit's subreddit), then the site's usual (HN: 科技, Reddit's front page: 趣聞). Shown in CATS order.
-// 依主題分類：先看標題關鍵字，再看 Digg 的分類、Reddit 的看板，最後照網站慣例。
+// The list by subject (no model, no tokens): AI and stock words in the title first, then what the site says (Digg's
+// topic, Reddit's subreddit), then the other words, then the site's usual (HN: 科技, Reddit's front page: 趣聞).
+// 依主題分類：先看標題的 AI、股票關鍵字，再看 Digg 的分類、Reddit 的看板，再看其他關鍵字，最後照網站慣例。
 // shortcut: keyword lists misfile some titles; a cheap model call per row if that starts to matter.
-const CATS = ["AI", "科技", "財經", "國際政治", "科學", "娛樂", "遊戲", "體育", "趣聞", "其他"];
+const CATS = ["AI", "科技", "股票", "財經", "政治", "國際", "科學", "娛樂", "遊戲", "體育", "趣聞", "其他"];
 const WORDS = [
   ["AI", /\b(AI|A\.I\.|AGI|LLMs?|GPTs?|ChatGPT|OpenAI|Anthropic|Claude|Gemini|Copilot|Qwen\w*|DeepSeek|Llama|Mistral|Grok|xAI|machine learning|neural)\b|人工智慧/i],
-  ["財經", /\b(stocks?|shares|markets?|Fed|interest rates?|inflation|earnings|IPO|bitcoin|crypto\w*|tariffs?|economy|recession|S&P|Nasdaq|Dow|Wall Street|layoffs?)\b|股|經濟/i],
-  ["國際政治", /\b(Trump|Biden|Harris|election|Congress|Senate|White House|president|prime minister|government|war|Ukraine|Russia|Putin|Israel|Gaza|Iran|NATO|China|Taiwan|sanctions?)\b|政府|選舉/i],
+  ["股票", /\b(stocks?|stock market|earnings|IPO|Nasdaq|S&P ?500|Dow Jones|Wall Street|shareholders?|market cap|short sellers?|buyback|NYSE)\b|\$[A-Z]{1,5}\b|股票|股價|股市|台股|美股/i],
+  ["財經", /\b(Fed|interest rates?|inflation|economy|economic|recession|tariffs?|bitcoin|crypto\w*|layoffs?|GDP|jobs report|mortgage|banks?)\b|經濟|通膨|利率/i],
+  ["政治", /\b(Trump|Biden|Harris|Vance|Obama|election|Congress|Senate|House Republicans|Democrats?|Republicans?|GOP|White House|Supreme Court|governor|impeach\w*|Epstein|RFK)\b|政府|選舉|立法院|總統/i],
+  ["國際", /\b(war|Ukraine|Russia|Putin|Israel|Gaza|Iran|NATO|China|Beijing|Taiwan|sanctions?|UN|EU|Europe|ceasefire|missiles?)\b|中國|戰爭/i],
   ["科學", /\b(NASA|SpaceX|Starship|rocket|space|physics|biology|scientists?|study finds|climate|El Niño|species|fossil|quantum)\b|科學/i],
-  ["體育", /\b(NBA|NFL|MLB|NHL|FIFA|World Cup|Olympics?|Premier League|Formula 1|F1|tennis|golf)\b/i],
+  ["體育", /\b(NBA|NFL|MLB|NHL|FIFA|World Cup|Olympics?|Premier League|Formula 1|F1|tennis|golf|touchdown)\b/i],
   ["科技", /\b(Nvidia|Jensen Huang|Apple|Microsoft|Google|Amazon|Meta|Tesla|Musk|Altman|Zuckerberg|Intel|AMD|TSMC|iPhone|Android|Linux|Windows|software|chips?|GPUs?|open source|outage|hack(ed|ers?)?|browser)\b|台積電/i],
 ];
-const DIGG_CAT = { ai: "AI", tech: "科技", "world-business": "國際政治", sports: "體育", science: "科學", gaming: "遊戲", entertainment: "娛樂" };
+const DIGG_CAT = { ai: "AI", tech: "科技", "world-business": "國際", sports: "體育", science: "科學", gaming: "遊戲", entertainment: "娛樂" };
 const SUB_CAT = [
-  ["國際政治", /^r\/(politics|worldnews|news|europe|ukraine|geopolitics|PoliticalHumor)$/i],
+  ["政治", /^r\/(politics|PoliticalHumor|Conservative|democrats|Republican|law)$/i],
+  ["國際", /^r\/(worldnews|europe|ukraine|geopolitics|UkrainianConflict|anime_titties)$/i],
+  ["股票", /^r\/(wallstreetbets|stocks|investing|StockMarket|options|ValueInvesting|taiwanstock)$/i],
+  ["財經", /^r\/(economics|economy|personalfinance|CryptoCurrency|Bitcoin|finance)$/i],
   ["科技", /^r\/(technology|gadgets|programming|apple|android|pcmasterrace|hardware)$/i],
-  ["財經", /^r\/(wallstreetbets|stocks|investing|economics|personalfinance|CryptoCurrency|Bitcoin)$/i],
   ["科學", /^r\/(science|space|askscience|EarthPorn)$/i],
   ["娛樂", /^r\/(movies|television|music|entertainment|shittymoviedetails|popculturechat|anime|Marvel)$/i],
   ["遊戲", /^r\/(gaming|pcgaming|Games|nintendo|PS5|xbox|GTA\w*|leagueoflegends|Minecraft)$/i],
   ["體育", /^r\/(sports|nba|nfl|soccer|baseball|hockey|formula1|tennis|MMA|CFB)$/i],
+  ["其他", /^r\/news$/i],
 ];
 function categoryOf(r) {
   const text = `${r.topic} ${r.feed ? "" : why(r)}`;
-  const ai = WORDS[0][1].test(text) && "AI";
+  const first = WORDS.slice(0, 2).find(([, re]) => re.test(text))?.[0];
   const site = r.digg ? DIGG_CAT[r.digg] : r.sub ? SUB_CAT.find(([, re]) => re.test(r.sub))?.[0] : null;
-  return ai || site || WORDS.slice(1).find(([, re]) => re.test(text))?.[0] || (r.feed === "HN" ? "科技" : r.feed === "Reddit" ? "趣聞" : "其他");
+  return first || site || WORDS.slice(2).find(([, re]) => re.test(text))?.[0] || (r.feed === "HN" ? "科技" : r.feed === "Reddit" ? "趣聞" : "其他");
 }
 const SOURCE = { hackernews: "HN", reddit: "Reddit", digg: "Digg", x: "X", grounding: "網頁", youtube: "YouTube", polymarket: "Polymarket", github: "GitHub" };
 const STATE = { "rate-limited": "被限流", "auth-failed": "登入失效", "payment-required": "額度用完", unreachable: "連不到", timeout: "逾時",
@@ -112,13 +163,6 @@ const copyOn = (value) => (_e, cx) => {
   cx.write_to_clipboard(text);
   notify({ title: "已複製", body: text.length > 120 ? `${text.slice(0, 120)}…` : text, level: "success", timeout: 1500 });
 };
-// Only web links, with the system's own opener
-async function openLink(url) {
-  if (!/^https?:\/\//i.test(url)) return;
-  const p = window()?.platform;
-  if (p === "windows") await process.run("C:\\Windows\\System32\\rundll32.exe", ["url.dll,FileProtocolHandler", url]).catch(() => {});
-  else await process.run(p === "macos" ? "/usr/bin/open" : "xdg-open", [url]).catch(() => {});
-}
 const shortLink = (url) => { try { const u = new URL(url); return `${u.hostname}${u.pathname.length > 1 ? u.pathname.slice(0, 40) : ""}`; } catch { return url.slice(0, 60); } };
 function find(node, id) {
   if (node?.id === id) return node;
@@ -138,6 +182,7 @@ export default class Trend extends View {
     if (this.role !== "toggle") cx.spawn(async (cx) => {
       for (;;) {
         const e = await nextWebEvent();
+        if ((e?.id === LIST_CELL || e?.id === REPORTS_CELL) && e.kind === "url") { this.fromPage(e.url ?? "", cx); continue; }
         if (e?.id !== REPORT_CELL) continue;
         this.webNote = e.kind === "failed" ? `載入失敗：${e.error ?? ""}` : e.kind === "blocked" && e.url ? `已用瀏覽器開：${e.url}` : null;
         cx.notify();
@@ -161,6 +206,7 @@ export default class Trend extends View {
     try { this.data = t ? JSON.parse(t) : null; this.bad = null; } catch (e) { this.bad = `trends.json 讀不懂：${e.message ?? e}`; }
     try { this.status = s ? JSON.parse(s) : null; } catch { this.status = null; }
     await this.loadReports();
+    if (this.role !== "toggle" && !checking()) await this.writePages();
     cx.notify();
   }
   get reportDir() { return `${appHome().replace(/\\/g, "/")}/mods/trend/.reports`; }
@@ -189,15 +235,11 @@ export default class Trend extends View {
       .bg(on ? t.selected : t.surface).text_color(on ? t.foreground : t.muted).hover((s) => s.bg(t.hover))
       .on_mouse_down("left", stop).on_click((_e, cx) => { this.view = view; cx.notify(); }).child(label);
   }
+  // the reports: a web page like the list's (writePages), newest first; a card opens its report
   reportList(t, z) {
-    const list = v_flex().id("reports").flex_1().min_h(0).overflow_y_scrollbar();
-    if (!this.reports?.length) return list.child(div().p(14).text_color(t.muted).whitespace_normal()
-      .child("還沒有報告：在熱門按「🔎 深入查」，trend agent 查完會把報告寫在這裡。"));
-    for (const r of this.reports) list.child(v_flex().id(`r-${r.name}`).px(12).py(8).gap(2).border_b(1).border_color(t.border).cursor_pointer()
-      .hover((s) => s.bg(t.hover)).on_click((_e, cx) => { this.view = r.name; this.webNote = null; cx.notify(); })
-      .child(div().font_semibold().truncate().child(r.title || r.topic || r.name))
-      .child(div().text_size(z - 1.5).text_color(t.muted).truncate().child([reportWhen(r.name), r.topic].filter(Boolean).join(" · "))));
-    return list;
+    if (!this.reports?.length) return div().flex_1().p(14).text_color(t.muted).whitespace_normal()
+      .child("還沒有報告：在熱門按「🔎 深入查」，trend agent 查完會把報告寫在這裡。");
+    return this.pageCell(t, REPORTS_CELL, "reports.html");
   }
   // a report as a web page (the system's WebKit / WebView2); links in it open in the browser
   reportView(t, z) {
@@ -443,52 +485,82 @@ export default class Trend extends View {
           .child(s.ok ? `${s.name} ✓${s.when}` : `${s.name} ${s.why ?? "—"}`)))));
   }
 
+  // the list: the web page writePages() keeps up to date
   list(t, z) {
-    const list = v_flex().id("list").flex_1().min_h(0).overflow_y_scrollbar();
     if (!this.shown.length) {
       const why = this.data?.outcome === "nothing-solid" ? `這一輪沒有夠強的熱門${this.data.weak_signal ? `（最接近的：${this.data.weak_signal}）` : ""}` : "還沒有主題";
-      return list.child(div().p(14).text_color(t.muted).child(why));
+      return div().flex_1().p(14).text_color(t.muted).child(why);
     }
-    // by subject, each with its rows in the list's order (last30days' cross-checked topics first, marked 跨站)
+    return this.pageCell(t, LIST_CELL, "list.html");
+  }
+  // one of the pages in .view/ (its first write: a moment of 「載入中」)
+  pageCell(t, cell, file) {
+    if (this.written?.[file] === undefined) return div().flex_1().p(14).text_color(t.muted).child("載入中…");
+    return div().flex_1().min_h(0).child(web.new(cell, { src: fileUrl(`${this.viewDir}/${file}`) }));
+  }
+  get viewDir() { return `${appHome().replace(/\\/g, "/")}/mods/trend/.view`; }
+  async writePages() {
+    await this.writePage("list.html", LIST_CELL, this.listHtml());
+    await this.writePage("reports.html", REPORTS_CELL, this.reportsHtml());
+  }
+  // written only when it changed; a page already shown reloads (it keeps its subject and scroll: its localStorage)
+  async writePage(file, cell, html) {
+    this.written ??= {};
+    if (html === this.written[file]) return;
+    const path = `${this.viewDir}/${file}`;
+    try {
+      await fsp.mkdir(this.viewDir, { recursive: true });
+      await writeTextFile(path, html, await readTextFile(path).catch(() => null));
+    } catch { return; }   // tried again on the next load (15 s)
+    const first = this.written[file] === undefined;
+    this.written[file] = html;
+    if (!first) webCall(cell, "reload");
+  }
+  // A click in a page: #do=deep|three|report&topic=… or do=open&name=…, &n=<the click's time>; each click once (a
+  // reload repeats the url)
+  fromPage(url, cx) {
+    const h = new URLSearchParams(url.split("#")[1] ?? ""), n = h.get("n"), act = h.get("do");
+    if (!act || !n || this.pageClicks?.has(n)) return;
+    (this.pageClicks ??= new Set()).add(n);
+    if (act === "open") {
+      if (this.reports?.some((r) => r.name === h.get("name"))) { this.view = h.get("name"); this.webNote = null; cx.notify(); }
+      return;
+    }
+    const r = this.shown.find((x) => x.topic === h.get("topic"));
+    if (!r) return;
+    if (act === "report" && this.reportFor(r.topic)) { this.view = this.reportFor(r.topic).name; this.webNote = null; cx.notify(); return; }
+    const p = PRESETS[act === "deep" ? 0 : act === "three" ? 1 : -1];
+    if (p) cx.spawn(async (cx) => this.ask(`${p.label}：${r.topic}`, p.text(r), cx));
+  }
+  // the 熱門 list: subject chips (全部 and each subject with rows), then a card per row by subject
+  listHtml() {
     const seen = new Set(Array.isArray(shared(SEEN)) ? shared(SEEN) : []);
     const groups = new Map(CATS.map((c) => [c, []]));
     for (const r of this.shown) groups.get(categoryOf(r)).push(r);
-    for (const [cat, rows] of groups) if (rows.length) {
-      list.child(div().px(12).pt(10).pb(4).text_size(z - 1.5).font_semibold().text_color(t.muted).border_b(1).border_color(t.border).child(`${cat} · ${rows.length}`));
-      for (const r of rows) list.child(this.row(t, z, r, !seen.has(r.topic)));
-    }
-    return list;
+    const used = [...groups].filter(([, rows]) => rows.length);
+    const card = (r) => {
+      const links = (r.evidence_urls ?? []).filter((u) => /^https?:\/\//i.test(u));
+      const title = links[0] ? `<a class="title" href="${esc(links[0])}">${esc(r.topic)}</a>` : `<span class="title">${esc(r.topic)}</span>`;
+      const line = r.line ?? (engagementText(r.engagement) || (r.sources ?? []).map((s) => SOURCE[s] ?? s).join("、"));
+      const more = [r.top_comment ? `<blockquote>${esc(r.top_comment)}</blockquote>` : "",
+        links.length ? `<div class="links">${links.slice(0, 6).map((u) => `<a href="${esc(u)}">↗ ${esc(shortLink(u))}</a>`).join("")}</div>` : ""].join("");
+      return `<div class="card" data-topic="${esc(r.topic)}"><div class="top">${seen.has(r.topic) ? "" : '<span class="dot"></span>'}${title}`
+        + `${MOMENTUM[r.momentum] ? `<span class="chip ${r.momentum === "new-this-week" ? "new" : "up"}">${MOMENTUM[r.momentum]}</span>` : ""}`
+        + `<span class="chip${r.feed ? "" : " x"}">${esc(r.feed ?? "跨站")}</span></div>`
+        + `${line ? `<div class="meta">${esc(line)}</div>` : ""}${why(r) ? `<div class="why">${esc(why(r))}</div>` : ""}`
+        + `${more ? `<details><summary>更多</summary>${more}</details>` : ""}`
+        + `<div class="acts"><button class="main" data-do="deep">🔎 深入查</button><button data-do="three">三句話說明</button>`
+        + `${this.reportFor(r.topic) ? '<button class="rep" data-do="report">📄 看報告</button>' : ""}</div></div>`;
+    };
+    // every subject has its chip (one with nothing this hour: greyed), so the set stays the same from hour to hour
+    return pageHtml(`<nav><button data-cat="all">全部 ${this.shown.length}</button>${[...groups].map(([c, rows]) => `<button data-cat="${esc(c)}"${rows.length ? "" : " disabled"}>${esc(c)} ${rows.length}</button>`).join("")}</nav>`
+      + `<main>${used.map(([c, rows]) => `<section data-cat="${esc(c)}"><h2>${esc(c)}</h2>${rows.map(card).join("")}</section>`).join("")}</main>`);
   }
-
-  row(t, z, r, fresh) {
-    const open = this.open === r.topic;
-    const chip = (text, color) => div().px(6).rounded(4).text_size(z - 2.5).flex_none().bg(t.raised).text_color(color).child(text);
-    const row = v_flex().id(`r-${r.rank}`).px(12).py(8).gap(3).border_b(1).border_color(t.border).cursor_pointer()
-      .when(open, (el) => el.bg(t.selected)).hover((s) => (open ? s : s.bg(t.hover)))
-      .on_click((_e, cx) => { this.open = open ? null : r.topic; this.asked = null; cx.notify(); })
-      .child(h_flex().gap(6).items_center().min_w(0)
-        .child(div().w(18).flex_none().text_color(t.dim).child(String(r.rank)))
-        .child(div().flex_1().min_w(0).truncate().font_semibold().on_mouse_down("right", copyOn(r.topic)).child(r.topic))
-        .when(fresh, (el) => el.child(div().w(6).h(6).rounded(3).flex_none().bg(t.accent)))
-        .when(Boolean(MOMENTUM[r.momentum]), (el) => el.child(chip(MOMENTUM[r.momentum], r.momentum === "new-this-week" ? t.ansi2 : t.ansi3)))
-        .child(chip(r.feed ?? "跨站", r.feed ? t.muted : t.accent)))
-      .child(div().pl(24).text_size(z - 1.5).text_color(t.muted).truncate().child(r.line ?? (engagementText(r.engagement) || (r.sources ?? []).map((s) => SOURCE[s] ?? s).join("、"))));
-    if (!open) return row.child(div().pl(24).text_size(z - 1.5).text_color(t.dim).truncate().child(why(r)));
-    row.child(div().pl(24).text_size(z - 1).whitespace_normal().child(why(r)));
-    if (r.top_comment) row.child(div().ml(24).pl(8).border_l(2).border_color(t.border).text_size(z - 1.5).text_color(t.muted).whitespace_normal().child(r.top_comment));
-    (r.evidence_urls ?? []).slice(0, 6).forEach((u, i) => row.child(div().id(`u-${r.rank}-${i}`).pl(24).text_size(z - 1.5).text_color(t.accent).truncate()
-      .hover((s) => s.underline()).on_mouse_down("left", stop).on_mouse_down("right", copyOn(u))
-      .on_click((_e, cx) => { cx.stop_propagation(); openLink(u); }).child(`↗ ${shortLink(u)}`)));
-    row.child(h_flex().pl(24).pt(4).gap(6).flex_wrap().children(PRESETS.map((p, i) =>
-      div().id(`p-${r.rank}-${i}`).h(30).px(12).flex().items_center().rounded(6).cursor_pointer().font_semibold().text_size(z - 0.5)
-        .bg(i === 0 ? t.solid : t.background).text_color(i === 0 ? t.solid_foreground : t.foreground).border_1().border_color(i === 0 ? t.solid : t.border).hover((s) => s.opacity(0.88))
-        .on_mouse_down("left", stop).on_click((_e, cx) => { cx.stop_propagation(); cx.spawn(async (cx) => this.ask(`${p.label}：${r.topic}`, p.text(r), cx)); })
-        .child(this.asked?.sending === `${p.label}：${r.topic}` ? "送出中…" : p.label)))
-      .when(Boolean(this.reportFor(r.topic)), (el) => el.child(div().id(`rep-${r.rank}`).h(30).px(12).flex().items_center().rounded(6).cursor_pointer()
-        .font_semibold().text_size(z - 0.5).bg(t.background).text_color(t.accent).border_1().border_color(t.accent).hover((s) => s.opacity(0.88))
-        .on_mouse_down("left", stop).on_click((_e, cx) => { cx.stop_propagation(); this.view = this.reportFor(r.topic).name; this.webNote = null; cx.notify(); })
-        .child("📄 看報告"))));
-    return row;
+  // the reports: a card each (title, when, the topic asked), newest first; a click opens it
+  reportsHtml() {
+    return pageHtml(`<main><h2>trend agent 的報告</h2>${(this.reports ?? []).map((r) => `<div class="card" data-do="open" data-name="${esc(r.name)}">`
+      + `<div class="top"><span class="title">${esc(r.title || r.topic || r.name)}</span></div>`
+      + `<div class="meta">${esc([reportWhen(r.name), r.topic].filter(Boolean).join(" · "))}</div></div>`).join("")}</main>`);
   }
 
   // 問 agent: which trend agent (this space's first), the tool a new one opens with, a free question, what happened

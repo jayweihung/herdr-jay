@@ -10,15 +10,17 @@ A tab-bar button **熱門** and a panel, like Gerrit's (macOS and Windows):
   清單不花 token：launchd 每小時跑 last30days 的 discover（不叫模型），面板只讀結果。
 - **The button**: how many topics you haven't seen (opening the panel counts them as seen), a ring while fetching, a
   red `!` when the last run failed. 按鈕：沒看過的主題數、抓的時候轉圈、上次失敗是紅色 `!`。
-- **The panel**: each topic with its numbers (HN 分／留言…) and why it's up; click one for the top comment, its sources
-  (click opens the browser, right-click copies) and **🔎 深入查** / **三句話說明**. The line under the title says when
+- **The panel**: the list and the 報告 tab are web pages the mod writes to `<Herdr home>/mods/trend/.view/` (in
+  Herdr's colors and font size): subject chips on top filter the list; each topic is a card with its numbers (HN
+  分／留言…) and why it's up, **更多** for the top comment and its sources (a link opens the browser), and
+  **🔎 深入查** / **三句話說明** / **📄 看報告**. The line under the title says when
   it last ran and when it runs next, and a 來源 line names each site once: ✓ when it answered (Reddit: how long ago its
   page was read), else why not (`讀不到` is not "nothing happened there"; right-click copies it). **↻ 現在更新**
   runs it now; **⤢** shows the panel alone in its row (again: back). 面板：每個主題的數字和原因；點開看熱門留言、來源連結、深入查／三句話說明。標題下面寫上次和下次更新、哪些網站有回應；⤢ 放大。
   last30days names 5 to 10 topics (it checks each across sites, marked 跨站), so the list goes on to 20 with each
   site's own front page, HN's, Reddit's (r/all, today) and Digg's in turn (marked HN / Reddit / Digg; a story a topic
-  already cites is left out). The 20 are grouped by subject (AI, 科技, 財經, 國際政治, 科學, 娛樂, 遊戲, 體育, 趣聞,
-  其他) from words in the title, Digg's topic or Reddit's subreddit: no model, so some land in the wrong group.
+  already cites is left out). The 20 are grouped by subject (AI, 科技, 股票, 財經, 政治, 國際, 科學, 娛樂, 遊戲, 體育,
+  趣聞, 其他) from words in the title, Digg's topic or Reddit's subreddit: no model, so some land in the wrong group.
   Reddit's page is opened by your installed Chrome or Edge, headless, with a
   profile of its own (Reddit blocks scripts with 403), every 2 to 3 hours; blocked, it waits 6, then 12, then 24 hours
   before one more try, and the button posts a notification.

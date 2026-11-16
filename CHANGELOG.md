@@ -9,13 +9,15 @@ says which) · **kit** = update kit itself on every machine where agents run (`k
 **snap hook** = a line in Claude Code's `settings.json` on each machine where you added the hook (the entry says
 which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/keys.md).
 
-## 2026-11-16, trend: the list grouped by subject
+## 2026-11-16, trend: the list and 報告 as web pages, grouped by subject
 
 Needs: **mods** (Windows: copy `trend` again; macOS link: nothing).
 
-- The 熱門 list comes in groups: AI, 科技, 財經, 國際政治, 科學, 娛樂, 遊戲, 體育, 趣聞, 其他, from words in the title,
-  Digg's topic or Reddit's subreddit (no model: a few land in the wrong group). last30days' cross-checked topics are
-  marked 跨站. 熱門清單依主題分組；last30days 跨站比對過的標「跨站」。
+- The 熱門 list and the 報告 tab are web pages now (cards in Herdr's colors; subject chips on top to filter; 更多 for
+  the top comment and links), grouped by subject: AI, 科技, 股票, 財經, 政治, 國際, 科學, 娛樂, 遊戲, 體育, 趣聞, 其他,
+  from words in the title, Digg's topic or Reddit's subreddit (no model: a few land in the wrong group).
+  last30days' cross-checked topics are marked 跨站. 熱門清單和報告分頁改用網頁畫，依主題分組（多了股票、政治），上面的
+  主題鈕可以篩選。
 
 ## 2026-11-16, trend: Reddit's own front page in the list
 

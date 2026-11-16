@@ -604,9 +604,16 @@ export default class Trend extends View {
     await this.ask(`問影片：${q}`, `關於 YouTube 影片「${x.title}」（${[x.channel, `https://www.youtube.com/watch?v=${x.id}`].filter(Boolean).join("，")}）：${q}\n先看它的字幕（沒有就說明和留言），不夠再查。用繁體中文回答。`, cx);
   }
 
+  // A video left for another tab turns blank (render); coming back loads it again, so while away it starts from where
+  // it got to, not from where you pressed play
+  keepPlace() {
+    const x = this.playing;
+    if (x && !this.watching && this.progress?.[x.id] > 5) this.playFrom = this.progress[x.id];
+  }
   render(cx) {
     if (this.role === "toggle") return this.renderToggle();
     const t = theme(), z = fs();
+    this.keepPlace();
     return v_flex().id("trend").size_full().bg(t.surface).text_size(z).text_color(t.foreground)
       .child(this.header(t, z))
       .child(this.view === "list" ? this.list(t, z) : this.view === "videos" ? this.videoList(t, z) : this.view === "reports" ? this.reportList(t, z) : this.reportView(t, z))

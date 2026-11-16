@@ -485,7 +485,8 @@ export function reviewMethods(h) {
             this.setReviewEntry(e);
             this.setReviewJob(j.n, null);
             await this.reviewWrite(j.n);
-            this.reviewOpen(j.n);
+            if (now.ask) await this.askAgent(null, now.ask, cx); // 深入 Review: the agent reads it, nvim isn't opened
+            else this.reviewOpen(j.n);
             continue;
           }
           const k = `${st.step}|${JSON.stringify(pr)}`;
@@ -716,7 +717,7 @@ export function reviewMethods(h) {
         card.child(small(`放在 ${msg.wt}（另存一份在 ${msg.store}，之後同一個 project 不用再問）`));
         card.child(small("自己有 clone 的話：在 gerrit.json 的 review.repos 寫它的位置，就用你的那份。"));
         return card.child(h_flex().gap(6)
-          .child(this.big(t, z, "rv-yes", "下載", { kind: "primary", on: (cx) => cx.spawn(async (cx) => this.reviewStart(c, cx, true)) }))
+          .child(this.big(t, z, "rv-yes", "下載", { kind: "primary", on: (cx) => cx.spawn(async (cx) => (msg.then ? this.askAgent(c, msg.then, cx, true) : this.reviewStart(c, cx, true))) }))
           .child(this.big(t, z, "rv-no", "取消", { on: (cx) => { this.reviewMsg = null; cx.notify(); } })));
       }
       if (job?.state === "fail") card.child(div().id("rv-err").text_size(z - 1).text_color(t.ansi1).whitespace_normal().on_mouse_down("right", ui.copyOn(job.error)).child(`沒有下載好：${job.error}`));

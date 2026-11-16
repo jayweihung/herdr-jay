@@ -169,6 +169,8 @@ const AGENT_PROMPTS = [
   { label: "整理留言", text: "/gerrit-panel:comments {change} {patchset} {url}" },
   { label: "為什麼沒過", text: "/gerrit-panel:why-blocked {change} {patchset} {url} {requirements}" },
   { label: "幫我回覆", text: "/gerrit-panel:draft-replies {change} {patchset} {url}" },
+  // {folder}: the change's code on this computer (在 nvim 看's download, review.js), fetched first; nvim isn't opened
+  { label: "深入 Review", text: "/gerrit-panel:deep-review {change} {patchset} {url} {folder}" },
 ];
 // What the panel knows and the Gerrit MCP doesn't return (submit requirements, conflicts), as one line for a prompt.
 function requirementsText(c) {
@@ -578,7 +580,9 @@ export default class Gerrit extends View {
       url: base ? `${String(base).replace(/\/+$/, "")}/c/${c.project}/+/${c._number}` : `#${c._number}`, gerrit: base,
       requirements: requirementsText(c) };
   }
-  async askAgent(c, p, cx) {
+  // agreed: the 下載嗎？ card's 下載 was pressed for this ask ({folder})
+  async askAgent(c, p, cx, agreed = false) {
+    if (!p.filled && /\{folder\}/.test(p.text ?? "")) return this.askWithCode(c, p, cx, agreed);
     const target = this.pickedAgent(this.agentList());
     if (!target) return this.openAndAsk(c, p, cx);
     const filled = p.filled ?? fillPrompt(p.text, this.promptVars(c)); // (filled: written already, e.g. nvim's question)
@@ -595,6 +599,28 @@ export default class Gerrit extends View {
     } catch (e) { err = String(e?.message ?? e); }
     this.ask = err ? { error: `沒送出：${err}` } : { sent: p.label, to: target.title || target.tab_name || target.address, at: Date.now() };
     if (!err) try { run("agent.focus", { terminal: target.address }); } catch {}
+    cx.notify();
+  }
+  // A preset with {folder} (深入 Review): the patch set's worktree (HEAD = it, HEAD^ = its parent) from 在 nvim 看's
+  // download. Already there: asked now. Else downloaded first; the job keeps the question and reviewTick asks it when
+  // done, instead of opening nvim.
+  async askWithCode(c, p, cx, agreed) {
+    const n = c._number, ps = c.revisions?.[c.current_revision]?._number;
+    const ask = (folder) => ({ label: p.label, filled: fillPrompt(p.text, { ...this.promptVars(c), folder }) });
+    const e = this.reviewEntry(n), job = this.reviewJob(n), running = job?.state === "running";
+    if (!running && e && e.ps === ps && e.base_ps == null) return this.askAgent(c, ask(e.wt), cx);
+    if (running && (job.ps !== ps || job.base_ps != null)) { this.ask = { wait: "這個 change 正在下載別的版本，好了再按" }; cx.notify(); return; }
+    if (!running && !(await this.reviewStart(c, cx, agreed, { base: null, to: ps }))) {
+      const m = this.reviewMsg?.n === n ? this.reviewMsg : null;
+      if (m?.ask) { this.reviewMsg = { ...m, then: p }; this.ask = { wait: "先在下面「在 nvim 看」卡片按「下載」，下載好就問" }; }
+      else if (m?.error) this.ask = { error: `沒有下載：${m.error}` };
+      cx.notify();
+      return;
+    }
+    const now = this.reviewJob(n);
+    if (!now) return;
+    this.setReviewJob(n, { ...now, ask: ask(now.wt) });
+    this.ask = { wait: `下載這一版的程式，好了就問「${p.label}」` };
     cx.notify();
   }
   // No Gerrit agent yet: open one in this space with the question as its first message (tab.new's task), so it answers
@@ -720,6 +746,7 @@ export default class Gerrit extends View {
     const s = this.ask;
     if (s?.error) card.child(div().id("ask-err").text_size(z - 1).text_color(t.ansi1).whitespace_normal().on_mouse_down("right", copyOn(s.error)).child(s.error));
     else if (s?.sent) card.child(div().text_size(z - 1).text_color(t.ansi2).child(`✓「${s.sent}」已送給 ${s.to}`));
+    else if (s?.wait) card.child(div().text_size(z - 1).text_color(t.muted).whitespace_normal().child(s.wait));
     else if (s?.opening) card.child(div().text_size(z - 1).text_color(t.ansi2).whitespace_normal().child(`✓ ${s.to}，開好就回答「${s.opening}」`));
     return card;
   }

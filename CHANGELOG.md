@@ -9,6 +9,18 @@ says which) · **kit** = update kit itself on every machine where agents run (`k
 **snap hook** = a line in Claude Code's `settings.json` on each machine where you added the hook (the entry says
 which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/keys.md).
 
+## 2026-11-16, Gerrit: 深入 Review
+
+A fifth 問 agent button, **深入 Review**: the panel gets the change's code on this computer the way 在 nvim 看 does
+(your clone, else a download; no nvim opened), then asks the Gerrit agent to review it in depth with the new skill
+`deep-review` (kit: `gerrit-deep-review`): who calls what changed, similar code, tests, architecture. It only reads
+the folder and runs nothing from the change. docs/gerrit.md §7.
+問 agent 多一個「深入 Review」：先把這一版的程式放到本機（像在 nvim 看，不開 nvim），再請 agent 連呼叫端、測試、架構一起看。
+If you edited the buttons with ✎ 編輯問題, the new one isn't there: press 還原成原本的, or add it yourself
+(`/gerrit-panel:deep-review {change} {patchset} {url} {folder}`). 改過按鈕的話新按鈕不會出現：按「還原成原本的」或自己加。
+Needs: **gerrit** (Windows: copy `gerrit` again; macOS link: nothing). A kit gerrit agent: **kit** (`kit sync` once the
+kit sources have `gerrit-deep-review`).
+
 ## 2026-11-16, panels come back where you left them
 
 Closed and opened again, after a mod reload or a Herdr restart: agent-page shows the tab you were on (and its pages

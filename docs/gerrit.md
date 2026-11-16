@@ -318,16 +318,28 @@ about this change with `hc send`, then brings it to the front.
 you are in** and gives it the question as its first message (`tab.new`'s `task`), so it answers as soon as it's up;
 nothing to press twice. With a gerrit agent in your kit sources (the Kit panel lists it), it is put in this space like
 a drag from the Kit panel (`kit place`, its own `…/gerrit` folder, one per space; the Kit button must be in the layout:
-it does the work); otherwise `agent.start` opens it. Neither: the card says how to set one up. Presets: **Review**, **整理留言**, **為什麼沒過**, **幫我回覆**. Each one calls a skill
+it does the work); otherwise `agent.start` opens it. Neither: the card says how to set one up. Presets: **Review**, **整理留言**, **為什麼沒過**, **幫我回覆**, **深入 Review**. Each one calls a skill
 (`/gerrit-panel:review 7 3 <url>` and so on) from the `gerrit-panel` plugin that comes with the mod
 ([herdr-app/mods/gerrit/claude-plugin](../herdr-app/mods/gerrit/claude-plugin/skills)): how to do the job is written in the skill, the button only says
 which skill and which change. A kit gerrit agent gets the same request with its kit skills' names
-(`/gerrit-review 7 3 <url>`: skills `gerrit-review`, `gerrit-comments`, `gerrit-why-blocked`, `gerrit-draft-replies`). The skills don't post or vote on Gerrit until you agree, and answer in Traditional
+(`/gerrit-review 7 3 <url>`: skills `gerrit-review`, `gerrit-comments`, `gerrit-why-blocked`, `gerrit-draft-replies`,
+`gerrit-deep-review`). The skills don't post or vote on Gerrit until you agree, and answer in Traditional
 Chinese; the agent loads them with a second `--plugin-dir` (§8 step 5). **✎ 編輯問題** edits them in the panel: one block
 per button with the words on it, what the agent is asked, and what would be sent for this change (updates as you
 type); add, delete, 儲存, 取消, 還原成原本的 (back to `gerrit.json`'s or the built-in ones). A tab can open straight on
 it: `--props '{"open":"7","edit_prompts":true}'`. The panel remembers the agents it opened from `agent.start` until their
 tab is closed.
+
+**深入 Review** reads more than the diff: the callers and users of what changed, similar code, tests, and what it
+does to the architecture. For that the agent needs the code, so the panel first gets this patch set the way
+**在 nvim 看** does (§9: your own clone, else a download after asking once per project) into its folder
+(`HEAD` = this patch set, `HEAD^` = its parent), without opening nvim, and asks the agent when it's there
+(`/gerrit-panel:deep-review 7 3 <url> <folder>`); already downloaded: asked at once. Answering 下載 on the
+下載嗎？ card goes on to ask by itself. The skill only reads the folder (git diff / grep / log / show, reading files):
+it runs nothing from the change (no build, tests or scripts) and changes nothing there.
+「深入 Review」不只看改過的檔：還找誰呼叫、類似的程式、測試、架構。面板先像「在 nvim 看」一樣把這一版放到本機資料夾
+（不開 nvim），好了才問 agent；已經下載過就直接問。agent 只讀那個資料夾，不跑裡面的程式、不改檔案。
+
 「問 agent」只列出有 Gerrit 工具的 agent：kit 的 gerrit agent（從 Kit 面板放進 space 的，資料夾的 `.agentkit` 寫著
 `agent:gerrit`），或面板用 gerrit.json 的 `agent.start` 開的；這個 space 的排前面。別的 agent 不列，免得以為送出去就會做。
 **先選問題**：還沒有 Gerrit agent 也能按，面板會在你現在這個 space 開一個，把問題當第一句話帶進去，開好就回答。kit 來源有
@@ -347,7 +359,7 @@ agent 可以是 Claude、Codex 或 omp：面板問 Herdr 它是哪一種，用�
 `agent.tool`，再沒有就是 Claude）。Codex 沒有 `--plugin-dir`，只能用 kit 的 gerrit agent。
 
 A kit gerrit agent, in a kit source (see [docs/kit.md](kit.md)): `agents/gerrit.md` with `skills: [gerrit-review,
-gerrit-comments, gerrit-why-blocked, gerrit-draft-replies]` (in the public agentkit-library) and `mcp: [gerrit]`, and
+gerrit-comments, gerrit-why-blocked, gerrit-draft-replies, gerrit-deep-review]` (in the public agentkit-library) and `mcp: [gerrit]`, and
 `mcp/gerrit.yaml`:
 
 ```yaml
@@ -372,7 +384,8 @@ Optional, in `gerrit.json`:
 ```
 
 - `prompts` replace the presets. Words in braces are filled in: `{change}` `{patchset}` `{url}` `{project}`
-  `{branch}` `{subject}` `{topic}` `{gerrit}`, and `{requirements}`: what the panel sees that the Gerrit
+  `{branch}` `{subject}` `{topic}` `{gerrit}`, `{folder}` (the patch set's code on this computer, downloaded first
+  as for 深入 Review), and `{requirements}`: what the panel sees that the Gerrit
   tools don't return (unmet submit requirements, a conflict), e.g. （面板看到：合併條件未過：Code-Review；合併衝突）.
   為什麼沒過 sends it, so the agent never has to go around its tools.
 - Windows: the same, with the folder written with `/` or doubled `\\` (JSON), e.g.

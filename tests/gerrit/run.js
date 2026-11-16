@@ -461,6 +461,54 @@ test("在 nvim 看: no clone here asks first, then a store of its own (only the 
   assert.match(renderText(g), /沒有下載好：取消了/);
 });
 
+test("深入 Review: the patch set is downloaded first (no nvim), then the agent is asked with its folder; already there: asked now; 下載嗎？ answered: goes on by itself", async (G) => {
+  setConfig({ ...LOGIN, review: { root: "~/rv", search: ["~/src"] } }); const g = freshView(G); g.cfg = await g.readConfig();
+  H.store["gerrit.cfg.v1"] = { url: "https://gerrit.test", auth: true }; H.store["gerrit.data.v1"] = { at: Date.now(), err: null, self: ME, sections: [] };
+  delete H.store["kit.agents.data.v1"]; H.store["gerrit.agents.v1"] = ["t5"];
+  H.spaces = [{ id: "s1", name: "web" }]; H.focused = { space: "s1" }; H.overlays = []; H.opened = [];
+  H.agents = [{ address: "t5", title: "gerrit", space: "s1", app: "claude" }]; H.terminals = [{ address: "t5", cwd: "/w" }];
+  H.execAnswer = (cmd, args) => {
+    if (cmd === "/bin/sh" && /for d in/.test(args[1])) return { code: 0, stdout: "", stderr: "" };
+    if (cmd === "/bin/mkdir") { mkdirSync(args[1], { recursive: true }); return { code: 0, stdout: "", stderr: "" }; }
+    if (cmd === "/bin/sh" && /nohup/.test(args[1])) return { code: 0, stdout: "55\n", stderr: "" };
+    return null;
+  };
+  gerrit([["GET", /^\/a\/changes\/9\//, [200, {}]]]);
+  const deep = g.agentCfg().prompts.find((p) => p.label === "深入 Review");
+  const c = change(9, { current_revision: "d2", revisions: { d1: { _number: 1, ref: "refs/changes/09/9/1" }, d2: { _number: 2, ref: "refs/changes/09/9/2" } } });
+  g.detail = { change: c, comments: {} }; g.openId = c.id; g.cmp = { base: 1, to: 2 }; // the page compares: 深入 Review still takes the patch set alone
+  // no clone and never asked: the 下載嗎？ card; 下載 there downloads and keeps the question
+  await g.askAgent(c, deep, cx);
+  assert.equal(g.reviewJob(9), null); assert.equal(g.reviewMsg.ask, true); assert.equal(H.opened.length, 0);
+  assert.match(renderText(g), /在 nvim 看」卡片按「下載」/);
+  await g.askAgent(c, g.reviewMsg.then, cx, true); // what 下載 does with a question waiting
+  const job = g.reviewJob(9), wt = `${H.home}/rv/tools-build-9`;
+  assert.equal(job.state, "running"); assert.equal(job.ps, 2); assert.equal(job.base_ps, null); assert.equal(job.wt, wt);
+  assert.match(readFileSync(join(job.dir, "run.sh"), "utf8"), /BASE_REF=''/);
+  assert.deepEqual(job.ask, { label: "深入 Review", filled: `/gerrit-panel:deep-review 9 2 https://gerrit.test/c/tools/build/+/9 ${wt}` });
+  assert.match(renderText(g), /好了就問「深入 Review」/);
+  // pressed again while it downloads: still one job, the same question
+  await g.askAgent(c, deep, cx);
+  assert.equal(g.reviewJob(9).dir, job.dir); assert.equal(H.opened.length, 0);
+  // done: the agent is asked with the folder; no nvim
+  writeFileSync(join(job.dir, "status"), "pid 55\nstep fetch\nhead d2\nbase d0\nstep checkout\nstep prepare\ndone\n");
+  await g.reviewTick(cx);
+  assert.equal(g.reviewJob(9), null); assert.equal(g.reviewEntry(9).wt, wt);
+  assert.equal(H.overlays.length, 0, "nvim isn't opened");
+  assert.deepEqual(H.opened.at(-1), ["hc", "send", "t5", `/gerrit-panel:deep-review 9 2 https://gerrit.test/c/tools/build/+/9 ${wt}`]);
+  // the worktree has this patch set already: asked at once, nothing downloaded
+  H.opened = []; H.execs = [];
+  await g.askAgent(c, deep, cx);
+  assert.equal(g.reviewJob(9), null); assert.equal(H.execs.length, 0);
+  assert.deepEqual(H.opened, [["hc", "send", "t5", `/gerrit-panel:deep-review 9 2 https://gerrit.test/c/tools/build/+/9 ${wt}`]]);
+  // another patch set downloading for this change: said, nothing sent
+  H.opened = [];
+  g.setReviewJob(9, { n: 9, state: "running", ps: 1, base_ps: null, wt, dir: job.dir, at: Date.now() });
+  await g.askAgent(c, deep, cx);
+  assert.match(g.ask.wait, /正在下載別的版本/); assert.equal(H.opened.length, 0);
+  g.setReviewJob(9, null); H.agents = []; H.terminals = []; delete H.store["gerrit.agents.v1"];
+});
+
 test("在 nvim 看: nvim's replies, edits and deletes become drafts; a newer patch set; another one asked for; a question to the agent", async (G) => {
   setConfig({ ...LOGIN, review: { root: "~/rv", search: ["~/src"] } }); const g = freshView(G); g.cfg = await g.readConfig();
   H.store["gerrit.cfg.v1"] = { url: "https://gerrit.test", auth: true }; H.store["gerrit.data.v1"] = { at: Date.now(), err: null, self: ME, sections: [] };
@@ -887,7 +935,7 @@ test("ask an agent with none open, the kit sources having a gerrit agent: the Ki
 test("ask an agent: presets call the gerrit-panel skills; ✎ edits them (saved for every copy), 還原預設 brings the built-in ones back", async (G) => {
   setConfig(LOGIN); const g = freshView(G); g.cfg = await g.readConfig();
   const builtIn = g.agentCfg().prompts;
-  assert.ok(builtIn.every((p) => /^\/gerrit-panel:[a-z-]+ \{change\} \{patchset\} \{url\}( \{requirements\})?$/.test(p.text)), "every preset calls a gerrit-panel skill");
+  assert.ok(builtIn.every((p) => /^\/gerrit-panel:[a-z-]+ \{change\} \{patchset\} \{url\}( \{requirements\}| \{folder\})?$/.test(p.text)), "every preset calls a gerrit-panel skill");
   const rv = g.promptVars({ _number: 6, project: "demo", mergeable: false,
     submit_requirements: [{ name: "Code-Review", status: "UNSATISFIED" }, { name: "Verified", status: "SATISFIED" }, { name: "Old", status: "NOT_APPLICABLE" }] });
   assert.equal(rv.requirements, "（面板看到：合併條件未過：Code-Review；合併衝突）", "why-blocked gets what the panel sees");
@@ -909,7 +957,7 @@ test("ask an agent: presets call the gerrit-panel skills; ✎ edits them (saved 
   const list = rows.map((r) => ({ label: r.label.value().trim(), text: r.text.value().trim() })).filter((p) => p.label && p.text);
   H.store["gerrit.prompts.v1"] = list; g.promptEdit = null;
   const got = g.agentCfg().prompts.map((p) => p.label);
-  assert.deepEqual(got, ["看一下", builtIn[2].label, builtIn[3].label, "新的"]);
+  assert.deepEqual(got, ["看一下", ...builtIn.slice(2).map((p) => p.label), "新的"]);
   g.cfg = { ...g.cfg, agent: { prompts: [{ label: "json", text: "j" }] } };
   assert.deepEqual(g.agentCfg().prompts.map((p) => p.label)[0], "看一下", "edited in the panel beats gerrit.json");
   H.store["gerrit.prompts.v1"] = null;

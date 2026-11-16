@@ -79,7 +79,7 @@ blockquote{margin:6px 0;padding-left:8px;border-left:2px solid var(--border);col
 .acts button.main{background:var(--solid);color:var(--solid-fg);border-color:var(--solid)}.acts button.rep{color:var(--accent);border-color:var(--accent)}
 </style></head><body>${body}
 <script>
-const get=(k)=>{try{return localStorage.getItem(k)}catch{return null}},set=(k,v)=>{try{localStorage.setItem(k,v)}catch{}};
+const K=location.pathname.split("/").pop()+":",get=(k)=>{try{return localStorage.getItem(K+k)}catch{return null}},set=(k,v)=>{try{localStorage.setItem(K+k,v)}catch{}};
 const nav=document.querySelector("nav");
 const show=(c)=>{for(const b of document.querySelectorAll("nav button"))b.classList.toggle("on",b.dataset.cat===c);for(const s of document.querySelectorAll("section"))s.hidden=c!=="all"&&s.dataset.cat!==c;set("cat",c)};
 if(nav){nav.onclick=(e)=>{const b=e.target.closest("button");if(b){show(b.dataset.cat);scrollTo(0,0)}};const c=get("cat");show([...nav.querySelectorAll("button")].some((b)=>b.dataset.cat===c)?c:"all")}
@@ -102,7 +102,7 @@ const PRESETS = [
     : `用繁體中文三句話說明「${r.topic}」最近發生什麼事、為什麼大家在討論。這一題的來源在 ~/.config/herdr-app/trend/trends.json（topic 是 ${JSON.stringify(r.topic)}），先看那些連結，不夠再查。` },
 ];
 const MOMENTUM = { "new-this-week": "本週新", building: "升溫中" };
-const SHOWN = 20;   // last30days names 5 to 10 topics; the sites' own front pages fill the list to this many
+const SHOWN = 40;   // last30days names 5 to 10 topics; the sites' own front pages fill the list to this many
 const DIGG_TOPIC = { ai: "AI", tech: "科技", "world-business": "國際商業", sports: "體育", science: "科學", gaming: "遊戲", entertainment: "娛樂" };
 // The list by subject (no model, no tokens): AI and stock words in the title first, then what the site says (Digg's
 // topic, Reddit's subreddit), then the other words, then the site's usual (HN: 科技, Reddit's front page: 趣聞).
@@ -113,7 +113,7 @@ const WORDS = [
   ["AI", /\b(AI|A\.I\.|AGI|LLMs?|GPTs?|ChatGPT|OpenAI|Anthropic|Claude|Gemini|Copilot|Qwen\w*|DeepSeek|Llama|Mistral|Grok|xAI|machine learning|neural)\b|人工智慧/i],
   ["股票", /\b(stocks?|stock market|earnings|IPO|Nasdaq|S&P ?500|Dow Jones|Wall Street|shareholders?|market cap|short sellers?|buyback|NYSE)\b|\$[A-Z]{1,5}\b|股票|股價|股市|台股|美股/i],
   ["財經", /\b(Fed|interest rates?|inflation|economy|economic|recession|tariffs?|bitcoin|crypto\w*|layoffs?|GDP|jobs report|mortgage|banks?)\b|經濟|通膨|利率/i],
-  ["政治", /\b(Trump|Biden|Harris|Vance|Obama|election|Congress|Senate|House Republicans|Democrats?|Republicans?|GOP|White House|Supreme Court|governor|impeach\w*|Epstein|RFK)\b|政府|選舉|立法院|總統/i],
+  ["政治", /\b(Trump|Biden|Harris|Vance|Obama|election|Congress|Senate|House Republicans|Democrats?|Republicans?|GOP|White House|Supreme Court|governor|impeach\w*|Epstein|RFK)\b|政府|選舉|立法院|總統|國民黨|民進黨|民眾黨|藍營|綠營|藍白|民調|立委|議員|市長|罷免|造勢|候選人|政黑|賴清德|柯文哲|黃國昌/i],
   ["國際", /\b(war|Ukraine|Russia|Putin|Israel|Gaza|Iran|NATO|China|Beijing|Taiwan|sanctions?|UN|EU|Europe|ceasefire|missiles?)\b|中國|戰爭/i],
   ["科學", /\b(NASA|SpaceX|Starship|rocket|space|physics|biology|scientists?|study finds|climate|El Niño|species|fossil|quantum)\b|科學/i],
   ["體育", /\b(NBA|NFL|MLB|NHL|FIFA|World Cup|Olympics?|Premier League|Formula 1|F1|tennis|golf|touchdown)\b/i],
@@ -132,10 +132,22 @@ const SUB_CAT = [
   ["體育", /^r\/(sports|nba|nfl|soccer|baseball|hockey|formula1|tennis|MMA|CFB)$/i],
   ["其他", /^r\/news$/i],
 ];
+// PTT's boards: the ones that are one subject (Gossiping isn't: its posts go by their words)
+const PTT_CAT = [
+  ["政治", /^(HatePolitics|Election|PublicIssue)$/i],
+  ["股票", /^(Stock|Option|Fund|Foreign_Inv|DayTrade)$/i],
+  ["財經", /^(Lifeismoney|home-sale|Finance|Bank_Service|Insurance|Salary)$/i],
+  ["科技", /^(Tech_Job|Soft_Job|MobileComm|PC_Shopping|iOS|Android|e-shopping)$/i],
+  ["國際", /^(Military|China-News|WorldNews)$/i],
+  ["娛樂", /^(C_Chat|movie|KoreaStar|Japan_Star|TaiwanDrama|KoreaDrama|China-Drama|ACG|EAseries)$/i],
+  ["遊戲", /^(LoL|PlayStation|NSwitch|Steam|mobile-game|Hearthstone|PCReDive)$/i],
+  ["體育", /^(Baseball|NBA|basketballTW|Tennis|Football|MLB|Elephants|Lions|Guardians|Monkeys)$/i],
+  ["趣聞", /^(joke|WomenTalk|Boy-Girl|marriage|StupidClown|CATCH|pet|cat|dog)$/i],
+];
 function categoryOf(r) {
   const text = `${r.topic} ${r.feed ? "" : why(r)}`;
   const first = WORDS.slice(0, 2).find(([, re]) => re.test(text))?.[0];
-  const site = r.digg ? DIGG_CAT[r.digg] : r.sub ? SUB_CAT.find(([, re]) => re.test(r.sub))?.[0] : null;
+  const site = r.digg ? DIGG_CAT[r.digg] : r.sub ? SUB_CAT.find(([, re]) => re.test(r.sub))?.[0] : r.board ? PTT_CAT.find(([, re]) => re.test(r.board))?.[0] : null;
   return first || site || WORDS.slice(2).find(([, re]) => re.test(text))?.[0] || (r.feed === "HN" ? "科技" : r.feed === "Reddit" ? "趣聞" : "其他");
 }
 const SOURCE = { hackernews: "HN", reddit: "Reddit", digg: "Digg", x: "X", grounding: "網頁", youtube: "YouTube", polymarket: "Polymarket", github: "GitHub" };
@@ -287,8 +299,8 @@ export default class Trend extends View {
     return this.pageCell(t, VIDEOS_CELL, "videos.html");
   }
   get results() { return Array.isArray(this.data?.results) ? this.data.results : []; }
-  // What the list shows: last30days' topics, then HN's, Reddit's and Digg's own front pages taken in turn (each site's
-  // rank), skipping a story a topic already cites, up to SHOWN rows
+  // What the list shows: last30days' topics, then HN's, Reddit's, PTT's and Digg's own front pages taken in turn (each
+  // site's rank), skipping a story a topic already cites, up to SHOWN rows
   get shown() {
     const topics = this.results, cited = new Set(topics.flatMap((r) => r.evidence_urls ?? []));
     const hn = (this.feeds?.hn ?? []).map((h) => ({ topic: h.title, feed: "HN", line: `HN ${num(h.points)} 分 · ${num(h.comments)} 留言`,
@@ -298,9 +310,11 @@ export default class Trend extends View {
       why_spiking: d.description, evidence_urls: [d.url], digg: d.topic }));
     const reddit = (this.feeds?.reddit ?? []).map((p) => ({ topic: p.title, feed: "Reddit", line: `Reddit ${num(p.score)} 分 · ${num(p.comments)} 留言`, sub: p.subreddit,
       why_spiking: [p.subreddit, shortLink(p.url).split("/")[0]].filter(Boolean).join(" · "), evidence_urls: [p.url, p.discussion].filter((u, i, a) => u && a.indexOf(u) === i) }));
-    const out = [...topics], names = new Set(topics.map((r) => r.topic));
-    for (let i = 0; out.length < SHOWN && (i < hn.length || i < reddit.length || i < digg.length); i++)
-      for (const x of [hn[i], reddit[i], digg[i]]) if (x && out.length < SHOWN && !names.has(x.topic) && !x.evidence_urls.some((u) => cited.has(u))) {
+    const ptt = (this.feeds?.ptt ?? []).map((p) => ({ topic: p.title, feed: "PTT", line: `PTT ${p.score >= 100 ? "爆" : `${p.score} 推`} · ${p.board}`, board: p.board,
+      why_spiking: [p.board, p.author].filter(Boolean).join(" · "), evidence_urls: [p.url] }));
+    const out = [...topics], names = new Set(topics.map((r) => r.topic)), feeds = [hn, reddit, ptt, digg];
+    for (let i = 0; out.length < SHOWN && feeds.some((f) => i < f.length); i++)
+      for (const x of feeds.map((f) => f[i])) if (x && out.length < SHOWN && !names.has(x.topic) && !x.evidence_urls.some((u) => cited.has(u))) {
         names.add(x.topic);
         out.push({ ...x, rank: out.length + 1 });
       }
@@ -456,14 +470,15 @@ export default class Trend extends View {
       : this.bad ?? this.failed ?? (Number.isFinite(done) ? `更新於 ${ago(done)}${Number.isFinite(next) && next > Date.now() ? ` · 下次約 ${hhmm(next)}` : ""} · 不花 token` : "還沒有資料：排程還沒跑過（docs/trend.md「安裝」）");
     const red = Boolean(this.bad || (this.failed && !this.running));
     // One row, each site once: ✓ when it answered (last30days' search and the site's own front page), else why not.
-    // Reddit is only its front page (fetch.js leaves it out of last30days: 403 there). Right-click copies the reason.
+    // Reddit and PTT are only their front pages, read every 2 to 3 hours (how long ago, red when blocked).
+    // Right-click copies the reason.
     const st = this.data?.source_status ?? {}, fe = this.feeds ?? {};
     const site = (key, name, l30, feed) => {
       const why = (l30 && st[l30] && st[l30] !== "ok" ? STATE[st[l30]] ?? st[l30] : null) ?? (feed ? fe.errors?.[feed] ?? null : null);
       const ok = !why && (!feed || (fe[feed]?.length ?? 0) > 0);
-      return { key, name, why, ok, when: ok && feed === "reddit" && fe.redditAt ? ` ${ago(Date.parse(fe.redditAt))}` : "", red: feed === "reddit" && Boolean(fe.redditBlockedAt) };
+      return { key, name, why, ok, when: ok && fe[`${feed}At`] ? ` ${ago(Date.parse(fe[`${feed}At`]))}` : "", red: Boolean(fe[`${feed}BlockedAt`]) };
     };
-    const sites = [site("hn", "HN", "hackernews", "hn"), site("reddit", "Reddit", null, "reddit"), site("digg", "Digg", "digg", "digg"),
+    const sites = [site("hn", "HN", "hackernews", "hn"), site("reddit", "Reddit", null, "reddit"), site("ptt", "PTT", null, "ptt"), site("digg", "Digg", "digg", "digg"),
       ...Object.keys(st).filter((k) => !["hackernews", "digg", "reddit"].includes(k)).map((k) => site(k, SOURCE[k] ?? k, k, null))];
     return v_flex().flex_none().border_b(1).border_color(t.border)
       .child(h_flex().px(10).py(6).gap(6).items_center()

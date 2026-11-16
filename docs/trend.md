@@ -14,19 +14,20 @@ A tab-bar button **熱門** and a panel, like Gerrit's (macOS and Windows):
   Herdr's colors and font size): subject chips on top filter the list; each topic is a card with its numbers (HN
   分／留言…) and why it's up, **更多** for the top comment and its sources (a link opens the browser), and
   **🔎 深入查** / **三句話說明** / **📄 看報告**. The line under the title says when
-  it last ran and when it runs next, and a 來源 line names each site once: ✓ when it answered (Reddit: how long ago its
-  page was read), else why not (`讀不到` is not "nothing happened there"; right-click copies it). **↻ 現在更新**
+  it last ran and when it runs next, and a 來源 line names each site once: ✓ when it answered (Reddit, PTT: how long
+  ago its page was read), else why not (`讀不到` is not "nothing happened there"; right-click copies it). **↻ 現在更新**
   runs it now; **⤢** shows the panel alone in its row (again: back). 面板：每個主題的數字和原因；點開看熱門留言、來源連結、深入查／三句話說明。標題下面寫上次和下次更新、哪些網站有回應；⤢ 放大。
-  last30days names 5 to 10 topics (it checks each across sites, marked 跨站), so the list goes on to 20 with each
-  site's own front page, HN's, Reddit's (r/all, today) and Digg's in turn (marked HN / Reddit / Digg; a story a topic
-  already cites is left out). The 20 are grouped by subject (AI, 科技, 股票, 財經, 政治, 國際, 科學, 娛樂, 遊戲, 體育,
-  趣聞, 其他) from words in the title, Digg's topic or Reddit's subreddit: no model, so some land in the wrong group.
-  Reddit's page is opened by your installed Chrome or Edge, headless, with a
-  profile of its own (Reddit blocks scripts with 403), every 2 to 3 hours; blocked, it waits 6, then 12, then 24 hours
-  before one more try, and the button posts a notification.
-  last30days 只挑 5 到 10 題（每題跨站比對過，標「跨站」），後面用 HN、Reddit、Digg 自己的熱門輪流補到 20 條，再依主題分組
-  （看標題關鍵字、Digg 分類、Reddit 看板；不叫模型，偶爾會分錯）。Reddit 那頁用本機的
-  Chrome／Edge 無頭開（自己的設定檔，不讀你的登入），2 到 3 小時一次；被擋就停 6、12、24 小時，並跳通知。
+  last30days names 5 to 10 topics (it checks each across sites, marked 跨站), so the list goes on to 40 with each
+  site's own front page, HN's, Reddit's (r/all, today), PTT's and Digg's in turn (marked HN / Reddit / PTT / Digg; a
+  story a topic already cites is left out). The 40 are grouped by subject (AI, 科技, 股票, 財經, 政治, 國際, 科學, 娛樂,
+  遊戲, 體育, 趣聞, 其他) from words in the title, Digg's topic, Reddit's subreddit or PTT's board: no model, so some
+  land in the wrong group. Reddit's page is opened by your installed Chrome or Edge, headless, with a profile of its
+  own (Reddit blocks scripts with 403). PTT's is plain HTTP: its 4 most popular boards (hotboards, adult ones left out)
+  and on each the posts with 50 推 or more (`over18=1` is the site's own age check, not a sign-in). Each is read every
+  2 to 3 hours; blocked, it waits 6, then 12, then 24 hours before one more try, and the 來源 line turns red.
+  last30days 只挑 5 到 10 題（每題跨站比對過，標「跨站」），後面用 HN、Reddit、PTT、Digg 自己的熱門輪流補到 40 條，再依主題
+  分組（看標題關鍵字、Digg 分類、Reddit 看板、PTT 看板；不叫模型，偶爾會分錯）。Reddit 那頁用本機的 Chrome／Edge 無頭開
+  （自己的設定檔，不讀你的登入）；PTT 用純 HTTP 抓熱門看板前 4 個的「推文 ≥ 50」。每站 2 到 3 小時一次；被擋就停 6、12、24 小時。
 - **Asking costs tokens, only when you ask.** The buttons and the box at the bottom send to a **kit trend agent** in
   this space (`hc send`), as Gerrit's 問 agent does: with none here, the Kit panel puts one in this space (`kit place`,
   the Kit button must be in the layout) and it starts on the question. Pick Claude / Codex / omp for the next one it
@@ -186,9 +187,9 @@ Without `player` a click opens YouTube's watch page. 只要播放器：在你自
 
 `~/.config/herdr-app/trend/`: `trends.json` (last30days' discovery JSON, replaced only by a run that worked),
 `status.json` (`started`, `finished`, `ok`, `error`), `last.log` (the last run's output), `proxy` (yours, optional),
-`feeds.json` (HN's front page, Reddit's r/all top of today and Digg's top stories of the last 24 h:
-`{ at, hn, reddit, digg, errors, redditAt, redditBlockedAt, redditBlocks }`), `reddit-profile/` (the browser profile
-Reddit's page is opened with: its cookies only).
+`feeds.json` (HN's front page, Reddit's r/all top of today, PTT's popular posts and Digg's top stories of the last
+24 h: `{ at, hn, reddit, ptt, digg, errors }` and, for Reddit and PTT, `<site>At`, `<site>BlockedAt`, `<site>Blocks`),
+`reddit-profile/` (the browser profile Reddit's page is opened with: its cookies only).
 `<Herdr home>/mods/trend/.reports/`: the agent's reports (hidden: writing one doesn't reload the mod; git ignores it).
 `videos.txt` (yours: the searches) and `videos.json` (`{ queries, searched, items, errors, blockedAt, blocks, cookies }`)
 in the same `trend/` folder: the 影片 tab; `trend/player` (yours, optional): its player page.

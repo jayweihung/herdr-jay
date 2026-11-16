@@ -9,6 +9,15 @@ says which) · **kit** = update kit itself on every machine where agents run (`k
 **snap hook** = a line in Claude Code's `settings.json` on each machine where you added the hook (the entry says
 which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/keys.md).
 
+## 2026-11-16, trend: PTT in the list
+
+Needs: **mods** (Windows: copy `trend` again; macOS link: nothing).
+
+- PTT's popular posts join the list (its 4 most popular boards, posts with 50 推 or more; plain HTTP, adult boards
+  left out), sorted into subjects by board (Stock → 股票, HatePolitics → 政治, …) or by words; the list now goes to
+  40. Reddit and PTT share one gentle schedule (every 2 to 3 hours; blocked: 6, 12, 24 hours). 熱門清單加了 PTT
+  熱門看板的高推文文章，清單放到 40 條。
+
 ## 2026-11-16, trend: the list and 報告 as web pages, grouped by subject
 
 Needs: **mods** (Windows: copy `trend` again; macOS link: nothing).

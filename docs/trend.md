@@ -144,6 +144,36 @@ then 12, then 24 (one try each time, with fresh cookies), and the tab says so; a
 block. It reads the page, so a change at YouTube can break it: then a YouTube Data API key (`search.list`, 100 searches
 a day free) is the way. 全家共用 IP，所以保守：每個搜尋 3 小時最多一次；被擋停 6、12、24 小時。
 
+**Just the player** (no YouTube page around it): YouTube's embedded player plays only inside an https page (opened
+alone, or from a local file, it shows Error 153), so it needs a small page on an https site of yours:
+
+```html
+<!doctype html>
+<meta charset="utf-8">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<title>video</title>
+<style>html, body { margin: 0; height: 100%; background: #000; } iframe { display: block; border: 0; width: 100%; height: 100%; }</style>
+<iframe allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe>
+<script>
+  const v = new URLSearchParams(location.search).get("v") ?? "";
+  if (/^[\w-]{11}$/.test(v)) document.querySelector("iframe").src = `https://www.youtube.com/embed/${v}?autoplay=1&rel=0&playsinline=1`;
+</script>
+```
+
+Its URL with `{id}` for the video goes in `<Herdr home>/trend/player` (one line, e.g.
+`https://www.example.com/yt.html?v={id}`), and its site in the mod's `mod.json` allow list. To keep your site out of
+this repo, the mod folder is then a folder of your own instead of one link: links to each file here but `mod.json`, a
+copy of it with your site added (macOS; again when a new file comes here; restart Herdr after changing `mod.json`):
+
+```sh
+R=~/src/herdr-jay/herdr-app/mods/trend L=~/.config/herdr-app/mods/trend
+rm "$L" && mkdir -p "$L/.reports" && for f in fetch.js gpui-kit.d.ts jsconfig.json main.js; do ln -s "$R/$f" "$L/$f"; done
+cp "$R/mod.json" "$L/mod.json"   # then add "https://www.example.com" to "allow"
+```
+
+Without `player` a click opens YouTube's watch page. 只要播放器：在你自己的 https 網站放上面那頁，網址（`{id}`
+代表影片）寫進 `trend/player`，網站加進本機那份 `mod.json`；mod 資料夾改成本機的，只有 `mod.json` 是自己的。
+
 ## Files / 檔案
 
 `~/.config/herdr-app/trend/`: `trends.json` (last30days' discovery JSON, replaced only by a run that worked),

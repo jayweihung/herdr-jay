@@ -35,7 +35,9 @@ const runsAgent = (t) => /^(claude|codex|omp|pi)(\.exe|\.cmd)?$/i.test(String(t?
 // reload the mod; inside the mod's folder: a web element may show it), named <YYYY-MM-DD-HHMM>-<topic>.html, with
 // <meta name="trend-topic" content="the topic as asked"> so a topic's row finds its report (agents/trend.md).
 const REPORT_CELL = "trend-report";
-const VIDEO_CELL = "trend-video";   // a video played in the panel: YouTube's watch page (mod.json allows www.youtube.com)
+// a video played in the panel: the player page in <Herdr home>/trend/player (a URL with {id}; its site in your local
+// mod.json's allow list, docs/trend.md), else YouTube's own watch page (mod.json allows www.youtube.com)
+const VIDEO_CELL = "trend-video";
 const fileUrl = (p) => { const s = p.replace(/\\/g, "/"); return "file://" + (/^[A-Za-z]:/.test(s) ? "/" : "") + encodeURI(s).replace(/#/g, "%23").replace(/\?/g, "%3F"); };
 const unescape = (s) => (s == null ? null : String(s).replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&").trim());
 const metaTopic = (html) => unescape(/<meta\s+name=["']trend-topic["']\s+content=["']([^"']*)["']/i.exec(html)?.[1]);
@@ -147,7 +149,8 @@ export default class Trend extends View {
 
   get dir() { return `${appHome().replace(/\\/g, "/")}/trend`; }
   async load(cx) {
-    const [t, s, f, v] = await Promise.all(["trends.json", "status.json", "feeds.json", "videos.json"].map((n) => readTextFile(`${this.dir}/${n}`).catch(() => null)));
+    const [t, s, f, v, p] = await Promise.all(["trends.json", "status.json", "feeds.json", "videos.json", "player"].map((n) => readTextFile(`${this.dir}/${n}`).catch(() => null)));
+    this.player = (p ?? "").split("\n")[0].trim();
     try { this.feeds = f ? JSON.parse(f) : null; } catch { this.feeds = null; }
     // Reddit blocked the house's IP: the button says so, once (fetch.js waits 6, 12, 24 hours before trying again)
     const blocked = this.feeds?.redditBlockedAt ?? null;
@@ -215,7 +218,7 @@ export default class Trend extends View {
       .child(h_flex().h(34).px(8).gap(6).flex_none().items_center().border_b(1).border_color(t.border)
         .child(smallBtn(t, z, "vid-back", "← 影片", (_e, cx) => { this.playing = null; cx.notify(); }))
         .child(div().flex_1().min_w(0).truncate().text_size(z - 1).text_color(t.muted).child(x.title)))
-      .child(div().flex_1().min_h(0).child(web.new(VIDEO_CELL, { src: `https://www.youtube.com/watch?v=${x.id}` })));
+      .child(div().flex_1().min_h(0).child(web.new(VIDEO_CELL, { src: this.player?.includes("{id}") ? this.player.replace("{id}", x.id) : `https://www.youtube.com/watch?v=${x.id}` })));
   }
   // My videos: what fetch.js's YouTube searches (one per line of videos.txt) found, newest first; a click plays it
   // here, right-click copies the link. Thumbnails: the copies fetch.js keeps in trend/thumbs/.

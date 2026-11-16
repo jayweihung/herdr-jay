@@ -39,6 +39,9 @@ it: `~/.config/herdr-app/trend/videos.txt`, one search per line.
   (no key, no browser), each search at most every 3 hours, gently (your Chrome's version in the user agent, cookies
   kept); blocked, it stops for 6, 12, then 24 hours and the tab says so. 熱門面板多了「影片」分頁：videos.txt 一行一個
   YouTube 搜尋，每 3 小時最多搜一次，被擋就停 6、12、24 小時。
+- Optional, just the player: a small page on an https site of yours plays the embedded player (YouTube's needs an https
+  page around it), its URL in `trend/player`, its site in a local `mod.json` (docs/trend.md「Just the player」).
+  只要播放器：自己的 https 網站放一頁，網址寫進 `trend/player`。
 
 ## 2026-11-16, Herdr app v0.1.16, and text in mod panels can be copied
 

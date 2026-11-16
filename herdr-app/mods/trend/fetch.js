@@ -170,14 +170,6 @@ async function videos() {
   }
   if (left() > 0) v.errors[""] = `被 YouTube 擋了：${Math.ceil(left() / HOUR_MS)} 小時後再試一次`;
   v.items = v.items.slice(0, VIDEO_KEEP);
-  // thumbnails (i.ytimg.com, YouTube's image servers) for the panel, one copy each, gone with their video
-  const thumbs = path.join(out, "thumbs"), keep = new Set(v.items.map((x) => `${x.id}.jpg`));
-  fs.mkdirSync(thumbs, { recursive: true });
-  for (const n of fs.readdirSync(thumbs)) if (!keep.has(n)) fs.rmSync(path.join(thumbs, n), { force: true });
-  for (const x of v.items) if (!fs.existsSync(path.join(thumbs, `${x.id}.jpg`))) try {
-    const r = await fetch(`https://i.ytimg.com/vi/${x.id}/mqdefault.jpg`, { headers: { "user-agent": ua }, signal: AbortSignal.timeout(15000) });
-    if (r.ok) fs.writeFileSync(path.join(thumbs, `${x.id}.jpg`), Buffer.from(await r.arrayBuffer()));
-  } catch {}
   put("videos.json", JSON.stringify(v) + "\n");
 }
 

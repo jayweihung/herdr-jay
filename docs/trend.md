@@ -134,9 +134,9 @@ TZUYU
 ```
 
 `fetch.js` reads YouTube's own search page (uploads of this week) for each: no API key, no browser, no tokens. Each
-row has the thumbnail, title, channel, length, when it was posted and the views; click plays it in the panel
-(YouTube's own watch page in a web element; **← 影片** goes back), right-click copies the
-link. A search taken out of the file takes its videos with it; the list keeps the newest 300.
+card has YouTube's thumbnail, the title, channel, length, when it was posted and the views, under a chip per search;
+click plays it in the panel (**← 影片** goes back). A search taken out of the file takes its videos with it; the list
+keeps the newest 300.
 影片分頁：videos.txt 一行一個搜尋，點一下在面板裡播（⤢ 放大面板）。
 
 Gently, since every device in the house shares the IP (a production crawler's advice): each search at most every 3 hours, a few
@@ -184,5 +184,5 @@ Without `player` a click opens YouTube's watch page. 只要播放器：在你自
 `{ at, hn, reddit, digg, errors, redditAt, redditBlockedAt, redditBlocks }`), `reddit-profile/` (the browser profile
 Reddit's page is opened with: its cookies only).
 `<Herdr home>/mods/trend/.reports/`: the agent's reports (hidden: writing one doesn't reload the mod; git ignores it).
-`videos.txt` (yours: the searches), `videos.json` (`{ queries, searched, items, errors, blockedAt, blocks, cookies }`)
-and `thumbs/` (one thumbnail per video in the list) in the same `trend/` folder: the 影片 tab.
+`videos.txt` (yours: the searches) and `videos.json` (`{ queries, searched, items, errors, blockedAt, blocks, cookies }`)
+in the same `trend/` folder: the 影片 tab; `trend/player` (yours, optional): its player page.

@@ -7,7 +7,7 @@
 // Roles (props.role): the panel (default) and "toggle", the tab-bar button that shows or hides the layout's
 // "trend-panel": a number for topics you haven't seen, a ring while fetch.js runs, a red ! when its last run failed.
 // 熱門：launchd 每小時跑 fetch.js（不花 token）寫 trend/；這個 mod 只讀。問問題才叫 trend agent（花 token）。
-import { View, div, svg, image } from "gpui-kit";
+import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
 import { theme, settings, notify, appHome, readTextFile, writeTextFile, checking, exec, run, layout, shared, setShared, agents, terminals, focused, spaces, window, web, webCall, nextWebEvent, hc as herdrHc, props as blockProps } from "herdr";
 import * as fsp from "fs/promises";
@@ -42,7 +42,7 @@ const VIDEO_CELL = "trend-video";
 // in one sets the page's #hash (do=<what>&topic=…|name=…&n=<the click's time>), which comes back as a "url" event
 // and the mod asks the agent or opens the report; links in them open in the browser.
 // 面板的頁面用網頁畫：mod 寫 .view/*.html；網頁裡的按鈕改 #hash，mod 收到再去問 agent 或開報告。
-const LIST_CELL = "trend-list", REPORTS_CELL = "trend-reports";
+const LIST_CELL = "trend-list", REPORTS_CELL = "trend-reports", VIDEOS_CELL = "trend-videos";
 const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 // a page in Herdr's colors and font size: <nav> chips filter the <section data-cat>s; [data-do] clicks set the #hash
 function pageHtml(body) {
@@ -182,7 +182,7 @@ export default class Trend extends View {
     if (this.role !== "toggle") cx.spawn(async (cx) => {
       for (;;) {
         const e = await nextWebEvent();
-        if ((e?.id === LIST_CELL || e?.id === REPORTS_CELL) && e.kind === "url") { this.fromPage(e.url ?? "", cx); continue; }
+        if ((e?.id === LIST_CELL || e?.id === REPORTS_CELL || e?.id === VIDEOS_CELL) && e.kind === "url") { this.fromPage(e.url ?? "", cx); continue; }
         if (e?.id !== REPORT_CELL) continue;
         this.webNote = e.kind === "failed" ? `載入失敗：${e.error ?? ""}` : e.kind === "blocked" && e.url ? `已用瀏覽器開：${e.url}` : null;
         cx.notify();
@@ -262,28 +262,13 @@ export default class Trend extends View {
         .child(div().flex_1().min_w(0).truncate().text_size(z - 1).text_color(t.muted).child(x.title)))
       .child(div().flex_1().min_h(0).child(web.new(VIDEO_CELL, { src: this.player?.includes("{id}") ? this.player.replace("{id}", x.id) : `https://www.youtube.com/watch?v=${x.id}` })));
   }
-  // My videos: what fetch.js's YouTube searches (one per line of videos.txt) found, newest first; a click plays it
-  // here, right-click copies the link. Thumbnails: the copies fetch.js keeps in trend/thumbs/.
+  // My videos: what fetch.js's YouTube searches (one per line of videos.txt) found, a web page like the list's
+  // (writePages): a chip per search, newest found first; a click plays it here
   videoList(t, z) {
     if (this.playing) return this.videoPlayer(t, z);
-    const v = this.videos, list = v_flex().id("videos").flex_1().min_h(0).overflow_y_scrollbar();
-    const errs = Object.entries(v?.errors ?? {});
-    if (errs.length) list.child(div().px(12).py(6).text_size(z - 1.5).text_color(t.ansi1).whitespace_normal()
-      .child(errs.map(([q, e]) => (q ? `「${q}」：${e}` : e)).join("\n")));
-    if (!v?.queries?.length) return list.child(div().p(14).text_color(t.muted).whitespace_normal()
-      .child(`在 ${this.dir}/videos.txt 一行寫一個 YouTube 搜尋（例如 TWICE 子瑜），排程每 3 小時搜一次這週的新影片；按 ↻ 現在更新 馬上搜。`));
-    if (!v.items?.length) return list.child(div().p(14).text_color(t.muted).child("還沒找到影片"));
-    for (const x of v.items) {
-      const url = `https://www.youtube.com/watch?v=${x.id}`;
-      list.child(h_flex().id(`v-${x.id}`).px(12).py(8).gap(10).items_start().border_b(1).border_color(t.border).cursor_pointer()
-        .hover((s) => s.bg(t.hover)).on_mouse_down("right", copyOn(url)).on_click((_e, cx) => { this.playing = x; cx.notify(); })
-        .child(div().w(128).h(72).flex_none().rounded(6).overflow_hidden().bg(t.raised).child(image(`trend/thumbs/${x.id}.jpg`).size_full()))
-        .child(v_flex().flex_1().min_w(0).gap(2)
-          .child(div().font_semibold().whitespace_normal().child(x.title))
-          .child(div().text_size(z - 1.5).text_color(t.muted).truncate().child([x.channel, x.length, x.published, x.views].filter(Boolean).join(" · ")))
-          .child(div().text_size(z - 2).text_color(t.dim).truncate().child(`搜「${x.query}」· ${ago(Date.parse(x.found))}找到`))));
-    }
-    return list;
+    if (!this.videos?.queries?.length) return div().flex_1().p(14).text_color(t.muted).whitespace_normal()
+      .child(`在 ${this.dir}/videos.txt 一行寫一個 YouTube 搜尋（例如 TWICE 子瑜），排程每 3 小時搜一次這週的新影片；按 ↻ 現在更新 馬上搜。`);
+    return this.pageCell(t, VIDEOS_CELL, "videos.html");
   }
   get results() { return Array.isArray(this.data?.results) ? this.data.results : []; }
   // What the list shows: last30days' topics, then HN's, Reddit's and Digg's own front pages taken in turn (each site's
@@ -502,6 +487,7 @@ export default class Trend extends View {
   async writePages() {
     await this.writePage("list.html", LIST_CELL, this.listHtml());
     await this.writePage("reports.html", REPORTS_CELL, this.reportsHtml());
+    await this.writePage("videos.html", VIDEOS_CELL, this.videosHtml());
   }
   // written only when it changed; a page already shown reloads (it keeps its subject and scroll: its localStorage)
   async writePage(file, cell, html) {
@@ -524,6 +510,11 @@ export default class Trend extends View {
     (this.pageClicks ??= new Set()).add(n);
     if (act === "open") {
       if (this.reports?.some((r) => r.name === h.get("name"))) { this.view = h.get("name"); this.webNote = null; cx.notify(); }
+      return;
+    }
+    if (act === "play") {
+      const x = this.videos?.items?.find((i) => i.id === h.get("name"));
+      if (x) { this.playing = x; cx.notify(); }
       return;
     }
     const r = this.shown.find((x) => x.topic === h.get("topic"));
@@ -561,6 +552,24 @@ export default class Trend extends View {
     return pageHtml(`<main><h2>trend agent 的報告</h2>${(this.reports ?? []).map((r) => `<div class="card" data-do="open" data-name="${esc(r.name)}">`
       + `<div class="top"><span class="title">${esc(r.title || r.topic || r.name)}</span></div>`
       + `<div class="meta">${esc([reportWhen(r.name), r.topic].filter(Boolean).join(" · "))}</div></div>`).join("")}</main>`);
+  }
+  // the videos: a chip per search (videos.txt's order), its videos as cards with YouTube's thumbnail, newest found
+  // first; a card plays it (do=play&name=<id>). When found: a date, not 「幾分前」, so the page doesn't change every minute
+  videosHtml() {
+    const v = this.videos ?? {}, items = v.items ?? [], t = theme();
+    const when = (s) => { const d = new Date(Date.parse(s)); return Number.isNaN(d.getTime()) ? "" : `${d.getMonth() + 1}/${d.getDate()} ${hhmm(d.getTime())} 找到`; };
+    const errs = Object.entries(v.errors ?? {}).map(([q, e]) => `<p class="err">${esc(q ? `「${q}」：${e}` : e)}</p>`).join("");
+    const card = (x) => `<div class="card vid" data-do="play" data-name="${esc(x.id)}">`
+      + `<img src="https://i.ytimg.com/vi/${esc(x.id)}/mqdefault.jpg" alt="" loading="lazy"><div class="vb">`
+      + `<div class="title">${esc(x.title)}</div>`
+      + `<div class="meta">${esc([x.channel, x.length, x.published, x.views].filter(Boolean).join(" · "))}</div>`
+      + `<div class="meta">${esc(when(x.found))}</div></div></div>`;
+    const groups = (v.queries ?? []).map((q) => [q, items.filter((x) => x.query === q)]);
+    return pageHtml(`<style>.vid{display:flex;gap:10px;align-items:flex-start}.vid img{flex:none;width:136px;aspect-ratio:16/9;object-fit:cover;border-radius:6px;background:var(--bg)}`
+      + `.vb{flex:1;min-width:0}.err{margin:8px 12px;font-size:.88em;color:${t.ansi1}}</style>`
+      + `<nav><button data-cat="all">全部 ${items.length}</button>${groups.map(([q, xs]) => `<button data-cat="${esc(q)}"${xs.length ? "" : " disabled"}>${esc(q)} ${xs.length}</button>`).join("")}</nav>`
+      + `<main>${errs}${items.length ? "" : '<p class="err" style="color:var(--muted)">還沒找到影片</p>'}`
+      + `${groups.filter(([, xs]) => xs.length).map(([q, xs]) => `<section data-cat="${esc(q)}"><h2>${esc(q)}</h2>${xs.map(card).join("")}</section>`).join("")}</main>`);
   }
 
   // 問 agent: which trend agent (this space's first), the tool a new one opens with, a free question, what happened

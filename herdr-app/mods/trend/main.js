@@ -519,11 +519,17 @@ export default class Trend extends View {
     const r = await this.fetchJs([flag], 300000);
     if (r?.code !== 0) throw new Error(String(r?.stderr || r?.stdout || `exit ${r?.code}`).trim().slice(0, 200));
   }
+  // node fetch.js <args>, with the node the job uses (Herdr's own PATH may lack Homebrew's).
+  // shortcut: Herdr's mod exec now refuses a program outside the home folder ("outside every granted read root",
+  // 2026-11-16, reported); a local fetch.sh in the mod folder (finds node, runs fetch.js) gets around it. Back to
+  // plain exec once Herdr runs them again.
   async fetchJs(args, timeout) {
+    const dir = `${appHome().replace(/\\/g, "/")}/mods/trend`;
+    if (window()?.platform !== "windows" && await fsp.exists(`${dir}/fetch.sh`).catch(() => false)) return exec(`${dir}/fetch.sh`, args, { timeout });
     let node = "node";
     if (window()?.platform !== "windows") for (const p of ["/opt/homebrew/bin/node", "/usr/local/bin/node", "/usr/bin/node"])
       if (await fsp.exists(p).catch(() => false)) { node = p; break; }   // the mod's fs/promises has exists, not access
-    return exec(node, [`${appHome().replace(/\\/g, "/")}/mods/trend/fetch.js`, ...args], { timeout });
+    return exec(node, [`${dir}/fetch.js`, ...args], { timeout });
   }
   // what the player page needs for a video (fetch.js --player: its storyboard spec and subtitles, once a day); none
   // in 8 seconds: it plays without (the thumbnails, no subtitles)
@@ -826,7 +832,7 @@ export default class Trend extends View {
         const text = adding ? `${was ?? ""}${was && !was.endsWith("\n") ? "\n" : ""}${q}\n` : lines.filter((l) => !same(l)).join("\n");
         if (!(await writeTextFile(file, text, was).then(() => true, () => false))) return;
         if (hot) this.hotQueries = topicsOf(text); else this.queries = topicsOf(text);
-        if (adding) this.runSearch(hot, [q], cx);
+        if (adding) await this.runSearch(hot, [q], cx);
         else { await this.writePages(); cx.notify(); }
       });
       return;
@@ -838,19 +844,18 @@ export default class Trend extends View {
     if (p) cx.spawn(async (cx) => this.ask(`${p.label}：${r.topic}`, p.text(r), cx));
   }
   // fetch.js --videos / --topics for these topics now, 正在搜 on them meanwhile; one run at a time of each kind (two
-  // at once would both rewrite videos.json / topics.json)
-  runSearch(hot, qs, cx) {
+  // at once would both rewrite videos.json / topics.json). Runs in the caller's task, no spawn of its own: from inside a
+  // spawned task one didn't start (the ＋ of 周杰倫 and 瑪丹娜 searched nothing, 2026-11-16)
+  async runSearch(hot, qs, cx) {
     const busy = hot ? (this.hotSearching ??= new Set()) : (this.searching ??= new Set()), run = hot ? "topicRun" : "searchRun";
     for (const q of qs) busy.add(q);
-    cx.spawn(async (cx) => {
-      await this.writePages();
-      cx.notify();
-      this[run] = (this[run] ?? Promise.resolve()).then(() => this.searchNow(hot ? "--topics" : "--videos"))
-        .catch((e) => notify({ title: `${hot ? "熱門" : "影片"}：「${qs.join("、")}」沒搜成`, body: String(e?.message ?? e), level: "error", timeout: 10000 }));
-      await this[run];
-      for (const q of qs) busy.delete(q);
-      await this.load(cx);
-    });
+    await this.writePages();
+    cx.notify();
+    this[run] = (this[run] ?? Promise.resolve()).then(() => this.searchNow(hot ? "--topics" : "--videos"))
+      .catch((e) => notify({ title: `${hot ? "熱門" : "影片"}：「${qs.join("、")}」沒搜成`, body: String(e?.message ?? e), level: "error", timeout: 10000 }));
+    await this[run];
+    for (const q of qs) busy.delete(q);
+    await this.load(cx);
   }
   // a topic never searched (its ＋'s search cut off, say by a reload of the mod): searched now, once a session
   searchMissed(cx) {

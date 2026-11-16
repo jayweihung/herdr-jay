@@ -57,7 +57,7 @@ const PAGE_CELLS = { list: LIST_CELL, reports: REPORTS_CELL, videos: VIDEOS_CELL
 // whole panel while you sign in, yourself) told what to do by its #hash, answering in its own. The site: one line in
 // <Herdr home>/trend/sync-origin, local only like its place in your local mod.json's allow list; none: the files only.
 // 同步：同步頁放在 1px 的持久網頁格，用 #hash 下指令、收結果；沒登入就放大給你自己登入。沒有 sync-origin 就照舊只用本機檔。
-const SYNC_CELL = "trend-sync", SYNC_KEY = "sync.key", SYNC_MOVED = "sync.migrated", SYNC_NOTES = "sync.notes";
+const SYNC_CELL = "trend-sync", SYNC_KEY = "sync.key", SYNC_MOVED = "sync.migrated", SYNC_NOTES = "sync.notes", SYNC_OUT = "sync.out";
 // a pull every 5 minutes; a push: 50 items, 1 MB of URL at most (4 MB went through, 2026-11-17)
 const SYNC_EVERY = 5 * 60000, SYNC_BATCH = 50, SYNC_URL = 1000000;
 const hash = (s) => { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return h; };
@@ -599,7 +599,11 @@ export default class Trend extends View {
   async syncStart(cx) {
     const origin = String((await readTextFile(`${this.dir}/sync-origin`).catch(() => null)) ?? "").trim().split("\n")[0].trim().replace(/\/+$/, "");
     if (!/^https:\/\/[^/\s]+$/.test(origin)) return;   // none: the files only
-    Object.assign(this, { syncOrigin: origin, syncR: 0, syncN: 0, syncOut: [], syncCopy: new Map(), syncNeed: new Set(["state", "pull"]), syncPending: 0 });
+    // what the page hasn't taken yet (no push answered ok=1) is kept in the mod's localStorage: a page that never loads
+    // loses nothing at a restart; state then pull lays it over the page's copy (syncTake) and it goes up first
+    let out = [];
+    try { out = JSON.parse(localStorage.getItem(SYNC_OUT) ?? "[]"); } catch {}
+    Object.assign(this, { syncOrigin: origin, syncR: 0, syncN: 0, syncOut: Array.isArray(out) ? out : [], syncCopy: new Map(), syncNeed: new Set(["state", "pull"]), syncPending: 0 });
     this.syncSrc = this.syncBase;   // its first load says #hello
     cx.notify();
   }
@@ -671,7 +675,7 @@ export default class Trend extends View {
     try { data = JSON.parse(h.get("data") ?? "null"); } catch {}
     if (h.get("pending") !== null) this.syncPending = Number(h.get("pending")) || 0;
     this.syncErr = !err ? null : err === "login" ? "未登入" : err === "offline" ? "離線" : err.startsWith("rejected:") ? `有資料被拒（${err.slice(9)}）` : err.slice(0, 80);
-    if (cmd.op === "push" && ok) this.syncOut = this.syncOut.slice(cmd.items.length);   // the page has them (queued, if it couldn't send yet)
+    if (cmd.op === "push" && ok) { this.syncOut = this.syncOut.slice(cmd.items.length); this.syncSaveOut(); }   // the page has them (queued, if it couldn't send yet)
     if (cmd.op === "state" && ok) { this.syncNeed.delete("state"); this.syncPending = Number(data?.pending) || 0; this.syncTake(data?.items ?? [], true); }
     if (cmd.op === "pull") {
       this.syncNeed.delete("pull");
@@ -689,11 +693,13 @@ export default class Trend extends View {
     for (const it of [...items, ...(full ? this.syncOut : [])]) if (typeof it?.kind === "string" && typeof it.key === "string") this.syncMerge(it);
   }
   syncMerge(it) { const id = `${it.kind}\t${it.key}`, cur = this.syncCopy.get(id); if (!cur || it.at >= cur.at) this.syncCopy.set(id, it); }
+  syncSaveOut() { localStorage.setItem(SYNC_OUT, JSON.stringify(this.syncOut)); }
   // a change of yours: in the panel's copy now, up with the next push (none before the first sync moved the files up)
   syncPut(items, cx) {
     if (!this.syncOn || !items.length) return;
     const at = Date.now();
     for (const it of items) { const x = { kind: it.kind, key: it.key, data: it.data ?? {}, at, deleted: Boolean(it.deleted) }; this.syncMerge(x); this.syncOut.push(x); }
+    this.syncSaveOut();
     this.syncKick(cx);
   }
   // the player's settings (✨ 背光, its 字卡, 📝 重點 open or not): one item
@@ -722,6 +728,7 @@ export default class Trend extends View {
       if (text) { add("note", n.slice(0, -4), { text }, now); this.noteSeen[n.slice(0, -4)] = hash(text); }
     }
     for (const it of items) { this.syncMerge(it); this.syncOut.push(it); }
+    this.syncSaveOut();
     localStorage.setItem(SYNC_NOTES, JSON.stringify(this.noteSeen));
     localStorage.setItem(SYNC_MOVED, "1");
   }

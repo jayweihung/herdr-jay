@@ -415,6 +415,14 @@ export default class Trend extends View {
   get running() { return Boolean(this.status?.started && !this.status?.finished && Date.now() - Date.parse(this.status.started) < 1800000); }
   get failed() { return this.status?.ok === false ? this.status.error || "上次沒抓成功" : null; }
 
+  // fetch.js --videos: the 影片 searches that are due (a new one is), with the node the job uses (Herdr's own PATH may
+  // lack Homebrew's)
+  async searchVideos() {
+    let node = "node";
+    if (window()?.platform !== "windows") for (const p of ["/opt/homebrew/bin/node", "/usr/local/bin/node", "/usr/bin/node"])
+      if (await fsp.access(p).then(() => true, () => false)) { node = p; break; }
+    await exec(node, [`${appHome().replace(/\\/g, "/")}/mods/trend/fetch.js`, "--videos"]);
+  }
   // ↻: run the scheduled job now (launchd on macOS, Task Scheduler on Windows); it writes status.json at once
   async kick(cx) {
     this.msg = null;
@@ -668,7 +676,8 @@ export default class Trend extends View {
       });
       return;
     }
-    // a suggested search: ＋ 加入 puts it in videos.txt (searched on the next run), 不要 in videos-skip.txt (never again)
+    // a suggested search: ＋ puts it in videos.txt and searches it now (fetch.js --videos; the page says 搜尋中 meanwhile),
+    // ✕ puts it in videos-skip.txt (never suggested again)
     if (act === "add" || act === "skip") {
       const q = (h.get("name") ?? "").trim();
       if (!q) return;
@@ -676,9 +685,16 @@ export default class Trend extends View {
       cx.spawn(async (cx) => {
         const file = `${this.dir}/${act === "add" ? "videos.txt" : "videos-skip.txt"}`, was = await readTextFile(file).catch(() => null);
         await writeTextFile(file, `${was ?? ""}${was && !was.endsWith("\n") ? "\n" : ""}${q}\n`, was).catch(() => {});
-        if (act === "add") notify({ title: "影片：加了「" + q + "」", body: "下次更新就會搜（↻ 現在更新：馬上）", level: "success", timeout: 4000 });
         await this.writePages();
         cx.notify();
+        if (act !== "add") return;
+        (this.searching ??= new Set()).add(q);
+        await this.writePages();
+        // one search run at a time: two at once would both rewrite videos.json
+        this.searchRun = (this.searchRun ?? Promise.resolve()).then(() => this.searchVideos()).catch(() => {});
+        await this.searchRun;
+        this.searching.delete(q);
+        await this.load(cx);
       });
       return;
     }
@@ -741,7 +757,8 @@ export default class Trend extends View {
   videosHtml() {
     const v = this.videos ?? {}, items = v.items ?? [], t = theme(), sug = (v.suggest ?? []).filter((s) => !this.handled?.has(s.q));
     const when = (s) => { const d = new Date(Date.parse(s)); return Number.isNaN(d.getTime()) ? "" : `${d.getMonth() + 1}/${d.getDate()} ${hhmm(d.getTime())} 找到`; };
-    const errs = Object.entries(v.errors ?? {}).map(([q, e]) => `<p class="err">${esc(q ? `「${q}」：${e}` : e)}</p>`).join("");
+    const errs = [...[...(this.searching ?? [])].map((q) => `<p class="err" style="color:var(--muted)">正在搜「${esc(q)}」…</p>`),
+      ...Object.entries(v.errors ?? {}).map(([q, e]) => `<p class="err">${esc(q ? `「${q}」：${e}` : e)}</p>`)].join("");
     const card = (x) => `<div class="card vid" data-do="play" data-name="${esc(x.id)}">`
       + `<img src="https://i.ytimg.com/vi/${esc(x.id)}/mqdefault.jpg" alt="" loading="lazy"><div class="vb">`
       + `<div class="title">${esc(x.title)}</div>`

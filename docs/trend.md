@@ -146,7 +146,8 @@ TWICE 子瑜
 TZUYU
 ```
 
-`fetch.js` reads YouTube's own search page (uploads of this week) for each: no API key, no browser, no tokens. Each
+`fetch.js` reads YouTube's own search page (uploads of this week) for each: no API key, no browser, no tokens; its
+videos and its Shorts shelves (a Short says `Shorts` for its length). Each
 card has YouTube's thumbnail, the title, channel, length, when it was posted and the views, under a chip per search;
 click plays it in the panel (**← 影片** goes back). A search taken out of the file takes its videos with it; the list
 keeps the newest 300.
@@ -161,7 +162,7 @@ the player (right-click copies it); **📝 重新整理** asks again. 懶得看�
 **建議的主題** at the top of the tab, no tokens: a channel you played 2 or more videos of, a word in the titles of 2
 or more of them (Chinese: a run of 2 to 4 characters in 3 or more), and what YouTube's own search box suggests for
 each of your searches (asked once a day each), as small chips (the reason when you hover one). **＋** puts it in
-`videos.txt` (searched on the next run, ↻ for now), **✕** in `videos-skip.txt` (not suggested again). 不用自己想主題：
+`videos.txt` and searches it right away (`node fetch.js --videos`, 「正在搜」 meanwhile), **✕** in `videos-skip.txt` (not suggested again). 不用自己想主題：
 影片分頁上面會建議（看你點過的影片、YouTube 的搜尋建議），按「＋」加入或「✕」不要。
 
 **☆** on a card stars the video: it stays under **⭐ 收藏** for good (`trend/stars.json`), whatever the searches later

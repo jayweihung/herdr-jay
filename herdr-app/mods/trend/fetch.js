@@ -22,7 +22,10 @@ fs.mkdirSync(out, { recursive: true });
 const put = (name, text) => { fs.writeFileSync(path.join(out, `${name}.tmp`), text); fs.renameSync(path.join(out, `${name}.tmp`), path.join(out, name)); };
 const now = () => new Date().toISOString().replace(/\.\d+Z$/, "Z");
 const started = now();
-put("status.json", JSON.stringify({ started, finished: null, ok: null, error: null }) + "\n");
+// `node fetch.js --videos`: only the 影片 searches that are due (the panel runs it when you ＋ a search, so it shows
+// at once); no status.json, last30days or front pages / 只搜影片：面板按「＋」加主題時馬上跑
+const VIDEOS_ONLY = process.argv[2] === "--videos";
+if (!VIDEOS_ONLY) put("status.json", JSON.stringify({ started, finished: null, ok: null, error: null }) + "\n");
 
 // EXCLUDE_SOURCES=reddit: last30days' own Reddit search only gets 403 (Reddit's rows come from its page, below), and
 // every try is one more hit from the house's IP / last30days 自己的 Reddit 搜尋只會 403，不讓它打
@@ -33,7 +36,8 @@ if (proxy) Object.assign(env, { HTTPS_PROXY: proxy, HTTP_PROXY: proxy, NO_PROXY:
 
 let error = null;
 const l30 = process.argv[2];
-if (!l30 || !fs.existsSync(l30)) error = `找不到 last30days.py：排程給的路徑是「${l30 ?? ""}」（docs/trend.md「安裝」）`;
+if (VIDEOS_ONLY) {}
+else if (!l30 || !fs.existsSync(l30)) error = `找不到 last30days.py：排程給的路徑是「${l30 ?? ""}」（docs/trend.md「安裝」）`;
 else {
   const tmp = path.join(out, "trends.json.tmp");
   // --no-browser-cookies: never read the browser's logins / 不讀瀏覽器的登入資料
@@ -299,12 +303,23 @@ async function ytSearch(q, ua, cookies) {
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
   const m = /var ytInitialData = (\{.*?\});<\/script>/s.exec(html);
   if (!m) throw new Blocked("頁面裡沒有搜尋結果的資料（可能被擋）");
-  const found = [];
-  const walk = (o) => { if (o && typeof o === "object") { if (o.videoRenderer) found.push(o.videoRenderer); else for (const v of Object.values(o)) walk(v); } };
+  // the videos (videoRenderer) and the Shorts shelves' items (shortsLockupViewModel: no channel; "觀看次數：… · 6 小時前")
+  const found = [], shorts = [];
+  const walk = (o) => {
+    if (!o || typeof o !== "object") return;
+    if (o.videoRenderer) found.push(o.videoRenderer);
+    else if (o.shortsLockupViewModel) shorts.push(o.shortsLockupViewModel);
+    else for (const v of Object.values(o)) walk(v);
+  };
   walk(JSON.parse(m[1]));
-  return found.filter((v) => v.videoId).map((v) => ({ id: v.videoId, title: (v.title?.runs ?? []).map((x) => x.text).join(""),
+  return [...found.filter((v) => v.videoId).map((v) => ({ id: v.videoId, title: (v.title?.runs ?? []).map((x) => x.text).join(""),
     channel: (v.ownerText?.runs?.[0]?.text ?? "").trim(), length: v.lengthText?.simpleText ?? "",
-    views: v.viewCountText?.simpleText ?? "", published: v.publishedTimeText?.simpleText ?? "" }));
+    views: v.viewCountText?.simpleText ?? "", published: v.publishedTimeText?.simpleText ?? "" })),
+  ...shorts.map((s) => {
+    const [views = "", published = ""] = String(s.overlayMetadata?.secondaryText?.content ?? "").split(" · ");
+    return { id: s.onTap?.innertubeCommand?.reelWatchEndpoint?.videoId, title: s.overlayMetadata?.primaryText?.content ?? "",
+      channel: "", length: "Shorts", views, published };
+  }).filter((x) => x.id)];
 }
 async function videos() {
   let queries = [], before = null;
@@ -325,7 +340,7 @@ async function videos() {
     asked = true;
     try {
       const have = new Set(v.items.map((x) => x.id)), at = now();
-      v.items = [...(await ytSearch(q, ua, v.cookies)).filter((x) => !have.has(x.id)).map((x) => ({ ...x, query: q, found: at })), ...v.items];
+      v.items = [...(await ytSearch(q, ua, v.cookies)).filter((x) => !have.has(x.id) && have.add(x.id)).map((x) => ({ ...x, query: q, found: at })), ...v.items];
       v.searched[q] = at;
       Object.assign(v, { blockedAt: null, blocks: 0 });
     } catch (e) {
@@ -434,7 +449,8 @@ function track(f) {
   f.since = h.since;
   put("history.json", JSON.stringify(h) + "\n");
 }
-feeds().catch(() => {}).then(videos).catch(() => {}).finally(() => {
+if (VIDEOS_ONLY) videos().catch(() => {}).finally(() => process.exit(0));
+else feeds().catch(() => {}).then(videos).catch(() => {}).finally(() => {
   put("status.json", JSON.stringify({ started, finished: now(), ok: !error, error }) + "\n");
   process.exit(error ? 1 : 0);
 });

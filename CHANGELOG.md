@@ -99,6 +99,18 @@ it: `~/.config/herdr-app/trend/videos.txt`, one search per line.
 - A video goes on from where you left it (▶ 上次看到 on its card), with the player page in docs/trend.md「Just the
   player」 (its new version reports how far you got); YouTube's watch page starts there too. 換一支再回來，會接著播。
 
+## 2026-11-16, agent-page's 進度 stays current
+
+Needs: **mods** (nvim-jay, kit, agent-page: macOS symlinks: nothing; Windows: copy the three again).
+
+- nvim-jay's stop hook (the reply check) also keeps an agent going once when a turn of work (3 tool calls or more)
+  didn't write its `status.json`, for Claude Code, Codex and omp, agents already open included. One reminder with
+  the reply check's. 做了事卻沒更新進度，結束前提醒一次（三種 agent、已經開著的也算）。
+- kit: `agents.waiting` says why (the pending's text, the line that asks); agent-page shows it first under 等你
+  (「Kit 看到：…」), so 等你 and Needs you say the same thing even when the agent wrote nothing.
+  「等你」最上面是 Kit 看到的原因，跟 Needs you 一致。
+- agent-page: 「更新 … 前」 is the file's own time, not the `updated` the agent typed. 時間看檔案本身。
+
 ## 2026-11-16, Herdr app v0.1.16, and text in mod panels can be copied
 
 Needs: **app** (build v0.1.16 with its 27 patches, `herdr-app/patches/v0.1.16/`; core unchanged, v0.1.21), restart

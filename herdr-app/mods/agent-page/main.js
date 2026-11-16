@@ -47,6 +47,20 @@ const text = (x) => (typeof x === "string" ? x : String(x?.text ?? ""));
 const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 const sel = (id, s) => TextView.html(id, `<span>${esc(s)}</span>`).selectable(true);
 const list = (x) => (Array.isArray(x) ? x.filter((i) => text(i)) : []);
+// When a file was last written, in ms (null if unknown): the 進度's time is the file's own, not the "updated" the agent
+// typed (it may be a date only, or left old).
+async function writtenAt(file) {
+  const win = window()?.platform === "windows";
+  const runs = win
+    ? [["powershell", ["-NoProfile", "-Command", "& { param($p) [DateTimeOffset]::new((Get-Item -LiteralPath $p).LastWriteTimeUtc).ToUnixTimeMilliseconds() } '" + file.replace(/'/g, "''") + "'"], 1]]
+    : [["stat", ["-f", "%m", file], 1000], ["stat", ["-c", "%Y", file], 1000]]; // macOS, then Linux
+  for (const [cmd, args, k] of runs) {
+    const r = await exec(cmd, args).catch(() => null);
+    const n = Number(String(r?.stdout ?? "").trim());
+    if (r?.code === 0 && n > 0) return n * k;
+  }
+  return null;
+}
 const ago = (iso, now) => {
   const m = Math.round((now - new Date(iso)) / 60000);
   if (isNaN(m)) return "";
@@ -184,6 +198,13 @@ export default class AgentPage extends View {
     }
   }
 
+  // Why this agent waits for you, as the kit mod shares it ("agents.waiting": address -> { why }), or null.
+  kitWaits() {
+    const addr = this.remote ? `${this.remote.machine}/${this.remote.term}` : this.dir;
+    const w = (shared("agents.waiting") ?? {})[addr];
+    return w && typeof w.why === "string" && w.why.trim() ? w.why.trim() : null;
+  }
+
   // pane.split focuses the new pane; the person was typing to the agent.
   giveBack() {
     if (this.beside && panes().some((x) => x.pane === this.beside)) run("pane.focus", { pane: this.beside });
@@ -202,6 +223,7 @@ export default class AgentPage extends View {
       const s = await fs.readFile(`${this.folder}/${STATUS}`, "utf8");
       this.status = JSON.parse(s);
       this.statusError = null;
+      this.statusAt = await writtenAt(`${this.folder}/${STATUS}`);
     } catch (e) {
       // Missing: not written yet. Broken JSON (half written, or a mistake): keep the last good one, say so.
       this.statusError = /ENOENT|not found|no such/i.test(String(e)) ? null : `status.json 讀不了：${e.message ?? e}`;
@@ -235,6 +257,11 @@ export default class AgentPage extends View {
     const box = v_flex().id("ap-status").size_full().overflow_y_scrollbar().px(14).py(12).gap(14);
     if (this.syncNote) box.child(div().whitespace_normal().text_size(z - 1).text_color(t.blocked).child(this.syncNote));
     if (this.statusError) box.child(div().text_size(z - 1).text_color(t.blocked).child(this.statusError));
+    if (!s && this.kitWaits()) {
+      box.child(v_flex().gap(6).p(10).rounded(8).border_1().border_color(t.blocked)
+        .child(div().font_semibold().text_color(t.blocked).child("等你（1）"))
+        .child(div().child(sel("ap-wait-kit", `Kit 看到：${this.kitWaits()}`))));
+    }
     if (!s) {
       const where = this.remote ? `${this.remote.machine} 上的 ~/${REMOTE}/${this.remote.term}/${STATUS}` : `${this.folder}/${STATUS}`;
       return box.child(div().whitespace_normal().text_color(t.muted).child(
@@ -243,8 +270,11 @@ export default class AgentPage extends View {
     box.child(h_flex().gap(8).items_center()
       .child(div().flex_1().min_w(0).font_semibold().child(sel("ap-title", text(s.title) || "進度")))
       .when(Boolean(this.remote), (el) => el.child(div().flex_none().text_size(z - 2).text_color(t.dim).child(`在 ${this.remote.machine}`)))
-      .when(Boolean(s.updated), (el) => el.child(div().flex_none().text_size(z - 2).text_color(t.dim).child(`更新 ${ago(s.updated, now)}`))));
-    const waiting = list(s.waiting);
+      .when(Boolean(this.statusAt ?? s.updated), (el) => el.child(div().flex_none().text_size(z - 2).text_color(t.dim).child(`更新 ${ago(this.statusAt ?? s.updated, now)}`))));
+    // What Kit sees this agent wait for (its Needs you: a kit pending, or its last words asking you), first, unless
+    // the agent's own list already says it.
+    const kit = this.kitWaits();
+    const waiting = [...(kit && !list(s.waiting).some((i) => text(i).includes(kit)) ? [{ text: `Kit 看到：${kit}`, kit: true }] : []), ...list(s.waiting)];
     if (waiting.length) {
       const w = v_flex().gap(6).p(10).rounded(8).border_1().border_color(t.blocked)
         .child(div().font_semibold().text_color(t.blocked).child(`等你（${waiting.length}）`));

@@ -55,6 +55,11 @@ not write there itself). `<Herdr home>`: `~/.config/herdr-app` (`$HERDR_APP_HOME
 **`status.json`: keep it current** at the same moments you'd write a progress line (a step done, a guess confirmed,
 stuck, waiting for the person, all done). Rewrite the whole file; keep done items (the pane shows the last 3 days).
 It's also your handoff: after a restart or a compacted conversation, read it first.
+Forgetting is caught: nvim-jay's stop hook ([nvim-jay.md](nvim-jay.md) §7a) keeps an agent going once when a turn of
+work didn't write it. The pane shows the file's own time (not `updated`), and under **等你** first what Kit sees the
+agent wait for (its Needs you: a `kit pending`, or its last words asking you; shared `agents.waiting`'s `why`), unless
+the agent's own list says it. 忘了寫會被 nvim-jay 的結束前檢查提醒；畫面的時間看檔案本身；「等你」最上面是 Kit
+看到的（Needs you 的原因），agent 自己沒寫也看得到。
 Agents with kit's rule `progress-note` (agentkit-library, signed 2026-11-16) are told this in one line, so you
 don't have to ask each one. 有 kit 規則 `progress-note` 的 agent 會自己寫，不用一個一個交代。
 

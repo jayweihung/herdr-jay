@@ -1,7 +1,7 @@
 // Tests for herdr-app/mods/agent-page without Herdr: node tests/agent-page/run.js (macOS, Linux, Windows; Node 18+).
 // The mod's imports (gpui-kit, gpui-base, herdr) are replaced by stubs; fs/promises is Node's own, on a temporary
 // Herdr home. watchFolder is a fake the test answers by hand.
-import { readFileSync, writeFileSync, mkdtempSync, mkdirSync, rmSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdtempSync, mkdirSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -48,6 +48,10 @@ globalThis.__stubs = {
       for (const src of args.slice(3, -1)) { const n = src.split("/").pop(); writeFileSync(join(dest, n), H.remote[n]); }
       return { code: 0, stdout: "", stderr: "" };
     }
+    if (cmd === "stat") { // macOS's: -f %m <file> (H.statFails: a stat that fails)
+      if (H.statFails) return { code: 1, stdout: "", stderr: "stat: illegal option" };
+      return { code: 0, stdout: `${Math.floor((H.mtime ?? statSync(args[2]).mtimeMs) / 1000)}\n`, stderr: "" };
+    }
     return { code: 0, stdout: "", stderr: "" };
   },
   hc: async (args) => ({ code: 0, stdout: JSON.stringify({ machines: [{ name: "box", target: "box-alias" }] }), stderr: "" }),
@@ -73,7 +77,7 @@ async function loadMod() {
 function world({ props = { dir: "t63", beside: "pA", pane: "pM" }, panes, shared = {} } = {}) {
   const home = mkdtempSync(join(tmpdir(), "agent-page-home-"));
   Object.assign(H, {
-    home, props, shared, runs: [], calls: [], web: [], tasks: [], strings: [], watching: [], wake: null, execs: [], remote: null, scpFails: false, every: null,
+    home, props, shared, runs: [], calls: [], web: [], tasks: [], strings: [], watching: [], wake: null, execs: [], remote: null, scpFails: false, every: null, mtime: null, statFails: false,
     panes: panes ?? [{ pane: "pA", terminal: "t63", tab: "tb1" }, { pane: "pM", terminal: null, mod: "agent-page", tab: "tb1" }],
   });
   return join(home, "mods", "agent-page", ".pages", "t63");
@@ -127,6 +131,41 @@ test("進度: status.json rewritten is read again; broken JSON keeps the last go
   assert.match(s, /second/);
   assert.match(s, /status\.json 讀不了/);
   assert.equal(v.tab, "status", "a status change doesn't move the tab");
+});
+
+test("進度: its time is the file's own, not the agent's updated (a date only, or old)", async (V) => {
+  const folder = world();
+  write(folder, "status.json", STATUS({ updated: "2026-01-01", doing: ["x"] }));
+  const v = await open(V);
+  assert.match(render(v), /更新 剛剛/);
+  H.mtime = Date.now() - 3 * 3600000;
+  write(folder, "status.json", STATUS({ updated: new Date().toISOString(), doing: ["y"] }));
+  await changed(folder, ["status.json"]);
+  assert.match(render(v), /更新 3 小時前/, "written 3 hours ago, though it says now");
+  H.statFails = true;
+  write(folder, "status.json", STATUS({ updated: new Date(Date.now() - 2 * 3600000).toISOString(), doing: ["z"] }));
+  await changed(folder, ["status.json"]);
+  assert.match(render(v), /更新 2 小時前/, "no file time: the agent's own");
+});
+
+test("等你: what Kit sees the agent wait for comes first (agents.waiting's why), unless its own list says it; also with no status.json", async (V) => {
+  const folder = world({ shared: { "agents.waiting": { t63: { since: 1, hot: false, why: "要推的話跟我說。" }, t9: { why: "other" } } } });
+  let v = await open(V);
+  let s = render(v);
+  assert.ok(s.includes("等你（1）") && s.includes("Kit 看到：要推的話跟我說。") && /還沒有進度/.test(s), s);
+  assert.ok(!s.includes("other"));
+  write(folder, "status.json", STATUS({ waiting: [{ text: "sign kit" }] }));
+  await changed(folder, ["status.json"]);
+  s = render(v);
+  assert.ok(s.includes("等你（2）") && s.indexOf("Kit 看到") < s.indexOf("sign kit"), s);
+  write(folder, "status.json", STATUS({ waiting: [{ text: "要推的話跟我說。（herdr-jay ahead 1）" }] }));
+  await changed(folder, ["status.json"]);
+  s = render(v);
+  assert.ok(s.includes("等你（1）") && !s.includes("Kit 看到"), "its own list says it already");
+  // an agent on another machine: by machine/term
+  world({ props: { dir: "box_t1p", beside: "pA", pane: "pM", machine: "box", term: "t1p" }, shared: { "agents.waiting": { "box/t1p": { why: "要你同意：升 kit" } } } });
+  v = await open(V);
+  assert.ok(render(v).includes("Kit 看到：要你同意：升 kit"));
 });
 
 test("tabs: 進度 first, then pages newest first, titled without the time; a page is file:// of it", async (V) => {

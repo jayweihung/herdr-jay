@@ -301,6 +301,15 @@ for an agent that is done and not looked at yet ([kit.md](kit.md)).
 每次停下來也把它最後說的話（最後一句問句，沒有就是最後一行）記在 `~/.cache/nvim-jay/said/<terminal>`，
 關係圖的「做完等你看」會顯示它。
 
+In the same stop it also checks the agent's **進度** for agent-page ([agent-page.md](agent-page.md)): a turn that did
+work (3 tool calls or more) in a Herdr terminal, where this user has Herdr's folder (`~/.config/herdr-app`, or
+`HERDR_APP_HOME`), and whose `status.json` (`mods/agent-page/.pages/<terminal id>/`, or `pages/` where agent-page
+isn't installed) wasn't written since the last stop (or never): it keeps the agent going once to rewrite it, the
+format in the reminder. With an unanswered message too, both are in one reminder. Claude Code, Codex and omp alike
+(omp through its hook module, §7b); it works for agents already open, as the hook file is read at each stop.
+同一次也看說明頁的「進度」：這一輪做了事（3 次以上工具）卻沒更新 `status.json`，就提醒它一次去寫；
+跟回覆檢查合成一則。Claude、Codex、omp 都適用，已經開著的 agent 也馬上生效。
+
 nvim-jay writes it next to the snap hook, `~/.config/nvim-jay/reply_hook.lua`, on every machine where it runs. To
 turn it on, add a Stop entry to that machine's `~/.claude/settings.json` (same rules as above: back it up, keep the
 rest, add to `"Stop"` if it is there; full `nvim` path if needed; Windows: under `%USERPROFILE%`):

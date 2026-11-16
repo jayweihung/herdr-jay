@@ -474,7 +474,8 @@ export default class Trend extends View {
   // My videos: what fetch.js's YouTube searches (one per line of videos.txt) found, a web page like the list's
   // (writePages): a chip per search, newest found first; a click plays it here
   videoList(t, z) {
-    if (this.playing && !this.hiding && this.progress !== undefined) return this.videoPlayer(t, z);
+    // hiding, or the progress not read yet (a restart): an empty space, not the list for a moment
+    if (this.playing) return this.hiding || this.progress === undefined ? div().flex_1().bg(theme().background) : this.videoPlayer(t, z);
     return this.pageCell(t, VIDEOS_CELL, "videos.html");
   }
   get results() { return Array.isArray(this.data?.results) ? this.data.results : []; }
@@ -641,6 +642,8 @@ export default class Trend extends View {
     if (this.role === "toggle") return this.renderToggle();
     const t = theme(), z = fs();
     this.keepPlace();
+    // shown again after a hide: the video at once, not the list for the second the timer would take
+    if (this.hiding && Date.now() - this.hidingAt > 400 && find(layout(), PANEL) && !find(layout(), PANEL).hidden) this.hiding = false;
     const where = JSON.stringify([this.view, this.playing?.id ?? null]);
     if (where !== this.savedWhere) {
       this.savedWhere = where;
@@ -1012,11 +1015,11 @@ export default class Trend extends View {
       + `const go=(a,q)=>{if(!q)return;location.hash="do="+a+"&name="+encodeURIComponent(q)+"&n="+Date.now();setTimeout(()=>history.replaceState(null,"",location.pathname),500)};`
       + `const open=(on)=>{box.hidden=!on;try{localStorage.setItem(K,on?"1":"")}catch{}};try{open(localStorage.getItem(K)==="1")}catch{}`
       // 看: which list each topic shows (its own YouTube search), the choice remembered: 最相關 in YouTube's order,
-      // 最多人看 by views, 最新上傳 newest first; ⭐ 收藏 shows all of it
-      + `const S="videos.html:list",by={rel:(c)=>+c.dataset.rel,views:(c)=>-c.dataset.v,new:(c)=>-c.dataset.up||+c.dataset.new};`
-      + `const sortBy=(k)=>{if(!by[k])k="rel";for(const s of document.querySelectorAll("section")){const cs=[...s.querySelectorAll(":scope>.card.vid")];`
-      + `const on=s.hasAttribute("data-keep")?cs:cs.filter((c)=>c.dataset[k]!=="");for(const c of cs)c.hidden=!on.includes(c);`
-      + `if(!s.hasAttribute("data-keep"))on.sort((a,b)=>by[k](a)-by[k](b)).forEach((c)=>s.appendChild(c));const none=s.querySelector(".none");if(none)none.hidden=!!on.length||!cs.length}`
+      // 最多人看 by views, 最新上傳 newest first; ⭐ 收藏 shows all of it, in that order too (最相關: newest starred first)
+      + `const S="videos.html:list",by={rel:(c)=>+c.dataset.rel,views:(c)=>-c.dataset.v,new:(c)=>-c.dataset.up||+c.dataset.new},keepBy={rel:(c)=>+c.dataset.i,views:(c)=>-c.dataset.v,new:(c)=>-c.dataset.up};`
+      + `const sortBy=(k)=>{if(!by[k])k="rel";for(const s of document.querySelectorAll("section")){const cs=[...s.querySelectorAll(":scope>.card.vid")],keep=s.hasAttribute("data-keep");`
+      + `cs.forEach((c,i)=>{c.dataset.i??=i});const on=keep?cs:cs.filter((c)=>c.dataset[k]!=="");for(const c of cs)c.hidden=!on.includes(c);`
+      + `on.sort((a,b)=>(keep?keepBy:by)[k](a)-(keep?keepBy:by)[k](b)||a.dataset.i-b.dataset.i).forEach((c)=>s.appendChild(c));const none=s.querySelector(".none");if(none)none.hidden=!!on.length||!cs.length}`
       + `for(const b of document.querySelectorAll(".sortbar button"))b.classList.toggle("on",b.dataset.q===k);try{localStorage.setItem(S,k)}catch{}};`
       // pageHtml's script (after this one) and its chips (show) show all of a section's cards: the 看 list hides the
       // others again after it

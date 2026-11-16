@@ -21,8 +21,9 @@ Needs: **mods** (Windows: copy `trend` again; macOS link: nothing), Chrome or Ed
 
 ## 2026-11-16, trend: 影片, your own YouTube searches
 
-Needs: **mods** (Windows: copy `trend` again; macOS link: nothing). To use it: `~/.config/herdr-app/trend/videos.txt`,
-one search per line.
+Needs: **mods** (Windows: copy `trend` again; macOS link: nothing), then restart Herdr once (its `mod.json` now allows
+`https://www.youtube.com`: a mod's allow list is read when Herdr opens the panel, not when the code reloads). To use
+it: `~/.config/herdr-app/trend/videos.txt`, one search per line.
 
 - The panel's new 影片 tab lists what YouTube's search found this week for each line of `videos.txt` (e.g. `TWICE
   子瑜`), with thumbnails, newest found first; click plays it in the panel (⤢ shows the panel alone in its row). `fetch.js` reads YouTube's search page

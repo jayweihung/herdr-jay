@@ -316,10 +316,11 @@ export default class Trend extends View {
           continue;
         }
         // the player page says how far you got (#t=<seconds> every few seconds, 0 at the end): kept per video, saved
-        // by load(), and the next play of it starts there
+        // by load(), and the next play of it starts there; #card=0/1: its 字卡 button, kept for the next video
         if (e?.id === VIDEO_CELL && e.kind === "url" && this.playing && (e.url ?? "").includes(this.playing.id)) {
-          const m = /#t=(\d+)/.exec(e.url ?? "");
+          const m = /#t=(\d+)/.exec(e.url ?? ""), card = /#card=([01])/.exec(e.url ?? "");
           if (m) { (this.progress ??= {})[this.playing.id] = Number(m[1]); this.progressDirty = true; }
+          if (card) localStorage.setItem("card", card[1]);
           continue;
         }
         if ((e?.id === LIST_CELL || e?.id === REPORTS_CELL || e?.id === VIDEOS_CELL) && e.kind === "url") { this.fromPage(e.url ?? "", cx); continue; }
@@ -423,14 +424,17 @@ export default class Trend extends View {
   }
   // where a video plays: the player page in trend/player (?t=: from where you left it), else YouTube's watch page
   // (&t=…s); playFrom is set when you press play, so the page doesn't reload as the progress comes in. glow=0: the
-  // player page's 背光 (the video's thumbnail blurred around it) off, as ✨ 背光 left it
+  // player page's 背光 off, as ✨ 背光 left it. After the #, for the page only (a fragment never reaches its server):
+  // sb (the storyboard spec: the 背光 follows the video), cap (the subtitles, JSON), ti / ch / vw / pub (title,
+  // channel, views, when: the glass pod's lines), card=0 (the caption card folded, as its 字卡 button left it)
   playSrc(x) {
     const from = this.playFrom > 0 ? this.playFrom : 0;
     if (!this.player?.includes("{id}")) return `https://www.youtube.com/watch?v=${x.id}${from ? `&t=${from}s` : ""}`;
-    // sb: the video's storyboard spec (its progress-bar frames), so the 背光 follows the video
-    const sb = localStorage.getItem("glow") !== "0" && this.storyboards?.[x.id];
-    const u = this.player.replace("{id}", x.id), q = [from ? `t=${from}` : "", localStorage.getItem("glow") === "0" ? "glow=0" : "", sb ? `sb=${encodeURIComponent(sb)}` : ""].filter(Boolean).join("&");
-    return q ? `${u}${u.includes("?") ? "&" : "?"}${q}` : u;
+    const glow = localStorage.getItem("glow") !== "0", e = this.extras?.[x.id] ?? {};
+    const u = this.player.replace("{id}", x.id), q = [from ? `t=${from}` : "", glow ? "" : "glow=0"].filter(Boolean).join("&");
+    const f = [glow && e.sb ? ["sb", e.sb] : null, e.cap?.length ? ["cap", JSON.stringify(e.cap)] : null, ["ti", x.title], ["ch", x.channel], ["vw", x.views], ["pub", x.published],
+      localStorage.getItem("card") === "0" ? ["card", "0"] : null].filter((p) => p && p[1]).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join("&");
+    return `${q ? `${u}${u.includes("?") ? "&" : "?"}${q}` : u}#${f}`;
   }
   // one video played here (the player page in trend/player, else YouTube's watch page); 📝 整理重點 asks the trend
   // agent (tokens) for its key points, which it writes to trend/notes/<id>.txt: shown under the player
@@ -509,14 +513,14 @@ export default class Trend extends View {
       if (await fsp.exists(p).catch(() => false)) { node = p; break; }   // the mod's fs/promises has exists, not access
     return exec(node, [`${appHome().replace(/\\/g, "/")}/mods/trend/fetch.js`, ...args], { timeout });
   }
-  // a video's storyboard spec (fetch.js --storyboard: its watch page, once a day), for the player page's 背光; none
-  // in 8 seconds: it plays without (the thumbnails)
-  storyboardFor(x, cx) {
-    if ((this.storyboards ??= {})[x.id] !== undefined || this.sbWait === x.id) return;
+  // what the player page needs for a video (fetch.js --player: its storyboard spec and subtitles, once a day); none
+  // in 8 seconds: it plays without (the thumbnails, no subtitles)
+  extraFor(x, cx) {
+    if ((this.extras ??= {})[x.id] !== undefined || this.sbWait === x.id) return;
     this.sbWait = x.id;
     cx.spawn(async (cx) => {
-      const r = await this.fetchJs(["--storyboard", x.id], 8000).catch(() => null);
-      this.storyboards[x.id] = r?.code === 0 ? String(r.stdout ?? "").trim() : "";
+      const r = await this.fetchJs(["--player", x.id], 8000).catch(() => null);
+      try { this.extras[x.id] = JSON.parse(r?.stdout || "{}"); } catch { this.extras[x.id] = {}; }
       if (this.sbWait === x.id) this.sbWait = null;
       cx.notify();
     });
@@ -761,7 +765,7 @@ export default class Trend extends View {
       const x = this.videos?.items?.find((i) => i.id === h.get("name")) ?? this.stars?.[h.get("name")];
       if (!x) return;
       this.playing = x; this.playFrom = this.progress?.[x.id] > 5 ? this.progress[x.id] : 0; this.played = true; this.notes = null; this.load(cx);
-      this.storyboardFor(x, cx);
+      this.extraFor(x, cx);
       // what you play: fetch.js suggests searches from it (channels, title words); the newest 300
       cx.spawn(async () => {
         const file = `${this.dir}/plays.json`, was = await readTextFile(file).catch(() => null);

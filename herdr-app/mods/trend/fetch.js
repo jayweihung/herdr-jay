@@ -26,12 +26,12 @@ const put = (name, text) => { fs.writeFileSync(path.join(out, `${name}.tmp`), te
 const now = () => new Date().toISOString().replace(/\.\d+Z$/, "Z");
 const started = now();
 // `node fetch.js --videos`: only the 影片 searches that are due (the panel runs it when you ＋ a search, so it shows
-// at once); `--topics`: only 熱門's topic searches that are due (its ＋); `--storyboard <id>`: prints a video's
-// storyboard spec (below). No status.json, last30days or front pages.
-// 只搜影片／只搜熱門主題／拿一支影片的預覽圖位置：面板按「＋」或播放時跑
+// at once); `--topics`: only 熱門's topic searches that are due (its ＋); `--player <id>`: prints what the player page
+// needs for a video (playerExtra, below). No status.json, last30days or front pages.
+// 只搜影片／只搜熱門主題／拿一支影片的預覽圖和字幕：面板按「＋」或播放時跑
 const VIDEOS_ONLY = process.argv[2] === "--videos", TOPICS_ONLY = process.argv[2] === "--topics";
-const STORYBOARD = process.argv[2] === "--storyboard" ? String(process.argv[3] ?? "") : null;
-if (!VIDEOS_ONLY && !TOPICS_ONLY && STORYBOARD === null) put("status.json", JSON.stringify({ started, finished: null, ok: null, error: null }) + "\n");
+const PLAYER = process.argv[2] === "--player" ? String(process.argv[3] ?? "") : null;
+if (!VIDEOS_ONLY && !TOPICS_ONLY && PLAYER === null) put("status.json", JSON.stringify({ started, finished: null, ok: null, error: null }) + "\n");
 
 // EXCLUDE_SOURCES=reddit: last30days' own Reddit search only gets 403 (Reddit's rows come from its page, below), and
 // every try is one more hit from the house's IP / last30days 自己的 Reddit 搜尋只會 403，不讓它打
@@ -45,7 +45,7 @@ if (proxy) {
 
 let error = null;
 const l30 = process.argv[2];
-if (VIDEOS_ONLY || TOPICS_ONLY || STORYBOARD !== null) {}
+if (VIDEOS_ONLY || TOPICS_ONLY || PLAYER !== null) {}
 else if (!l30 || !fs.existsSync(l30)) error = `找不到 last30days.py：排程給的路徑是「${l30 ?? ""}」（docs/trend.md「安裝」）`;
 else {
   const tmp = path.join(out, "trends.json.tmp");
@@ -644,24 +644,41 @@ function track(rows) {
   put("history.json", JSON.stringify(h) + "\n");
   return h.since;
 }
-// A video's storyboard spec: where YouTube keeps the small frames of its progress-bar preview (sprite sheets, one
-// frame every few seconds; the format: yt-dlp's _extract_storyboard), for the player page's 背光 to follow the
-// video. Read once from its watch page (ytInitialPlayerResponse), kept a day in storyboards.json; printed, or nothing.
-// 一支影片的預覽小圖位置（背光跟著劇情換色用）：讀一次它的影片頁，存一天。
-async function storyboard(id) {
-  if (!/^[\w-]{11}$/.test(id)) return;
+// What the player page needs beyond the video, for one video: its storyboard spec (where YouTube keeps the small
+// frames of its progress-bar preview, one every few seconds; the format: yt-dlp's _extract_storyboard), for the 背光
+// to follow the video, and its subtitles, for the glass caption card: [[start ms, duration ms, text]…], Traditional
+// Chinese first (a zh-TW / zh-Hant track; else a track YouTube translates to zh-Hant; else as it is). Asked as
+// YouTube's Android app asks (youtubei player): the web page's subtitle links want a token a script can't make
+// (tried 2026-11-16: empty or 429). Kept a day in player-extra.json; printed as JSON, or {} when there's nothing.
+// 一支影片的預覽小圖位置（背光跟著劇情）和字幕（玻璃字卡）：用 YouTube Android app 的方式問一次，存一天。
+const ANDROID = { clientName: "ANDROID", clientVersion: "20.10.38", androidSdkVersion: 34, hl: "zh-TW", gl: "TW" };
+const ANDROID_UA = "com.google.android.youtube/20.10.38 (Linux; U; Android 14) gzip";
+async function playerExtra(id) {
+  if (!/^[\w-]{11}$/.test(id)) return void process.stdout.write("{}");
   let kept = {};
-  try { kept = JSON.parse(fs.readFileSync(path.join(out, "storyboards.json"), "utf8")); } catch {}
-  if (kept[id] && Date.now() - Date.parse(kept[id].at) < 24 * HOUR_MS) return void process.stdout.write(kept[id].spec);
-  const r = await fetch(`https://www.youtube.com/watch?v=${id}&hl=zh-TW&gl=TW`, { headers: { "user-agent": chromeUa(), "accept-language": "zh-TW,zh;q=0.9" }, signal: AbortSignal.timeout(15000) });
-  const spec = JSON.parse(`"${/"playerStoryboardSpecRenderer":\{"spec":"((?:[^"\\]|\\.)*)"/.exec(await r.text())?.[1] ?? ""}"`);
+  try { kept = JSON.parse(fs.readFileSync(path.join(out, "player-extra.json"), "utf8")); } catch {}
+  if (kept[id] && Date.now() - Date.parse(kept[id].at) < 24 * HOUR_MS) return void process.stdout.write(JSON.stringify(kept[id]));
+  const r = await fetch("https://www.youtube.com/youtubei/v1/player?prettyPrint=false", { method: "POST", signal: AbortSignal.timeout(15000),
+    headers: { "content-type": "application/json", "user-agent": ANDROID_UA }, body: JSON.stringify({ context: { client: ANDROID }, videoId: id }) });
+  const j = await r.json();
+  const tracks = j.captions?.playerCaptionsTracklistRenderer?.captionTracks ?? [];
+  const sub = async (t, tlang) => {
+    const c = await fetch(`${t.baseUrl.replace(/&fmt=[^&]*/, "")}&fmt=json3${tlang ? `&tlang=${tlang}` : ""}`, { headers: { "user-agent": ANDROID_UA }, signal: AbortSignal.timeout(15000) });
+    if (!c.ok) return null;
+    const lines = ((await c.json().catch(() => null))?.events ?? []).map((e) => [e.tStartMs ?? 0, e.dDurationMs ?? 0, (e.segs ?? []).map((s) => s.utf8 ?? "").join("").replace(/\s+/g, " ").trim()]).filter((l) => l[2]);
+    return lines.length ? lines : null;
+  };
+  const hant = tracks.find((t) => /^zh-(TW|Hant|HK)/i.test(t.languageCode)), any = tracks.find((t) => /^zh/i.test(t.languageCode)) ?? tracks.find((t) => t.languageCode === "en") ?? tracks[0];
+  let cap = null;
+  try { cap = hant ? await sub(hant) : any ? (await sub(any, "zh-Hant")) ?? (await sub(any)) : null; } catch {}
+  const extra = { at: now(), sb: j.storyboards?.playerStoryboardSpecRenderer?.spec ?? "", cap: cap ?? [] };
   const t = Date.now();
   kept = Object.fromEntries(Object.entries(kept).filter(([, v]) => t - Date.parse(v.at) < 24 * HOUR_MS));
-  kept[id] = { at: now(), spec };
-  put("storyboards.json", JSON.stringify(kept) + "\n");
-  process.stdout.write(spec);
+  kept[id] = extra;
+  put("player-extra.json", JSON.stringify(kept) + "\n");
+  process.stdout.write(JSON.stringify(extra));
 }
-if (STORYBOARD !== null) storyboard(STORYBOARD).catch(() => {}).finally(() => process.exit(0));
+if (PLAYER !== null) playerExtra(PLAYER).catch(() => process.stdout.write("{}")).finally(() => process.exit(0));
 else if (VIDEOS_ONLY) videos().catch(() => {}).finally(() => process.exit(0));
 else if (TOPICS_ONLY) topics().catch(() => {}).finally(() => process.exit(0));
 else feeds().catch(() => {}).then(topics).catch(() => {}).then(videos).catch(() => {}).finally(() => {

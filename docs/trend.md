@@ -252,11 +252,15 @@ script from YouTube (`iframe_api` would run as your site, with your sign-in's co
 **✨ 背光** above the player turns its glow on and off (remembered): the panel adds `glow=0` to the page's URL when
 off. A page may answer it by filling the space around the 16:9 video with the video's thumbnail
 (`https://i.ytimg.com/vi/<id>/maxresdefault.jpg`, blurred; `1.jpg`–`3.jpg` are frames at a quarter, half and three
-quarters of it): the video itself, on youtube.com, can't be read for its colors. With the glow on, the panel also
-adds `sb=<storyboard spec>`: where YouTube keeps the small frames of the video's progress-bar preview (one every few
-seconds; `node fetch.js --storyboard <id>` reads it from the watch page once a day a video, the player waits up to
-8 s for it), so a page can light the space from the frame at the time playing (its `#t=`), Ambilight-like: each
-edge from the frame's own edge, fading out. 播放列的「✨ 背光」開關播放頁的背光（模糊的影片縮圖鋪在影片四周；帶 sb= 時可以跟著播到哪一格換色）。
+quarters of it): the video itself, on youtube.com, can't be read for its colors. After the `#` (for the page only: a
+fragment never reaches its server) the panel adds what it knows of the video: `sb` its storyboard spec (where
+YouTube keeps the small frames of its progress-bar preview, one every few seconds: a page can light the space from
+the frame at the time playing, Ambilight-like, each edge from the frame's own edge), `cap` its subtitles as JSON
+(`[[start ms, duration ms, text]…]`, Traditional Chinese first), `ti` / `ch` / `vw` / `pub` its title, channel,
+views and when, `card=0` when the page's caption card was folded (the page says `#card=0` / `#card=1` when its
+button is pressed; kept for the next video). `node fetch.js --player <id>` asks YouTube once a day a video, as its
+Android app does (the web page's subtitle links want a token a script can't make); the player waits up to 8 s for
+it. 播放列的「✨ 背光」開關背光；網址 # 後面帶預覽小圖位置、字幕、標題頻道，給播放頁的背光跟著劇情和玻璃字卡用。
 
 Its URL with `{id}` for the video goes in `<Herdr home>/trend/player` (one line, e.g.
 `https://www.example.com/yt.html?v={id}`), and its site in the mod's `mod.json` allow list. To keep your site out of
@@ -284,7 +288,7 @@ each row with `first`, maybe `rise` and `body` (its text), and, for the sites re
 `dcard-profile/`, `threads-profile/` (the browser profiles those pages are opened with: their cookies only),
 `topics.txt` (yours: 熱門's topics), `topics.json` (`{ queries, at, since, items: { <topic>: { hn, ptt, reddit, dcard } },
 done, errors, <site>BlockedAt, <site>Blocks }`), `hot-stars.json` (the panel's: 熱門's starred cards, by title),
-`storyboards.json` (each played video's storyboard spec, a day).
+`player-extra.json` (each played video's storyboard spec and subtitles, a day).
 `<Herdr home>/mods/trend/.reports/`: the agent's reports (hidden: writing one doesn't reload the mod; git ignores it).
 `videos.txt` (yours: the searches), `videos-skip.txt` (searches not to suggest), `stars.json` (the videos you starred),
 `progress.json` (how far you got in each), `plays.json` (the videos you played,

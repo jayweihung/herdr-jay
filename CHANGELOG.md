@@ -83,6 +83,10 @@ it: `~/.config/herdr-app/trend/videos.txt`, one search per line.
   player. 播放時按「📝 整理重點」，trend agent 整理的重點顯示在播放器下面。
 - 建議的主題 at the top of the 影片 tab (no tokens): channels and title words from the videos you play, and YouTube's
   search box suggestions for your searches; ＋ 加入 or 不要. 影片分頁上面自動建議新主題，按一下加入。
+- Leaving a video (← 影片, another tab) stops it: the player turns to a blank page (a web element lives on unseen).
+  離開播放畫面影片就停。
+- A video goes on from where you left it (▶ 上次看到 on its card), with the player page in docs/trend.md「Just the
+  player」 (its new version reports how far you got); YouTube's watch page starts there too. 換一支再回來，會接著播。
 
 ## 2026-11-16, Herdr app v0.1.16, and text in mod panels can be copied
 

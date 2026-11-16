@@ -171,19 +171,28 @@ block. It reads the page, so a change at YouTube can break it: then a YouTube Da
 a day free) is the way. 全家共用 IP，所以保守：每個搜尋 3 小時最多一次；被擋停 6、12、24 小時。
 
 **Just the player** (no YouTube page around it): YouTube's embedded player plays only inside an https page (opened
-alone, or from a local file, it shows Error 153), so it needs a small page on an https site of yours:
+alone, or from a local file, it shows Error 153), so it needs a small page on an https site of yours. This one also
+starts at `?t=<seconds>` and, while playing, writes how far you got into its own `#t=<seconds>`: the panel keeps that
+per video (`trend/progress.json`) and the next play of it goes on from there (▶ 上次看到 on its card).
+換一支看再回來，會從上次看到的地方接著播。
 
 ```html
 <!doctype html>
 <meta charset="utf-8">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <title>video</title>
-<style>html, body { margin: 0; height: 100%; background: #000; } iframe { display: block; border: 0; width: 100%; height: 100%; }</style>
-<iframe allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe>
+<style>html, body { margin: 0; height: 100%; background: #000; } #p { display: block; border: 0; width: 100%; height: 100%; }</style>
+<div id="p"></div>
 <script>
-  const v = new URLSearchParams(location.search).get("v") ?? "";
-  if (/^[\w-]{11}$/.test(v)) document.querySelector("iframe").src = `https://www.youtube.com/embed/${v}?autoplay=1&rel=0&playsinline=1`;
+  const q = new URLSearchParams(location.search), v = q.get("v") ?? "", start = Math.max(0, parseInt(q.get("t") ?? "0", 10) || 0);
+  function onYouTubeIframeAPIReady() {
+    if (!/^[\w-]{11}$/.test(v)) return;
+    const p = new YT.Player("p", { videoId: v, playerVars: { autoplay: 1, rel: 0, playsinline: 1, start },
+      events: { onReady: (e) => e.target.playVideo(), onStateChange: (e) => { if (e.data === YT.PlayerState.ENDED) history.replaceState(null, "", "#t=0"); } } });
+    setInterval(() => { if (p.getPlayerState?.() === YT.PlayerState.PLAYING) history.replaceState(null, "", "#t=" + Math.floor(p.getCurrentTime())); }, 3000);
+  }
 </script>
+<script src="https://www.youtube.com/iframe_api"></script>
 ```
 
 Its URL with `{id}` for the video goes in `<Herdr home>/trend/player` (one line, e.g.

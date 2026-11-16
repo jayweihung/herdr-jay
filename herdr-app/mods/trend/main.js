@@ -195,6 +195,7 @@ const smallBtn = (t, z, id, label, fn) => div().id(id).h(26).px(8).flex().items_
   .bg(t.raised).hover((s) => s.bg(t.hover)).on_mouse_down("left", stop).on_click(fn).child(label);
 const ago = (ms) => { const m = Math.max(0, Math.floor((Date.now() - ms) / 60000)); return m < 1 ? "剛剛" : m < 60 ? `${m} 分前` : m < 1440 ? `${Math.floor(m / 60)} 小時前` : `${Math.floor(m / 1440)} 天前`; };
 const hhmm = (ms) => { const d = new Date(ms); return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; };
+const mmss = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 const num = (n) => (n >= 10000 ? `${(n / 1000).toFixed(0)}k` : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
 // "HN 4.7k 分 · 3.5k 留言 · Reddit 1.2k 分": each source's own counters, the ones people know
 function engagementText(e) {
@@ -244,6 +245,13 @@ export default class Trend extends View {
           this.leftAt = Date.now();
           continue;
         }
+        // the player page says how far you got (#t=<seconds> every few seconds, 0 at the end): kept per video, saved
+        // by load(), and the next play of it starts there
+        if (e?.id === VIDEO_CELL && e.kind === "url" && this.playing && (e.url ?? "").includes(this.playing.id)) {
+          const m = /#t=(\d+)/.exec(e.url ?? "");
+          if (m) { (this.progress ??= {})[this.playing.id] = Number(m[1]); this.progressDirty = true; }
+          continue;
+        }
         if ((e?.id === LIST_CELL || e?.id === REPORTS_CELL || e?.id === VIDEOS_CELL) && e.kind === "url") { this.fromPage(e.url ?? "", cx); continue; }
         if (e?.id !== REPORT_CELL) continue;
         this.webNote = e.kind === "failed" ? `載入失敗：${e.error ?? ""}` : e.kind === "blocked" && e.url ? `已用瀏覽器開：${e.url}` : null;
@@ -258,6 +266,13 @@ export default class Trend extends View {
   async load(cx) {
     const [t, s, f, v, p] = await Promise.all(["trends.json", "status.json", "feeds.json", "videos.json", "player"].map((n) => readTextFile(`${this.dir}/${n}`).catch(() => null)));
     this.player = (p ?? "").split("\n")[0].trim();
+    // how far you got in each video (progress.json): read once, then saved here when it changed
+    const pf = `${this.dir}/progress.json`;
+    if (this.progress === undefined) try { this.progress = JSON.parse((await readTextFile(pf).catch(() => null)) ?? "{}") ?? {}; } catch { this.progress = {}; }
+    else if (this.progressDirty) {
+      this.progressDirty = false;
+      await writeTextFile(pf, JSON.stringify(this.progress) + "\n", await readTextFile(pf).catch(() => null)).catch(() => { this.progressDirty = true; });
+    }
     // the key points of the video playing, once the trend agent has written them (📝 整理重點)
     this.notes = this.playing ? await readTextFile(`${this.dir}/notes/${this.playing.id}.txt`).catch(() => null) : null;
     try { this.feeds = f ? JSON.parse(f) : null; } catch { this.feeds = null; }
@@ -321,6 +336,14 @@ export default class Trend extends View {
       .when(Boolean(this.webNote), (el) => el.child(div().px(10).py(4).text_size(z - 1.5).text_color(t.muted).truncate().child(this.webNote)))
       .child(div().flex_1().min_h(0).child(web.new(REPORT_CELL, { src: fileUrl(`${this.reportDir}/${this.view}`) })));
   }
+  // where a video plays: the player page in trend/player (?t=: from where you left it), else YouTube's watch page
+  // (&t=…s); playFrom is set when you press play, so the page doesn't reload as the progress comes in
+  playSrc(x) {
+    const from = this.playFrom > 0 ? this.playFrom : 0;
+    if (!this.player?.includes("{id}")) return `https://www.youtube.com/watch?v=${x.id}${from ? `&t=${from}s` : ""}`;
+    const u = this.player.replace("{id}", x.id);
+    return from ? `${u}${u.includes("?") ? "&" : "?"}t=${from}` : u;
+  }
   // one video played here (the player page in trend/player, else YouTube's watch page); 📝 整理重點 asks the trend
   // agent (tokens) for its key points, which it writes to trend/notes/<id>.txt: shown under the player
   videoPlayer(t, z) {
@@ -332,7 +355,7 @@ export default class Trend extends View {
         .child(div().flex_1().min_w(0).truncate().text_size(z - 1).text_color(t.muted).child(x.title))
         .child(smallBtn(t, z, "vid-notes", notes ? "📝 重新整理" : "📝 整理重點",
           (_e, cx) => cx.spawn(async (cx) => this.ask(label, notesAsk(x, `${this.dir}/notes/${x.id}.txt`), cx)))))
-      .child(div().flex_1().min_h(0).child(web.new(VIDEO_CELL, { src: this.player?.includes("{id}") ? this.player.replace("{id}", x.id) : `https://www.youtube.com/watch?v=${x.id}` })))
+      .child(div().flex_1().min_h(0).child(web.new(VIDEO_CELL, { src: this.playSrc(x) })))
       .when(Boolean(notes), (el) => el.child(div().id("vid-notes-text").flex_1().min_h(0).overflow_y_scrollbar().px(12).py(8)
         .border_t(1).border_color(t.border).whitespace_normal().on_mouse_down("right", copyOn(notes)).child(notes)))
       .when(!notes && asked, (el) => el.child(div().flex_none().px(12).py(8).border_t(1).border_color(t.border).text_color(t.muted)
@@ -500,7 +523,11 @@ export default class Trend extends View {
     return v_flex().id("trend").size_full().bg(t.surface).text_size(z).text_color(t.foreground)
       .child(this.header(t, z))
       .child(this.view === "list" ? this.list(t, z) : this.view === "videos" ? this.videoList(t, z) : this.view === "reports" ? this.reportList(t, z) : this.reportView(t, z))
-      .child(this.askCard(t, z));
+      .child(this.askCard(t, z))
+      // a video left (← 影片, another tab): a web element lives on unseen, so its page turns to a blank one, or the
+      // video would keep playing; drawn 1 px, only once a video was played
+      .when(Boolean(this.played) && !(this.view === "videos" && this.playing), (el) => el.child(div().w(1).h(1).flex_none()
+        .child(web.new(VIDEO_CELL, { src: fileUrl(`${this.viewDir}/blank.html`) }))));
   }
 
   // The tab-bar button: 熱門, how many topics you haven't seen, a ring while fetching, ! when the last run failed
@@ -584,6 +611,7 @@ export default class Trend extends View {
     await this.writePage("list.html", this.listHtml());
     await this.writePage("reports.html", this.reportsHtml());
     await this.writePage("videos.html", this.videosHtml());
+    await this.writePage("blank.html", '<!doctype html><meta charset="utf-8"><body style="background:#000"></body>');
   }
   // written only when it changed (the page keeps its subject and scroll: its localStorage)
   async writePage(file, html) {
@@ -609,7 +637,7 @@ export default class Trend extends View {
     if (act === "play") {
       const x = this.videos?.items?.find((i) => i.id === h.get("name"));
       if (!x) return;
-      this.playing = x; this.notes = null; this.load(cx);
+      this.playing = x; this.playFrom = this.progress?.[x.id] > 5 ? this.progress[x.id] : 0; this.played = true; this.notes = null; this.load(cx);
       // what you play: fetch.js suggests searches from it (channels, title words); the newest 300
       cx.spawn(async () => {
         const file = `${this.dir}/plays.json`, was = await readTextFile(file).catch(() => null);
@@ -694,7 +722,7 @@ export default class Trend extends View {
       + `<img src="https://i.ytimg.com/vi/${esc(x.id)}/mqdefault.jpg" alt="" loading="lazy"><div class="vb">`
       + `<div class="title">${esc(x.title)}</div>`
       + `<div class="meta">${esc([x.channel, x.length, x.published, x.views].filter(Boolean).join(" · "))}</div>`
-      + `<div class="meta">${esc(when(x.found))}</div></div></div>`;
+      + `<div class="meta">${esc([when(x.found), this.progress?.[x.id] > 5 ? `▶ 上次看到 ${mmss(this.progress[x.id])}` : ""].filter(Boolean).join(" · "))}</div></div></div>`;
     const groups = (v.queries ?? []).map((q) => [q, items.filter((x) => x.query === q)]);
     return pageHtml(`<style>.vid{display:flex;gap:10px;align-items:flex-start}.vid img{flex:none;width:136px;aspect-ratio:16/9;object-fit:cover;border-radius:6px;background:var(--bg)}`
       + `.vb{flex:1;min-width:0}.err{margin:8px 12px;font-size:.88em;color:${t.ansi1}}</style>`

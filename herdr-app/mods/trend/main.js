@@ -748,7 +748,9 @@ export default class Trend extends View {
       // the post's own text (PTT, Dcard's excerpt, Threads, Reddit): its first lines on the card, all of it under 更多
       // (Threads' title is already its first 120 characters)
       const body = String(r.body ?? "").trim(), longer = body && !(r.feed === "Threads" && body.replace(/\s+/g, " ").length <= 120);
-      const more = [longer ? `<div class="body">${esc(body)}</div>` : "", r.top_comment ? `<blockquote>${esc(r.top_comment)}</blockquote>` : "",
+      // a PTT post whose text fetch.js hasn't read yet (20 a run, best first) says so instead of showing only its link
+      const more = [longer ? `<div class="body">${esc(body)}</div>` : r.feed === "PTT" ? '<div class="body" style="color:var(--dim)">內文還沒讀到：每輪讀 20 篇，晚點再看</div>' : "",
+        r.top_comment ? `<blockquote>${esc(r.top_comment)}</blockquote>` : "",
         links.length ? `<div class="links">${links.slice(0, 6).map((u) => `<a href="${esc(u)}">↗ ${esc(shortLink(u))}</a>`).join("")}</div>` : ""].join("");
       // the same story elsewhere: each with its own numbers and link
       const also = r.also?.length ? `<div class="also">${r.also.map((a) => `<a href="${esc(a.evidence_urls[0])}"><b>${esc(a.feed)}</b> ${esc(a.topic)}<span>${esc(a.line ?? "")}</span></a>`).join("")}</div>` : "";

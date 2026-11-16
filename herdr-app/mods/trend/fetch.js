@@ -112,11 +112,13 @@ function redditPosts(html) {
         body: unescapeHtml(text.replace(/<\/p>|<br\s*\/?>/gi, "\n").replace(/<[^>]+>/g, "")).replace(/\n{3,}/g, "\n\n").trim().slice(0, 2000) };
     });
 }
-// a plain Chrome's user agent, its version the installed one's (150 when there's none)
+// a plain Chrome's user agent, its version the installed one's (150 when there's none); worked out once a run
+let ua;
 function chromeUa() {
+  if (ua) return ua;
   const exe = findChrome(), v = exe ? chromeMajor(exe) : "150";
-  return process.platform === "win32" ? `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${v}.0.0.0 Safari/537.36`
-    : `Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${v}.0.0.0 Safari/537.36`;
+  return (ua = process.platform === "win32" ? `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${v}.0.0.0 Safari/537.36`
+    : `Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${v}.0.0.0 Safari/537.36`);
 }
 async function readReddit() {
   const exe = findChrome();
@@ -140,17 +142,20 @@ const PTT = "https://www.ptt.cc", PTT_BOARDS = 8;
 // shortcut: adult boards by name, add one when it shows up in hotboards
 const PTT_ADULT = /^(sex|AV|japanavgirls|Beauty|AdultPics|Hentai|PttSexy|feminine_sex|BB-Love)/i;
 const PTT_BLOCK = /請確認您已滿|Just a moment|cf-chl|Attention Required|verify you are human/i;
+// one PTT page, 5 seconds after the last one this run asked for
+let pttLast = 0;
+async function pttGet(p) {
+  const wait = pttLast + 5000 - Date.now();
+  if (wait > 0) await new Promise((ok) => setTimeout(ok, wait));
+  pttLast = Date.now();
+  const r = await fetch(PTT + p, { headers: { "user-agent": chromeUa(), "accept-language": "zh-TW,zh;q=0.9,en;q=0.8", cookie: "over18=1" }, signal: AbortSignal.timeout(30000) });
+  const html = await r.text();
+  if (r.status === 403 || r.status === 429 || PTT_BLOCK.test(html)) throw new Blocked(`被 PTT 擋了（HTTP ${r.status}；之後 6、12、24 小時再試一次）`);
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  return html;
+}
 async function readPtt() {
-  let n = 0;
-  const ua = chromeUa();
-  const get = async (p) => {
-    if (n++) await new Promise((ok) => setTimeout(ok, 5000));
-    const r = await fetch(PTT + p, { headers: { "user-agent": ua, "accept-language": "zh-TW,zh;q=0.9,en;q=0.8", cookie: "over18=1" }, signal: AbortSignal.timeout(30000) });
-    const html = await r.text();
-    if (r.status === 403 || r.status === 429 || PTT_BLOCK.test(html)) throw new Blocked(`被 PTT 擋了（HTTP ${r.status}；之後 6、12、24 小時再試一次）`);
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    return html;
-  };
+  const get = pttGet;
   const boards = [...(await get("/bbs/hotboards.html")).matchAll(/<div class="board-name">([^<]+)<\/div>/g)].map((m) => m[1]).filter((b) => !PTT_ADULT.test(b)).slice(0, PTT_BOARDS);
   const posts = [];
   for (const board of boards) for (const ent of (await get(`/bbs/${board}/search?q=recommend%3A50`)).split('<div class="r-ent">').slice(1)) {
@@ -161,17 +166,22 @@ async function readPtt() {
       score: s === "爆" ? 100 : s.startsWith("X") ? -10 * (s[1] === "X" ? 10 : Number(s[1]) || 1) : Number(s) || 0, created: new Date(Number(a[2]) * 1000).toISOString() });
   }
   if (!posts.length) throw new Error("熱門看板裡沒有文章");
-  posts.sort((x, y) => y.score - x.score || y.created.localeCompare(x.created));
-  // Each post's text, read once (trend/ptt-text.json keeps them): the 20 best not read yet on each refresh, so a few
-  // refreshes have them all and then only new posts cost a request. 每篇內文只讀一次，每次最多讀 20 篇新的。
+  return posts.sort((x, y) => y.score - x.score || y.created.localeCompare(x.created));
+}
+// Each post's text, read once (trend/ptt-text.json keeps them), on every run (not only when the list is read again):
+// the 20 best not read yet, so the list has them all in a few hours and then only new posts cost a request.
+// 每篇內文只讀一次；每輪讀 20 篇還沒讀的（依推文數），幾個小時內讀完，之後只讀新文章。
+async function pttTexts(f) {
   let texts = {};
   try { texts = JSON.parse(fs.readFileSync(path.join(out, "ptt-text.json"), "utf8")); } catch {}
-  for (const p of posts.filter((x) => texts[x.url] == null).slice(0, 20)) {
-    try { texts[p.url] = pttText(await get(p.url.slice(PTT.length))); } catch (e) { if (e instanceof Blocked) throw e; texts[p.url] = ""; }
+  try {
+    for (const p of (f.ptt ?? []).filter((x) => texts[x.url] == null).slice(0, 20)) {
+      try { texts[p.url] = pttText(await pttGet(p.url.slice(PTT.length))); } catch (e) { if (e instanceof Blocked) throw e; texts[p.url] = ""; }
+    }
+  } finally {
+    for (const p of f.ptt ?? []) if (texts[p.url]) p.body = texts[p.url];
+    put("ptt-text.json", JSON.stringify(Object.fromEntries((f.ptt ?? []).filter((x) => texts[x.url] != null).map((x) => [x.url, texts[x.url]]))) + "\n");
   }
-  for (const p of posts) if (texts[p.url]) p.body = texts[p.url];
-  put("ptt-text.json", JSON.stringify(Object.fromEntries(posts.filter((x) => texts[x.url] != null).map((x) => [x.url, texts[x.url]]))) + "\n");
-  return posts;
 }
 // a post's own words: what's between the header lines and 「※ 發信站」 (no signature, no 推文), 2000 characters at most
 function pttText(html) {
@@ -335,6 +345,11 @@ const about = (q, title) => {
   const ws = q.toLowerCase().split(/\s+/).filter(Boolean), t = String(title).toLowerCase();
   return ws.filter((w) => t.includes(w)).length >= Math.ceil(ws.length / 2);
 };
+// YouTube's 「6 小時前」/「3 週前」/「2 年前」 as days (Infinity when it says nothing)
+const daysAgo = (s) => {
+  const m = /(\d+)\s*(秒|分鐘|分|小時|天|週|周|個月|月|年)/.exec(String(s ?? ""));
+  return m ? Number(m[1]) * ({ 秒: 1 / 86400, 分鐘: 1 / 1440, 分: 1 / 1440, 小時: 1 / 24, 天: 1, 週: 7, 周: 7, 個月: 30, 月: 30, 年: 365 }[m[2]]) : Infinity;
+};
 async function videos() {
   let queries = [], before = null;
   try { queries = fs.readFileSync(path.join(out, "videos.txt"), "utf8").split("\n").map((l) => l.trim()).filter((l) => l && !l.startsWith("#")); } catch {}
@@ -344,11 +359,6 @@ async function videos() {
   const v = { queries, done: {}, errors: {}, blockedAt: before?.blockedAt ?? null, blocks: before?.blocks ?? 0, cookies: before?.cookies ?? {},
     items: (before?.items ?? []).filter((x) => queries.includes(x.query) && about(x.query, x.title)).map((x) => ({ ...x, lists: x.lists ?? { rel: 999 } })) };
   for (const q of queries) for (const l of Object.keys(LISTS)) if (before?.done?.[`${l} ${q}`]) v.done[`${l} ${q}`] = before.done[`${l} ${q}`];
-// YouTube's 「6 小時前」/「3 週前」/「2 年前」 as days (Infinity when it says nothing)
-const daysAgo = (s) => {
-  const m = /(\d+)\s*(秒|分鐘|分|小時|天|週|周|個月|月|年)/.exec(String(s ?? ""));
-  return m ? Number(m[1]) * ({ 秒: 1 / 86400, 分鐘: 1 / 1440, 分: 1 / 1440, 小時: 1 / 24, 天: 1, 週: 7, 周: 7, 個月: 30, 月: 30, 年: 365 }[m[2]]) : Infinity;
-};
   const left = () => (v.blockedAt ? Date.parse(v.blockedAt) + 6 * HOUR_MS * 2 ** Math.min(Math.max(v.blocks - 1, 0), 2) - Date.now() : 0);   // 6, 12, 24 hours
   const paused = left() > 0;
   if (v.blockedAt && !paused) v.cookies = {};   // the try after a block starts clean
@@ -379,6 +389,11 @@ const daysAgo = (s) => {
       if (e instanceof Blocked) { Object.assign(v, { blockedAt: now(), blocks: v.blocks + 1 }); break search; }
     }
   }
+  // 最新上傳 lets go of a video once it's 5 weeks old (its 「…前」 from when it was found)
+  for (const x of v.items) if (x.lists.new !== undefined && Date.now() - Date.parse(x.found) + daysAgo(x.published) * 864e5 > 35 * 864e5) {
+    x.lists = { ...x.lists }; delete x.lists.new;
+  }
+  v.items = v.items.filter((x) => Object.keys(x.lists).length);   // in none of its topic's lists any more: gone
   if (left() > 0) v.errors[""] = `被 YouTube 擋了：${Math.ceil(left() / HOUR_MS)} 小時後再試一次`;
   v.items = v.items.slice(0, VIDEO_KEEP);
   await suggest(v, before, ua, paused);
@@ -389,11 +404,6 @@ const daysAgo = (s) => {
 // tokens: from the videos you played there (plays.json, the panel writes it) a channel you watched 2 or more of, a
 // word in 2 or more of their titles (Chinese, with no spaces between words: the longest run of 2 to 4 characters in 3
 // or more); and what YouTube's own search box suggests for each of your searches, asked once a day each, a few
-  // 最新上傳 lets go of a video once it's 5 weeks old (its 「…前」 from when it was found)
-  for (const x of v.items) if (x.lists.new !== undefined && Date.now() - Date.parse(x.found) + daysAgo(x.published) * 864e5 > 35 * 864e5) {
-    x.lists = { ...x.lists }; delete x.lists.new;
-  }
-  v.items = v.items.filter((x) => Object.keys(x.lists).length);   // in none of its topic's lists any more: gone
 // seconds apart, not while YouTube's search is paused for a block.
 // 建議的主題（不花 token）：看過 2 支以上的頻道、看過的標題裡反覆出現的詞、YouTube 搜尋框對每個主題的建議（每天一次）。
 const SUGGEST_EVERY = 24 * HOUR_MS;
@@ -449,6 +459,11 @@ async function feeds() {
   } catch (e) { f.errors.hn = String(e.message ?? e).slice(0, 200); }
   for (const [key, read, hours] of [["reddit", readReddit], ["ptt", readPtt], ["dcard", readDcard, 3], ["threads", () => readThreads(before)]])
     try { await gently(f, before, key, read, hours); } catch (e) { f.errors[key] = String(e.message ?? e).slice(0, 200); }
+  // PTT's texts every run, unless PTT is paused (a block) or its list failed: a block here pauses PTT as gently() does
+  if (!f.errors.ptt) try { await pttTexts(f); } catch (e) {
+    f.errors.ptt = String(e.message ?? e).slice(0, 200);
+    if (e instanceof Blocked) Object.assign(f, { pttBlockedAt: now(), pttBlocks: (f.pttBlocks ?? 0) + 1 });
+  }
   // digg-pp-cli on PATH (docs/trend.md): the stories of every Digg topic in the last 24 h, by Digg Score
   const d = spawnSync(process.platform === "win32" ? "digg-pp-cli.exe" : "digg-pp-cli", ["top", "--limit", "30", "--agent"],
     { encoding: "utf8", maxBuffer: 16 << 20, timeout: 120000, windowsHide: true });

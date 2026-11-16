@@ -519,17 +519,19 @@ export default class Trend extends View {
     const r = await this.fetchJs([flag], 300000);
     if (r?.code !== 0) throw new Error(String(r?.stderr || r?.stdout || `exit ${r?.code}`).trim().slice(0, 200));
   }
-  // node fetch.js <args>, with the node the job uses (Herdr's own PATH may lack Homebrew's).
-  // shortcut: Herdr's mod exec now refuses a program outside the home folder ("outside every granted read root",
-  // 2026-11-16, reported); a local fetch.sh in the mod folder (finds node, runs fetch.js) gets around it. Back to
-  // plain exec once Herdr runs them again.
+  // node fetch.js <args>, with the node the job uses (Herdr's own PATH may lack Homebrew's): each node tried in turn.
+  // Not fs.exists: the mod may read only under the home folder, and a path outside throws at the call (not a
+  // rejected promise), so the ＋ searches and the player's subtitles silently did nothing (2026-11-16)
   async fetchJs(args, timeout) {
-    const dir = `${appHome().replace(/\\/g, "/")}/mods/trend`;
-    if (window()?.platform !== "windows" && await fsp.exists(`${dir}/fetch.sh`).catch(() => false)) return exec(`${dir}/fetch.sh`, args, { timeout });
-    let node = "node";
-    if (window()?.platform !== "windows") for (const p of ["/opt/homebrew/bin/node", "/usr/local/bin/node", "/usr/bin/node"])
-      if (await fsp.exists(p).catch(() => false)) { node = p; break; }   // the mod's fs/promises has exists, not access
-    return exec(node, [`${dir}/fetch.js`, ...args], { timeout });
+    const script = `${appHome().replace(/\\/g, "/")}/mods/trend/fetch.js`;
+    const nodes = window()?.platform === "windows" ? ["node"] : ["/opt/homebrew/bin/node", "/usr/local/bin/node", "/usr/bin/node", "node"];
+    for (const node of nodes) {
+      try {
+        const r = await exec(node, [script, ...args], { timeout });
+        if (!(r?.code === 127 || /no such file|not found|ENOENT/i.test(String(r?.stderr ?? "")))) return r;
+      } catch {}
+    }
+    return { code: 127, stdout: "", stderr: "找不到 node" };
   }
   // what the player page needs for a video (fetch.js --player: its storyboard spec and subtitles, once a day); none
   // in 8 seconds: it plays without (the thumbnails, no subtitles)

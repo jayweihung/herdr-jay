@@ -774,8 +774,8 @@ export default class Trend extends View {
       + `.pill button{font:inherit;font-size:.85em;padding:1px 7px;border-radius:5px;border:1px solid var(--border);background:var(--bg);color:var(--fg);cursor:pointer}</style>`
       + `<nav><button data-cat="all">全部 ${items.length}</button>${starred.length ? `<button data-cat="⭐ 收藏">⭐ 收藏 ${starred.length}</button>` : ""}`
       + `${groups.map(([q, xs]) => `<button data-cat="${esc(q)}"${xs.length ? "" : " disabled"}>${esc(q)} ${xs.length}</button>`).join("")}</nav>`
-      + `<main>${sug.length ? `<h2>建議的主題（滑過看原因）</h2><div class="sugs">${sug.map((s) => `<div class="card pill" data-name="${esc(s.q)}" title="${esc(s.why)}">`
-        + `<span>${esc(s.q)}</span><button data-do="add" title="加進 videos.txt">＋</button><button data-do="skip" title="不要，不再建議">✕</button></div>`).join("")}</div>` : ""}`
+      + `<main>${sug.length ? `<h2>建議的主題：「＋ 搜這個」會加成新主題、馬上搜；「不要」只是不再建議（滑過看原因）</h2><div class="sugs">${sug.map((s) => `<div class="card pill" data-name="${esc(s.q)}" title="${esc(s.why)}">`
+        + `<span>${esc(s.q)}</span><button data-do="add" title="加進 videos.txt，馬上搜">＋ 搜這個</button><button data-do="skip" title="不再建議（不會刪任何影片）">不要</button></div>`).join("")}</div>` : ""}`
       + `${errs}${items.length ? "" : '<p class="err" style="color:var(--muted)">還沒找到影片</p>'}`
       + `${starred.length ? `<section data-cat="⭐ 收藏"><h2>⭐ 收藏</h2>${starred.map(card).join("")}</section>` : ""}`
       + `${groups.filter(([, xs]) => xs.length).map(([q, xs]) => `<section data-cat="${esc(q)}"><h2>${esc(q)}</h2>${xs.map(card).join("")}</section>`).join("")}</main>`);

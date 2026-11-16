@@ -2,7 +2,7 @@
 
 Build Herdr from the official source (plus jay's text patches), then install two mods (and the kit mod if you use kit).
 jay's own Mac is built from these same public sources and patches. Checked on Apple Silicon with only the Command Line Tools
-(no full Xcode), Herdr app v0.1.15 and core v0.1.21. Intel Macs are fine too: the official releases are
+(no full Xcode), Herdr app v0.1.16 and core v0.1.21. Intel Macs are fine too: the official releases are
 Apple-Silicon-only, so building from source is the way there.
 從官方原始碼 build Herdr（加上 jay 的文字補丁），再裝兩個 mod（有用 kit 再加 kit 的 mod）。jay 自己的 Mac 就是這樣裝的。
 
@@ -108,17 +108,16 @@ Run from a terminal that has `~/.local/bin` on PATH (step 1): the installer writ
 cd ~/src
 git clone --recurse-submodules https://github.com/herdrdev/herdr-app.git
 cd herdr-app
-git checkout v0.1.15
+git checkout v0.1.16
 git rev-parse --short HEAD
 git submodule update --init --recursive
-git -c user.name=me -c user.email=me@local am -3 ~/src/herdr-jay/herdr-app/patches/v0.1.15/*.patch
+git -c user.name=me -c user.email=me@local am -3 ~/src/herdr-jay/herdr-app/patches/v0.1.16/*.patch
 ```
 
-`git rev-parse` must print `9950887` (an older clone: `git fetch --tags --force` first). `git am` applies the five app
-patches (drag from a mod onto a space: the Kit panel's 「把 agent 放到 space」; a terminal's own icon: the placed
-agent's logo; a drag shows the spaces that won't take it; drop at a place in a space, reorder agents; [patches.md](patches.md)); if it
+`git rev-parse` must print `034f8b8` (an older clone: `git fetch --tags --force` first). `git am` applies the 26 app
+patches ([patches.md](patches.md): dragging agents onto spaces, web pages in mods, selectable text in panels, …); if it
 fails: `git am --abort`, check the tag, try again.
-`git am` 套上五個 app patch（mod 的東西可以拖到左邊的 space，Kit 面板「把 agent 放到 space」要用；放好的 agent 用自己的 logo；拖的時候看得出哪個 space 不收；可以放在 space 裡的某個位置，Agents 面板也能拖來排順序）。
+`git am` 套上 26 個 app patch（見 [patches.md](patches.md)：把 agent 拖到 space、mod 裡的網頁、面板文字可以複製……）。
 
 ```sh
 cd ~/src/herdr-app && just install

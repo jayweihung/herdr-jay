@@ -1,0 +1,671 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: jayweihung <3034830+jayweihung@users.noreply.github.com>
+Date: Mon, 16 Nov 2026 03:36:43 +0800
+Subject: [PATCH 22/26] feat: web elements on windows (webview2 through wry),
+ above gpui's drawing; untested on windows
+
+---
+ Cargo.lock                                    |   2 +
+ Cargo.toml                                    |   4 +
+ defaults/AGENTS.md                            |  14 +-
+ defaults/herdr.d.ts                           |   7 +-
+ src/web.rs                                    |  38 +-
+ src/web/win.rs                                | 459 ++++++++++++++++++
+ .../gpui-pre-windows/src/directx_renderer.rs  |   3 +-
+ 7 files changed, 505 insertions(+), 22 deletions(-)
+ create mode 100644 src/web/win.rs
+
+diff --git a/Cargo.lock b/Cargo.lock
+index fbb062a..4c42220 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -3854,6 +3854,8 @@ dependencies = [
+  "ttf-parser",
+  "uds_windows",
+  "url",
++ "webview2-com",
++ "windows 0.62.2",
+  "windows-sys 0.61.2",
+  "winresource",
+  "wry",
+diff --git a/Cargo.toml b/Cargo.toml
+index 4dc2c7d..b03010d 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -72,6 +72,10 @@ objc2-web-kit = { version = "0.3.2", default-features = false, features = ["std"
+ [target.'cfg(windows)'.dependencies]
+ gpui_windows = { package = "gpui-pre-windows", version = "=0.3.8", features = ["render-to-image"] }
+ uds_windows = "1.2"
++# The `web` mod element (src/web/win.rs): WebView2 through wry; webview2-com and
++# windows (wry's own versions) cover what wry leaves out on Windows.
++webview2-com = "=0.39.1"
++windows = { version = "0.62", features = ["Win32_Foundation", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_WindowsAndMessaging"] }
+ raw-window-handle = "0.6"
+ windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_UI_Shell", "Win32_UI_Input_KeyboardAndMouse", "Win32_System_Console", "Win32_System_Com", "Win32_Media_Multimedia"] }
+ 
+diff --git a/defaults/AGENTS.md b/defaults/AGENTS.md
+index 733951d..1cdd141 100644
+--- a/defaults/AGENTS.md
++++ b/defaults/AGENTS.md
+@@ -1168,8 +1168,9 @@ All of it is in `herdr.d.ts`. In short:
+ - This copy: `props()`, `shared(key)` / `setShared(key, value)` (every mod
+   sees it; setting re-renders all), `nextCommand()` (key commands for this
+   mod: `cx.spawn(async (cx) => { for (;;) { const c = await nextCommand(); …; cx.notify(); } })`).
+-- Web pages (macOS only for now): `web.new(id, { src, persist, zoom })` is an
+-  element showing a real web page (the system's WebKit). It fills its parent,
++- Web pages (macOS and Windows; not Linux yet): `web.new(id, { src, persist, zoom })` is an
++  element showing a real web page (the system's WebKit on macOS, WebView2 on
++  Windows). It fills its parent,
+   so size the parent: `div().flex_1().child(web.new("main", { src }))`; its
+   children show under the page until it loads. The sites it may show are listed
+   in `mod.json`, not in props: `"web": { "allow": ["https://example.com"] }`
+@@ -1178,12 +1179,13 @@ All of it is in `herdr.d.ts`. In short:
+   copy lives. Links, redirects, new windows and downloads to anything else open
+   in the system browser and the page stays; a new window to an allowed site
+   loads in the element. The microphone (speech input) and camera are granted to
+-  allowed sites only (macOS asks once for Herdr itself). `persist: true` keeps its sign-in
+-  across restarts (per mod and id, macOS 14+); otherwise it lasts as long as
++  allowed sites only (the system asks once for Herdr itself). `persist: true` keeps its sign-in
++  across restarts (per mod and id; macOS 14+; on Windows in
++  `~/.config/herdr-app/web/<mod>/<id>/`); otherwise it lasts as long as
+   the page. `zoom` multiplies Herdr's. The page shows only while drawn and
+   steps aside while a dialog, popup, menu or drag is over it. A click in the
+-  page gives it the keyboard (Herdr's shortcuts still work; Cmd+C/V/X/A/Z are
+-  the page's); a click elsewhere gives it back. `webCall(id, "back" | "forward"
++  page gives it the keyboard (Herdr's shortcuts still work; Cmd+C/V/X/A/Z, on
++  Windows Ctrl+C/V/X/A/Z/Y, are the page's); a click elsewhere gives it back. `webCall(id, "back" | "forward"
+   | "reload" | "stop" | "home")` (home: back to `src` wherever the page went); `nextWebEvent()` waits for `{ id, kind: "url" | "title"
+   | "loading" | "loaded" | "failed" | "blocked" | "crashed", url?, title?, error? }`.
+   No scripts into the page, no messages out of it, no inspector.
+diff --git a/defaults/herdr.d.ts b/defaults/herdr.d.ts
+index 449455e..17eddb5 100644
+--- a/defaults/herdr.d.ts
++++ b/defaults/herdr.d.ts
+@@ -522,7 +522,7 @@ export interface WebProps {
+ }
+ 
+ /**
+- * A real web page (macOS: the system's WebKit), filling the element it's given:
++ * A real web page (macOS: the system's WebKit; Windows: WebView2), filling the element it's given:
+  *   div().w_full().h(px(600)).child(web.new("main", { src: "https://example.com/app" }))
+  * Children are drawn under the page (seen until it shows, e.g. "Loading…").
+  * The same id on the next render keeps the same page (its sign-in, its scroll). It shows
+@@ -534,9 +534,10 @@ export interface WebProps {
+  * site loads in the element itself. The microphone (speech input) and camera are the allowed
+  * sites' only; <input type=file> opens the file picker.
+  * A click in the page gives it the keyboard (Herdr's own shortcuts still work, but
+- * Cmd+C/V/X/A/Z go to the page); a click anywhere else gives it back.
++ * Cmd+C/V/X/A/Z, on Windows Ctrl+C/V/X/A/Z/Y, go to the page); a click anywhere else gives
++ * it back. alert / confirm / prompt show as dialogs.
+  * Its user agent ends in "Herdr/<version>", so a site can tell (passkeys don't work here).
+- * Not yet on Windows or Linux: the element shows why instead.
++ * Not yet on Linux: the element shows why instead.
+  */
+ export const web: { new(id: string, props: WebProps): import("gpui-kit").NativeElement };
+ 
+diff --git a/src/web.rs b/src/web.rs
+index e9e903f..03c6e8f 100644
+--- a/src/web.rs
++++ b/src/web.rs
+@@ -1,5 +1,6 @@
+-//! The `web` mod element: a real web page (the system's web view: WKWebView on
+-//! macOS, through wry) placed where a mod draws `web.new(id, { src })`.
++//! The `web` mod element: a real web page (the system's web view, through wry:
++//! WKWebView on macOS, WebView2 on Windows) placed where a mod draws
++//! `web.new(id, { src })`.
+ //!
+ //! A page is a native view above GPUI's drawing, so the app decides where and
+ //! when it shows: each element records the part of it that is visible (its
+@@ -23,7 +24,7 @@
+ //! own folder); other links, redirects and windows go to the system browser.
+ 
+ // Elsewhere pages never open, so their callbacks go unused.
+-#![cfg_attr(not(target_os = "macos"), allow(dead_code))]
++#![cfg_attr(not(any(target_os = "macos", windows)), allow(dead_code))]
+ 
+ use gpui::{
+     AnyElement, App, Bounds, Element, ElementId, FocusHandle, GlobalElementId, InspectorElementId, IntoElement, LayoutId, ParentElement, Pixels, Position, Style,
+@@ -39,9 +40,13 @@ use std::rc::Rc;
+ mod macos;
+ #[cfg(target_os = "macos")]
+ use macos as imp;
++#[cfg(windows)]
++mod win;
++#[cfg(windows)]
++use win as imp;
+ 
+-/// Windows (WebView2, also through wry) and Linux: not yet.
+-#[cfg(not(target_os = "macos"))]
++/// Linux: not yet.
++#[cfg(not(any(target_os = "macos", windows)))]
+ mod imp {
+     use super::{Action, Bounds, Key, Pixels, Rules, Spec, Window};
+     use std::rc::Rc;
+@@ -50,7 +55,7 @@ mod imp {
+ 
+     impl Page {
+         pub fn new(_: &mut Window, _: &Key, _: &Spec, _: Rc<Rules>) -> Result<Page, String> {
+-            Err("web pages need macOS for now".into())
++            Err("web pages need macOS or Windows for now".into())
+         }
+         pub fn load(&self, _: &url::Url) {}
+         pub fn place(&mut self, _: Option<Bounds<Pixels>>) {}
+@@ -220,6 +225,7 @@ impl Action {
+ }
+ 
+ /// The same 16 bytes every time for one mod's page id: its WebKit data store.
++#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+ pub fn store_id(name: &str, id: &str) -> [u8; 16] {
+     use sha2::{Digest, Sha256};
+     let digest = Sha256::digest(format!("herdr-web\0{name}\0{id}").as_bytes());
+@@ -531,17 +537,25 @@ pub(crate) fn any_page(mut f: impl FnMut(&imp::Page) -> bool) -> bool {
+     VIEWS.with(|v| v.try_borrow().is_ok_and(|v| v.values().any(|view| f(&view.page))))
+ }
+ 
+-/// A page's folder for `persist`: `~/.config/herdr-app/web/<mod>/<id>/`. WebKit
+-/// keeps the data itself (by `store_id`); the folder names that store, so a
+-/// person can tell which it is.
+-pub(crate) fn note_store(rules: &Rules, id: &str, uuid: &str) {
++/// A page's folder for `persist`, made if missing: `~/.config/herdr-app/web/<mod>/<id>/`
++/// (None when either name isn't letters, digits, `.`, `_` and `-`). WebView2
++/// keeps the data in it; WebKit keeps it itself (by `store_id`) and the folder
++/// names that store (`note_store`).
++pub(crate) fn store_dir(rules: &Rules, id: &str) -> Option<PathBuf> {
+     let simple = |s: &str| !s.is_empty() && s != "." && s != ".." && s.chars().all(|c| c.is_ascii_alphanumeric() || "._-".contains(c));
+     if !simple(&rules.name) || !simple(id) {
+-        return;
++        return None;
+     }
+     let dir: PathBuf = crate::mods::app_dir().join("web").join(&rules.name).join(id);
++    std::fs::create_dir_all(&dir).is_ok().then_some(dir)
++}
++
++/// Names a page's WebKit data store in its `store_dir`, so a person can tell which it is.
++#[cfg(target_os = "macos")]
++pub(crate) fn note_store(rules: &Rules, id: &str, uuid: &str) {
++    let Some(dir) = store_dir(rules, id) else { return };
+     let note = format!("WebKit website data store {uuid} (macOS keeps it under ~/Library/WebKit).\n");
+-    if std::fs::create_dir_all(&dir).is_ok() && std::fs::read_to_string(dir.join("store")).ok().as_deref() != Some(note.as_str()) {
++    if std::fs::read_to_string(dir.join("store")).ok().as_deref() != Some(note.as_str()) {
+         let _ = std::fs::write(dir.join("store"), note);
+     }
+ }
+diff --git a/src/web/win.rs b/src/web/win.rs
+new file mode 100644
+index 0000000..0a1887d
+--- /dev/null
++++ b/src/web/win.rs
+@@ -0,0 +1,459 @@
++//! The Windows side of web elements: wry's WebView2 as a child window of
++//! GPUI's, plus what wry leaves out here:
++//!
++//! - navigation: wry's handler sees the top level only (NavigationStarting),
++//!   held to mod.json; new windows load an allowed page in the page itself
++//!   and anything else in the system browser; downloads go to the browser;
++//!   loading, loaded, failed and crashed (reloaded once) are reported, and
++//!   URL changes inside a page (`history.pushState`) too;
++//! - the microphone and camera only for allowed origins (wry's permission
++//!   handler gets no origin);
++//! - the keyboard: a page that takes the keys moves GPUI's focus aside, and
++//!   Herdr's shortcuts (Ctrl or Alt with a letter, digit, sign or Tab, and the
++//!   F keys) still reach Herdr while a page types; the editing keys stay with
++//!   the page;
++//! - the user agent: WebView2's own plus "Herdr/<version>".
++//!
++//! alert / confirm / prompt and `<input type=file>` are WebView2's own dialogs.
++//! GPUI draws through DirectComposition, above child windows unless told
++//! otherwise: the vendored gpui-pre-windows puts its visual under them, so a
++//! page shows (vendor/gpui-pre-windows/src/directx_renderer.rs).
++//!
++//! UI thread only, like everything WebView2; the registry lives in `super`.
++
++use super::{Action, Key, Rules, Spec};
++use gpui::{Bounds, Pixels, Window};
++use raw_window_handle::{HasWindowHandle, RawWindowHandle};
++use serde_json::json;
++use std::cell::{Cell, RefCell};
++use std::rc::Rc;
++use webview2_com::Microsoft::Web::WebView2::Win32::*;
++use webview2_com::{
++    AcceleratorKeyPressedEventHandler, FocusChangedEventHandler, NavigationCompletedEventHandler, NavigationStartingEventHandler, PermissionRequestedEventHandler,
++    ProcessFailedEventHandler, SourceChangedEventHandler, take_pwstr,
++};
++use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
++use windows::Win32::UI::Input::KeyboardAndMouse::{GetKeyState, VIRTUAL_KEY, VK_CONTROL, VK_F1, VK_F24, VK_MENU, VK_SHIFT, VK_TAB};
++use windows::Win32::UI::WindowsAndMessaging::{PostMessageW, WM_KEYDOWN, WM_SYSKEYDOWN};
++use windows::core::{BOOL, HSTRING, Interface, PWSTR};
++use wry::dpi::{LogicalPosition, LogicalSize};
++use wry::{NewWindowResponse, Rect, WebContext, WebViewBuilder, WebViewBuilderExtWindows, WebViewExtWindows};
++
++/// What a page's handlers share: whose it is, its rules, what was last said.
++struct Status {
++    key: Key,
++    rules: Rc<Rules>,
++    url: RefCell<String>,
++    title: RefCell<String>,
++    /// Reloaded once after its web process died; a finished load resets it.
++    revived: Cell<bool>,
++    /// The keyboard is in the page (WebView2's GotFocus / LostFocus).
++    keys: Cell<bool>,
++}
++
++impl Status {
++    fn url_changed(&self, url: String) {
++        if self.url.replace(url.clone()) != url {
++            super::emit(&self.key, "url", json!({ "url": url }));
++        }
++    }
++
++    fn title_changed(&self, title: String) {
++        if self.title.replace(title.clone()) != title {
++            super::emit(&self.key, "title", json!({ "title": title }));
++        }
++    }
++}
++
++fn url_of(core: &ICoreWebView2) -> String {
++    let mut uri = PWSTR::null();
++    if unsafe { core.Source(&mut uri) }.is_err() {
++        return String::new();
++    }
++    take_pwstr(uri)
++}
++
++pub struct Page {
++    web: wry::WebView,
++    core: ICoreWebView2,
++    status: Rc<Status>,
++    /// Where a persisted page keeps its data; WebView2 reads it at creation.
++    _context: Option<WebContext>,
++    window: usize,
++    /// The bounds last applied (None: hidden), in window px.
++    placed: Option<Option<Bounds<Pixels>>>,
++}
++
++impl Page {
++    pub fn new(window: &mut Window, key: &Key, spec: &Spec, rules: Rc<Rules>) -> Result<Page, String> {
++        let here = window_of(window);
++        let mut context = if spec.persist {
++            let dir = super::store_dir(&rules, &key.id).ok_or("persist needs a mod name and page id of letters, digits, . _ -")?;
++            Some(WebContext::new(Some(dir.join("WebView2"))))
++        } else {
++            None
++        };
++        let status = Rc::new(Status {
++            key: key.clone(),
++            rules: rules.clone(),
++            url: RefCell::default(),
++            title: RefCell::default(),
++            revived: Cell::new(false),
++            keys: Cell::new(false),
++        });
++        // The new-window handler loads into the page, which exists only once built.
++        let slot: Rc<RefCell<Option<ICoreWebView2>>> = Rc::default();
++        let (nav, downloads, windows, titles, opened) = (status.clone(), status.clone(), status.clone(), status.clone(), slot.clone());
++        let builder = match context.as_mut() {
++            Some(c) => WebViewBuilder::new_with_web_context(c),
++            None => WebViewBuilder::new(),
++        };
++        let web = builder
++            // Not persisted: cookies and storage in memory only, gone with the page.
++            .with_incognito(!spec.persist)
++            .with_visible(false)
++            .with_focused(false)
++            .with_devtools(false)
++            // No print, find, reload or zoom keys of the browser's own: those
++            // combinations are Herdr's (see `herdr_key`).
++            .with_browser_accelerator_keys(false)
++            .with_navigation_handler(move |url| super::top_level(&nav.key, &nav.rules, &url))
++            .with_download_started_handler(move |url, _path| {
++                super::download(&downloads.key, &url);
++                false
++            })
++            // target=_blank and window.open: an allowed page loads in this one
++            // (no second view), anything else opens in the system browser.
++            .with_new_window_req_handler(move |url, _features| {
++                if !url.is_empty() && !url.starts_with("about:") && super::top_level(&windows.key, &windows.rules, &url)
++                    && let Some(core) = opened.borrow().as_ref()
++                {
++                    let _ = unsafe { core.Navigate(&HSTRING::from(url.as_str())) };
++                }
++                NewWindowResponse::Deny
++            })
++            .with_document_title_changed_handler(move |title| titles.title_changed(title))
++            .build_as_child(&*window)
++            .map_err(|e| format!("cannot open a web view: {e}"))?;
++        let core = web.webview();
++        *slot.borrow_mut() = Some(core.clone());
++        let page = Page { web, core, status, _context: context, window: here, placed: None };
++        page.watch(HWND(here as _)).map_err(|e| format!("cannot watch the web view: {e}"))?;
++        Ok(page)
++    }
++
++    /// The handlers wry doesn't add (removed with the web view).
++    fn watch(&self, gpui: HWND) -> windows::core::Result<()> {
++        let mut token = 0i64;
++        let core = &self.core;
++        let controller = self.web.controller();
++        unsafe {
++            // WebView2's own user agent (its Edge and Chrome versions) plus
++            // "Herdr/<version>": a site can tell its page is in Herdr (e.g. hide
++            // sign-ins Herdr can't do, like passkeys).
++            if let Ok(settings) = core.Settings()?.cast::<ICoreWebView2Settings2>() {
++                let mut ua = PWSTR::null();
++                settings.UserAgent(&mut ua)?;
++                let ua = format!("{} Herdr/{}", take_pwstr(ua), env!("CARGO_PKG_VERSION"));
++                settings.SetUserAgent(&HSTRING::from(ua))?;
++            }
++
++            let s = self.status.clone();
++            core.add_NavigationStarting(
++                &NavigationStartingEventHandler::create(Box::new(move |_, args| {
++                    let Some(args) = args else { return Ok(()) };
++                    // wry's handler (added first) may have refused it.
++                    let mut cancel = BOOL::default();
++                    args.Cancel(&mut cancel)?;
++                    if !cancel.as_bool() {
++                        let mut uri = PWSTR::null();
++                        args.Uri(&mut uri)?;
++                        super::emit(&s.key, "loading", json!({ "url": take_pwstr(uri) }));
++                    }
++                    Ok(())
++                })),
++                &mut token,
++            )?;
++
++            let s = self.status.clone();
++            core.add_SourceChanged(
++                &SourceChangedEventHandler::create(Box::new(move |core, _| {
++                    if let Some(core) = core {
++                        s.url_changed(url_of(&core));
++                    }
++                    Ok(())
++                })),
++                &mut token,
++            )?;
++
++            let s = self.status.clone();
++            core.add_NavigationCompleted(
++                &NavigationCompletedEventHandler::create(Box::new(move |core, args| {
++                    let (Some(core), Some(args)) = (core, args) else { return Ok(()) };
++                    let mut ok = BOOL::default();
++                    args.IsSuccess(&mut ok)?;
++                    let url = url_of(&core);
++                    if ok.as_bool() {
++                        s.revived.set(false);
++                        super::emit(&s.key, "loaded", json!({ "url": url }));
++                    } else {
++                        let mut status = COREWEBVIEW2_WEB_ERROR_STATUS::default();
++                        args.WebErrorStatus(&mut status)?;
++                        // Not failures: a load replaced by another, or one stopped
++                        // by policy (a download or a link sent to the browser).
++                        if status != COREWEBVIEW2_WEB_ERROR_STATUS_OPERATION_CANCELED {
++                            super::emit(&s.key, "failed", json!({ "url": url, "error": web_error(status) }));
++                        }
++                    }
++                    Ok(())
++                })),
++                &mut token,
++            )?;
++
++            let s = self.status.clone();
++            core.add_ProcessFailed(
++                &ProcessFailedEventHandler::create(Box::new(move |core, args| {
++                    let (Some(core), Some(args)) = (core, args) else { return Ok(()) };
++                    let mut kind = COREWEBVIEW2_PROCESS_FAILED_KIND::default();
++                    args.ProcessFailedKind(&mut kind)?;
++                    // A renderer that died or hangs takes the page with it; the
++                    // others (a GPU or utility process) recover on their own.
++                    if kind == COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_EXITED
++                        || kind == COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_UNRESPONSIVE
++                        || kind == COREWEBVIEW2_PROCESS_FAILED_KIND_BROWSER_PROCESS_EXITED
++                    {
++                        super::emit(&s.key, "crashed", json!({ "url": url_of(&core) }));
++                        if kind != COREWEBVIEW2_PROCESS_FAILED_KIND_BROWSER_PROCESS_EXITED && !s.revived.replace(true) {
++                            core.Reload()?;
++                        }
++                    }
++                    Ok(())
++                })),
++                &mut token,
++            )?;
++
++            // The microphone (speech input too) and camera: granted to allowed
++            // origins (the asking frame's and the page's), refused to others.
++            // Windows still asks the person once for the app itself.
++            let s = self.status.clone();
++            core.add_PermissionRequested(
++                &PermissionRequestedEventHandler::create(Box::new(move |core, args| {
++                    let (Some(core), Some(args)) = (core, args) else { return Ok(()) };
++                    let mut kind = COREWEBVIEW2_PERMISSION_KIND::default();
++                    args.PermissionKind(&mut kind)?;
++                    if kind == COREWEBVIEW2_PERMISSION_KIND_MICROPHONE || kind == COREWEBVIEW2_PERMISSION_KIND_CAMERA {
++                        let mut uri = PWSTR::null();
++                        args.Uri(&mut uri)?;
++                        let ok = allowed_origin(&s.rules, &take_pwstr(uri)) && allowed_origin(&s.rules, &url_of(&core));
++                        args.SetState(if ok { COREWEBVIEW2_PERMISSION_STATE_ALLOW } else { COREWEBVIEW2_PERMISSION_STATE_DENY })?;
++                    }
++                    Ok(())
++                })),
++                &mut token,
++            )?;
++
++            // The page took the keys (a click, a tab into it): GPUI's focus
++            // steps aside, as after a click on macOS.
++            let s = self.status.clone();
++            controller.add_GotFocus(
++                &FocusChangedEventHandler::create(Box::new(move |_, _| {
++                    if !s.keys.replace(true) {
++                        super::page_clicked();
++                    }
++                    Ok(())
++                })),
++                &mut token,
++            )?;
++            let s = self.status.clone();
++            controller.add_LostFocus(
++                &FocusChangedEventHandler::create(Box::new(move |_, _| {
++                    s.keys.set(false);
++                    Ok(())
++                })),
++                &mut token,
++            )?;
++
++            // Herdr's shortcuts while a page types: posted to GPUI's window,
++            // which reads the modifiers from the keyboard's state as usual.
++            let gpui = gpui.0 as isize;
++            controller.add_AcceleratorKeyPressed(
++                &AcceleratorKeyPressedEventHandler::create(Box::new(move |_, args| {
++                    let Some(args) = args else { return Ok(()) };
++                    let mut kind = COREWEBVIEW2_KEY_EVENT_KIND::default();
++                    args.KeyEventKind(&mut kind)?;
++                    let message = if kind == COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN {
++                        WM_KEYDOWN
++                    } else if kind == COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN {
++                        WM_SYSKEYDOWN
++                    } else {
++                        return Ok(());
++                    };
++                    let mut vk = 0u32;
++                    args.VirtualKey(&mut vk)?;
++                    let down = |k: VIRTUAL_KEY| GetKeyState(i32::from(k.0)) < 0;
++                    if herdr_key(vk, down(VK_CONTROL), down(VK_MENU), down(VK_SHIFT)) {
++                        let mut lparam = 0i32;
++                        args.KeyEventLParam(&mut lparam)?;
++                        args.SetHandled(true)?;
++                        let _ = PostMessageW(Some(HWND(gpui as _)), message, WPARAM(vk as usize), LPARAM(lparam as isize));
++                    }
++                    Ok(())
++                })),
++                &mut token,
++            )?;
++        }
++        Ok(())
++    }
++
++    pub fn load(&self, url: &url::Url) {
++        let _ = self.web.load_url(url.as_str());
++    }
++
++    /// Moves the page to `rect` (window px, top-left origin), or hides it.
++    pub fn place(&mut self, rect: Option<Bounds<Pixels>>) {
++        if self.placed == Some(rect) {
++            return;
++        }
++        self.placed = Some(rect);
++        match rect {
++            Some(b) => {
++                let bounds = Rect {
++                    position: LogicalPosition::new(f64::from(b.origin.x), f64::from(b.origin.y)).into(),
++                    size: LogicalSize::new(f64::from(b.size.width), f64::from(b.size.height)).into(),
++                };
++                let _ = self.web.set_bounds(bounds);
++                let _ = self.web.set_visible(true);
++            }
++            None => {
++                // A hidden page holding the keys would leave them with nobody.
++                if self.has_keys() {
++                    self.give_back_keys();
++                }
++                let _ = self.web.set_visible(false);
++            }
++        }
++    }
++
++    pub fn zoom(&mut self, zoom: f64) {
++        let _ = self.web.zoom(zoom);
++    }
++
++    pub fn act(&self, action: Action) {
++        let _ = match action {
++            Action::Back => self.web.go_back(),
++            Action::Forward => self.web.go_forward(),
++            Action::Reload => self.web.reload(),
++            Action::Stop => {
++                let _ = unsafe { self.core.Stop() };
++                Ok(())
++            }
++            // web.rs loads `src` itself.
++            Action::Home => Ok(()),
++        };
++    }
++
++    /// The keyboard is in this page.
++    pub fn has_keys(&self) -> bool {
++        self.status.keys.get()
++    }
++
++    pub fn give_back_keys(&self) {
++        self.status.keys.set(false);
++        let _ = self.web.focus_parent();
++    }
++
++    pub fn window(&self) -> usize {
++        self.window
++    }
++}
++
++impl Drop for Page {
++    fn drop(&mut self) {
++        if self.has_keys() {
++            self.give_back_keys();
++        }
++        let _ = unsafe { self.core.Stop() };
++        // wry's WebView, dropped next, closes the controller and its window.
++    }
++}
++
++/// The window's handle, which identifies the window.
++pub fn window_of(window: &Window) -> usize {
++    match HasWindowHandle::window_handle(window).map(|h| h.as_raw()) {
++        Ok(RawWindowHandle::Win32(h)) => h.hwnd.get() as usize,
++        _ => 0,
++    }
++}
++
++/// Keys that are Herdr's even while a page types: Ctrl or Alt (not both: that
++/// is AltGr, which types characters) with a letter, digit, sign or Tab, except
++/// the editing keys (Ctrl with C, X, V, A, Z, Y); and the F keys.
++fn herdr_key(vk: u32, ctrl: bool, alt: bool, shift: bool) -> bool {
++    if (u32::from(VK_F1.0)..=u32::from(VK_F24.0)).contains(&vk) {
++        return true;
++    }
++    if ctrl == alt {
++        return false;
++    }
++    let letter = (u32::from(b'A')..=u32::from(b'Z')).contains(&vk);
++    let digit = (u32::from(b'0')..=u32::from(b'9')).contains(&vk);
++    // VK_OEM_1 ..= VK_OEM_3 (; = , - . / `) and VK_OEM_4 ..= VK_OEM_7 ([ \ ] ').
++    let sign = (0xBA..=0xC0).contains(&vk) || (0xDB..=0xDE).contains(&vk);
++    if !(letter || digit || sign || vk == u32::from(VK_TAB.0)) {
++        return false;
++    }
++    let editing = ctrl && matches!(char::from_u32(vk), Some('C' | 'X' | 'V' | 'A' | 'Z' | 'Y'));
++    // Ctrl+Shift+V pastes as plain text in a page.
++    !editing || (shift && !matches!(char::from_u32(vk), Some('V' | 'Z')))
++}
++
++/// An origin (or any URL of it) that mod.json allows; never a file.
++fn allowed_origin(rules: &Rules, url: &str) -> bool {
++    url::Url::parse(url).is_ok_and(|u| u.scheme() != "file" && rules.decide(&format!("{}/", u.origin().ascii_serialization())) == super::Nav::Allow)
++}
++
++/// WebView2's reason for a failed load, in words.
++fn web_error(status: COREWEBVIEW2_WEB_ERROR_STATUS) -> &'static str {
++    match status {
++        COREWEBVIEW2_WEB_ERROR_STATUS_CERTIFICATE_COMMON_NAME_IS_INCORRECT
++        | COREWEBVIEW2_WEB_ERROR_STATUS_CERTIFICATE_EXPIRED
++        | COREWEBVIEW2_WEB_ERROR_STATUS_CLIENT_CERTIFICATE_CONTAINS_ERRORS
++        | COREWEBVIEW2_WEB_ERROR_STATUS_CERTIFICATE_REVOKED
++        | COREWEBVIEW2_WEB_ERROR_STATUS_CERTIFICATE_IS_INVALID => "the site's certificate is not valid",
++        COREWEBVIEW2_WEB_ERROR_STATUS_SERVER_UNREACHABLE | COREWEBVIEW2_WEB_ERROR_STATUS_CANNOT_CONNECT => "cannot reach the server",
++        COREWEBVIEW2_WEB_ERROR_STATUS_TIMEOUT => "the server took too long",
++        COREWEBVIEW2_WEB_ERROR_STATUS_HOST_NAME_NOT_RESOLVED => "no such host",
++        COREWEBVIEW2_WEB_ERROR_STATUS_DISCONNECTED | COREWEBVIEW2_WEB_ERROR_STATUS_CONNECTION_ABORTED | COREWEBVIEW2_WEB_ERROR_STATUS_CONNECTION_RESET => {
++            "the connection was lost"
++        }
++        COREWEBVIEW2_WEB_ERROR_STATUS_ERROR_HTTP_INVALID_SERVER_RESPONSE => "the server's answer was not valid",
++        _ => "the page could not load",
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::herdr_key;
++
++    #[test]
++    fn herdr_keeps_its_shortcuts_and_the_page_its_editing_keys() {
++        let k = |c: char| c as u32;
++        // Herdr's: Ctrl+T, Ctrl+Shift+P, Ctrl+Tab, Alt+1, F2.
++        assert!(herdr_key(k('T'), true, false, false));
++        assert!(herdr_key(k('P'), true, false, true));
++        assert!(herdr_key(0x09, true, false, false));
++        assert!(herdr_key(k('1'), false, true, false));
++        assert!(herdr_key(0x71, false, false, false));
++        // The page's: copy, paste, plain paste, select all, undo, redo, cut.
++        for c in ['C', 'V', 'A', 'Z', 'Y', 'X'] {
++            assert!(!herdr_key(k(c), true, false, false), "Ctrl+{c}");
++        }
++        assert!(!herdr_key(k('V'), true, false, true), "Ctrl+Shift+V");
++        assert!(!herdr_key(k('Z'), true, false, true), "Ctrl+Shift+Z");
++        // Typing: plain letters, AltGr (Ctrl+Alt), Ctrl+arrows and Backspace.
++        assert!(!herdr_key(k('Q'), false, false, false));
++        assert!(!herdr_key(k('Q'), true, true, false));
++        assert!(!herdr_key(0x25, true, false, false));
++        assert!(!herdr_key(0x08, true, false, false));
++    }
++}
+diff --git a/vendor/gpui-pre-windows/src/directx_renderer.rs b/vendor/gpui-pre-windows/src/directx_renderer.rs
+index ecd645b..e57b56a 100644
+--- a/vendor/gpui-pre-windows/src/directx_renderer.rs
++++ b/vendor/gpui-pre-windows/src/directx_renderer.rs
+@@ -1027,7 +1027,8 @@ impl DirectXRenderPipelines {
+ impl DirectComposition {
+     pub fn new(dxgi_device: &IDXGIDevice, hwnd: HWND) -> Result<Self> {
+         let comp_device = get_comp_device(dxgi_device)?;
+-        let comp_target = unsafe { comp_device.CreateTargetForHwnd(hwnd, true) }?;
++        // Not topmost: child windows (Herdr's web pages) show above what GPUI draws.
++        let comp_target = unsafe { comp_device.CreateTargetForHwnd(hwnd, false) }?;
+         let comp_visual = unsafe { comp_device.CreateVisual() }?;
+ 
+         Ok(Self {

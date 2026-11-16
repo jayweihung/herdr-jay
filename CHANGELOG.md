@@ -9,6 +9,19 @@ says which) · **kit** = update kit itself on every machine where agents run (`k
 **snap hook** = a line in Claude Code's `settings.json` on each machine where you added the hook (the entry says
 which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/keys.md).
 
+## 2026-11-16, Herdr app v0.1.16, and text in mod panels can be copied
+
+Needs: **app** (build v0.1.16 with its 26 patches, `herdr-app/patches/v0.1.16/`; core unchanged, v0.1.21), restart
+Herdr.
+
+- App on the official v0.1.16 (`034f8b8`): the 25 patches moved onto it, unchanged in what they do. v0.1.16's own
+  changes include terminal selection commands (`terminal.select_all`, …) and a fix to where a selection ends.
+  app 換到官方 v0.1.16，原本 25 個 patch 照樣有。
+- New `0026`: text in every mod panel (Kit, 熱門, agent-page, Gerrit, …) can be selected by dragging across it and
+  copied with the copy key; with nothing selected the key goes to the terminal as before, and a plain click still
+  clicks. 所有 mod 面板的字都能拖曳選取、按複製鍵複製；沒選字時複製鍵照舊給終端機。
+- The v0.1.15 folder stays for a machine still on that tag. 還在 v0.1.15 的機器照舊用那個資料夾。
+
 ## 2026-11-16, trend: what's trending, beside your agents
 
 Needs: **mods** (new `trend`: macOS `ln -s`, Windows copy), **layout** (jay's layouts have the 熱門 button and

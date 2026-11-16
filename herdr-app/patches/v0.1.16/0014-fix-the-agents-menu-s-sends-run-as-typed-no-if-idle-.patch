@@ -1,0 +1,116 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: jayweihung <3034830+jayweihung@users.noreply.github.com>
+Date: Mon, 16 Nov 2026 00:57:45 +0800
+Subject: [PATCH 14/26] fix: the agents menu's sends run as typed (no --if
+ idle, closed once sent), say when sent, show short reasons and the row's name
+
+---
+ defaults/mods/agents/main.js | 46 ++++++++++++++++++++----------------
+ 1 file changed, 25 insertions(+), 21 deletions(-)
+
+diff --git a/defaults/mods/agents/main.js b/defaults/mods/agents/main.js
+index ca8d23a..cbbdfa0 100644
+--- a/defaults/mods/agents/main.js
++++ b/defaults/mods/agents/main.js
+@@ -98,20 +98,20 @@ const TOOLS = { "claude-code": "claude", claude: "claude", codex: "codex", omp:
+ // each tool's own commands: compact, and a new conversation
+ const TOOL_CMDS = { claude: { compact: "/compact", clear: "/clear" }, codex: { compact: "/compact", clear: "/new" }, omp: { compact: "/compact", clear: "/new" } };
+ export const toolOf = (a) => TOOLS[String(a?.app ?? "").toLowerCase()] ?? TOOLS[String(a?.program?.key ?? "").toLowerCase()] ?? null;
+-// hc send: only to an agent that waits for you (idle: --if idle, so hc refuses if it started meanwhile; done: it finished
+-// while nobody looked)
+-export const sendTo = (a, text) => (a.status === "idle" ? ["send", "--if", "idle", a.address, text] : ["send", a.address, text]);
++// hc send, plainly: the menu offers it only while the agent waits, and `--if idle` would refuse one the core
++// still calls done (the list shows a done agent you've looked at as idle)
++export const sendTo = (a, text) => ["send", a.address, text];
+ // the items: [label, what, off (why it can't be picked now, or ""), ask (picked once more to do it)]
+ export function menuItems(a, more = {}, now = Date.now()) {
+   if (!a) return [];
+   const cmds = TOOL_CMDS[toolOf(a)], waits = a.status === "idle" || a.status === "done";
+-  const busy = a.status === "working" ? "它在工作：等它停下來" : a.status === "blocked" ? "它在等你回答" : "";
+-  const typed = (label, what, ask = "") => [label, what, !cmds ? "這個 agent 不支援" : waits ? "" : busy || "它還沒準備好", ask];
++  const busy = a.status === "working" ? "工作中" : a.status === "blocked" ? "等你回答" : "";
++  const typed = (label, what, ask = "") => [label, what, !cmds ? "不支援" : waits ? "" : busy || "還沒好", ask];
+   const list = [
+     typed("壓縮", "compact"),
+     typed("清空重來", "clear", "再按一次：清空這個對話，重新開始"),
+-    ["停下來", "stop", a.status === "working" ? "" : "它沒在工作", ""],
+-    ["繼續", "continue", waits ? "" : busy || "它還沒準備好", ""],
++    ["停下來", "stop", a.status === "working" ? "" : "沒在工作", ""],
++    ["繼續", "continue", waits ? "" : busy || "還沒好", ""],
+   ];
+   const extra = Object.entries(more ?? {}).filter(([, m]) => m && now - (m.at ?? 0) < MENU_TTL && Array.isArray(m.items))
+     .flatMap(([mod, m]) => m.items.filter((i) => i?.id && i?.label).map((i) => [String(i.label), `mod:${mod}:${i.id}`, "", ""]));
+@@ -224,6 +224,8 @@ export default class Agents extends View {
+   }
+ 
+   agentMenu(t) {
++    // the name its row shows (the list passes it), so the menu and its notice read the same
++    const nameOf = (a) => props().name || a.title || a.program?.name || a.address;
+     const a = agents().find((x) => x.address === props().agentMenu);
+     const list = menuItems(a, shared("agents.menu"));
+     if (!a) return v_flex().w_full().p(10).bg(t.popover).text_size(12.8).text_color(t.dim).child("這個 agent 已經不在了");
+@@ -231,8 +233,10 @@ export default class Agents extends View {
+       const it = list[i];
+       if (!it || it[2]) return;
+       if (it[3] && this.asking !== it[1]) { this.asking = it[1]; this.at = i; cx.notify(); return; }
+-      closeOverlay(props().overlay);
+-      this.act(a, it[1]);
++      // hc runs in this popup: closing it first would drop the send, so close once it's done
++      const id = props().overlay, sent = this.act(a, it[1], nameOf(a));
++      if (sent) sent.finally(() => closeOverlay(id));
++      else closeOverlay(id);
+     };
+     return v_flex()
+       .id("agent-menu")
+@@ -251,7 +255,7 @@ export default class Agents extends View {
+         this.asking = null;
+         cx.notify();
+       })
+-      .child(div().px(8).pt(4).pb(6).text_size(11).text_color(t.dim).truncate().child(a.title || a.program?.name || a.address))
++      .child(div().px(8).pt(4).pb(6).text_size(11).text_color(t.dim).truncate().child(nameOf(a)))
+       .children(list.map((it, i) => v_flex()
+         .when(it[1] === "pin" || (it[1].startsWith("mod:") && !list[i - 1][1].startsWith("mod:")), (el) => el.child(div().mx(7).my(4).h(1).bg(t.border)))
+         .child(h_flex()
+@@ -266,23 +270,23 @@ export default class Agents extends View {
+           .when(i === this.at && !it[2], (el) => el.bg(t.selected))
+           .when(!it[2], (el) => el.cursor_pointer().hover((s) => s.bg(t.hover)))
+           .on_click((_e, cx) => pick(i, cx))
+-          .child(v_flex().flex_1().min_w(0)
+-            .child(div().child(this.asking === it[1] ? it[3] : it[0]))
+-            .when(Boolean(it[2]), (el) => el.child(div().text_size(11).text_color(t.dim).child(it[2])))))));
++          .child(div().flex_1().min_w(0).child(this.asking === it[1] ? it[3] : it[0]))
++          .when(Boolean(it[2]), (el) => el.child(div().flex_none().text_size(11).text_color(t.dim).child(it[2]))))));
+   }
+ 
+   // what a menu item does (the agent: as agents() lists it)
+-  act(a, what) {
++  act(a, what, name) {
+     const say = (r, done) => {
+-      if (r?.code === 0) return;
++      if (r?.code === 0) return notify({ title: `已${done}`, body: name, level: "success", timeout: 3000 });
+       notify({ title: `沒有${done}`, body: (r?.stderr || r?.stdout || "hc 沒有回應").trim().slice(0, 300), level: "warning" });
+     };
+     const cmds = TOOL_CMDS[toolOf(a)] ?? {};
+-    if (what === "compact") hc(sendTo(a, cmds.compact)).then((r) => say(r, "壓縮"), () => say(null, "壓縮"));
+-    else if (what === "clear") hc(sendTo(a, cmds.clear)).then((r) => say(r, "清空"), () => say(null, "清空"));
+-    else if (what === "continue") hc(sendTo(a, "繼續")).then((r) => say(r, "送出「繼續」"), () => say(null, "送出「繼續」"));
+-    else if (what === "stop") hc(["interrupt", a.address]).then((r) => say(r, "停下來"), () => say(null, "停下來"));
+-    else if (what === "pin") run("terminal.pin", { terminal: a.address, pinned: !a.pinned });
++    const send = (args, done) => hc(args).then((r) => say(r, done), () => say(null, done));
++    if (what === "compact") return send(sendTo(a, cmds.compact), "送出壓縮");
++    if (what === "clear") return send(sendTo(a, cmds.clear), "送出清空");
++    if (what === "continue") return send(sendTo(a, "繼續"), "送出「繼續」");
++    if (what === "stop") return send(["interrupt", a.address], "叫它停下來");
++    if (what === "pin") run("terminal.pin", { terminal: a.address, pinned: !a.pinned });
+     else if (what === "close") run("pane.close", { pane: a.pane });
+     else if (what.startsWith("mod:")) {
+       const [, mod, id] = what.split(":");
+@@ -437,7 +441,7 @@ export default class Agents extends View {
+     }
+ 
+     // a row's right-click menu, at the pointer (a popup is as tall as its items; height is only the most)
+-    const menu = (a) => openOverlay({ mod: "agents", kind: "popup", at: "pointer", width: 240, height: 420, props: { agentMenu: a.address } });
++    const menu = (a) => openOverlay({ mod: "agents", kind: "popup", at: "pointer", width: 240, height: 420, props: { agentMenu: a.address, name: /^\d+$/.test(label(a) ?? "") ? a.program?.name || label(a) : label(a) } });
+     const row = (a, i, subs = []) => {
+       const pic = icon(a.program, 16, t.foreground);
+       const more = detail.get(a.address);

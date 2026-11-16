@@ -1,0 +1,135 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: jayweihung <3034830+jayweihung@users.noreply.github.com>
+Date: Sun, 15 Nov 2026 02:40:18 +0800
+Subject: [PATCH 11/26] fix: herdr 98's start menu and quick launch offer the
+ agents herdr knows, codex as codex --no-daemon
+
+The taskbar had its own agent list, started each one by its bare command (codex
+without --no-daemon, so its commands could run in a shared Codex daemon outside
+Herdr's terminal) and checked what is installed with sh (nothing on Windows).
+It now asks knownAgents() on the shown space's machine, as the new-tab menu does:
+programs.json's entries with `run`, so an agent added there (omp) shows too.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ defaults/mods/win98/taskbar.js | 64 +++++++++++++++++-----------------
+ 1 file changed, 32 insertions(+), 32 deletions(-)
+
+diff --git a/defaults/mods/win98/taskbar.js b/defaults/mods/win98/taskbar.js
+index 1b146fa..367106c 100644
+--- a/defaults/mods/win98/taskbar.js
++++ b/defaults/mods/win98/taskbar.js
+@@ -5,26 +5,20 @@
+ 
+ import { div, svg } from "gpui-kit";
+ import { h_flex, v_flex } from "gpui-base";
+-import { spaces, panes, agents, run, shared, setShared, nextCommand, exec, layouts, home, settings, openOverlay, closeOverlay } from "herdr";
++import { spaces, panes, agents, run, shared, setShared, nextCommand, exec, layouts, home, settings, openOverlay, closeOverlay, knownAgents } from "herdr";
+ import {
+   C, ASSETS, unit, root, bevel, button, etch, grip, icon, programIcon, sfx, apps, setApp, label, own,
+   fitLayout, openMenu, openDialog, dither, perform,
+ } from "./kit.js";
+ 
+-// Agents the Start menu offers when installed: [command, name, icon].
+-const AGENTS = [
+-  ["claude", "Claude Code", "icons/claude.svg"],
+-  ["codex", "Codex", "icons/codex.svg"],
+-  ["pi", "Pi", "icons/pi.svg"],
+-  ["opencode", "OpenCode", "icons/opencode.svg"],
+-  ["amp", "Amp", "icons/amp.svg"],
+-  ["gemini", "Gemini", "icons/gemini.svg"],
+-  ["agent", "Cursor", "icons/cursor.svg"],
+-  ["copilot", "Copilot", "icons/copilot.svg"],
+-  ["grok", "Grok", "icons/grok.svg"],
+-  ["kimi", "Kimi", "icons/kimi.svg"],
+-  ["crush", "Crush", "icons/crush.svg"],
+-];
++// Agents the Start menu and Quick Launch offer: the installed ones Herdr knows how to
++// start (knownAgents(): programs.json entries with `run`, most picked first), on the
++// shown space's machine. Each starts with its own `run`, so Codex as `codex
++// --no-daemon` and an agent added in programs.json (omp) are there too; the check
++// works on Windows as well. Asked at start, then with the clock when the shown
++// space's machine changed or every 5 minutes.
++const AGENTS_AGAIN = 5 * 60000;
++const startAgent = (a) => ({ run: ["tab.new", { name: a.name, argv: a.run }] });
+ 
+ const GAMES = { mines: ["Mines", "mines"], sol: ["Solitaire", "sol"] };
+ 
+@@ -67,25 +61,21 @@ export function userName() {
+ export default class Taskbar {
+   init(_p, cx) {
+     this.now = new Date();
+-    this.installed = [];
++    this.agents = [];
++    this.agentsOn = undefined;
++    this.agentsAt = 0;
+     this.zoom = null;
+     this.scale = null;
+     const tick = (cx) => {
+       this.now = new Date();
++      this.askAgents(cx);
+       cx.notify();
+     };
+     cx.timer.after(60000 - (Date.now() % 60000) + 50, (cx) => {
+       tick(cx);
+       cx.timer.every(60000, tick);
+     });
+-    cx.spawn(async (cx) => {
+-      try {
+-        const names = AGENTS.map((a) => a[0]).join(" ");
+-        const r = await exec("sh", ["-c", `for c in ${names}; do command -v "$c" >/dev/null 2>&1 && echo "$c"; done`]);
+-        this.installed = r.stdout.split("\n").filter(Boolean);
+-      } catch {}
+-      cx.notify();
+-    });
++    this.askAgents(cx);
+     cx.spawn(async (cx) => {
+       for (;;) {
+         const c = await nextCommand();
+@@ -123,6 +113,22 @@ export default class Taskbar {
+     return spaces().find((s) => s.active);
+   }
+ 
++  askAgents(cx) {
++    const on = this.space()?.machine ?? null;
++    if (this.asking || (on === this.agentsOn && Date.now() - this.agentsAt < AGENTS_AGAIN)) return;
++    this.asking = true;
++    cx.spawn(async (cx) => {
++      try {
++        const list = await knownAgents({ on });
++        this.agents = list.filter((a) => a.installed && Array.isArray(a.run) && a.run.length);
++        this.agentsOn = on;
++        this.agentsAt = Date.now();
++      } catch {}
++      this.asking = false;
++      cx.notify();
++    });
++  }
++
+   command(c) {
+     const s = this.space();
+     const tab = s?.tabs.find((t) => t.active);
+@@ -196,11 +202,7 @@ export default class Taskbar {
+ 
+   startItems() {
+     const s = this.space();
+-    const agentItems = AGENTS.filter((a) => this.installed.includes(a[0])).map(([cmd, name, ico]) => ({
+-      label: name,
+-      img: ico,
+-      act: { run: ["tab.new", { name, argv: [cmd] }] },
+-    }));
++    const agentItems = this.agents.map((a) => ({ label: a.name, img: a.icon, act: startAgent(a) }));
+     const spaceItems = spaces().map((p, i) => ({
+       label: `${i < 9 ? `&${i + 1} ` : ""}${p.name}`,
+       icon: p.active ? "folder-open" : "folder",
+@@ -479,9 +481,7 @@ export default class Taskbar {
+ 
+     const ql = [
+       this.quick(u, "dos", "dos", "DOS Prompt", { run: ["tab.new", { name: "DOS Prompt" }] }),
+-      ...AGENTS.filter((a) => this.installed.includes(a[0]))
+-        .slice(0, 2)
+-        .map(([cmd, name, ico]) => this.quick(u, cmd, programIcon(u, { icon: ico, tint: false }, 16), name, { run: ["tab.new", { name, argv: [cmd] }] })),
++      ...this.agents.slice(0, 2).map((a) => this.quick(u, a.key, programIcon(u, a, 16), a.name, startAgent(a))),
+       this.quick(u, "mines", "mines", "Mines", { app: "mines" }),
+     ];
+ 

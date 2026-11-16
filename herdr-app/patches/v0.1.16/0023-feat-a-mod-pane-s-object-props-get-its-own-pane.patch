@@ -1,0 +1,51 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: jayweihung <3034830+jayweihung@users.noreply.github.com>
+Date: Mon, 16 Nov 2026 04:31:54 +0800
+Subject: [PATCH 23/26] feat: a mod pane's object props get its own pane
+
+---
+ defaults/AGENTS.md  | 3 ++-
+ defaults/herdr.d.ts | 1 +
+ src/window.rs       | 3 +++
+ 3 files changed, 6 insertions(+), 1 deletion(-)
+
+diff --git a/defaults/AGENTS.md b/defaults/AGENTS.md
+index 1cdd141..f2832ab 100644
+--- a/defaults/AGENTS.md
++++ b/defaults/AGENTS.md
+@@ -129,7 +129,8 @@ the highlighted line shows where it will land.
+   viewer, a board, a git panel): `pane.split {direction, mod, props}`. A
+   mod pane splits, zooms, closes and gets a header like any pane, keeps
+   the keyboard when clicked, and is saved with its tab; its `props` tell
+-  it what to show (a file, a folder). Closing a terminal pane ends its
++  it what to show (a file, a folder), and object props also get its own
++  `pane` (to close or focus itself). Closing a terminal pane ends its
+   terminal, and a program exiting closes its pane, even if Herdr was closed.
+   Terminal panes are kept by their machine's core (`keep: true`). A lost
+   terminal (core crash, reboot, logout) gets a shell in its last folder,
+diff --git a/defaults/herdr.d.ts b/defaults/herdr.d.ts
+index 17eddb5..9dd49a3 100644
+--- a/defaults/herdr.d.ts
++++ b/defaults/herdr.d.ts
+@@ -437,6 +437,7 @@ export function notify(n: {
+ }): string;
+ 
+ /** The props this copy of the mod was given in the layout (or overlay).
++ *  A mod pane (`pane.split {mod, props}`) with object props also gets its own `pane`.
+  *  A layout's terminal_menu mod gets {tab: "pane", target: {pane: string, terminal: string}, overlay: string}.
+  *  Target names the clicked pane/terminal, not necessarily the focused one; pass it to actions.
+  *  Close the popup with closeOverlay(props().overlay). */
+diff --git a/src/window.rs b/src/window.rs
+index b3fe969..3f5d2dd 100644
+--- a/src/window.rs
++++ b/src/window.rs
+@@ -2656,6 +2656,9 @@ impl AppWindow {
+         let machine = self.model.space_of(&target).and_then(|s| s.machine.clone());
+         self.require_document(machine.as_deref())?;
+         let new = self.model.fresh_id_on("p", machine.as_deref());
++        // The copy learns its own pane (to close or focus it): props.pane, unless the caller set one.
++        let mut props = props;
++        if let Value::Object(m) = &mut props { m.entry("pane").or_insert_with(|| json!(new)); }
+         self.model.split_with(&target, axis, Node::block(new.clone(), Content::Mod { name, props }));
+         Ok(json!({ "pane": new }))
+     }

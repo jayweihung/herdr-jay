@@ -1,0 +1,190 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: jayweihung <3034830+jayweihung@users.noreply.github.com>
+Date: Mon, 16 Nov 2026 02:45:06 +0800
+Subject: [PATCH 17/26] feat: layout.zoom shows one layout node alone in its
+ row or column, like pane.zoom (never saved)
+
+---
+ defaults/AGENTS.md  |  1 +
+ defaults/herdr.d.ts |  2 +-
+ src/commands.rs     |  1 +
+ src/window.rs       | 63 ++++++++++++++++++++++++++++++++++++++++++---
+ 4 files changed, 63 insertions(+), 4 deletions(-)
+
+diff --git a/defaults/AGENTS.md b/defaults/AGENTS.md
+index c4055c7..733951d 100644
+--- a/defaults/AGENTS.md
++++ b/defaults/AGENTS.md
+@@ -674,6 +674,7 @@ The main ones:
+   programs such as yazi; partial images and scrolling follow the placeholder cells.
+ - Agents: `agent.next`, `agent.prev`, `agent.focus {terminal}`.
+ - Layout: `layout.switch {name?}`, `layout.toggle {id}`, `layout.show {id}`, `layout.hide {id}`,
++  `layout.zoom {id}` (that node alone in its row or column, like `pane.zoom`; again shows the rest; never saved),
+   `layout.resize {id, px | weight}`, `layout.select {stack, child}`, `layout.set {layout}`
+   (personal tree edits; on shipped layouts only click/look fields change),
+   `layout.reset {name?}` (reset a shipped layout and its clicks),
+diff --git a/defaults/herdr.d.ts b/defaults/herdr.d.ts
+index a32d783..ee3a82e 100644
+--- a/defaults/herdr.d.ts
++++ b/defaults/herdr.d.ts
+@@ -77,7 +77,7 @@ export function playSound(sound: string): null;
+  *   terminal.right_click {to: "program" | "menu", terminal?} (right-clicks to a program that takes the mouse; Shift: the menu).
+  *   terminal.scroll {lines | pages | to: "top" | "bottom", terminal?} (Herdr's view of the history: negative goes up; pages may be fractional).
+  * Agents: agent.next, agent.prev (the agents list's order), agent.focus {terminal} (sub-agents too).
+- * Layout (the shown layout's nodes by id): layout.toggle|show|hide {id}, layout.resize {id, px | weight},
++ * Layout (the shown layout's nodes by id): layout.toggle|show|hide {id}, layout.zoom {id} (alone in its row or column; again: all; not saved), layout.resize {id, px | weight},
+  *   layout.select {stack, child}, layout.set {layout} (personal trees; shipped layouts: click/look fields only), layout.switch {name?} (no name: the next one).
+  *   layout.clone {name, as?} duplicates and switches; mod.clone {name, as?} duplicates a mod.
+  *   Layout clones copy the look and clicks as-is. Layout looks win; settings fill unset fields; theme picks override both.
+diff --git a/src/commands.rs b/src/commands.rs
+index c32a292..2240e6c 100644
+--- a/src/commands.rs
++++ b/src/commands.rs
+@@ -82,6 +82,7 @@ pub const COMMANDS: &[Command] = &[
+     cmd("layout.toggle", &[req("id")], "Hide or show a layout node."),
+     cmd("layout.show", &[req("id")], "Show a layout node."),
+     cmd("layout.hide", &[req("id")], "Hide a layout node."),
++    cmd("layout.zoom", &[req("id")], "Show only this layout node in its row or column, or all again."),
+     cmd("layout.resize", &[req("id"), opt("px"), opt("weight")], "Size a layout node."),
+     cmd("layout.select", &[req("stack"), req("child")], "Show one child of a stack."),
+     cmd("layout.reset", &[opt("name")], "Reset a shipped layout and its clicks (the old file is kept aside)."),
+diff --git a/src/window.rs b/src/window.rs
+index c87941e..2303571 100644
+--- a/src/window.rs
++++ b/src/window.rs
+@@ -413,6 +413,9 @@ pub struct AppWindow {
+     file_chrome: Node,
+     written_state: String,
+     picked_theme: Option<crate::layout::ThemeChoice>,
++    /// layout.zoom: the node shown alone in its row or column, and the siblings that hid for it
++    /// (never saved: quitting, or a layout that changes, shows them again).
++    zoom_hid: Option<(String, Vec<String>)>,
+     /// Whether the shown layout's file read and parsed (or is simply
+     /// missing): a broken one is never written over.
+     layout_file_ok: bool,
+@@ -533,6 +536,7 @@ impl AppWindow {
+             file_chrome: default_layout("main"),
+             written_state: String::new(),
+             picked_theme: None,
++            zoom_hid: None,
+             layout_file_ok: true,
+             written_view: String::new(),
+             person: settings::Person::default(),
+@@ -979,6 +983,7 @@ impl AppWindow {
+     /// Makes `name` the shown layout (its file, or its default if missing or
+     /// broken), with the person's clicks on it.
+     fn load_layout(&mut self, name: &str) {
++        self.zoom_hid = None;
+         self.layout_name = name.to_owned();
+         self.written_layout.clear();
+         let mut from_file = false;
+@@ -1092,13 +1097,14 @@ impl AppWindow {
+                     s.forget_since_saved(&n);
+                     s
+                 } else {
+-                    let mut s = layout_sync::State::between(&self.file_chrome, &self.chrome);
++                    let mut s = layout_sync::State::between(&self.file_chrome, &self.unzoomed());
+                     s.theme = self.picked_theme.clone();
+                     s.forget_edited(&self.file_chrome, &n);
+                     s
+                 };
+                 self.file_chrome = n.clone();
+                 self.chrome = n;
++                self.zoom_hid = None;
+                 self.picked_theme = state.theme.clone();
+                 state.apply(&mut self.chrome);
+                 self.write_state(&state);
+@@ -1135,12 +1141,13 @@ impl AppWindow {
+             return;
+         }
+         self.note_pane_folders();
+-        let mut state = layout_sync::State::between(&self.file_chrome, &self.chrome);
++        let shown = self.unzoomed();
++        let mut state = layout_sync::State::between(&self.file_chrome, &shown);
+         state.theme = self.picked_theme.clone();
+         if self.layout_file_ok {
+             self.write_state(&state);
+         }
+-        let edited = layout_sync::without_clicks(&self.file_chrome, &self.chrome);
++        let edited = layout_sync::without_clicks(&self.file_chrome, &shown);
+         if edited != self.file_chrome && self.layout_file_ok && !shipped_layouts().contains(&self.layout_name.as_str()) {
+             let path = layout_path(&self.layout_name);
+             // Someone (an agent) changed the file since we read it: theirs
+@@ -3461,6 +3468,7 @@ impl AppWindow {
+                     self.layout_file_ok = true;
+                     self.file_chrome = n.clone();
+                     self.chrome = n;
++                    self.zoom_hid = None;
+                     self.picked_theme = None;
+                     self.write_state(&layout_sync::State::default());
+                     self.apply_look(window, cx);
+@@ -3476,6 +3484,36 @@ impl AppWindow {
+                     _ => true,
+                 };
+             }
++            // A node alone in its row or column, like pane.zoom; again (or another id) shows the rest.
++            "layout.zoom" => {
++                let id = Self::arg(a, "id").unwrap_or_default().to_owned();
++                if self.chrome.find(&id).is_none() {
++                    return self.fail(format!("no node {id:?} in the shown layout"));
++                }
++                let mut again = false;
++                if let Some((was, hid)) = self.zoom_hid.take() {
++                    for h in hid {
++                        if let Some(n) = self.chrome.find_mut(&h) {
++                            n.hidden = false;
++                        }
++                    }
++                    again = was == id;
++                }
++                let mut hid = Vec::new();
++                if !again
++                    && let Some(parent) = parent_of_mut(&mut self.chrome, &id)
++                    && matches!(parent.kind, Kind::Row { .. } | Kind::Column { .. })
++                    && let Some(children) = parent.children_mut()
++                {
++                    for c in children.iter_mut().filter(|c| c.id != id && !c.hidden) {
++                        c.hidden = true;
++                        hid.push(c.id.clone());
++                    }
++                }
++                if !hid.is_empty() {
++                    self.zoom_hid = Some((id, hid));
++                }
++            }
+             "layout.resize" => {
+                 let id = Self::arg(a, "id").unwrap_or_default();
+                 let Some(n) = self.find_node_mut(id) else { return self.fail(format!("no node {id:?}")) };
+@@ -3640,6 +3678,17 @@ impl AppWindow {
+         self.sync(window, cx);
+     }
+ 
++    /// The layout as it is without layout.zoom's hiding (what is saved).
++    fn unzoomed(&self) -> Node {
++        let mut n = self.chrome.clone();
++        for h in self.zoom_hid.iter().flat_map(|(_, hid)| hid) {
++            if let Some(x) = n.find_mut(h) {
++                x.hidden = false;
++            }
++        }
++        n
++    }
++
+     fn find_node_mut(&mut self, id: &str) -> Option<&mut Node> {
+         if self.chrome.find(id).is_some() {
+             return self.chrome.find_mut(id);
+@@ -5084,6 +5133,14 @@ fn pane_header_mod(n: &Node, name: &str, props: &Value) -> (String, Instance) {
+     (format!("{}#frame", n.id), Instance { name: name.to_owned(), props })
+ }
+ 
++/// The row, column or stack that holds the node `id`.
++fn parent_of_mut<'a>(n: &'a mut Node, id: &str) -> Option<&'a mut Node> {
++    if n.children().iter().any(|c| c.id == id) {
++        return Some(n);
++    }
++    n.children_mut()?.iter_mut().find_map(|c| parent_of_mut(c, id))
++}
++
+ /// Every node shown on screen (hidden ones and inactive stack children skipped).
+ fn visible_nodes(n: &Node) -> Vec<&Node> {
+     if n.hidden {

@@ -3,7 +3,7 @@
 Build Herdr from the official source (plus jay's text patches), then copy two mod folders.
 This repo holds only text; the build runs the official projects' own `just install` (PowerShell installers).
 If your company blocks scripts, every `just install` below has a **by hand** version.
-Commands are for **PowerShell**. Checked against Herdr app v0.1.15 and core v0.1.21. Not yet run on a real Windows PC.
+Commands are for **PowerShell**. Checked against Herdr app v0.1.16 and core v0.1.21. Not yet run on a real Windows PC.
 從官方原始碼 build Herdr（加上 jay 的文字補丁），再複製兩個 mod 資料夾。指令都在 **PowerShell** 打。
 公司擋腳本的話，每個 `just install` 下面都有「手動」做法。
 
@@ -222,11 +222,11 @@ Later updates by hand, while it runs: `hc update --from target\release\herdr-cor
 Set-Location "$env:USERPROFILE\src"
 git clone --recurse-submodules --shallow-submodules https://github.com/herdrdev/herdr-app.git
 Set-Location herdr-app
-git checkout v0.1.15
-git rev-parse --short HEAD                          # must be 9950887 (README versions table)
+git checkout v0.1.16
+git rev-parse --short HEAD                          # must be 034f8b8 (README versions table)
 git submodule update --init --recursive
 $j = "$env:USERPROFILE\src\herdr-jay"
-$pd = "$j\herdr-app\patches\v0.1.15"                # 25 patches (docs/patches.md), among them web pages in mods and layout.zoom
+$pd = "$j\herdr-app\patches\v0.1.16"                # 26 patches (docs/patches.md), among them web pages in mods, layout.zoom and selectable text
 $ps = @(Get-ChildItem "$pd\*.patch" -ErrorAction SilentlyContinue | Sort-Object Name).FullName
 if ($ps) { git -c user.name=me -c user.email=me@local am -3 $ps } else { "no patches" }
 ```

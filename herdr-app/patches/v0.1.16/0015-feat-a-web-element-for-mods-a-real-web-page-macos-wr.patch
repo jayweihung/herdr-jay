@@ -1,0 +1,2675 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: jayweihung <3034830+jayweihung@users.noreply.github.com>
+Date: Mon, 16 Nov 2026 02:31:20 +0800
+Subject: [PATCH 15/26] feat: a web element for mods: a real web page (macos,
+ wry) on the origins mod.json allows, with webCall and nextWebEvent
+
+---
+ Cargo.lock               | 518 ++++++++++++++++++++++++++++++-
+ Cargo.toml               |  13 +-
+ THIRD-PARTY-NOTICES      | 210 ++++++++++++-
+ defaults/AGENTS.md       |  20 ++
+ defaults/herdr.d.ts      |  51 ++++
+ licenses/inventory.json  |   7 +
+ scripts/install-macos    |   1 +
+ scripts/package          |   1 +
+ src/main.rs              |   1 +
+ src/mods.rs              |  17 ++
+ src/mods/render_tests.rs |  10 +-
+ src/web.rs               | 643 +++++++++++++++++++++++++++++++++++++++
+ src/web/macos.rs         | 553 +++++++++++++++++++++++++++++++++
+ src/window.rs            |  45 ++-
+ 14 files changed, 2064 insertions(+), 26 deletions(-)
+ create mode 100644 src/web.rs
+ create mode 100644 src/web/macos.rs
+
+diff --git a/Cargo.lock b/Cargo.lock
+index 6108bf8..fbb062a 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -646,6 +646,12 @@ version = "0.22.1"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
+ 
++[[package]]
++name = "base64"
++version = "0.23.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "ac07cdecf99051d9a5238b80f35af32cdeba5b336e55d957b318b50137e18da5"
++
+ [[package]]
+ name = "base64-simd"
+ version = "0.8.0"
+@@ -1050,6 +1056,12 @@ dependencies = [
+  "shlex 2.0.1",
+ ]
+ 
++[[package]]
++name = "cesu8"
++version = "1.1.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "6d43a04d8753f35258c91f8ec639f792891f748a1edbd759cf1dcea3382ad83c"
++
+ [[package]]
+ name = "cexpr"
+ version = "0.6.0"
+@@ -1275,6 +1287,16 @@ version = "1.0.5"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "1d07550c9036bf2ae0c684c4297d503f838287c83c53686d05370d0e139ae570"
+ 
++[[package]]
++name = "combine"
++version = "4.6.9"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "4356eba6976435498d05a311ee9fc486da3bc81c200d3f0d7dd9703b41913f92"
++dependencies = [
++ "bytes",
++ "memchr",
++]
++
+ [[package]]
+ name = "compression-codecs"
+ version = "0.4.39"
+@@ -1356,6 +1378,16 @@ dependencies = [
+  "unicode-segmentation",
+ ]
+ 
++[[package]]
++name = "cookie"
++version = "0.18.2"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "1a373e3602691c3cdea496d2f0ee5935151e6168fe87739483c463db1b2f2f87"
++dependencies = [
++ "time",
++ "version_check",
++]
++
+ [[package]]
+ name = "core-foundation"
+ version = "0.9.4"
+@@ -1697,6 +1729,15 @@ dependencies = [
+  "cfg-if",
+ ]
+ 
++[[package]]
++name = "crossbeam-channel"
++version = "0.5.17"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "98b0cc327b5bc766e7fda9c9260cc0fa81b43a8e240440422dff70788e3f9ef1"
++dependencies = [
++ "crossbeam-utils",
++]
++
+ [[package]]
+ name = "crossbeam-deque"
+ version = "0.8.7"
+@@ -1783,6 +1824,29 @@ dependencies = [
+  "rand_core 0.10.1",
+ ]
+ 
++[[package]]
++name = "cssparser"
++version = "0.37.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "8c9cdaae01d5ed7882b04d795e7f752f46ff52d2fa3b50a20d28c464510bba98"
++dependencies = [
++ "cssparser-macros",
++ "dtoa-short",
++ "itoa",
++ "phf 0.13.1",
++ "smallvec",
++]
++
++[[package]]
++name = "cssparser-macros"
++version = "0.7.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "d045de693cb712d0b22c6a64be5b953f67b3ce00ab5ad3dd5d8b441886ab8e1a"
++dependencies = [
++ "quote",
++ "syn 3.0.4",
++]
++
+ [[package]]
+ name = "ctor"
+ version = "1.0.13"
+@@ -1944,7 +2008,16 @@ version = "5.0.1"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "44c45a9d03d6676652bcb5e724c7e988de1acad23a711b5217ab9cbecbec2225"
+ dependencies = [
+- "dirs-sys",
++ "dirs-sys 0.4.1",
++]
++
++[[package]]
++name = "dirs"
++version = "7.0.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "8d57d423b3c82e89b9a24ca3091fee61f456a26edbd28d26c65906f4bc1dcd8f"
++dependencies = [
++ "dirs-sys 0.5.0",
+ ]
+ 
+ [[package]]
+@@ -1955,10 +2028,22 @@ checksum = "520f05a5cbd335fae5a99ff7a6ab8627577660ee5cfd6a94a6a929b52ff0321c"
+ dependencies = [
+  "libc",
+  "option-ext",
+- "redox_users",
++ "redox_users 0.4.6",
+  "windows-sys 0.48.0",
+ ]
+ 
++[[package]]
++name = "dirs-sys"
++version = "0.5.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "e01a3366d27ee9890022452ee61b2b63a67e6f13f58900b651ff5665f0bb1fab"
++dependencies = [
++ "libc",
++ "option-ext",
++ "redox_users 0.5.3",
++ "windows-sys 0.61.2",
++]
++
+ [[package]]
+ name = "dispatch"
+ version = "0.2.0"
+@@ -2006,12 +2091,48 @@ dependencies = [
+  "litrs",
+ ]
+ 
++[[package]]
++name = "dom_query"
++version = "0.28.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "fac5fca71e65e94cc718a6e2af65d6e0f9c6027751c2aa562fbb5087fda639bc"
++dependencies = [
++ "bit-set 0.8.0",
++ "cssparser",
++ "foldhash 0.2.0",
++ "html5ever 0.39.0",
++ "precomputed-hash",
++ "selectors",
++ "tendril 0.5.1",
++]
++
+ [[package]]
+ name = "downcast-rs"
+ version = "1.2.1"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "75b325c5dbd37f80359721ad39aca5a29fb04c89279657cffdda8736d0c0b9d2"
+ 
++[[package]]
++name = "dpi"
++version = "0.1.2"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "d8b14ccef22fc6f5a8f4d7d768562a182c04ce9a3b3157b91390b52ddfdf1a76"
++
++[[package]]
++name = "dtoa"
++version = "1.0.11"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "4c3cf4824e2d5f025c7b531afcb2325364084a16806f6d47fbc1f5fbd9960590"
++
++[[package]]
++name = "dtoa-short"
++version = "0.3.5"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "cd1511a7b6a56299bd043a9c167a6d2bfb37bf84a6dfceaba651168adfb43c87"
++dependencies = [
++ "dtoa",
++]
++
+ [[package]]
+ name = "dunce"
+ version = "1.0.5"
+@@ -2890,7 +3011,7 @@ dependencies = [
+  "gpui-pre",
+  "gpui-pre-macros",
+  "gpui-pre-sum-tree",
+- "html5ever",
++ "html5ever 0.27.0",
+  "instant",
+  "itertools 0.13.0",
+  "lsp-types",
+@@ -3293,7 +3414,7 @@ version = "0.12.15"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "05be23908e707966824f8c51a609904b7f30739e8d915e120a53c1b995ba964c"
+ dependencies = [
+- "base64",
++ "base64 0.22.1",
+  "bytes",
+  "encoding_rs",
+  "futures-channel",
+@@ -3700,7 +3821,8 @@ version = "0.1.16"
+ dependencies = [
+  "anyhow",
+  "async-channel",
+- "base64",
++ "base64 0.22.1",
++ "block2 0.6.2",
+  "fancy-regex 0.19.2",
+  "ghostty-sys",
+  "gpui-base",
+@@ -3717,6 +3839,7 @@ dependencies = [
+  "objc2 0.6.4",
+  "objc2-app-kit 0.3.2",
+  "objc2-foundation 0.3.2",
++ "objc2-web-kit",
+  "png 0.17.16",
+  "raw-window-handle",
+  "serde",
+@@ -3730,8 +3853,10 @@ dependencies = [
+  "tracing-subscriber",
+  "ttf-parser",
+  "uds_windows",
++ "url",
+  "windows-sys 0.61.2",
+  "winresource",
++ "wry",
+ ]
+ 
+ [[package]]
+@@ -3806,12 +3931,22 @@ checksum = "c13771afe0e6e846f1e67d038d4cb29998a6779f93c809212e4e9c32efd244d4"
+ dependencies = [
+  "log",
+  "mac",
+- "markup5ever",
++ "markup5ever 0.12.1",
+  "proc-macro2",
+  "quote",
+  "syn 2.0.119",
+ ]
+ 
++[[package]]
++name = "html5ever"
++version = "0.39.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "46a1761807faccc9a19e86944bbf40610014066306f96edcdedc2fb714bcb7b8"
++dependencies = [
++ "log",
++ "markup5ever 0.39.0",
++]
++
+ [[package]]
+ name = "http"
+ version = "1.5.0"
+@@ -4271,6 +4406,22 @@ version = "1.0.18"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
+ 
++[[package]]
++name = "jni"
++version = "0.21.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "1a87aa2bb7d2af34197c04845522473242e1aa17c12f4935d5856491a7fb8c97"
++dependencies = [
++ "cesu8",
++ "cfg-if",
++ "combine",
++ "jni-sys 0.3.1",
++ "log",
++ "thiserror 1.0.69",
++ "walkdir",
++ "windows-sys 0.45.0",
++]
++
+ [[package]]
+ name = "jni-sys"
+ version = "0.3.1"
+@@ -4867,10 +5018,21 @@ checksum = "16ce3abbeba692c8b8441d036ef91aea6df8da2c6b6e21c7e14d3c18e526be45"
+ dependencies = [
+  "log",
+  "phf 0.11.3",
+- "phf_codegen",
+- "string_cache",
+- "string_cache_codegen",
+- "tendril",
++ "phf_codegen 0.11.3",
++ "string_cache 0.8.9",
++ "string_cache_codegen 0.5.4",
++ "tendril 0.4.3",
++]
++
++[[package]]
++name = "markup5ever"
++version = "0.39.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "7122d987ec5f704ee56f6e5b41a7d93722e9aae27ae07cafa4036c4d3f9757de"
++dependencies = [
++ "log",
++ "tendril 0.5.1",
++ "web_atoms",
+ ]
+ 
+ [[package]]
+@@ -4879,9 +5041,9 @@ version = "0.3.0"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "edaa21ab3701bfee5099ade5f7e1f84553fd19228cf332f13cd6e964bf59be18"
+ dependencies = [
+- "html5ever",
+- "markup5ever",
+- "tendril",
++ "html5ever 0.27.0",
++ "markup5ever 0.12.1",
++ "tendril 0.4.3",
+  "xml5ever",
+ ]
+ 
+@@ -5059,6 +5221,21 @@ dependencies = [
+  "unicode-ident",
+ ]
+ 
++[[package]]
++name = "ndk"
++version = "0.9.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "c3f42e7bbe13d351b6bead8286a43aac9534b82bd3cc43e47037f012ebfd62d4"
++dependencies = [
++ "bitflags 2.13.1",
++ "jni-sys 0.3.1",
++ "log",
++ "ndk-sys",
++ "num_enum",
++ "raw-window-handle",
++ "thiserror 1.0.69",
++]
++
+ [[package]]
+ name = "ndk-sys"
+ version = "0.6.0+11769913"
+@@ -5298,6 +5475,28 @@ dependencies = [
+  "libc",
+ ]
+ 
++[[package]]
++name = "num_enum"
++version = "0.7.6"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "5d0bca838442ec211fa11de3a8b0e0e8f3a4522575b5c4c06ed722e005036f26"
++dependencies = [
++ "num_enum_derive",
++ "rustversion",
++]
++
++[[package]]
++name = "num_enum_derive"
++version = "0.7.6"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "680998035259dcfcafe653688bf2aa6d3e2dc05e98be6ab46afb089dc84f1df8"
++dependencies = [
++ "proc-macro-crate",
++ "proc-macro2",
++ "quote",
++ "syn 2.0.119",
++]
++
+ [[package]]
+ name = "objc"
+ version = "0.2.7"
+@@ -5342,6 +5541,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "3a12a8ed07aefc768292f076dc3ac8c48f3781c8f2d5851dd3d98950e8c5a89f"
+ dependencies = [
+  "objc2-encode",
++ "objc2-exception-helper",
+ ]
+ 
+ [[package]]
+@@ -5539,6 +5739,15 @@ version = "4.1.0"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "ef25abbcd74fb2609453eb695bd2f860d389e457f67dc17cafc8b8cbc89d0c33"
+ 
++[[package]]
++name = "objc2-exception-helper"
++version = "0.1.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "c7a1c5fbb72d7735b076bb47b578523aedc40f3c439bea6dfd595c089d79d98a"
++dependencies = [
++ "cc",
++]
++
+ [[package]]
+ name = "objc2-foundation"
+ version = "0.2.2"
+@@ -5649,6 +5858,18 @@ dependencies = [
+  "objc2-foundation 0.3.2",
+ ]
+ 
++[[package]]
++name = "objc2-ui-kit"
++version = "0.3.2"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "d87d638e33c06f577498cbcc50491496a3ed4246998a7fbba7ccb98b1e7eab22"
++dependencies = [
++ "bitflags 2.13.1",
++ "objc2 0.6.4",
++ "objc2-core-foundation",
++ "objc2-foundation 0.3.2",
++]
++
+ [[package]]
+ name = "objc2-user-notifications"
+ version = "0.3.2"
+@@ -5662,6 +5883,20 @@ dependencies = [
+  "objc2-foundation 0.3.2",
+ ]
+ 
++[[package]]
++name = "objc2-web-kit"
++version = "0.3.2"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "b2e5aaab980c433cf470df9d7af96a7b46a9d892d521a2cbbb2f8a4c16751e7f"
++dependencies = [
++ "bitflags 2.13.1",
++ "block2 0.6.2",
++ "objc2 0.6.4",
++ "objc2-app-kit 0.3.2",
++ "objc2-core-foundation",
++ "objc2-foundation 0.3.2",
++]
++
+ [[package]]
+ name = "objc_exception"
+ version = "0.1.2"
+@@ -5970,6 +6205,16 @@ dependencies = [
+  "phf_shared 0.11.3",
+ ]
+ 
++[[package]]
++name = "phf_codegen"
++version = "0.13.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "49aa7f9d80421bca176ca8dbfebe668cc7a2684708594ec9f3c0db0805d5d6e1"
++dependencies = [
++ "phf_generator 0.13.1",
++ "phf_shared 0.13.1",
++]
++
+ [[package]]
+ name = "phf_generator"
+ version = "0.11.3"
+@@ -6846,6 +7091,16 @@ dependencies = [
+  "thiserror 1.0.69",
+ ]
+ 
++[[package]]
++name = "redox_users"
++version = "0.5.3"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "60dc65c0ff1a7ae1294b0c67b9f14baf70b644404010370171787bfac1038fc0"
++dependencies = [
++ "libredox",
++ "thiserror 2.0.20",
++]
++
+ [[package]]
+ name = "ref-cast"
+ version = "1.0.27"
+@@ -7295,6 +7550,25 @@ dependencies = [
+  "libc",
+ ]
+ 
++[[package]]
++name = "selectors"
++version = "0.38.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "8adfa1c298912827b8a28b223b3b874357397ae706e6190acd9bf28cee99114d"
++dependencies = [
++ "bitflags 2.13.1",
++ "cssparser",
++ "derive_more",
++ "log",
++ "new_debug_unreachable",
++ "phf 0.13.1",
++ "phf_codegen 0.13.1",
++ "precomputed-hash",
++ "rustc-hash 2.1.3",
++ "servo_arc",
++ "smallvec",
++]
++
+ [[package]]
+ name = "self_cell"
+ version = "1.3.0"
+@@ -7449,6 +7723,15 @@ dependencies = [
+  "serde",
+ ]
+ 
++[[package]]
++name = "servo_arc"
++version = "0.4.3"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "170fb83ab34de17dc69aa7c67482b22218ddb85da56546f9bd6b929e32a05930"
++dependencies = [
++ "stable_deref_trait",
++]
++
+ [[package]]
+ name = "sha1"
+ version = "0.10.7"
+@@ -7745,6 +8028,18 @@ dependencies = [
+  "serde",
+ ]
+ 
++[[package]]
++name = "string_cache"
++version = "0.9.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "a18596f8c785a729f2819c0f6a7eae6ebeebdfffbfe4214ae6b087f690e31901"
++dependencies = [
++ "new_debug_unreachable",
++ "parking_lot",
++ "phf_shared 0.13.1",
++ "precomputed-hash",
++]
++
+ [[package]]
+ name = "string_cache_codegen"
+ version = "0.5.4"
+@@ -7757,6 +8052,18 @@ dependencies = [
+  "quote",
+ ]
+ 
++[[package]]
++name = "string_cache_codegen"
++version = "0.6.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "585635e46db231059f76c5849798146164652513eb9e8ab2685939dd90f29b69"
++dependencies = [
++ "phf_generator 0.13.1",
++ "phf_shared 0.13.1",
++ "proc-macro2",
++ "quote",
++]
++
+ [[package]]
+ name = "strsim"
+ version = "0.11.1"
+@@ -8036,6 +8343,17 @@ dependencies = [
+  "objc",
+ ]
+ 
++[[package]]
++name = "tao-macros"
++version = "0.1.4"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "5f7eeb6d99155545da6150a1795945f16ac9c178deb2a5f2e74d776107bd5849"
++dependencies = [
++ "proc-macro2",
++ "quote",
++ "syn 2.0.119",
++]
++
+ [[package]]
+ name = "target-lexicon"
+ version = "0.13.5"
+@@ -8077,6 +8395,15 @@ dependencies = [
+  "utf-8",
+ ]
+ 
++[[package]]
++name = "tendril"
++version = "0.5.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "5fed54709c5b3a53d09bb1c113ea4f5ceafd1e772ddcb0030a82e1d56c087b08"
++dependencies = [
++ "new_debug_unreachable",
++]
++
+ [[package]]
+ name = "termcolor"
+ version = "1.4.1"
+@@ -8160,6 +8487,7 @@ dependencies = [
+  "powerfmt",
+  "serde_core",
+  "time-core",
++ "time-macros",
+ ]
+ 
+ [[package]]
+@@ -8168,6 +8496,16 @@ version = "0.1.9"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "9e1c906769ad99c88eaa54e728060edef082f8e358ff32030cb7c7d315e81109"
+ 
++[[package]]
++name = "time-macros"
++version = "0.2.32"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "7e689342a48d2ea927c87ea50cabf8594854bf940e9310208848d680d668ed85"
++dependencies = [
++ "num-conv",
++ "time-core",
++]
++
+ [[package]]
+ name = "tiny-keccak"
+ version = "2.0.2"
+@@ -8653,7 +8991,7 @@ version = "0.46.0"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "e419dff010bb12512b0ae9e3d2f318dfbdf0167fde7eb05465134d4e8756076f"
+ dependencies = [
+- "base64",
++ "base64 0.22.1",
+  "data-url",
+  "flate2",
+  "fontdb",
+@@ -9050,6 +9388,18 @@ dependencies = [
+  "wasm-bindgen",
+ ]
+ 
++[[package]]
++name = "web_atoms"
++version = "0.2.6"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "ba8b815c1b593dc0baf78dd0f4fc8fdb2de53198fb1163738093e9a311c33fb3"
++dependencies = [
++ "phf 0.13.1",
++ "phf_codegen 0.13.1",
++ "string_cache 0.9.0",
++ "string_cache_codegen 0.6.1",
++]
++
+ [[package]]
+ name = "webpki-roots"
+ version = "0.26.11"
+@@ -9068,6 +9418,40 @@ dependencies = [
+  "rustls-pki-types",
+ ]
+ 
++[[package]]
++name = "webview2-com"
++version = "0.39.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "3f89fca7a704cee10dcb3654c1dbb8941d1783132f1917358af75bec37a7d7e6"
++dependencies = [
++ "webview2-com-macros",
++ "webview2-com-sys",
++ "windows 0.62.2",
++ "windows-core 0.62.2",
++]
++
++[[package]]
++name = "webview2-com-macros"
++version = "0.8.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "67a921c1b6914c367b2b823cd4cde6f96beec77d30a939c8199bb377cf9b9b54"
++dependencies = [
++ "proc-macro2",
++ "quote",
++ "syn 2.0.119",
++]
++
++[[package]]
++name = "webview2-com-sys"
++version = "0.39.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "b3a07132775117d6065853d9d1178157b8c90e228de47129d6bce2c7edebedfb"
++dependencies = [
++ "thiserror 2.0.20",
++ "windows 0.62.2",
++ "windows-core 0.62.2",
++]
++
+ [[package]]
+ name = "weezl"
+ version = "0.1.12"
+@@ -9611,6 +9995,15 @@ dependencies = [
+  "windows-link 0.2.1",
+ ]
+ 
++[[package]]
++name = "windows-sys"
++version = "0.45.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "75283be5efb2831d37ea142365f009c02ec203cd29a3ebecbc093d52315b66d0"
++dependencies = [
++ "windows-targets 0.42.2",
++]
++
+ [[package]]
+ name = "windows-sys"
+ version = "0.48.0"
+@@ -9656,6 +10049,21 @@ dependencies = [
+  "windows-link 0.2.1",
+ ]
+ 
++[[package]]
++name = "windows-targets"
++version = "0.42.2"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "8e5180c00cd44c9b1c88adb3693291f1cd93605ded80c250a75d472756b4d071"
++dependencies = [
++ "windows_aarch64_gnullvm 0.42.2",
++ "windows_aarch64_msvc 0.42.2",
++ "windows_i686_gnu 0.42.2",
++ "windows_i686_msvc 0.42.2",
++ "windows_x86_64_gnu 0.42.2",
++ "windows_x86_64_gnullvm 0.42.2",
++ "windows_x86_64_msvc 0.42.2",
++]
++
+ [[package]]
+ name = "windows-targets"
+ version = "0.48.5"
+@@ -9731,6 +10139,12 @@ dependencies = [
+  "windows-link 0.2.1",
+ ]
+ 
++[[package]]
++name = "windows_aarch64_gnullvm"
++version = "0.42.2"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "597a5118570b68bc08d8d59125332c54f1ba9d9adeedeef5b99b02ba2b0698f8"
++
+ [[package]]
+ name = "windows_aarch64_gnullvm"
+ version = "0.48.5"
+@@ -9749,6 +10163,12 @@ version = "0.53.1"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "a9d8416fa8b42f5c947f8482c43e7d89e73a173cead56d044f6a56104a6d1b53"
+ 
++[[package]]
++name = "windows_aarch64_msvc"
++version = "0.42.2"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "e08e8864a60f06ef0d0ff4ba04124db8b0fb3be5776a5cd47641e942e58c4d43"
++
+ [[package]]
+ name = "windows_aarch64_msvc"
+ version = "0.48.5"
+@@ -9767,6 +10187,12 @@ version = "0.53.1"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "b9d782e804c2f632e395708e99a94275910eb9100b2114651e04744e9b125006"
+ 
++[[package]]
++name = "windows_i686_gnu"
++version = "0.42.2"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "c61d927d8da41da96a81f029489353e68739737d3beca43145c8afec9a31a84f"
++
+ [[package]]
+ name = "windows_i686_gnu"
+ version = "0.48.5"
+@@ -9797,6 +10223,12 @@ version = "0.53.1"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "fa7359d10048f68ab8b09fa71c3daccfb0e9b559aed648a8f95469c27057180c"
+ 
++[[package]]
++name = "windows_i686_msvc"
++version = "0.42.2"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "44d840b6ec649f480a41c8d80f9c65108b92d89345dd94027bfe06ac444d1060"
++
+ [[package]]
+ name = "windows_i686_msvc"
+ version = "0.48.5"
+@@ -9815,6 +10247,12 @@ version = "0.53.1"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "1e7ac75179f18232fe9c285163565a57ef8d3c89254a30685b57d83a38d326c2"
+ 
++[[package]]
++name = "windows_x86_64_gnu"
++version = "0.42.2"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "8de912b8b8feb55c064867cf047dda097f92d51efad5b491dfb98f6bbb70cb36"
++
+ [[package]]
+ name = "windows_x86_64_gnu"
+ version = "0.48.5"
+@@ -9833,6 +10271,12 @@ version = "0.53.1"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "9c3842cdd74a865a8066ab39c8a7a473c0778a3f29370b5fd6b4b9aa7df4a499"
+ 
++[[package]]
++name = "windows_x86_64_gnullvm"
++version = "0.42.2"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "26d41b46a36d453748aedef1486d5c7a85db22e56aff34643984ea85514e94a3"
++
+ [[package]]
+ name = "windows_x86_64_gnullvm"
+ version = "0.48.5"
+@@ -9851,6 +10295,12 @@ version = "0.53.1"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "0ffa179e2d07eee8ad8f57493436566c7cc30ac536a3379fdf008f47f6bb7ae1"
+ 
++[[package]]
++name = "windows_x86_64_msvc"
++version = "0.42.2"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "9aec5da331524158c6d1a4ac0ab1541149c0b9505fde06423b02f5ef0106b9f0"
++
+ [[package]]
+ name = "windows_x86_64_msvc"
+ version = "0.48.5"
+@@ -9949,6 +10399,42 @@ version = "0.6.4"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "3ad82d2a33cdc9674dc7465672f271e096168fcdbe0f799d9e6db8c5892679dc"
+ 
++[[package]]
++name = "wry"
++version = "0.57.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "759c50ddad0ef9913bb5496cb9d509a50433a3b78cb0238d61105526589cf0e9"
++dependencies = [
++ "base64 0.23.1",
++ "block2 0.6.2",
++ "cookie",
++ "crossbeam-channel",
++ "dirs 7.0.0",
++ "dom_query",
++ "dpi",
++ "dunce",
++ "http",
++ "jni",
++ "libc",
++ "ndk",
++ "objc2 0.6.4",
++ "objc2-app-kit 0.3.2",
++ "objc2-core-foundation",
++ "objc2-foundation 0.3.2",
++ "objc2-ui-kit",
++ "objc2-web-kit",
++ "percent-encoding",
++ "raw-window-handle",
++ "sha2 0.10.9",
++ "tao-macros",
++ "thiserror 2.0.20",
++ "url",
++ "webview2-com",
++ "windows 0.62.2",
++ "windows-core 0.62.2",
++ "windows-version",
++]
++
+ [[package]]
+ name = "x11"
+ version = "2.21.0"
+@@ -10055,7 +10541,7 @@ checksum = "9bbb26405d8e919bc1547a5aa9abc95cbfa438f04844f5fdd9dc7596b748bf69"
+ dependencies = [
+  "log",
+  "mac",
+- "markup5ever",
++ "markup5ever 0.12.1",
+ ]
+ 
+ [[package]]
+@@ -10227,7 +10713,7 @@ dependencies = [
+  "core-foundation 0.10.1",
+  "core-graphics 0.24.0",
+  "core-text",
+- "dirs",
++ "dirs 5.0.1",
+  "dwrote",
+  "float-ord",
+  "freetype-sys",
+diff --git a/Cargo.toml b/Cargo.toml
+index ae5281a..e4e2ffb 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -33,6 +33,7 @@ serde_json = "1"
+ tracing = "0.1"
+ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+ fancy-regex = "0.19"
++url = "2"
+ notify = "7"
+ sha2 = "0.10"
+ 
+@@ -58,9 +59,15 @@ gpui_linux = { package = "gpui-pre-linux", version = "=0.3.8", features = ["rend
+ [target.'cfg(target_os = "macos")'.dependencies]
+ gpui_macos = { package = "gpui-pre-macos", version = "=0.3.8", features = ["render-to-image"] }
+ libc = "0.2"
+-objc2 = "0.6"
+-objc2-app-kit = { version = "0.3.2", default-features = false, features = ["NSApplication", "NSDockTile", "NSResponder"] }
+-objc2-foundation = { version = "0.3.2", default-features = false, features = ["NSString"] }
++# The `web` mod element (src/web/macos.rs): WKWebView through wry; the objc2
++# crates (wry's own versions) cover what wry leaves out on macOS.
++wry = { version = "=0.57.1", default-features = false }
++raw-window-handle = "0.6"
++objc2 = "0.6.4"
++block2 = "0.6.2"
++objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "block2", "objc2-core-foundation", "NSArray", "NSDictionary", "NSError", "NSGeometry", "NSKeyValueObserving", "NSObject", "NSProcessInfo", "NSString", "NSURL", "NSURLRequest", "NSURLResponse", "NSUUID"] }
++objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "objc2-core-foundation", "NSApplication", "NSDockTile", "NSEvent", "NSOpenPanel", "NSPanel", "NSResponder", "NSSavePanel", "NSView", "NSWindow"] }
++objc2-web-kit = { version = "0.3.2", default-features = false, features = ["std", "objc2-core-foundation", "objc2-app-kit", "block2", "WKFrameInfo", "WKNavigation", "WKNavigationAction", "WKNavigationDelegate", "WKNavigationResponse", "WKOpenPanelParameters", "WKPreferences", "WKSecurityOrigin", "WKUIDelegate", "WKWebView", "WKWebViewConfiguration", "WKWebsiteDataStore", "WKWindowFeatures"] }
+ 
+ [target.'cfg(windows)'.dependencies]
+ gpui_windows = { package = "gpui-pre-windows", version = "=0.3.8", features = ["render-to-image"] }
+diff --git a/THIRD-PARTY-NOTICES b/THIRD-PARTY-NOTICES
+index fc94a8e..c8e2ad4 100644
+--- a/THIRD-PARTY-NOTICES
++++ b/THIRD-PARTY-NOTICES
+@@ -29,7 +29,7 @@ Input-SHA256: f8ac2c75e7f629a87565c80d61ff9fe5aa15cdea0bda997d52a4dc13fdbd19cb l
+ Input-SHA256: 5c537d6853e005298a285d508cff9ac7192cea23576c840d485b2b586a7ff177 licenses/Zig.txt
+ Input-SHA256: d25e82e26acd42ca3ccc9993622631163425b869b9e16284226d534cff6470f2 licenses/highway-BSD3.txt
+ Input-SHA256: 43070e2d4e532684de521b885f385d0841030efa2b1a20bafb76133a5e1379c1 licenses/highway.txt
+-Input-SHA256: 3d021fc839b8da87824d5ae085e1c3723d59223a5d7b80bd92f8ef3ed6c4ede4 licenses/inventory.json
++Input-SHA256: 93c1299bc4a56c61f15117e34583068e369848de90dfc97f9cbd047f0a5e7800 licenses/inventory.json
+ Input-SHA256: f9bc4423732350eb0b3f7ed7e91d530298476f8fec0c6c427a1c04ade22655af licenses/musl.txt
+ Input-SHA256: 204bbed08ddeeecb362b4da36d3479a0167b7356a9d6024a24f9833affbe228a licenses/simdutf-TH.txt
+ Input-SHA256: fc8dbc04e03ad4efc08a647ffe7f995b811a95bc04c0e85a56d5277c6593fa5f licenses/simdutf.txt
+@@ -21678,3 +21678,211 @@ Apache License
+    See the License for the specific language governing permissions and
+    limitations under the License.
+ 
++
++----------------------------------------------------------------------
++herdr-universal-preview (native views for mods, adapted in src/web.rs)
++https://github.com/obqyuxi/herdr-universal-preview/tree/7f84a2e72c83a316d8f7faa221a2ca72ce2a05a9 (Apache-2.0; its LICENSE is the same text as Herdr's)
++
++--- LICENSE ---
++Apache License
++                           Version 2.0, January 2004
++                        http://www.apache.org/licenses/
++
++   TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
++
++   1. Definitions.
++
++      "License" shall mean the terms and conditions for use, reproduction,
++      and distribution as defined by Sections 1 through 9 of this document.
++
++      "Licensor" shall mean the copyright owner or entity authorized by
++      the copyright owner that is granting the License.
++
++      "Legal Entity" shall mean the union of the acting entity and all
++      other entities that control, are controlled by, or are under common
++      control with that entity. For the purposes of this definition,
++      "control" means (i) the power, direct or indirect, to cause the
++      direction or management of such entity, whether by contract or
++      otherwise, or (ii) ownership of fifty percent (50%) or more of the
++      outstanding shares, or (iii) beneficial ownership of such entity.
++
++      "You" (or "Your") shall mean an individual or Legal Entity
++      exercising permissions granted by this License.
++
++      "Source" form shall mean the preferred form for making modifications,
++      including but not limited to software source code, documentation
++      source, and configuration files.
++
++      "Object" form shall mean any form resulting from mechanical
++      transformation or translation of a Source form, including but
++      not limited to compiled object code, generated documentation,
++      and conversions to other media types.
++
++      "Work" shall mean the work of authorship, whether in Source or
++      Object form, made available under the License, as indicated by a
++      copyright notice that is included in or attached to the work
++      (an example is provided in the Appendix below).
++
++      "Derivative Works" shall mean any work, whether in Source or Object
++      form, that is based on (or derived from) the Work and for which the
++      editorial revisions, annotations, elaborations, or other modifications
++      represent, as a whole, an original work of authorship. For the purposes
++      of this License, Derivative Works shall not include works that remain
++      separable from, or merely link (or bind by name) to the interfaces of,
++      the Work and Derivative Works thereof.
++
++      "Contribution" shall mean any work of authorship, including
++      the original version of the Work and any modifications or additions
++      to that Work or Derivative Works thereof, that is intentionally
++      submitted to Licensor for inclusion in the Work by the copyright owner
++      or by an individual or Legal Entity authorized to submit on behalf of
++      the copyright owner. For the purposes of this definition, "submitted"
++      means any form of electronic, verbal, or written communication sent
++      to the Licensor or its representatives, including but not limited to
++      communication on electronic mailing lists, source code control systems,
++      and issue tracking systems that are managed by, or on behalf of, the
++      Licensor for the purpose of discussing and improving the Work, but
++      excluding communication that is conspicuously marked or otherwise
++      designated in writing by the copyright owner as "Not a Contribution."
++
++      "Contributor" shall mean Licensor and any individual or Legal Entity
++      on behalf of whom a Contribution has been received by Licensor and
++      subsequently incorporated within the Work.
++
++   2. Grant of Copyright License. Subject to the terms and conditions of
++      this License, each Contributor hereby grants to You a perpetual,
++      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
++      copyright license to reproduce, prepare Derivative Works of,
++      publicly display, publicly perform, sublicense, and distribute the
++      Work and such Derivative Works in Source or Object form.
++
++   3. Grant of Patent License. Subject to the terms and conditions of
++      this License, each Contributor hereby grants to You a perpetual,
++      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
++      (except as stated in this section) patent license to make, have made,
++      use, offer to sell, sell, import, and otherwise transfer the Work,
++      where such license applies only to those patent claims licensable
++      by such Contributor that are necessarily infringed by their
++      Contribution(s) alone or by combination of their Contribution(s)
++      with the Work to which such Contribution(s) was submitted. If You
++      institute patent litigation against any entity (including a
++      cross-claim or counterclaim in a lawsuit) alleging that the Work
++      or a Contribution incorporated within the Work constitutes direct
++      or contributory patent infringement, then any patent licenses
++      granted to You under this License for that Work shall terminate
++      as of the date such litigation is filed.
++
++   4. Redistribution. You may reproduce and distribute copies of the
++      Work or Derivative Works thereof in any medium, with or without
++      modifications, and in Source or Object form, provided that You
++      meet the following conditions:
++
++      (a) You must give any other recipients of the Work or
++          Derivative Works a copy of this License; and
++
++      (b) You must cause any modified files to carry prominent notices
++          stating that You changed the files; and
++
++      (c) You must retain, in the Source form of any Derivative Works
++          that You distribute, all copyright, patent, trademark, and
++          attribution notices from the Source form of the Work,
++          excluding those notices that do not pertain to any part of
++          the Derivative Works; and
++
++      (d) If the Work includes a "NOTICE" text file as part of its
++          distribution, then any Derivative Works that You distribute must
++          include a readable copy of the attribution notices contained
++          within such NOTICE file, excluding those notices that do not
++          pertain to any part of the Derivative Works, in at least one
++          of the following places: within a NOTICE text file distributed
++          as part of the Derivative Works; within the Source form or
++          documentation, if provided along with the Derivative Works; or,
++          within a display generated by the Derivative Works, if and
++          wherever such third-party notices normally appear. The contents
++          of the NOTICE file are for informational purposes only and
++          do not modify the License. You may add Your own attribution
++          notices within Derivative Works that You distribute, alongside
++          or as an addendum to the NOTICE text from the Work, provided
++          that such additional attribution notices cannot be construed
++          as modifying the License.
++
++      You may add Your own copyright statement to Your modifications and
++      may provide additional or different license terms and conditions
++      for use, reproduction, or distribution of Your modifications, or
++      for any such Derivative Works as a whole, provided Your use,
++      reproduction, and distribution of the Work otherwise complies with
++      the conditions stated in this License.
++
++   5. Submission of Contributions. Unless You explicitly state otherwise,
++      any Contribution intentionally submitted for inclusion in the Work
++      by You to the Licensor shall be under the terms and conditions of
++      this License, without any additional terms or conditions.
++      Notwithstanding the above, nothing herein shall supersede or modify
++      the terms of any separate license agreement you may have executed
++      with Licensor regarding such Contributions.
++
++   6. Trademarks. This License does not grant permission to use the trade
++      names, trademarks, service marks, or product names of the Licensor,
++      except as required for reasonable and customary use in describing the
++      origin of the Work and reproducing the content of the NOTICE file.
++
++   7. Disclaimer of Warranty. Unless required by applicable law or
++      agreed to in writing, Licensor provides the Work (and each
++      Contributor provides its Contributions) on an "AS IS" BASIS,
++      WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
++      implied, including, without limitation, any warranties or conditions
++      of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A
++      PARTICULAR PURPOSE. You are solely responsible for determining the
++      appropriateness of using or redistributing the Work and assume any
++      risks associated with Your exercise of permissions under this License.
++
++   8. Limitation of Liability. In no event and under no legal theory,
++      whether in tort (including negligence), contract, or otherwise,
++      unless required by applicable law (such as deliberate and grossly
++      negligent acts) or agreed to in writing, shall any Contributor be
++      liable to You for damages, including any direct, indirect, special,
++      incidental, or consequential damages of any character arising as a
++      result of this License or out of the use or inability to use the
++      Work (including but not limited to damages for loss of goodwill,
++      work stoppage, computer failure or malfunction, or any and all
++      other commercial damages or losses), even if such Contributor
++      has been advised of the possibility of such damages.
++
++   9. Accepting Warranty or Additional Liability. While redistributing
++      the Work or Derivative Works thereof, You may choose to offer,
++      and charge a fee for, acceptance of support, warranty, indemnity,
++      or other liability obligations and/or rights consistent with this
++      License. However, in accepting such obligations, You may act only
++      on Your own behalf and on Your sole responsibility, not on behalf
++      of any other Contributor, and only if You agree to indemnify,
++      defend, and hold each Contributor harmless for any liability
++      incurred by, or claims asserted against, such Contributor by reason
++      of your accepting any such warranty or additional liability.
++
++   END OF TERMS AND CONDITIONS
++
++   APPENDIX: How to apply the Apache License to your work.
++
++      To apply the Apache License to your work, attach the following
++      boilerplate notice, with the fields enclosed by brackets "[]"
++      replaced with your own identifying information. (Don't include
++      the brackets!)  The text should be enclosed in the appropriate
++      comment syntax for the file format. We also recommend that a
++      file or class name and description of purpose be included on the
++      same "printed page" as the copyright notice for easier
++      identification within third-party archives.
++
++   Copyright [yyyy] [name of copyright owner]
++
++   Licensed under the Apache License, Version 2.0 (the "License");
++   you may not use this file except in compliance with the License.
++   You may obtain a copy of the License at
++
++       http://www.apache.org/licenses/LICENSE-2.0
++
++   Unless required by applicable law or agreed to in writing, software
++   distributed under the License is distributed on an "AS IS" BASIS,
++   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++   See the License for the specific language governing permissions and
++   limitations under the License.
++
+diff --git a/defaults/AGENTS.md b/defaults/AGENTS.md
+index 1d710a6..c4055c7 100644
+--- a/defaults/AGENTS.md
++++ b/defaults/AGENTS.md
+@@ -890,6 +890,7 @@ has 124 programs (agents, editors, runtimes, tools, databases, infra);
+ ~/.config/herdr-app/mods/<name>/
+   main.js       the mod (required)
+   mod.json    where it first appears: { "place": "right" | "left" | "top" | "bottom" | "none", "size": 320 }
++              (and what its web elements may show: "web": { "allow": ["https://example.com"] })
+   *.js, *.svg   more modules ("./ui.js"), its own icons
+ ```
+ 
+@@ -1166,6 +1167,25 @@ All of it is in `herdr.d.ts`. In short:
+ - This copy: `props()`, `shared(key)` / `setShared(key, value)` (every mod
+   sees it; setting re-renders all), `nextCommand()` (key commands for this
+   mod: `cx.spawn(async (cx) => { for (;;) { const c = await nextCommand(); …; cx.notify(); } })`).
++- Web pages (macOS only for now): `web.new(id, { src, persist, zoom })` is an
++  element showing a real web page (the system's WebKit). It fills its parent,
++  so size the parent: `div().flex_1().child(web.new("main", { src }))`; its
++  children show under the page until it loads. The sites it may show are listed
++  in `mod.json`, not in props: `"web": { "allow": ["https://example.com"] }`
++  (exact `https` origins). `src` is one of them, or `file://` inside the mod's
++  own folder. Changing `src` loads it; the same id keeps its page while the
++  copy lives. Links, redirects, new windows and downloads to anything else open
++  in the system browser and the page stays; a new window to an allowed site
++  loads in the element. The microphone (speech input) and camera are granted to
++  allowed sites only (macOS asks once for Herdr itself). `persist: true` keeps its sign-in
++  across restarts (per mod and id, macOS 14+); otherwise it lasts as long as
++  the page. `zoom` multiplies Herdr's. The page shows only while drawn and
++  steps aside while a dialog, popup, menu or drag is over it. A click in the
++  page gives it the keyboard (Herdr's shortcuts still work; Cmd+C/V/X/A/Z are
++  the page's); a click elsewhere gives it back. `webCall(id, "back" | "forward"
++  | "reload" | "stop" | "home")` (home: back to `src` wherever the page went); `nextWebEvent()` waits for `{ id, kind: "url" | "title"
++  | "loading" | "loaded" | "failed" | "blocked" | "crashed", url?, title?, error? }`.
++  No scripts into the page, no messages out of it, no inspector.
+ 
+ Mods are trusted code: commands and network access (including `fetch`) are unrestricted.
+ Other built-ins: `localStorage` (per mod copy), `console.log`, `fetch`,
+diff --git a/defaults/herdr.d.ts b/defaults/herdr.d.ts
+index 6828606..a32d783 100644
+--- a/defaults/herdr.d.ts
++++ b/defaults/herdr.d.ts
+@@ -508,3 +508,54 @@ export interface FolderWatch extends Promise<string[]> {
+   /** Resolves with [] and releases this call's watch. Safe to call again or after settlement. */
+   cancel(): void;
+ }
++
++/** A web element's props. Changing `src` loads it; the same value never reloads. */
++export interface WebProps {
++  /** https:// on an origin your mod.json allows, or file:// inside your mod's folder. */
++  src: string;
++  /** false (the default): sign-ins and storage last as long as the element.
++   *  true: kept per mod and id (macOS 14 or later), so a sign-in survives restarts. */
++  persist?: boolean;
++  /** The page's own zoom, times Herdr's (0.25 to 5; default 1). */
++  zoom?: number;
++}
++
++/**
++ * A real web page (macOS: the system's WebKit), filling the element it's given:
++ *   div().w_full().h(px(600)).child(web.new("main", { src: "https://example.com/app" }))
++ * Children are drawn under the page (seen until it shows, e.g. "Loading…").
++ * The same id on the next render keeps the same page (its sign-in, its scroll). It shows
++ * only while drawn and on screen; it steps aside while a dialog, popup, menu or drag is
++ * over it, and goes when your mod copy closes.
++ * Which sites it may show is your mod.json's, not props': "web": { "allow": ["https://example.com"] }
++ * (exact origins: scheme, host, port). Links, redirects and new windows to other sites
++ * open in the system browser and the page stays; downloads too. A new window to an allowed
++ * site loads in the element itself. The microphone (speech input) and camera are the allowed
++ * sites' only; <input type=file> opens the file picker.
++ * A click in the page gives it the keyboard (Herdr's own shortcuts still work, but
++ * Cmd+C/V/X/A/Z go to the page); a click anywhere else gives it back.
++ * Not yet on Windows or Linux: the element shows why instead.
++ */
++export const web: { new(id: string, props: WebProps): import("gpui-kit").NativeElement };
++
++/** Back, forward, reload or stop one of this copy's web elements, by id; home loads its
++ *  `src` again, wherever the page went since (the same `src` in props never reloads). */
++export function webCall(id: string, action: "back" | "forward" | "reload" | "stop" | "home"): null;
++
++/** What a web page did. url: it moved (also inside the page); title: its title changed;
++ *  loading / loaded / failed (error); blocked: a navigation not allowed here (url: opened in the
++ *  system browser, if it was a web link or download); crashed: its web process died
++ *  (reloaded once by itself). */
++export interface WebEvent {
++  id: string;
++  kind: "url" | "title" | "loading" | "loaded" | "failed" | "blocked" | "crashed";
++  url?: string;
++  title?: string;
++  error?: string;
++}
++
++/**
++ * Waits for the next WebEvent from this copy's web elements (up to 256 wait; more are dropped).
++ *   cx.spawn(async (cx) => { for (;;) { const e = await nextWebEvent(); if (e.kind === "url") this.url = e.url; cx.notify(); } });
++ */
++export function nextWebEvent(): Promise<WebEvent>;
+diff --git a/licenses/inventory.json b/licenses/inventory.json
+index f95103e..8651edc 100644
+--- a/licenses/inventory.json
++++ b/licenses/inventory.json
+@@ -198,6 +198,13 @@
+       "files": [
+         "LICENSE"
+       ]
++    },
++    {
++      "name": "herdr-universal-preview (native views for mods, adapted in src/web.rs)",
++      "source": "https://github.com/obqyuxi/herdr-universal-preview/tree/7f84a2e72c83a316d8f7faa221a2ca72ce2a05a9 (Apache-2.0; its LICENSE is the same text as Herdr's)",
++      "files": [
++        "LICENSE"
++      ]
+     }
+   ]
+ }
+diff --git a/scripts/install-macos b/scripts/install-macos
+index c12a1a3..2faff02 100755
+--- a/scripts/install-macos
++++ b/scripts/install-macos
+@@ -27,6 +27,7 @@ cat > "$app/Contents/Info.plist" <<'PLIST'
+     <key>CFBundleVersion</key><string>1</string>
+     <key>NSMicrophoneUsageDescription</key><string>Terminal programs running in Herdr can use the microphone, for example for voice input.</string>
+     <key>NSCameraUsageDescription</key><string>Terminal programs running in Herdr can use the camera.</string>
++    <key>NSSpeechRecognitionUsageDescription</key><string>Web pages that mods show in Herdr can turn speech into text.</string>
+     <key>NSAppleEventsUsageDescription</key><string>Terminal programs running in Herdr can use AppleScript to control other apps.</string>
+     <key>NSPrincipalClass</key><string>NSApplication</string>
+     <key>NSHighResolutionCapable</key><true/>
+diff --git a/scripts/package b/scripts/package
+index e51a914..3c85b7a 100755
+--- a/scripts/package
++++ b/scripts/package
+@@ -90,6 +90,7 @@ else
+     <key>CFBundleVersion</key><string>$version</string>
+     <key>NSMicrophoneUsageDescription</key><string>Terminal programs running in Herdr can use the microphone, for example for voice input.</string>
+     <key>NSCameraUsageDescription</key><string>Terminal programs running in Herdr can use the camera.</string>
++    <key>NSSpeechRecognitionUsageDescription</key><string>Web pages that mods show in Herdr can turn speech into text.</string>
+     <key>NSAppleEventsUsageDescription</key><string>Terminal programs running in Herdr can use AppleScript to control other apps.</string>
+     <key>NSPrincipalClass</key><string>NSApplication</string>
+     <key>NSHighResolutionCapable</key><true/>
+diff --git a/src/main.rs b/src/main.rs
+index d74430e..33e4337 100644
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -38,6 +38,7 @@ mod terminal;
+ mod update;
+ mod update_notes;
+ mod vt;
++mod web;
+ mod win32_keys;
+ mod window;
+ 
+diff --git a/src/mods.rs b/src/mods.rs
+index 32f47b3..6b3cdb4 100644
+--- a/src/mods.rs
++++ b/src/mods.rs
+@@ -409,6 +409,8 @@ pub enum Request {
+     Refresh,
+     /// From `herdr-app do` / `herdr-app status` (control.rs); answer on `reply`.
+     Control { cmd: Value, reply: std::sync::mpsc::Sender<Value> },
++    /// A click went into a web element's page (web.rs): GPUI's focus steps aside.
++    WebFocus,
+ }
+ 
+ static REQUESTS: OnceLock<async_channel::Sender<Request>> = OnceLock::new();
+@@ -779,6 +781,10 @@ pub fn set_shown_copies(copies: std::collections::HashSet<u64>) {
+     SHOWN_COPIES.with(|s| *s.borrow_mut() = copies);
+ }
+ 
++pub fn shown_copies() -> std::collections::HashSet<u64> {
++    SHOWN_COPIES.with(|s| s.borrow().clone())
++}
++
+ pub fn new_overlay_id() -> String {
+     OVERLAY_SEQ.with(|s| {
+         s.set(s.get() + 1);
+@@ -988,6 +994,8 @@ fn module(inst: Instance, copy: u64) -> HostModule {
+         commands.retain(|(_, _, tx)| !tx.is_closed());
+         commands.push((copy, inst.name.clone(), cmd_tx));
+     });
++    let web_rules = Rc::new(crate::web::Rules::for_mod(&inst.name));
++    let web_events = crate::web::events(copy);
+     drops::register(HostModule::new("herdr"), &inst)
+         .declarations(DECLARATIONS)
+         .async_function("exec", |a| {
+@@ -1211,6 +1219,15 @@ fn module(inst: Instance, copy: u64) -> HostModule {
+             let rx = commands.clone();
+             Ok(async move { rx.recv().await.map(HostValue::Str).map_err(|_| HostError::new("herdr-app is shutting down")) })
+         })
++        .component("web", move |mut args, window, cx| {
++            let children = args.take_children();
++            crate::web::element(copy, &web_rules, args.id(), from_host(args.props()), children, window, cx)
++        })
++        .function("webCall", move |a| crate::web::call(copy, a.string(0)?, a.string(1)?).map(|()| HostValue::Null).map_err(HostError::new))
++        .async_function("nextWebEvent", move |_| {
++            let rx = web_events.clone();
++            Ok(async move { rx.recv().await.map(|v| to_host(&v)).map_err(|_| HostError::new("this mod copy was closed")) })
++        })
+ }
+ 
+ /// The runtime's base layer, themed from settings.json.
+diff --git a/src/mods/render_tests.rs b/src/mods/render_tests.rs
+index 8fbc955..9ee48e6 100644
+--- a/src/mods/render_tests.rs
++++ b/src/mods/render_tests.rs
+@@ -224,8 +224,14 @@ fn module(values: BTreeMap<String, Value>, calls: Rc<RefCell<Calls>>) -> HostMod
+     module = module.async_function("feedbackPickImages", |_| Ok(async { Ok(HostValue::Array(vec![])) }));
+     module = module.async_function("knownAgents", |_| Ok(async { Ok(HostValue::Array(vec![])) }));
+     module = module.async_function("pickFolder", |_| Ok(async { Ok(HostValue::Null) }));
+-    module = module.async_function("nextDrop", |_| Ok(std::future::pending::<gpui_shell::HostResult>()));
+-    module = module.async_function("nextCommand", |_| Ok(std::future::pending::<gpui_shell::HostResult>()));
++    module = module.function("webCall", |_| Ok(HostValue::Null));
++    module = module.component("web", |mut args, _, _| {
++        use gpui::{IntoElement as _, ParentElement as _};
++        gpui::div().children(args.take_children()).into_any_element()
++    });
++    for name in ["nextCommand", "nextDrop", "nextWebEvent"] {
++        module = module.async_function(name, |_| Ok(std::future::pending::<gpui_shell::HostResult>()));
++    }
+     module = module.cancellable_async_function("watchFolder", HostValue::Array(vec![]), |_| Ok(std::future::pending::<gpui_shell::HostResult>()));
+     for name in ["exec", "hc", "readTextFile", "writeTextFile", "sendFeedback"] {
+         let calls = calls.clone();
+diff --git a/src/web.rs b/src/web.rs
+new file mode 100644
+index 0000000..280aa9c
+--- /dev/null
++++ b/src/web.rs
+@@ -0,0 +1,643 @@
++//! The `web` mod element: a real web page (the system's web view: WKWebView on
++//! macOS, through wry) placed where a mod draws `web.new(id, { src })`.
++//!
++//! A page is a native view above GPUI's drawing, so the app decides where and
++//! when it shows: each element records the part of it that is visible (its
++//! bounds clipped to its content mask) when painted, and once per frame, after
++//! everything else is painted, `frame_end` moves every page there. A page
++//! hides while its copy isn't on screen, while its element isn't drawn, and
++//! while something Herdr draws may be above it (a dialog, popup or menu, a
++//! movable window over it, a drag); it goes when its copy goes. Same id on the
++//! next render keeps the same page.
++//!
++//! The approach (frames taken at paint time and applied once at the end of the
++//! frame, hidden with their copy or under an overlay, disposed with the copy,
++//! a click outside every page handing the keyboard back to GPUI) is ported from
++//! herdr-universal-preview's native views for mods,
++//! https://github.com/obqyuxi/herdr-universal-preview (Apache-2.0; see
++//! THIRD-PARTY-NOTICES), here on wry instead of its own objc2 views.
++//!
++//! What a page may show is the mod's to say, in its mod.json, not in props an
++//! agent can change: `"web": { "allow": ["https://www.example.org"] }`. The
++//! top level of a page stays on those origins (or `file://` inside the mod's
++//! own folder); other links, redirects and windows go to the system browser.
++
++// Elsewhere pages never open, so their callbacks go unused.
++#![cfg_attr(not(target_os = "macos"), allow(dead_code))]
++
++use gpui::{
++    AnyElement, App, Bounds, Element, ElementId, FocusHandle, GlobalElementId, InspectorElementId, IntoElement, LayoutId, ParentElement, Pixels, Position, Style,
++    Styled, Window, canvas, div, px, relative,
++};
++use serde_json::{Value, json};
++use std::cell::{Cell, RefCell};
++use std::collections::{HashMap, HashSet};
++use std::path::PathBuf;
++use std::rc::Rc;
++
++#[cfg(target_os = "macos")]
++mod macos;
++#[cfg(target_os = "macos")]
++use macos as imp;
++
++/// Windows (WebView2, also through wry) and Linux: not yet.
++#[cfg(not(target_os = "macos"))]
++mod imp {
++    use super::{Action, Bounds, Key, Pixels, Rules, Spec, Window};
++    use std::rc::Rc;
++
++    pub struct Page;
++
++    impl Page {
++        pub fn new(_: &mut Window, _: &Key, _: &Spec, _: Rc<Rules>) -> Result<Page, String> {
++            Err("web pages need macOS for now".into())
++        }
++        pub fn load(&self, _: &url::Url) {}
++        pub fn place(&mut self, _: Option<Bounds<Pixels>>) {}
++        pub fn zoom(&mut self, _: f64) {}
++        pub fn act(&self, _: Action) {}
++        pub fn has_keys(&self) -> bool {
++            false
++        }
++        pub fn give_back_keys(&self) {}
++        pub fn window(&self) -> usize {
++            0
++        }
++    }
++
++    pub fn window_of(_: &Window) -> usize {
++        0
++    }
++}
++
++/// A page: the mod copy that shows it and the id the mod gave it.
++#[derive(Clone, Debug, PartialEq, Eq, Hash)]
++pub struct Key {
++    pub copy: u64,
++    pub id: String,
++}
++
++/// What a mod's mod.json lets its pages show.
++#[derive(Debug, Default)]
++pub struct Rules {
++    /// The mod's folder name (`frame-` mods included), for data stores.
++    pub name: String,
++    /// Origins (scheme, host, port) a page's top level may show.
++    allow: Vec<(String, String, u16)>,
++    /// The mod's own folder, canonical: the only place file:// pages come from.
++    pub folder: Option<PathBuf>,
++    /// What's wrong in mod.json's "web", shown on the element.
++    pub problem: Option<String>,
++}
++
++/// Where a top-level navigation goes.
++#[derive(Debug, PartialEq, Eq)]
++pub enum Nav {
++    Allow,
++    /// Not here: the system browser (or mail app) opens it.
++    Outside,
++    /// Nowhere (a `javascript:` or `data:` page, a file outside the mod).
++    Block,
++}
++
++fn origin(u: &url::Url) -> Option<(String, String, u16)> {
++    Some((u.scheme().to_owned(), u.host_str()?.to_ascii_lowercase(), u.port_or_known_default()?))
++}
++
++impl Rules {
++    /// Reads `"web": { "allow": [...] }` from the mod's mod.json.
++    pub fn for_mod(name: &str) -> Rules {
++        if name.is_empty() {
++            return Rules::default();
++        }
++        let dir = match name.strip_prefix("frame-") {
++            Some(rest) => crate::mods::frame_dir().join(rest),
++            None => crate::mods::mods_dir().join(name),
++        };
++        let meta: Value = std::fs::read_to_string(dir.join("mod.json")).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default();
++        Rules::parse(name, &meta, std::fs::canonicalize(&dir).ok())
++    }
++
++    pub fn parse(name: &str, meta: &Value, folder: Option<PathBuf>) -> Rules {
++        let mut rules = Rules { name: name.to_owned(), folder, ..Rules::default() };
++        let Some(list) = meta.get("web").and_then(|w| w.get("allow")) else { return rules };
++        let mut bad = Vec::new();
++        for entry in list.as_array().into_iter().flatten() {
++            // Exactly an origin: https, a host, maybe a port, nothing after.
++            let parsed = entry.as_str().and_then(|s| url::Url::parse(s).ok()).filter(|u| {
++                u.scheme() == "https" && u.username().is_empty() && u.password().is_none() && u.path() == "/" && u.query().is_none() && u.fragment().is_none()
++            });
++            match parsed.as_ref().and_then(origin) {
++                Some(o) => rules.allow.push(o),
++                None => bad.push(entry.to_string()),
++            }
++        }
++        if !list.is_array() {
++            bad.push(list.to_string());
++        }
++        if !bad.is_empty() {
++            rules.problem = Some(format!("mod.json web.allow takes https origins like \"https://example.com\", not {}", bad.join(", ")));
++        }
++        rules
++    }
++
++    /// Where a top-level navigation to `url` goes.
++    pub fn decide(&self, url: &str) -> Nav {
++        let Ok(u) = url::Url::parse(url) else { return Nav::Block };
++        match u.scheme() {
++            "about" if matches!(u.path(), "blank" | "srcdoc") => Nav::Allow,
++            "https" | "http" if origin(&u).is_some_and(|o| self.allow.contains(&o)) => Nav::Allow,
++            "https" | "http" | "mailto" | "tel" => Nav::Outside,
++            "file" if self.inside(&u) => Nav::Allow,
++            _ => Nav::Block,
++        }
++    }
++
++    /// A file:// URL naming a file in this mod's folder (links resolved).
++    fn inside(&self, u: &url::Url) -> bool {
++        let (Some(folder), Ok(path)) = (&self.folder, u.to_file_path()) else { return false };
++        std::fs::canonicalize(path).is_ok_and(|p| p.starts_with(folder))
++    }
++}
++
++/// A web element's props, checked.
++#[derive(Clone, Debug, PartialEq)]
++pub struct Spec {
++    /// `src` as the mod wrote it: the same value never loads again.
++    pub src: String,
++    pub url: url::Url,
++    pub persist: bool,
++    pub zoom: f64,
++}
++
++impl Spec {
++    pub fn parse(props: &Value, rules: &Rules) -> Result<Spec, String> {
++        let src = props.get("src").and_then(Value::as_str).ok_or("web needs { src: \"https://…\" }")?;
++        let url = url::Url::parse(src).map_err(|e| format!("src {src:?}: {e}"))?;
++        match (url.scheme(), rules.decide(url.as_str())) {
++            ("https" | "file", Nav::Allow) => {}
++            ("https", _) => {
++                return Err(format!("{} is not in mod.json's \"web\": {{ \"allow\": [...] }}", url.origin().ascii_serialization()));
++            }
++            ("file", _) => return Err(format!("{src} is not a file in this mod's folder")),
++            (other, _) => return Err(format!("src must be https:// or file://, not {other}:")),
++        }
++        let persist = match props.get("persist") {
++            None | Some(Value::Null) => false,
++            Some(Value::Bool(b)) => *b,
++            Some(_) => return Err("persist is true or false".into()),
++        };
++        let zoom = match props.get("zoom") {
++            None | Some(Value::Null) => 1.0,
++            Some(z) => z.as_f64().filter(|z| (0.25..=5.0).contains(z)).ok_or("zoom is a number from 0.25 to 5")?,
++        };
++        Ok(Spec { src: src.to_owned(), url, persist, zoom })
++    }
++}
++
++/// What `webCall` may ask of a page.
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++pub enum Action {
++    Back,
++    Forward,
++    Reload,
++    Stop,
++    /// Back to `src`, wherever the page went since.
++    Home,
++}
++
++impl Action {
++    fn parse(s: &str) -> Result<Action, String> {
++        Ok(match s {
++            "back" => Action::Back,
++            "forward" => Action::Forward,
++            "reload" => Action::Reload,
++            "stop" => Action::Stop,
++            "home" => Action::Home,
++            other => return Err(format!("webCall: no action {other:?} (back, forward, reload, stop, home)")),
++        })
++    }
++}
++
++/// The same 16 bytes every time for one mod's page id: its WebKit data store.
++pub fn store_id(name: &str, id: &str) -> [u8; 16] {
++    use sha2::{Digest, Sha256};
++    let digest = Sha256::digest(format!("herdr-web\0{name}\0{id}").as_bytes());
++    let mut b = [0u8; 16];
++    b.copy_from_slice(&digest[..16]);
++    // A version 8 (name-based, custom) UUID.
++    b[6] = (b[6] & 0x0f) | 0x80;
++    b[8] = (b[8] & 0x3f) | 0x80;
++    b
++}
++
++struct View {
++    page: imp::Page,
++    spec: Spec,
++    /// The visible part of the element when last painted (window px).
++    rect: Option<Bounds<Pixels>>,
++    /// The paint that put it on screen (`Painter`); 0: not on screen.
++    painter: u64,
++    zoom: f64,
++}
++
++thread_local! {
++    static VIEWS: RefCell<HashMap<Key, View>> = RefCell::new(HashMap::new());
++    /// Each copy's `nextWebEvent()` queue.
++    static EVENTS: RefCell<HashMap<u64, async_channel::Sender<Value>>> = RefCell::new(HashMap::new());
++    static SERIAL: Cell<u64> = const { Cell::new(0) };
++    /// Where GPUI's focus was put when a page took the keyboard; it moving on
++    /// (a shortcut, a dialog closing) takes the keyboard back from the page.
++    static GPUI_FOCUS: RefCell<Option<FocusHandle>> = const { RefCell::new(None) };
++    /// A click in a page waits for the window to move GPUI's focus aside.
++    static FOCUS_PENDING: Cell<bool> = const { Cell::new(false) };
++}
++
++/// A copy's `nextWebEvent()` queue (called when its `herdr` module is built).
++pub fn events(copy: u64) -> async_channel::Receiver<Value> {
++    let (tx, rx) = async_channel::bounded(256);
++    EVENTS.with_borrow_mut(|e| e.insert(copy, tx));
++    rx
++}
++
++/// `{ id, kind, url?, title?, error? }` to the page's mod.
++pub(crate) fn emit(key: &Key, kind: &str, fields: Value) {
++    let mut ev = json!({ "id": key.id, "kind": kind });
++    if let (Some(ev), Some(fields)) = (ev.as_object_mut(), fields.as_object()) {
++        ev.extend(fields.iter().map(|(k, v)| (k.clone(), v.clone())));
++    }
++    EVENTS.with_borrow(|e| {
++        if let Some(tx) = e.get(&key.copy) {
++            let _ = tx.try_send(ev);
++        }
++    });
++}
++
++/// A top-level navigation: whether it may happen here. Elsewhere it opens in
++/// the system browser (http, https, mailto, tel) or nowhere; either way the
++/// mod hears `blocked`.
++pub(crate) fn top_level(key: &Key, rules: &Rules, url: &str) -> bool {
++    match rules.decide(url) {
++        Nav::Allow => true,
++        nav => {
++            if nav == Nav::Outside {
++                crate::links::open(&crate::links::Target::Url(url.to_owned()));
++            }
++            emit(key, "blocked", json!({ "url": url }));
++            false
++        }
++    }
++}
++
++/// A download: the system browser fetches it (a page's blob or data file can't
++/// be handed over and is dropped).
++pub(crate) fn download(key: &Key, url: &str) {
++    if url.starts_with("https://") || url.starts_with("http://") {
++        crate::links::open(&crate::links::Target::Url(url.to_owned()));
++    }
++    emit(key, "blocked", json!({ "url": url }));
++}
++
++/// The element: the mod's children (drawn under the page: seen while it loads
++/// or steps aside) and a probe that records where it was painted.
++pub fn element(copy: u64, rules: &Rc<Rules>, id: &str, props: Value, children: Vec<AnyElement>, window: &mut Window, _cx: &mut App) -> AnyElement {
++    let key = Key { copy, id: id.to_owned() };
++    let el = div().size_full().relative().children(children);
++    // `herdr-app check` and the default policy have no copy: no page.
++    if copy == 0 {
++        return el.into_any_element();
++    }
++    let shown = match &rules.problem {
++        Some(p) => Err(p.clone()),
++        None => Spec::parse(&props, rules).and_then(|spec| ensure(&key, spec, rules, window)),
++    };
++    match shown {
++        Ok(()) => el.child(Probe { key }).into_any_element(),
++        Err(e) => {
++            dispose(&key);
++            el.child(div().absolute().top_0().left_0().p_2().child(e)).into_any_element()
++        }
++    }
++}
++
++/// Creates the page, or loads a new `src` into it.
++fn ensure(key: &Key, spec: Spec, rules: &Rc<Rules>, window: &mut Window) -> Result<(), String> {
++    let same = VIEWS.with_borrow_mut(|v| {
++        let view = v.get_mut(key)?;
++        if view.spec.persist != spec.persist {
++            return Some(false);
++        }
++        if view.spec.src != spec.src {
++            view.page.load(&spec.url);
++        }
++        view.spec = spec.clone();
++        Some(true)
++    });
++    match same {
++        Some(true) => return Ok(()),
++        // Another data store: a new page.
++        Some(false) => dispose(key),
++        None => {}
++    }
++    let page = imp::Page::new(window, key, &spec, rules.clone())?;
++    page.load(&spec.url);
++    VIEWS.with_borrow_mut(|v| v.insert(key.clone(), View { page, spec, rect: None, painter: 0, zoom: 0.0 }));
++    Ok(())
++}
++
++fn dispose(key: &Key) {
++    // Dropped outside the borrow: the page's teardown may call back.
++    let gone = VIEWS.with_borrow_mut(|v| v.remove(key));
++    drop(gone);
++}
++
++/// `webCall(id, action)` from a mod: only its own pages.
++pub fn call(copy: u64, id: &str, action: &str) -> Result<(), String> {
++    let action = Action::parse(action)?;
++    let key = Key { copy, id: id.to_owned() };
++    VIEWS.with_borrow(|v| {
++        v.get(&key).map(|view| match action {
++            Action::Home => view.page.load(&view.spec.url),
++            other => view.page.act(other),
++        })
++    })
++    .ok_or_else(|| format!("webCall: this mod shows no web element {id:?}"))
++}
++
++/// Lives in the probe's element state while the element is on screen (cached
++/// frames keep it too). Dropped when a frame no longer has the element: the
++/// page hides at once.
++struct Painter {
++    key: Key,
++    serial: u64,
++}
++
++impl Drop for Painter {
++    fn drop(&mut self) {
++        // Never busy here (no borrow is held across GPUI's frame); gone at exit.
++        let _ = VIEWS.try_with(|v| {
++            if let Ok(mut v) = v.try_borrow_mut()
++                && let Some(view) = v.get_mut(&self.key).filter(|view| view.painter == self.serial)
++            {
++                view.painter = 0;
++                view.rect = None;
++                view.page.place(None);
++            }
++        });
++    }
++}
++
++struct Probe {
++    key: Key,
++}
++
++impl IntoElement for Probe {
++    type Element = Self;
++    fn into_element(self) -> Self {
++        self
++    }
++}
++
++impl Element for Probe {
++    type RequestLayoutState = ();
++    type PrepaintState = ();
++
++    fn id(&self) -> Option<ElementId> {
++        Some(ElementId::Name(format!("herdr-web-{}-{}", self.key.copy, self.key.id).into()))
++    }
++
++    fn source_location(&self) -> Option<&'static core::panic::Location<'static>> {
++        None
++    }
++
++    fn request_layout(&mut self, _: Option<&GlobalElementId>, _: Option<&InspectorElementId>, window: &mut Window, cx: &mut App) -> (LayoutId, ()) {
++        let mut style = Style { position: Position::Absolute, ..Style::default() };
++        style.inset.top = px(0.).into();
++        style.inset.left = px(0.).into();
++        style.size.width = relative(1.).into();
++        style.size.height = relative(1.).into();
++        (window.request_layout(style, [], cx), ())
++    }
++
++    fn prepaint(&mut self, _: Option<&GlobalElementId>, _: Option<&InspectorElementId>, _: Bounds<Pixels>, _: &mut (), _: &mut Window, _: &mut App) {}
++
++    fn paint(&mut self, id: Option<&GlobalElementId>, _: Option<&InspectorElementId>, bounds: Bounds<Pixels>, _: &mut (), _: &mut (), window: &mut Window, _: &mut App) {
++        let Some(id) = id else { return };
++        let visible = bounds.intersect(&window.content_mask().bounds);
++        let key = self.key.clone();
++        let serial = window.with_element_state::<Painter, _>(id, |state, _| {
++            let p = state.filter(|p| p.key == key).unwrap_or_else(|| {
++                let serial = SERIAL.with(|s| {
++                    s.set(s.get() + 1);
++                    s.get()
++                });
++                Painter { key: key.clone(), serial }
++            });
++            (p.serial, p)
++        });
++        VIEWS.with_borrow_mut(|v| {
++            if let Some(view) = v.get_mut(&self.key) {
++                view.painter = serial;
++                view.rect = Some(visible);
++            }
++        });
++    }
++}
++
++/// What the window knows about its copies this frame.
++pub struct Frame {
++    /// Every loaded copy: a page whose copy isn't here goes.
++    pub alive: HashSet<u64>,
++    /// The copies on screen.
++    pub shown: HashSet<u64>,
++    /// Copies in overlays: their place in the stack (the layout is 0).
++    pub layer: HashMap<u64, usize>,
++    /// Overlays above the layout by place: None covers the whole window (a
++    /// dialog's backdrop, a popup's click-away area); a movable window covers
++    /// its own rect, found under its slot in `rects` once it's laid out.
++    pub covers: Vec<(usize, Option<String>)>,
++    pub rects: Rc<RefCell<HashMap<String, Bounds<Pixels>>>>,
++    /// A pane or mod drag is on: its chip must stay visible.
++    pub dragging: bool,
++}
++
++/// Painted last in the window: places, shows and hides every page.
++pub fn frame_end(frame: Frame) -> impl IntoElement {
++    canvas(|_, _, _| {}, move |_, _, window, cx| apply(frame, window, cx)).absolute().size_full()
++}
++
++fn apply(frame: Frame, window: &mut Window, cx: &mut App) {
++    EVENTS.with_borrow_mut(|e| e.retain(|copy, tx| frame.alive.contains(copy) && !tx.is_closed()));
++    let here = imp::window_of(window);
++    let dead: Vec<Key> = VIEWS.with_borrow(|v| v.iter().filter(|(k, view)| view.page.window() == here && !frame.alive.contains(&k.copy)).map(|(k, _)| k.clone()).collect());
++    for key in dead {
++        dispose(&key);
++    }
++    let zoom = f64::from(crate::settings::zoom());
++    let focus = window.focused(cx);
++    let pending = FOCUS_PENDING.get();
++    let moved = GPUI_FOCUS.with_borrow(|f| *f != focus);
++    VIEWS.with_borrow_mut(|v| {
++        for (key, view) in v.iter_mut().filter(|(_, view)| view.page.window() == here) {
++            let layer = frame.layer.get(&key.copy).copied().unwrap_or(0);
++            let shown = frame.shown.contains(&key.copy) && view.painter != 0;
++            let rect = view.rect.filter(|r| shown && r.size.width >= px(1.) && r.size.height >= px(1.));
++            let covered = |r: &Bounds<Pixels>| {
++                frame.dragging
++                    || frame.covers.iter().filter(|(place, _)| *place > layer).any(|(_, slot)| match slot {
++                        None => true,
++                        Some(slot) => frame.rects.borrow().get(slot).is_some_and(|w| w.intersects(r)),
++                    })
++            };
++            view.page.place(rect.filter(|r| !covered(r)));
++            if view.zoom != view.spec.zoom * zoom {
++                view.zoom = view.spec.zoom * zoom;
++                view.page.zoom(view.zoom);
++            }
++            // GPUI's focus moved on (a key, a closed dialog): the keys follow it.
++            if !pending && moved && view.page.has_keys() {
++                view.page.give_back_keys();
++            }
++        }
++    });
++}
++
++/// A click landed in a page (`imp`'s mouse monitor): the window moves GPUI's
++/// focus aside, so GPUI acts only on its global keys while the page types.
++pub(crate) fn page_clicked() {
++    FOCUS_PENDING.set(true);
++    crate::mods::request(crate::mods::Request::WebFocus);
++}
++
++/// The window did (`Request::WebFocus`): where GPUI's focus now is.
++pub fn focus_set_aside(focus: Option<FocusHandle>) {
++    GPUI_FOCUS.with_borrow_mut(|f| *f = focus);
++    FOCUS_PENDING.set(false);
++}
++
++/// Whether `f` holds for any page (the monitors); false while the registry is busy.
++pub(crate) fn any_page(mut f: impl FnMut(&imp::Page) -> bool) -> bool {
++    VIEWS.with(|v| v.try_borrow().is_ok_and(|v| v.values().any(|view| f(&view.page))))
++}
++
++/// A page's folder for `persist`: `~/.config/herdr-app/web/<mod>/<id>/`. WebKit
++/// keeps the data itself (by `store_id`); the folder names that store, so a
++/// person can tell which it is.
++pub(crate) fn note_store(rules: &Rules, id: &str, uuid: &str) {
++    let simple = |s: &str| !s.is_empty() && s != "." && s != ".." && s.chars().all(|c| c.is_ascii_alphanumeric() || "._-".contains(c));
++    if !simple(&rules.name) || !simple(id) {
++        return;
++    }
++    let dir: PathBuf = crate::mods::app_dir().join("web").join(&rules.name).join(id);
++    let note = format!("WebKit website data store {uuid} (macOS keeps it under ~/Library/WebKit).\n");
++    if std::fs::create_dir_all(&dir).is_ok() && std::fs::read_to_string(dir.join("store")).ok().as_deref() != Some(note.as_str()) {
++        let _ = std::fs::write(dir.join("store"), note);
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use std::path::Path;
++
++    fn rules(allow: Value) -> Rules {
++        Rules::parse("demo", &json!({ "web": { "allow": allow } }), None)
++    }
++
++    #[test]
++    fn the_allowlist_is_exact_origins() {
++        let r = rules(json!(["https://www.example.org", "https://Example.com:8443/"]));
++        assert_eq!(r.problem, None);
++        assert_eq!(r.decide("https://www.example.org/engine/office?tab=class"), Nav::Allow);
++        assert_eq!(r.decide("https://WWW.EXAMPLE.ORG:443/x"), Nav::Allow);
++        assert_eq!(r.decide("https://example.com:8443/a"), Nav::Allow);
++        // Another host, port or scheme leaves for the browser.
++        assert_eq!(r.decide("https://example.org/"), Nav::Outside);
++        assert_eq!(r.decide("https://evil.example.org/"), Nav::Outside);
++        assert_eq!(r.decide("https://www.example.org.evil.com/"), Nav::Outside);
++        assert_eq!(r.decide("https://www.example.org:444/"), Nav::Outside);
++        assert_eq!(r.decide("http://www.example.org/"), Nav::Outside);
++        assert_eq!(r.decide("https://example.com/"), Nav::Outside);
++        assert_eq!(r.decide("https://evil.com@www.example.org/"), Nav::Allow, "userinfo isn't the host");
++        assert_eq!(r.decide("https://www.example.org@evil.com/"), Nav::Outside);
++        assert_eq!(r.decide("mailto:a@b.c"), Nav::Outside);
++        for never in ["javascript:alert(1)", "data:text/html,hi", "blob:https://www.example.org/x", "file:///etc/passwd", "vscode://x", "about:config", "nonsense"] {
++            assert_eq!(r.decide(never), Nav::Block, "{never}");
++        }
++        assert_eq!(r.decide("about:blank"), Nav::Allow);
++    }
++
++    #[test]
++    fn allow_entries_must_be_bare_https_origins() {
++        for bad in [json!(["http://x.org"]), json!(["https://x.org/path"]), json!(["x.org"]), json!(["https://u@x.org"]), json!("https://x.org"), json!([1])] {
++            assert!(rules(bad.clone()).problem.is_some(), "{bad}");
++        }
++        assert!(Rules::parse("demo", &json!({}), None).allow.is_empty());
++        assert_eq!(Rules::parse("demo", &json!({}), None).decide("https://x.org"), Nav::Outside);
++    }
++
++    #[test]
++    fn files_only_from_the_mods_folder() {
++        let root = std::env::temp_dir().join(format!("herdr-web-{}", std::process::id()));
++        let folder = root.join("mod");
++        std::fs::create_dir_all(&folder).unwrap();
++        std::fs::write(folder.join("page.html"), "<p>hi</p>").unwrap();
++        std::fs::write(root.join("secret.html"), "x").unwrap();
++        let r = Rules::parse("demo", &json!({}), std::fs::canonicalize(&folder).ok());
++        let file = |p: &Path| url::Url::from_file_path(p).unwrap().to_string();
++        assert_eq!(r.decide(&file(&folder.join("page.html"))), Nav::Allow);
++        assert_eq!(r.decide(&file(&root.join("secret.html"))), Nav::Block);
++        assert_eq!(r.decide(&format!("{}/../secret.html", file(&folder))), Nav::Block);
++        assert_eq!(r.decide(&file(&folder.join("missing.html"))), Nav::Block);
++        let spec = Spec::parse(&json!({ "src": file(&folder.join("page.html")) }), &r).unwrap();
++        assert_eq!(spec.url.scheme(), "file");
++        assert!(Spec::parse(&json!({ "src": file(&root.join("secret.html")) }), &r).is_err());
++        std::fs::remove_dir_all(&root).unwrap();
++    }
++
++    #[test]
++    fn props_are_checked() {
++        let r = rules(json!(["https://www.example.org"]));
++        let s = Spec::parse(&json!({ "src": "https://www.example.org/engine/office?tab=class" }), &r).unwrap();
++        assert_eq!((s.persist, s.zoom), (false, 1.0));
++        let s = Spec::parse(&json!({ "src": "https://www.example.org/", "persist": true, "zoom": 1.25 }), &r).unwrap();
++        assert_eq!((s.persist, s.zoom), (true, 1.25));
++        for bad in [
++            json!({}),
++            json!({ "src": "https://example.com/" }),
++            json!({ "src": "http://www.example.org/" }),
++            json!({ "src": "javascript:alert(1)" }),
++            json!({ "src": "https://www.example.org/", "persist": "yes" }),
++            json!({ "src": "https://www.example.org/", "zoom": 0 }),
++            json!({ "src": "https://www.example.org/", "zoom": 9 }),
++        ] {
++            assert!(Spec::parse(&bad, &r).is_err(), "{bad}");
++        }
++    }
++
++    #[test]
++    fn calls_are_a_fixed_set() {
++        assert_eq!(Action::parse("back"), Ok(Action::Back));
++        assert_eq!(Action::parse("stop"), Ok(Action::Stop));
++        assert_eq!(Action::parse("home"), Ok(Action::Home));
++        assert!(Action::parse("eval").is_err());
++        assert!(call(7, "nope", "reload").is_err());
++    }
++
++    #[test]
++    fn stores_are_per_mod_and_id() {
++        assert_eq!(store_id("q", "main"), store_id("q", "main"));
++        assert_ne!(store_id("q", "main"), store_id("q", "chat"));
++        assert_ne!(store_id("q", "main"), store_id("r", "main"));
++        assert_eq!(store_id("q", "main")[6] >> 4, 8);
++    }
++
++    #[test]
++    fn events_reach_their_copy() {
++        let rx = events(41);
++        emit(&Key { copy: 41, id: "main".into() }, "title", json!({ "title": "Office" }));
++        emit(&Key { copy: 42, id: "main".into() }, "title", json!({ "title": "elsewhere" }));
++        assert_eq!(rx.try_recv().unwrap(), json!({ "id": "main", "kind": "title", "title": "Office" }));
++        assert!(rx.try_recv().is_err());
++    }
++}
+diff --git a/src/web/macos.rs b/src/web/macos.rs
+new file mode 100644
+index 0000000..73ae416
+--- /dev/null
++++ b/src/web/macos.rs
+@@ -0,0 +1,553 @@
++//! The macOS side of web elements: wry's WKWebView as a child of GPUI's view,
++//! plus what wry leaves out here:
++//!
++//! - a navigation delegate in place of wry's, which tells a page's top level
++//!   from its frames (wry's handler only gets a URL), hands downloads to the
++//!   browser and reports failed loads and a crashed web process;
++//! - a UI delegate in place of wry's: new windows load in the page itself,
++//!   the microphone and camera only for allowed origins (wry's permission
++//!   handler gets no origin), and the file picker for `<input type=file>`;
++//! - URL changes inside a page (`history.pushState`), watched with KVO;
++//! - the keyboard: a click outside every page gives it back to GPUI, and the
++//!   editing keys reach a page that types (wry gives child web views no key
++//!   equivalents, and Herdr has no Edit menu to send copy: and paste:).
++//!
++//! Main thread only, like everything AppKit; the registry lives in `super`.
++
++#![allow(unused_unsafe)]
++
++use super::{Action, Key, Rules, Spec};
++use block2::RcBlock;
++use gpui::{Bounds, Pixels, Window};
++use objc2::rc::{Retained, Weak};
++use objc2::runtime::{AnyObject, NSObject, ProtocolObject, Sel};
++use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
++use objc2_app_kit::{NSApplication, NSEvent, NSEventMask, NSEventModifierFlags, NSModalResponseOK, NSOpenPanel, NSResponder, NSView, NSWindow};
++use objc2_foundation::{
++    NSArray, NSDictionary, NSError, NSHTTPURLResponse, NSKeyValueChangeKey, NSKeyValueObservingOptions, NSObjectNSKeyValueObserverRegistration, NSObjectProtocol, NSPoint,
++    NSProcessInfo, NSRect, NSSize, NSString, NSURL, NSURLRequest, NSUUID, ns_string,
++};
++use objc2_web_kit::{
++    WKAudiovisualMediaTypes, WKFrameInfo, WKMediaCaptureType, WKNavigation, WKNavigationAction, WKNavigationActionPolicy, WKNavigationDelegate, WKNavigationResponse,
++    WKNavigationResponsePolicy, WKOpenPanelParameters, WKPermissionDecision, WKSecurityOrigin, WKUIDelegate, WKWebView, WKWebViewConfiguration, WKWebsiteDataStore,
++    WKWindowFeatures,
++};
++use raw_window_handle::{HasWindowHandle, RawWindowHandle};
++use serde_json::json;
++use std::cell::{Cell, RefCell};
++use std::ffi::c_void;
++use std::ptr::NonNull;
++use std::rc::Rc;
++use wry::{WebViewBuilder, WebViewBuilderExtDarwin, WebViewBuilderExtMacos, WebViewExtMacOS};
++
++/// What a page's delegates share: whose it is, its rules, what was last said.
++struct Status {
++    key: Key,
++    rules: Rc<Rules>,
++    url: RefCell<String>,
++    title: RefCell<String>,
++    /// Reloaded once after its web process died; a finished load resets it.
++    revived: Cell<bool>,
++}
++
++impl Status {
++    fn url_changed(&self, url: String) {
++        if self.url.replace(url.clone()) != url {
++            super::emit(&self.key, "url", json!({ "url": url }));
++        }
++    }
++
++    fn title_changed(&self, title: String) {
++        if self.title.replace(title.clone()) != title {
++            super::emit(&self.key, "title", json!({ "title": title }));
++        }
++    }
++}
++
++fn url_of(view: &WKWebView) -> Option<String> {
++    unsafe { view.URL() }.and_then(|u| u.absoluteString()).map(|s| s.to_string())
++}
++
++pub struct Page {
++    web: wry::WebView,
++    view: Retained<WKWebView>,
++    rules: Rc<Rules>,
++    _nav: Retained<NavDelegate>,
++    _ui: Retained<UiDelegate>,
++    _url: Retained<UrlObserver>,
++    /// GPUI's view: the page's superview, and where the keys go back to.
++    gpui: Weak<NSView>,
++    window: usize,
++    /// The frame last applied (None: hidden), in GPUI's view.
++    placed: Option<Option<NSRect>>,
++}
++
++impl Page {
++    pub fn new(window: &mut Window, key: &Key, spec: &Spec, rules: Rc<Rules>) -> Result<Page, String> {
++        let mtm = MainThreadMarker::new().ok_or("web pages live on the main thread")?;
++        install_monitors(mtm);
++        let here = window_of(window);
++        let config = unsafe { WKWebViewConfiguration::new(mtm) };
++        let store = if spec.persist {
++            if NSProcessInfo::processInfo().operatingSystemVersion().majorVersion < 14 {
++                return Err("persist needs macOS 14 or later".into());
++            }
++            let uuid = NSUUID::from_bytes(super::store_id(&rules.name, &key.id));
++            super::note_store(&rules, &key.id, &uuid.UUIDString().to_string());
++            unsafe { WKWebsiteDataStore::dataStoreForIdentifier(&uuid, mtm) }
++        } else {
++            // Cookies and storage in memory only: gone with the page.
++            unsafe { WKWebsiteDataStore::nonPersistentDataStore(mtm) }
++        };
++        unsafe {
++            config.setWebsiteDataStore(&store);
++            // Some sign-in pages refuse web views that don't say Safari.
++            config.setApplicationNameForUserAgent(Some(&NSString::from_str(&safari_name())));
++            // Pages may play sound without a click first (read-aloud answers).
++            config.setMediaTypesRequiringUserActionForPlayback(WKAudiovisualMediaTypes::None);
++        }
++        let status = Rc::new(Status { key: key.clone(), rules: rules.clone(), url: RefCell::default(), title: RefCell::default(), revived: Cell::new(false) });
++        let titles = status.clone();
++        let web = WebViewBuilder::new()
++            .with_webview_configuration(config)
++            .with_visible(false)
++            .with_focused(false)
++            .with_devtools(false)
++            .with_back_forward_navigation_gestures(true)
++            // Force click's preview would show any link's page, allowed or not.
++            .with_allow_link_preview(false)
++            .with_document_title_changed_handler(move |title| titles.title_changed(title))
++            .build_as_child(&*window)
++            .map_err(|e| format!("cannot open a web view: {e}"))?;
++        let view: Retained<WKWebView> = Retained::into_super(web.webview());
++        let nav = NavDelegate::new(mtm, status.clone());
++        let ui = UiDelegate::new(mtm, status.clone());
++        unsafe {
++            view.setNavigationDelegate(Some(ProtocolObject::from_ref(&*nav)));
++            view.setUIDelegate(Some(ProtocolObject::from_ref(&*ui)));
++        }
++        let url = UrlObserver::new(mtm, view.clone(), status);
++        let gpui = unsafe { view.superview() }.ok_or("the web view is not in a window")?;
++        view.setHidden(true);
++        Ok(Page { web, view, rules, _nav: nav, _ui: ui, _url: url, gpui: Weak::from_retained(&gpui), window: here, placed: None })
++    }
++
++    pub fn load(&self, url: &url::Url) {
++        load_into(&self.view, url.as_str(), &self.rules);
++    }
++
++    /// Moves the page to `rect` (window px, top-left origin), or hides it.
++    pub fn place(&mut self, rect: Option<Bounds<Pixels>>) {
++        let Some(gpui) = self.gpui.load() else { return };
++        let frame = rect.map(|b| {
++            // Whole device pixels, so the page's edges are as sharp as GPUI's.
++            let scale = gpui.window().map_or(2.0, |w| w.backingScaleFactor());
++            let snap = |v: Pixels| (f64::from(v) * scale).round() / scale;
++            let (x, y, w, h) = (snap(b.origin.x), snap(b.origin.y), snap(b.size.width), snap(b.size.height));
++            let y = if gpui.isFlipped() { y } else { gpui.bounds().size.height - y - h };
++            NSRect::new(NSPoint::new(x, y), NSSize::new(w, h))
++        });
++        if self.placed == Some(frame) {
++            return;
++        }
++        self.placed = Some(frame);
++        match frame {
++            Some(f) => {
++                self.view.setFrame(f);
++                self.view.setHidden(false);
++            }
++            None => {
++                // A hidden first responder would leave the keys with nobody.
++                if self.has_keys() {
++                    self.give_back_keys();
++                }
++                self.view.setHidden(true);
++            }
++        }
++    }
++
++    pub fn zoom(&mut self, zoom: f64) {
++        let _ = self.web.zoom(zoom);
++    }
++
++    pub fn act(&self, action: Action) {
++        let _ = match action {
++            Action::Back => self.web.go_back(),
++            Action::Forward => self.web.go_forward(),
++            Action::Reload => self.web.reload(),
++            Action::Stop => {
++                unsafe { self.view.stopLoading() };
++                Ok(())
++            }
++            // web.rs loads `src` itself.
++            Action::Home => Ok(()),
++        };
++    }
++
++    /// The keyboard is in this page.
++    pub fn has_keys(&self) -> bool {
++        let Some(window) = self.view.window() else { return false };
++        window.firstResponder().is_some_and(|r| r.downcast_ref::<NSView>().is_some_and(|v| v.isDescendantOf(&self.view)))
++    }
++
++    pub fn give_back_keys(&self) {
++        if let (Some(gpui), Some(window)) = (self.gpui.load(), self.view.window()) {
++            let responder: &NSResponder = &gpui;
++            window.makeFirstResponder(Some(responder));
++        }
++    }
++
++    pub fn window(&self) -> usize {
++        self.window
++    }
++
++    fn in_window(&self, window: &NSWindow) -> bool {
++        self.view.window().is_some_and(|w| std::ptr::eq(&*w, window))
++    }
++
++    /// Shown in `window` at `p` (window coordinates, bottom-left origin).
++    fn under(&self, window: &NSWindow, p: NSPoint) -> bool {
++        if self.view.isHidden() || !self.in_window(window) {
++            return false;
++        }
++        let f = self.view.convertRect_toView(self.view.bounds(), None);
++        p.x >= f.origin.x && p.y >= f.origin.y && p.x < f.origin.x + f.size.width && p.y < f.origin.y + f.size.height
++    }
++}
++
++impl Drop for Page {
++    fn drop(&mut self) {
++        if self.has_keys() {
++            self.give_back_keys();
++        }
++        unsafe {
++            self.view.stopLoading();
++            self.view.setNavigationDelegate(None);
++            self.view.setUIDelegate(None);
++        }
++        // wry's WebView, dropped next, takes the view out of the window.
++    }
++}
++
++/// The window's GPUI view, which identifies the window.
++pub fn window_of(window: &Window) -> usize {
++    match HasWindowHandle::window_handle(window).map(|h| h.as_raw()) {
++        Ok(RawWindowHandle::AppKit(h)) => h.ns_view.as_ptr() as usize,
++        _ => 0,
++    }
++}
++
++/// Safari's name for this macOS (26 from macOS 26 on; before, macOS + 3).
++fn safari_name() -> String {
++    let major = NSProcessInfo::processInfo().operatingSystemVersion().majorVersion;
++    let safari = if major >= 26 { major } else { major + 3 };
++    format!("Version/{safari}.0 Safari/605.1.15")
++}
++
++/// Loads `url` (already allowed): a file with read access to the mod's folder only.
++fn load_into(view: &WKWebView, url: &str, rules: &Rules) {
++    let Some(u) = NSURL::URLWithString(&NSString::from_str(url)) else { return };
++    unsafe {
++        if url.starts_with("file:") {
++            if let Some(folder) = &rules.folder {
++                view.loadFileURL_allowingReadAccessToURL(&u, &NSURL::fileURLWithPath(&NSString::from_str(&folder.to_string_lossy())));
++            }
++        } else {
++            view.loadRequest(&NSURLRequest::requestWithURL(&u));
++        }
++    }
++}
++
++thread_local! {
++    /// The two event monitors, installed with the first page, kept for good.
++    static MONITORS: RefCell<Vec<Retained<AnyObject>>> = const { RefCell::new(Vec::new()) };
++}
++
++fn install_monitors(mtm: MainThreadMarker) {
++    if MONITORS.with_borrow(|m| !m.is_empty()) {
++        return;
++    }
++    // Before AppKit hands a click to a view: in a page, GPUI's focus steps
++    // aside; elsewhere, a page holding the keys gives them back to GPUI first.
++    let clicks = RcBlock::new(move |ev: NonNull<NSEvent>| -> *mut NSEvent {
++        let event = unsafe { ev.as_ref() };
++        if let Some(window) = event.window(mtm) {
++            let p = event.locationInWindow();
++            if super::any_page(|page| page.under(&window, p)) {
++                super::page_clicked();
++            } else {
++                let mut gpui = None;
++                // Only in the page's own window (not a file panel or a page's menu).
++                super::any_page(|page| {
++                    gpui = (page.in_window(&window) && page.has_keys()).then(|| page.gpui.load()).flatten();
++                    gpui.is_some()
++                });
++                if let Some(g) = gpui {
++                    let responder: &NSResponder = &g;
++                    window.makeFirstResponder(Some(responder));
++                }
++            }
++        }
++        ev.as_ptr()
++    });
++    // Before GPUI's key equivalents: while a page types, the editing keys are
++    // its own (GPUI would copy from or paste into a terminal).
++    let keys = RcBlock::new(move |ev: NonNull<NSEvent>| -> *mut NSEvent {
++        let event = unsafe { ev.as_ref() };
++        if let Some(action) = editing_action(event)
++            && let Some(window) = event.window(mtm)
++            && super::any_page(|page| page.in_window(&window) && page.has_keys())
++            && unsafe { NSApplication::sharedApplication(mtm).sendAction_to_from(action, None, None) }
++        {
++            return std::ptr::null_mut();
++        }
++        ev.as_ptr()
++    });
++    let mouse = NSEventMask::LeftMouseDown | NSEventMask::RightMouseDown | NSEventMask::OtherMouseDown;
++    let installed = unsafe { [NSEvent::addLocalMonitorForEventsMatchingMask_handler(mouse, &clicks), NSEvent::addLocalMonitorForEventsMatchingMask_handler(NSEventMask::KeyDown, &keys)] };
++    MONITORS.with_borrow_mut(|m| m.extend(installed.into_iter().flatten()));
++}
++
++/// Cmd with C, X, V, A or Z (and their Shift forms): the standard action a
++/// text view's Edit menu would send.
++fn editing_action(event: &NSEvent) -> Option<Sel> {
++    let flags = event.modifierFlags();
++    if !flags.contains(NSEventModifierFlags::Command) || flags.intersects(NSEventModifierFlags::Control | NSEventModifierFlags::Option) {
++        return None;
++    }
++    let shift = flags.contains(NSEventModifierFlags::Shift);
++    let key = event.charactersIgnoringModifiers()?.to_string().to_lowercase();
++    Some(match (key.as_str(), shift) {
++        ("c", _) => sel!(copy:),
++        ("x", _) => sel!(cut:),
++        ("v", false) => sel!(paste:),
++        ("v", true) => sel!(pasteAsPlainText:),
++        ("a", _) => sel!(selectAll:),
++        ("z", false) => sel!(undo:),
++        ("z", true) => sel!(redo:),
++        _ => return None,
++    })
++}
++
++define_class!(
++    // SAFETY: NSObject has no subclassing requirements; no Drop impl.
++    #[unsafe(super(NSObject))]
++    #[thread_kind = MainThreadOnly]
++    #[ivars = Rc<Status>]
++    struct NavDelegate;
++
++    unsafe impl NSObjectProtocol for NavDelegate {}
++
++    unsafe impl WKNavigationDelegate for NavDelegate {
++        #[unsafe(method(webView:decidePolicyForNavigationAction:decisionHandler:))]
++        fn decide_action(&self, _web: &WKWebView, action: &WKNavigationAction, handler: &block2::DynBlock<dyn Fn(WKNavigationActionPolicy)>) {
++            let s = self.ivars();
++            let request = unsafe { action.request() };
++            let url = request.URL().and_then(|u| u.absoluteString()).map(|u| u.to_string()).unwrap_or_default();
++            // No target frame: a new window, which the UI delegate already opened here.
++            let main = unsafe { action.targetFrame() }.is_none_or(|f| unsafe { f.isMainFrame() });
++            let download = action.respondsToSelector(sel!(shouldPerformDownload)) && unsafe { action.shouldPerformDownload() };
++            // Frames follow the site's own CSP; only the top level is held to mod.json.
++            let allow = if download {
++                super::download(&s.key, &url);
++                false
++            } else {
++                !main || super::top_level(&s.key, &s.rules, &url)
++            };
++            handler.call((if allow { WKNavigationActionPolicy::Allow } else { WKNavigationActionPolicy::Cancel },));
++        }
++
++        #[unsafe(method(webView:decidePolicyForNavigationResponse:decisionHandler:))]
++        fn decide_response(&self, _web: &WKWebView, response: &WKNavigationResponse, handler: &block2::DynBlock<dyn Fn(WKNavigationResponsePolicy)>) {
++            let (main, shows, r) = unsafe { (response.isForMainFrame(), response.canShowMIMEType(), response.response()) };
++            let attachment = r
++                .downcast_ref::<NSHTTPURLResponse>()
++                .and_then(|h| unsafe { h.valueForHTTPHeaderField(ns_string!("Content-Disposition")) })
++                .is_some_and(|v| v.to_string().trim_start().to_ascii_lowercase().starts_with("attachment"));
++            if main && (!shows || attachment) {
++                let url = r.URL().and_then(|u| u.absoluteString()).map(|u| u.to_string()).unwrap_or_default();
++                super::download(&self.ivars().key, &url);
++                handler.call((WKNavigationResponsePolicy::Cancel,));
++            } else {
++                handler.call((WKNavigationResponsePolicy::Allow,));
++            }
++        }
++
++        #[unsafe(method(webView:didStartProvisionalNavigation:))]
++        fn did_start(&self, web: &WKWebView, _nav: Option<&WKNavigation>) {
++            super::emit(&self.ivars().key, "loading", json!({ "url": url_of(web) }));
++        }
++
++        #[unsafe(method(webView:didCommitNavigation:))]
++        fn did_commit(&self, web: &WKWebView, _nav: Option<&WKNavigation>) {
++            if let Some(url) = url_of(web) {
++                self.ivars().url_changed(url);
++            }
++        }
++
++        #[unsafe(method(webView:didFinishNavigation:))]
++        fn did_finish(&self, web: &WKWebView, _nav: Option<&WKNavigation>) {
++            self.ivars().revived.set(false);
++            super::emit(&self.ivars().key, "loaded", json!({ "url": url_of(web) }));
++        }
++
++        #[unsafe(method(webView:didFailNavigation:withError:))]
++        fn did_fail(&self, web: &WKWebView, _nav: Option<&WKNavigation>, error: &NSError) {
++            self.failed(web, error);
++        }
++
++        #[unsafe(method(webView:didFailProvisionalNavigation:withError:))]
++        fn did_fail_provisional(&self, web: &WKWebView, _nav: Option<&WKNavigation>, error: &NSError) {
++            self.failed(web, error);
++        }
++
++        #[unsafe(method(webViewWebContentProcessDidTerminate:))]
++        fn did_terminate(&self, web: &WKWebView) {
++            let s = self.ivars();
++            super::emit(&s.key, "crashed", json!({ "url": url_of(web) }));
++            if !s.revived.replace(true) {
++                unsafe { web.reload() };
++            }
++        }
++    }
++);
++
++impl NavDelegate {
++    fn new(mtm: MainThreadMarker, status: Rc<Status>) -> Retained<Self> {
++        let this = mtm.alloc::<NavDelegate>().set_ivars(status);
++        unsafe { msg_send![super(this), init] }
++    }
++
++    fn failed(&self, web: &WKWebView, error: &NSError) {
++        let (domain, code) = (error.domain().to_string(), error.code());
++        // Not failures: a load replaced by another (-999), and one stopped by
++        // policy (102: a download or a link sent to the browser; 204: media
++        // handed to a plug-in).
++        if (domain == "NSURLErrorDomain" && code == -999) || (domain == "WebKitErrorDomain" && matches!(code, 102 | 204)) {
++            return;
++        }
++        super::emit(&self.ivars().key, "failed", json!({ "url": url_of(web), "error": error.localizedDescription().to_string() }));
++    }
++}
++
++define_class!(
++    // SAFETY: NSObject has no subclassing requirements; no Drop impl.
++    #[unsafe(super(NSObject))]
++    #[thread_kind = MainThreadOnly]
++    #[ivars = Rc<Status>]
++    struct UiDelegate;
++
++    unsafe impl NSObjectProtocol for UiDelegate {}
++
++    unsafe impl WKUIDelegate for UiDelegate {
++        /// target=_blank and window.open: an allowed page loads in this one
++        /// (no second view), anything else opens in the system browser.
++        #[unsafe(method_id(webView:createWebViewWithConfiguration:forNavigationAction:windowFeatures:))]
++        fn new_window(&self, web: &WKWebView, _config: &WKWebViewConfiguration, action: &WKNavigationAction, _features: &WKWindowFeatures) -> Option<Retained<WKWebView>> {
++            let s = self.ivars();
++            let url = unsafe { action.request() }.URL().and_then(|u| u.absoluteString()).map(|u| u.to_string()).unwrap_or_default();
++            if !url.is_empty() && !url.starts_with("about:") && super::top_level(&s.key, &s.rules, &url) {
++                load_into(web, &url, &s.rules);
++            }
++            None
++        }
++
++        /// The microphone (speech input too) and camera: granted to allowed
++        /// origins (asked of the page and the frame), refused to others.
++        /// macOS still asks the person once for Herdr itself.
++        #[unsafe(method(webView:requestMediaCapturePermissionForOrigin:initiatedByFrame:type:decisionHandler:))]
++        fn media(&self, _web: &WKWebView, origin: &WKSecurityOrigin, frame: &WKFrameInfo, _kind: WKMediaCaptureType, handler: &block2::DynBlock<dyn Fn(WKPermissionDecision)>) {
++            let rules = &self.ivars().rules;
++            let frame_origin = unsafe { frame.securityOrigin() };
++            let ok = allowed_origin(rules, origin) && allowed_origin(rules, &frame_origin);
++            handler.call((if ok { WKPermissionDecision::Grant } else { WKPermissionDecision::Deny },));
++        }
++
++        /// `<input type=file>`: the system's file picker.
++        #[unsafe(method(webView:runOpenPanelWithParameters:initiatedByFrame:completionHandler:))]
++        fn open_panel(&self, _web: &WKWebView, params: &WKOpenPanelParameters, _frame: &WKFrameInfo, handler: &block2::DynBlock<dyn Fn(*mut NSArray<NSURL>)>) {
++            let panel = NSOpenPanel::openPanel(self.mtm());
++            panel.setCanChooseFiles(true);
++            unsafe {
++                panel.setAllowsMultipleSelection(params.allowsMultipleSelection());
++                panel.setCanChooseDirectories(params.allowsDirectories());
++            }
++            if panel.runModal() == NSModalResponseOK {
++                handler.call((Retained::as_ptr(&panel.URLs()).cast_mut(),));
++            } else {
++                handler.call((std::ptr::null_mut(),));
++            }
++        }
++    }
++);
++
++impl UiDelegate {
++    fn new(mtm: MainThreadMarker, status: Rc<Status>) -> Retained<Self> {
++        let this = mtm.alloc::<UiDelegate>().set_ivars(status);
++        unsafe { msg_send![super(this), init] }
++    }
++}
++
++/// A WebKit security origin that mod.json allows.
++fn allowed_origin(rules: &Rules, origin: &WKSecurityOrigin) -> bool {
++    let (scheme, host, port) = unsafe { (origin.protocol().to_string(), origin.host().to_string(), origin.port()) };
++    let port = if port > 0 { format!(":{port}") } else { String::new() };
++    scheme != "file" && rules.decide(&format!("{scheme}://{host}{port}/")) == super::Nav::Allow
++}
++
++struct UrlIvars {
++    view: Retained<WKWebView>,
++    status: Rc<Status>,
++}
++
++define_class!(
++    // SAFETY: NSObject has no subclassing requirements; Drop only removes the
++    // observation it added.
++    #[unsafe(super(NSObject))]
++    #[thread_kind = MainThreadOnly]
++    #[ivars = UrlIvars]
++    struct UrlObserver;
++
++    impl UrlObserver {
++        #[unsafe(method(observeValueForKeyPath:ofObject:change:context:))]
++        fn observe(&self, key_path: Option<&NSString>, _object: Option<&AnyObject>, _change: Option<&NSDictionary<NSKeyValueChangeKey, AnyObject>>, _context: *mut c_void) {
++            if key_path.is_some_and(|k| k.to_string() == "URL")
++                && let Some(url) = url_of(&self.ivars().view)
++            {
++                self.ivars().status.url_changed(url);
++            }
++        }
++    }
++
++    unsafe impl NSObjectProtocol for UrlObserver {}
++);
++
++impl UrlObserver {
++    fn new(mtm: MainThreadMarker, view: Retained<WKWebView>, status: Rc<Status>) -> Retained<Self> {
++        let this = mtm.alloc::<UrlObserver>().set_ivars(UrlIvars { view, status });
++        let this: Retained<Self> = unsafe { msg_send![super(this), init] };
++        unsafe { this.ivars().view.addObserver_forKeyPath_options_context(&this, ns_string!("URL"), NSKeyValueObservingOptions::New, std::ptr::null_mut()) };
++        this
++    }
++}
++
++impl Drop for UrlObserver {
++    fn drop(&mut self) {
++        unsafe { self.ivars().view.removeObserver_forKeyPath(self, ns_string!("URL")) };
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use objc2::ClassType;
++
++    /// Registering the classes checks (in debug builds) that every method
++    /// matches WebKit's and Foundation's declared types.
++    #[test]
++    fn delegates_match_webkit() {
++        for class in [NavDelegate::class(), UiDelegate::class(), UrlObserver::class()] {
++            assert!(!class.name().to_bytes().is_empty());
++        }
++    }
++}
+diff --git a/src/window.rs b/src/window.rs
+index ce0b8dd..c87941e 100644
+--- a/src/window.rs
++++ b/src/window.rs
+@@ -3954,6 +3954,11 @@ impl AppWindow {
+             Request::Control { cmd, reply } => {
+                 let _ = reply.send(self.control(cmd, window, cx));
+             }
++            Request::WebFocus => {
++                // The page types; GPUI keeps only the window's own keys.
++                self.focus.focus(window, cx);
++                crate::web::focus_set_aside(window.focused(cx));
++            }
+         }
+     }
+ 
+@@ -4635,6 +4640,39 @@ impl AppWindow {
+         }
+     }
+ 
++    /// Overlays bottom to top: windows under dialogs, popups and toasts; each
++    /// kind in the order opened (a window pressed last is last: on top).
++    fn stacked(&self) -> impl Iterator<Item = &Overlay> {
++        self.overlays.iter().filter(|o| o.kind == OverlayKind::Window).chain(self.overlays.iter().filter(|o| o.kind != OverlayKind::Window))
++    }
++
++    /// Where web elements' pages may show this frame (web.rs).
++    fn web_frame(&self, cx: &App) -> crate::web::Frame {
++        let mut layer = HashMap::new();
++        let mut covers = Vec::new();
++        for (place, o) in self.stacked().enumerate().map(|(i, o)| (i + 1, o)) {
++            let blocks = o.layout.iter().flat_map(|l| l.visible_blocks()).filter(|n| matches!(n.content(), Some(Content::Mod { .. }))).map(|n| &n.id);
++            for slot in std::iter::once(&o.slot).chain(blocks) {
++                if let Some(c) = self.copies.get(slot) {
++                    layer.insert(c.id, place);
++                }
++            }
++            match o.kind {
++                OverlayKind::Toast => {}
++                OverlayKind::Window => covers.push((place, Some(o.slot.clone()))),
++                OverlayKind::Dialog | OverlayKind::Popup => covers.push((place, None)),
++            }
++        }
++        crate::web::Frame {
++            alive: self.copies.values().map(|c| c.id).filter(|&id| id != 0).collect(),
++            shown: mods::shown_copies(),
++            layer,
++            covers,
++            rects: self.bounds.clone(),
++            dragging: self.pane_drag.is_some() || cx.has_active_drag(),
++        }
++    }
++
+     fn render_overlays(&self, viewport: Size<Pixels>, cx: &mut Context<Self>) -> Vec<AnyElement> {
+         let mut out = Vec::new();
+         let mut toast_y = 16.0;
+@@ -4643,10 +4681,7 @@ impl AppWindow {
+         if pill.is_some() {
+             toast_y += UPDATE_PILL_HEIGHT + 8.0;
+         }
+-        // Windows under dialogs, popups and toasts; each kind in the order opened
+-        // (a window pressed last is last: on top).
+-        let order = self.overlays.iter().filter(|o| o.kind == OverlayKind::Window).chain(self.overlays.iter().filter(|o| o.kind != OverlayKind::Window));
+-        for o in order {
++        for o in self.stacked() {
+             let id = o.id.clone();
+             // Up to 1: a share of the window (terminals in overlays want room, not px).
+             let span = |v: f32, full: Pixels| if v <= 1.0 { full * v } else { settings::z(v) };
+@@ -5252,6 +5287,7 @@ impl Render for AppWindow {
+         let tracker = self.float_tracker(cx);
+         let win_tracker = self.window_tracker(cx);
+         let pane_drag = self.pane_drag_layer(cx);
++        let web = self.web_frame(cx);
+         div()
+             .id("herdr")
+             .track_focus(&self.focus)
+@@ -5338,6 +5374,7 @@ impl Render for AppWindow {
+             .children(win_tracker)
+             .child(pane_drag)
+             .child(crate::bench::frame_end())
++            .child(crate::web::frame_end(web))
+     }
+ }
+ 

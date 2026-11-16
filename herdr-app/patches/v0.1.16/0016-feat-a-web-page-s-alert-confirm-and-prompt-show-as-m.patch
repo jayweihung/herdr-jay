@@ -1,0 +1,106 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: jayweihung <3034830+jayweihung@users.noreply.github.com>
+Date: Mon, 16 Nov 2026 02:36:53 +0800
+Subject: [PATCH 16/26] feat: a web page's alert, confirm and prompt show as
+ macos dialogs
+
+---
+ Cargo.toml       |  2 +-
+ src/web/macos.rs | 50 ++++++++++++++++++++++++++++++++++++++++++++++--
+ 2 files changed, 49 insertions(+), 3 deletions(-)
+
+diff --git a/Cargo.toml b/Cargo.toml
+index e4e2ffb..4dc2c7d 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -66,7 +66,7 @@ raw-window-handle = "0.6"
+ objc2 = "0.6.4"
+ block2 = "0.6.2"
+ objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "block2", "objc2-core-foundation", "NSArray", "NSDictionary", "NSError", "NSGeometry", "NSKeyValueObserving", "NSObject", "NSProcessInfo", "NSString", "NSURL", "NSURLRequest", "NSURLResponse", "NSUUID"] }
+-objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "objc2-core-foundation", "NSApplication", "NSDockTile", "NSEvent", "NSOpenPanel", "NSPanel", "NSResponder", "NSSavePanel", "NSView", "NSWindow"] }
++objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "objc2-core-foundation", "NSAlert", "NSApplication", "NSButton", "NSDockTile", "NSControl", "NSEvent", "NSOpenPanel", "NSTextField", "NSPanel", "NSResponder", "NSSavePanel", "NSView", "NSWindow"] }
+ objc2-web-kit = { version = "0.3.2", default-features = false, features = ["std", "objc2-core-foundation", "objc2-app-kit", "block2", "WKFrameInfo", "WKNavigation", "WKNavigationAction", "WKNavigationDelegate", "WKNavigationResponse", "WKOpenPanelParameters", "WKPreferences", "WKSecurityOrigin", "WKUIDelegate", "WKWebView", "WKWebViewConfiguration", "WKWebsiteDataStore", "WKWindowFeatures"] }
+ 
+ [target.'cfg(windows)'.dependencies]
+diff --git a/src/web/macos.rs b/src/web/macos.rs
+index 73ae416..04a6d99 100644
+--- a/src/web/macos.rs
++++ b/src/web/macos.rs
+@@ -6,7 +6,8 @@
+ //!   browser and reports failed loads and a crashed web process;
+ //! - a UI delegate in place of wry's: new windows load in the page itself,
+ //!   the microphone and camera only for allowed origins (wry's permission
+-//!   handler gets no origin), and the file picker for `<input type=file>`;
++//!   handler gets no origin), the file picker for `<input type=file>`, and
++//!   alert / confirm / prompt as macOS dialogs (wry shows none);
+ //! - URL changes inside a page (`history.pushState`), watched with KVO;
+ //! - the keyboard: a click outside every page gives it back to GPUI, and the
+ //!   editing keys reach a page that types (wry gives child web views no key
+@@ -22,7 +23,7 @@ use gpui::{Bounds, Pixels, Window};
+ use objc2::rc::{Retained, Weak};
+ use objc2::runtime::{AnyObject, NSObject, ProtocolObject, Sel};
+ use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
+-use objc2_app_kit::{NSApplication, NSEvent, NSEventMask, NSEventModifierFlags, NSModalResponseOK, NSOpenPanel, NSResponder, NSView, NSWindow};
++use objc2_app_kit::{NSAlert, NSAlertFirstButtonReturn, NSApplication, NSTextField, NSEvent, NSEventMask, NSEventModifierFlags, NSModalResponseOK, NSOpenPanel, NSResponder, NSView, NSWindow};
+ use objc2_foundation::{
+     NSArray, NSDictionary, NSError, NSHTTPURLResponse, NSKeyValueChangeKey, NSKeyValueObservingOptions, NSObjectNSKeyValueObserverRegistration, NSObjectProtocol, NSPoint,
+     NSProcessInfo, NSRect, NSSize, NSString, NSURL, NSURLRequest, NSUUID, ns_string,
+@@ -463,6 +464,33 @@ define_class!(
+             handler.call((if ok { WKPermissionDecision::Grant } else { WKPermissionDecision::Deny },));
+         }
+ 
++        /// alert(): a dialog with OK.
++        #[unsafe(method(webView:runJavaScriptAlertPanelWithMessage:initiatedByFrame:completionHandler:))]
++        fn alert(&self, _web: &WKWebView, text: &NSString, frame: &WKFrameInfo, handler: &block2::DynBlock<dyn Fn()>) {
++            page_dialog(self.mtm(), text, frame, false, None);
++            handler.call(());
++        }
++
++        /// confirm(): OK or Cancel.
++        #[unsafe(method(webView:runJavaScriptConfirmPanelWithMessage:initiatedByFrame:completionHandler:))]
++        fn confirm(&self, _web: &WKWebView, text: &NSString, frame: &WKFrameInfo, handler: &block2::DynBlock<dyn Fn(objc2::runtime::Bool)>) {
++            let ok = page_dialog(self.mtm(), text, frame, true, None);
++            handler.call((objc2::runtime::Bool::new(ok),));
++        }
++
++        /// prompt(): a line of text, or null on Cancel.
++        #[unsafe(method(webView:runJavaScriptTextInputPanelWithPrompt:defaultText:initiatedByFrame:completionHandler:))]
++        fn prompt(&self, _web: &WKWebView, text: &NSString, default: Option<&NSString>, frame: &WKFrameInfo, handler: &block2::DynBlock<dyn Fn(*mut NSString)>) {
++            let mtm = self.mtm();
++            let field = NSTextField::textFieldWithString(default.unwrap_or(ns_string!("")), mtm);
++            field.setFrame(NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(280.0, 24.0)));
++            if page_dialog(mtm, text, frame, true, Some(&field)) {
++                handler.call((Retained::as_ptr(&field.stringValue()).cast_mut(),));
++            } else {
++                handler.call((std::ptr::null_mut(),));
++            }
++        }
++
+         /// `<input type=file>`: the system's file picker.
+         #[unsafe(method(webView:runOpenPanelWithParameters:initiatedByFrame:completionHandler:))]
+         fn open_panel(&self, _web: &WKWebView, params: &WKOpenPanelParameters, _frame: &WKFrameInfo, handler: &block2::DynBlock<dyn Fn(*mut NSArray<NSURL>)>) {
+@@ -481,6 +509,24 @@ define_class!(
+     }
+ );
+ 
++/// A page's alert / confirm / prompt as a macOS dialog: its text, the page's host
++/// under it, OK (and Cancel); prompt's text field below. True when OK was pressed.
++fn page_dialog(mtm: MainThreadMarker, text: &NSString, frame: &WKFrameInfo, cancel: bool, field: Option<&NSTextField>) -> bool {
++    let alert = NSAlert::new(mtm);
++    alert.setMessageText(text);
++    let host = unsafe { frame.securityOrigin().host() };
++    alert.setInformativeText(&host);
++    alert.addButtonWithTitle(ns_string!("好"));
++    if cancel {
++        alert.addButtonWithTitle(ns_string!("取消"));
++    }
++    if let Some(f) = field {
++        alert.setAccessoryView(Some(f));
++        alert.window().setInitialFirstResponder(Some(f));
++    }
++    alert.runModal() == NSAlertFirstButtonReturn
++}
++
+ impl UiDelegate {
+     fn new(mtm: MainThreadMarker, status: Rc<Status>) -> Retained<Self> {
+         let this = mtm.alloc::<UiDelegate>().set_ivars(status);

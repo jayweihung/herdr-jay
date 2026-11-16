@@ -9,6 +9,15 @@ says which) · **kit** = update kit itself on every machine where agents run (`k
 **snap hook** = a line in Claude Code's `settings.json` on each machine where you added the hook (the entry says
 which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/keys.md).
 
+## 2026-11-16, trend: what's rising, what's new, one card per story
+
+Needs: **mods** (Windows: copy `trend` again; macOS link: nothing).
+
+- `fetch.js` keeps each link's first sighting and score per run (`trend/history.json`): a card that rose in the last
+  1 to 3 hours says **↑ +N**, one under 3 hours old says **新進榜** (after 6 hours of history), and the chips
+  **🔥 升溫** / **🆕 新進榜** show only those. The same story on several sites or boards (PTT's `Re:` replies too) is one
+  card with the others under it. 熱門標出升溫中、新進榜的；同一件事在多個站或看板合成一張卡。
+
 ## 2026-11-16, trend: the whole of each site's list, PTT's 8 boards
 
 Needs: **mods** (Windows: copy `trend` again; macOS link: nothing).

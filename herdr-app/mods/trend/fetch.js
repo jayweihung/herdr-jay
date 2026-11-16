@@ -342,7 +342,32 @@ async function feeds() {
       title: s.title, url: s.url, description: s.description ?? "", score: s.diggScore ?? 0, sources: s.postCount ?? 0, topic: s.topic ?? "",
     }));
   } catch (e) { f.errors.digg = String(e.message ?? e).slice(0, 200); }
+  track(f);
   put("feeds.json", JSON.stringify(f) + "\n");
+}
+
+// How each row moved: <Herdr home>/trend/history.json keeps, per link, when it was first seen and its score at each
+// run (the last 24; a link not seen for 2 days is dropped). Each row gets first (when it showed up) and rise (its
+// score now against its oldest one 1 to 3 hours ago, when higher); f.since: when the history began (the panel calls
+// nothing new in its first hours).
+// 每則第一次出現的時間和每輪的分數（最近 24 次）：面板據此標「新進榜」「↑ 升溫」。
+function track(f) {
+  let h = {};
+  try { h = JSON.parse(fs.readFileSync(path.join(out, "history.json"), "utf8")); } catch {}
+  const t = Date.now(), at = now(), links = (h.links ??= {});
+  h.since ??= at;
+  for (const site of ["hn", "reddit", "ptt", "dcard", "threads", "digg"]) for (const x of f[site] ?? []) {
+    const score = x.score ?? x.points ?? 0, e = (links[x.url] ??= { first: at, samples: [] });
+    e.last = at;
+    e.samples = [...e.samples, [at, score]].slice(-24);
+    const old = e.samples.find(([s]) => t - Date.parse(s) >= HOUR_MS && t - Date.parse(s) <= 3 * HOUR_MS);
+    x.first = e.first;
+    delete x.rise;   // a site's rows carried over from the last run bring last run's
+    if (old && score > old[1]) x.rise = { by: score - old[1], from: old[1], hours: Math.max(1, Math.round((t - Date.parse(old[0])) / HOUR_MS)) };
+  }
+  for (const [u, e] of Object.entries(links)) if (t - Date.parse(e.last) > 48 * HOUR_MS) delete links[u];
+  f.since = h.since;
+  put("history.json", JSON.stringify(h) + "\n");
 }
 feeds().catch(() => {}).then(videos).catch(() => {}).finally(() => {
   put("status.json", JSON.stringify({ started, finished: now(), ok: !error, error }) + "\n");

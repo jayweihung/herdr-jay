@@ -32,6 +32,13 @@ A tab-bar button **熱門** and a panel, like Gerrit's (macOS and Windows):
   條），依主題分組（看標題關鍵字、Digg 分類、Reddit／PTT／Dcard 看板；不叫模型，偶爾會分錯）。Reddit、Dcard、Threads 用本機
   的 Chrome／Edge 無頭開（各自的設定檔，不讀你的登入）；PTT 用純 HTTP 抓熱門看板前 8 個的「推文 ≥ 50」；Threads 沒有訪客看得到的
   熱門榜，是首頁推薦累積 24 小時、依讚數排。每站 2 到 4 小時一次；被擋就停 6、12、24 小時。
+  **Moving and shared stories**: each run `fetch.js` keeps every link's first sighting and its score per run
+  (`history.json`, the last 24, 2 days). A card whose score rose by 10 or more and a fifth or more in the last 1 to 3
+  hours says **↑ +N・N 小時**; one that showed up in the last 3 hours says **新進榜** (once there are 6 hours of
+  history); the chips **🔥 升溫** and **🆕 新進榜** show only those. A story on several sites or boards (titles sharing
+  enough words or Chinese character pairs, PTT's `Re:` replies too) is one card, **N 站** or **N 篇**, the others
+  listed under it with their own numbers and links. 每則記第一次出現和每輪分數：1 到 3 小時內分數漲一成以上標「↑ 升溫」，
+  3 小時內出現標「新進榜」，上面的鈕可以只看這兩種；不同站或看板講同一件事的合成一張卡，下面列其他站的連結。
 - **Asking costs tokens, only when you ask.** The buttons and the box at the bottom send to a **kit trend agent** in
   this space (`hc send`), as Gerrit's 問 agent does: with none here, the Kit panel puts one in this space (`kit place`,
   the Kit button must be in the layout) and it starts on the question. Pick Claude / Codex / omp for the next one it
@@ -192,9 +199,10 @@ Without `player` a click opens YouTube's watch page. 只要播放器：在你自
 `~/.config/herdr-app/trend/`: `trends.json` (last30days' discovery JSON, replaced only by a run that worked),
 `status.json` (`started`, `finished`, `ok`, `error`), `last.log` (the last run's output), `proxy` (yours, optional),
 `feeds.json` (HN's front page, Reddit's r/all top of today, PTT's popular posts, Dcard's popular list, Threads' pick of
-the last day and Digg's top stories of the last 24 h: `{ at, hn, reddit, ptt, dcard, threads, digg, errors }` and, for
-the sites read gently, `<site>At`, `<site>BlockedAt`, `<site>Blocks`), `reddit-profile/`, `dcard-profile/`,
-`threads-profile/` (the browser profiles those pages are opened with: their cookies only).
+the last day and Digg's top stories of the last 24 h: `{ at, since, hn, reddit, ptt, dcard, threads, digg, errors }`,
+each row with `first` and maybe `rise`, and, for the sites read gently, `<site>At`, `<site>BlockedAt`, `<site>Blocks`),
+`history.json` (`{ since, links: { <url>: { first, last, samples: [[time, score]…] } } }`), `reddit-profile/`,
+`dcard-profile/`, `threads-profile/` (the browser profiles those pages are opened with: their cookies only).
 `<Herdr home>/mods/trend/.reports/`: the agent's reports (hidden: writing one doesn't reload the mod; git ignores it).
 `videos.txt` (yours: the searches) and `videos.json` (`{ queries, searched, items, errors, blockedAt, blocks, cookies }`)
 in the same `trend/` folder: the 影片 tab; `trend/player` (yours, optional): its player page.

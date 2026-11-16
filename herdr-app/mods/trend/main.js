@@ -69,6 +69,9 @@ h2{margin:14px 12px 6px;font-size:.85em;font-weight:600;color:var(--muted)}
 a.title:hover{text-decoration:underline}
 .chip{flex:none;margin-top:.15em;padding:1px 6px;border-radius:4px;font-size:.75em;background:var(--bg);color:var(--muted)}
 .chip.x{color:var(--accent)}.chip.new{color:var(--green)}.chip.up{color:var(--yellow)}
+.also{margin-top:5px;padding-left:8px;border-left:2px solid var(--border);font-size:.85em}
+.also a{display:block;color:var(--muted);text-decoration:none;overflow-wrap:anywhere}.also a:hover{color:var(--fg)}
+.also b{color:var(--accent);font-weight:600}.also span{margin-left:6px;color:var(--dim)}
 .dot{flex:none;width:6px;height:6px;margin-top:.55em;border-radius:3px;background:var(--accent)}
 .meta{margin-top:2px;font-size:.85em;color:var(--muted)}
 .why{margin-top:3px;font-size:.9em;color:var(--dim);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
@@ -82,7 +85,8 @@ blockquote{margin:6px 0;padding-left:8px;border-left:2px solid var(--border);col
 <script>
 const K=location.pathname.split("/").pop()+":",get=(k)=>{try{return localStorage.getItem(K+k)}catch{return null}},set=(k,v)=>{try{localStorage.setItem(K+k,v)}catch{}};
 const nav=document.querySelector("nav");
-const show=(c)=>{for(const b of document.querySelectorAll("nav button"))b.classList.toggle("on",b.dataset.cat===c);for(const s of document.querySelectorAll("section"))s.hidden=c!=="all"&&s.dataset.cat!==c;set("cat",c)};
+// a chip shows its subject's sections; 升溫 and 新進榜 show those cards wherever they are
+const show=(c)=>{for(const b of document.querySelectorAll("nav button"))b.classList.toggle("on",b.dataset.cat===c);for(const s of document.querySelectorAll("section")){let any=false;for(const k of s.querySelectorAll(".card")){const ok=c==="all"||s.dataset.cat===c||(c==="rising"&&"rising" in k.dataset)||(c==="new"&&"new" in k.dataset);k.hidden=!ok;any||=ok}s.hidden=!any}set("cat",c)};
 if(nav){nav.onclick=(e)=>{const b=e.target.closest("button");if(b){show(b.dataset.cat);scrollTo(0,0)}};const c=get("cat");show([...nav.querySelectorAll("button")].some((b)=>b.dataset.cat===c)?c:"all")}
 document.querySelector("main").onclick=(e)=>{const b=e.target.closest("[data-do]");if(!b||e.target.closest("a"))return;const k=b.closest(".card").dataset;
 location.hash="do="+b.dataset.do+(k.topic?"&topic="+encodeURIComponent(k.topic):"")+(k.name?"&name="+encodeURIComponent(k.name):"")+"&n="+Date.now();
@@ -160,6 +164,22 @@ function categoryOf(r) {
   const table = r.digg ? null : r.sub ? [SUB_CAT, r.sub] : r.board && r.feed === "PTT" ? [PTT_CAT, r.board] : r.forum ? [DCARD_CAT, r.forum] : null;
   const site = r.digg ? DIGG_CAT[r.digg] : table ? table[0].find(([, re]) => re.test(table[1]))?.[0] : null;
   return first || site || WORDS.slice(2).find(([, re]) => re.test(text))?.[0] || (r.feed === "HN" ? "科技" : ["Reddit", "Dcard", "Threads"].includes(r.feed) ? "趣聞" : "其他");
+}
+// The same story on two sites: a title's key is its English words (3 letters or more, common ones left out) and its
+// Chinese character pairs, the [新聞]-like tag in front dropped; two keys are the same story when they share SAME or
+// more of what they have between them (Jaccard). shortcut: words only, a model or embeddings if it merges too little.
+const SAME = 0.4;
+const COMMON = new Set("the and for with that this from have you are was were will what when your about into after over just more than they them their its our has had not but how why who new".split(" "));
+function titleKey(title) {
+  const t = String(title).toLowerCase().replace(/^(\s*(\[[^\]]*\]|【[^】]*】|re:|fw:))+\s*/gi, "").replace(/https?:\S+/g, "");
+  const key = new Set((t.match(/[a-z0-9]{3,}/g) ?? []).filter((w) => !COMMON.has(w)));
+  for (const run of t.match(/\p{Script=Han}+/gu) ?? []) for (let i = 0; i + 1 < run.length; i++) key.add(run.slice(i, i + 2));
+  return key;
+}
+function similar(a, b) {
+  let both = 0;
+  for (const x of a) if (b.has(x)) both++;
+  return both / (a.size + b.size - both || 1);
 }
 const SOURCE = { hackernews: "HN", reddit: "Reddit", digg: "Digg", x: "X", grounding: "網頁", youtube: "YouTube", polymarket: "Polymarket", github: "GitHub" };
 const STATE = { "rate-limited": "被限流", "auth-failed": "登入失效", "payment-required": "額度用完", unreachable: "連不到", timeout: "逾時",
@@ -328,29 +348,40 @@ export default class Trend extends View {
   }
   get results() { return Array.isArray(this.data?.results) ? this.data.results : []; }
   // What the list shows: last30days' topics, then everything the sites' own front pages gave (HN, Reddit, PTT, Dcard,
-  // Threads, Digg), taken in turn (each site's rank), skipping a story a topic already cites; the subject chips sort it
+  // Threads, Digg), taken in turn (each site's rank), skipping a story a topic already cites; the subject chips sort it.
+  // A story on several sites (or boards) is one card: a row whose title shares enough with an earlier row's joins it
+  // (its .also). Worked out again only when the files change.
   get shown() {
+    if (this.shownOf && this.shownOf.data === this.data && this.shownOf.feeds === this.feeds) return this.shownOf.rows;
     const topics = this.results, cited = new Set(topics.flatMap((r) => r.evidence_urls ?? []));
-    const hn = (this.feeds?.hn ?? []).map((h) => ({ topic: h.title, feed: "HN", line: `HN ${num(h.points)} 分 · ${num(h.comments)} 留言`,
+    const moved = (x) => ({ first: x.first, rise: x.rise });   // fetch.js: when it showed up, how its score rose
+    const hn = (this.feeds?.hn ?? []).map((h) => ({ topic: h.title, feed: "HN", line: `HN ${num(h.points)} 分 · ${num(h.comments)} 留言`, ...moved(h),
       why_spiking: shortLink(h.url).split("/")[0], evidence_urls: [h.url, h.discussion].filter((u, i, a) => u && a.indexOf(u) === i) }));
-    const digg = (this.feeds?.digg ?? []).map((d) => ({ topic: d.title, feed: "Digg",
+    const digg = (this.feeds?.digg ?? []).map((d) => ({ topic: d.title, feed: "Digg", ...moved(d),
       line: `Digg ${num(d.score)} 分 · ${d.sources} 個來源${DIGG_TOPIC[d.topic] ? ` · ${DIGG_TOPIC[d.topic]}` : ""}`,
       why_spiking: d.description, evidence_urls: [d.url], digg: d.topic }));
-    const reddit = (this.feeds?.reddit ?? []).map((p) => ({ topic: p.title, feed: "Reddit", line: `Reddit ${num(p.score)} 分 · ${num(p.comments)} 留言`, sub: p.subreddit,
+    const reddit = (this.feeds?.reddit ?? []).map((p) => ({ topic: p.title, feed: "Reddit", line: `Reddit ${num(p.score)} 分 · ${num(p.comments)} 留言`, sub: p.subreddit, ...moved(p),
       why_spiking: [p.subreddit, shortLink(p.url).split("/")[0]].filter(Boolean).join(" · "), evidence_urls: [p.url, p.discussion].filter((u, i, a) => u && a.indexOf(u) === i) }));
-    const ptt = (this.feeds?.ptt ?? []).map((p) => ({ topic: p.title, feed: "PTT", line: `PTT ${p.score >= 100 ? "爆" : `${p.score} 推`} · ${p.board}`, board: p.board,
+    const ptt = (this.feeds?.ptt ?? []).map((p) => ({ topic: p.title, feed: "PTT", line: `PTT ${p.score >= 100 ? "爆" : `${p.score} 推`} · ${p.board}`, board: p.board, ...moved(p),
       why_spiking: [p.board, p.author].filter(Boolean).join(" · "), evidence_urls: [p.url] }));
-    const dcard = (this.feeds?.dcard ?? []).map((p) => ({ topic: p.title, feed: "Dcard", line: `Dcard ${num(p.score)} 心情 · ${num(p.comments)} 留言 · ${p.board}`,
+    const dcard = (this.feeds?.dcard ?? []).map((p) => ({ topic: p.title, feed: "Dcard", line: `Dcard ${num(p.score)} 心情 · ${num(p.comments)} 留言 · ${p.board}`, ...moved(p),
       forum: p.forum, why_spiking: p.board, evidence_urls: [p.url] }));
-    const threads = (this.feeds?.threads ?? []).map((p) => ({ topic: p.title, feed: "Threads", line: `Threads ${num(p.score)} 讚 · ${num(p.comments)} 回覆`,
+    const threads = (this.feeds?.threads ?? []).map((p) => ({ topic: p.title, feed: "Threads", line: `Threads ${num(p.score)} 讚 · ${num(p.comments)} 回覆`, ...moved(p),
       why_spiking: `@${p.author}`, evidence_urls: [p.url] }));
     const out = [...topics], names = new Set(topics.map((r) => r.topic)), feeds = [hn, reddit, ptt, dcard, threads, digg];
     for (let i = 0; feeds.some((f) => i < f.length); i++)
       for (const x of feeds.map((f) => f[i])) if (x && !names.has(x.topic) && !x.evidence_urls.some((u) => cited.has(u))) {
         names.add(x.topic);
-        out.push({ ...x, rank: out.length + 1 });
+        out.push(x);
       }
-    return out;
+    const rows = [];
+    for (const x of out) {
+      const key = x.feed ? titleKey(x.topic) : null;   // last30days' topics stay on their own
+      const into = key && key.size >= 3 && rows.find((r) => r.key && r.key.size >= 3 && similar(r.key, key) >= SAME);
+      if (into) (into.also ??= []).push(x); else rows.push({ ...x, key, rank: rows.length + 1 });
+    }
+    this.shownOf = { data: this.data, feeds: this.feeds, rows };
+    return rows;
   }
   // a run killed midway (the Mac slept, shut down) never writes finished: after 30 minutes it isn't running
   get running() { return Boolean(this.status?.started && !this.status?.finished && Date.now() - Date.parse(this.status.started) < 1800000); }
@@ -592,22 +623,36 @@ export default class Trend extends View {
     const groups = new Map(CATS.map((c) => [c, []]));
     for (const r of this.shown) groups.get(categoryOf(r)).push(r);
     const used = [...groups].filter(([, rows]) => rows.length);
+    const since = Date.parse(this.feeds?.since ?? ""), hour = 3600000;
+    // 升溫: its score up by 10 or more and a fifth or more in the last 1 to 3 hours; 新進榜: here for under 3 hours, once
+    // fetch.js has kept history for 6 (before that, everything would look new)
+    const rising = (x) => x.rise && x.rise.by >= 10 && x.rise.by >= 0.2 * Math.max(x.rise.from, 1);
+    const fresh = (x) => x.first && Date.now() - Date.parse(x.first) < 3 * hour && Date.now() - since > 6 * hour;
     const card = (r) => {
+      const all = [r, ...(r.also ?? [])], up = all.filter(rising).sort((a, b) => b.rise.by - a.rise.by)[0];
+      const sites = new Set(all.map((x) => x.feed)).size;
       const links = (r.evidence_urls ?? []).filter((u) => /^https?:\/\//i.test(u));
       const title = links[0] ? `<a class="title" href="${esc(links[0])}">${esc(r.topic)}</a>` : `<span class="title">${esc(r.topic)}</span>`;
       const line = r.line ?? (engagementText(r.engagement) || (r.sources ?? []).map((s) => SOURCE[s] ?? s).join("、"));
       const more = [r.top_comment ? `<blockquote>${esc(r.top_comment)}</blockquote>` : "",
         links.length ? `<div class="links">${links.slice(0, 6).map((u) => `<a href="${esc(u)}">↗ ${esc(shortLink(u))}</a>`).join("")}</div>` : ""].join("");
-      return `<div class="card" data-topic="${esc(r.topic)}"><div class="top">${seen.has(r.topic) ? "" : '<span class="dot"></span>'}${title}`
+      // the same story elsewhere: each with its own numbers and link
+      const also = r.also?.length ? `<div class="also">${r.also.map((a) => `<a href="${esc(a.evidence_urls[0])}"><b>${esc(a.feed)}</b> ${esc(a.topic)}<span>${esc(a.line ?? "")}</span></a>`).join("")}</div>` : "";
+      return `<div class="card" data-topic="${esc(r.topic)}"${up ? " data-rising" : ""}${all.some(fresh) ? " data-new" : ""}>`
+        + `<div class="top">${seen.has(r.topic) ? "" : '<span class="dot"></span>'}${title}`
+        + `${up ? `<span class="chip up">↑ +${num(up.rise.by)}・${up.rise.hours} 小時</span>` : ""}${all.some(fresh) ? '<span class="chip new">新進榜</span>' : ""}`
         + `${MOMENTUM[r.momentum] ? `<span class="chip ${r.momentum === "new-this-week" ? "new" : "up"}">${MOMENTUM[r.momentum]}</span>` : ""}`
+        + `${r.also?.length ? `<span class="chip x">${sites > 1 ? `${sites} 站` : `${all.length} 篇`}</span>` : ""}`
         + `<span class="chip${r.feed ? "" : " x"}">${esc(r.feed ?? "跨站")}</span></div>`
-        + `${line ? `<div class="meta">${esc(line)}</div>` : ""}${why(r) ? `<div class="why">${esc(why(r))}</div>` : ""}`
+        + `${line ? `<div class="meta">${esc(line)}</div>` : ""}${why(r) ? `<div class="why">${esc(why(r))}</div>` : ""}${also}`
         + `${more ? `<details><summary>更多</summary>${more}</details>` : ""}`
         + `<div class="acts"><button class="main" data-do="deep">🔎 深入查</button><button data-do="three">三句話說明</button>`
         + `${this.reportFor(r.topic) ? '<button class="rep" data-do="report">📄 看報告</button>' : ""}</div></div>`;
     };
+    const nUp = this.shown.filter((r) => [r, ...(r.also ?? [])].some(rising)).length, nNew = this.shown.filter((r) => [r, ...(r.also ?? [])].some(fresh)).length;
     // every subject has its chip (one with nothing this hour: greyed), so the set stays the same from hour to hour
-    return pageHtml(`<nav><button data-cat="all">全部 ${this.shown.length}</button>${[...groups].map(([c, rows]) => `<button data-cat="${esc(c)}"${rows.length ? "" : " disabled"}>${esc(c)} ${rows.length}</button>`).join("")}</nav>`
+    return pageHtml(`<nav><button data-cat="all">全部 ${this.shown.length}</button><button data-cat="rising"${nUp ? "" : " disabled"}>🔥 升溫 ${nUp}</button>`
+      + `<button data-cat="new"${nNew ? "" : " disabled"}>🆕 新進榜 ${nNew}</button>${[...groups].map(([c, rows]) => `<button data-cat="${esc(c)}"${rows.length ? "" : " disabled"}>${esc(c)} ${rows.length}</button>`).join("")}</nav>`
       + `<main>${used.map(([c, rows]) => `<section data-cat="${esc(c)}"><h2>${esc(c)}</h2>${rows.map(card).join("")}</section>`).join("")}</main>`);
   }
   // the reports: a card each (title, when, the topic asked), newest first; a click opens it

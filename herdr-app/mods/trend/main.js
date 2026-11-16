@@ -7,7 +7,7 @@
 // Roles (props.role): the panel (default) and "toggle", the tab-bar button that shows or hides the layout's
 // "trend-panel": a number for topics you haven't seen, a ring while fetch.js runs, a red ! when its last run failed.
 // 熱門：launchd 每小時跑 fetch.js（不花 token）寫 trend/；這個 mod 只讀。問問題才叫 trend agent（花 token）。
-import { View, div, svg } from "gpui-kit";
+import { View, div, svg, image } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
 import { theme, settings, notify, appHome, readTextFile, exec, run, layout, shared, setShared, agents, terminals, focused, spaces, window, web, webCall, nextWebEvent, hc as herdrHc, props as blockProps } from "herdr";
 import * as fsp from "fs/promises";
@@ -98,7 +98,7 @@ export default class Trend extends View {
       this.box = InputState.new({ placeholder: "問 trend agent，例如：這週 AI 圈最大的事是什麼？" });
       this.box.on("submit", (_e, cx) => cx.spawn(async (cx) => this.askFree(cx))); // Enter
     }
-    this.view = "list";   // "list" (the topics), "reports", or a report's file name
+    this.view = "list";   // "list" (the topics), "videos", "reports", or a report's file name
     this.load(cx);
     if (this.role !== "toggle") cx.spawn(async (cx) => {
       for (;;) {
@@ -114,13 +114,14 @@ export default class Trend extends View {
 
   get dir() { return `${appHome().replace(/\\/g, "/")}/trend`; }
   async load(cx) {
-    const [t, s, f] = await Promise.all(["trends.json", "status.json", "feeds.json"].map((n) => readTextFile(`${this.dir}/${n}`).catch(() => null)));
+    const [t, s, f, v] = await Promise.all(["trends.json", "status.json", "feeds.json", "videos.json"].map((n) => readTextFile(`${this.dir}/${n}`).catch(() => null)));
     try { this.feeds = f ? JSON.parse(f) : null; } catch { this.feeds = null; }
     // Reddit blocked the house's IP: the button says so, once (fetch.js waits 6, 12, 24 hours before trying again)
     const blocked = this.feeds?.redditBlockedAt ?? null;
     if (this.role === "toggle" && this.redditBlockedSeen !== undefined && blocked && blocked !== this.redditBlockedSeen)
       notify({ title: "熱門：Reddit 擋了家裡的 IP", body: this.feeds.errors?.reddit ?? "", level: "warning", timeout: 10000 });
     this.redditBlockedSeen = blocked;
+    try { this.videos = v ? JSON.parse(v) : null; } catch { this.videos = null; }
     try { this.data = t ? JSON.parse(t) : null; this.bad = null; } catch (e) { this.bad = `trends.json 讀不懂：${e.message ?? e}`; }
     try { this.status = s ? JSON.parse(s) : null; } catch { this.status = null; }
     await this.loadReports();
@@ -142,12 +143,12 @@ export default class Trend extends View {
     // a new one: the tab-bar button says so (one copy: the button), once
     if (this.role === "toggle" && before) for (const r of this.reports.filter((r) => !before.some((b) => b.name === r.name)))
       notify({ title: "熱門：報告寫好了", body: r.title || r.topic || r.name, level: "success", timeout: 8000 });
-    if (this.view !== "list" && this.view !== "reports" && !this.reports.some((r) => r.name === this.view)) this.view = "reports";
+    if (!["list", "reports", "videos"].includes(this.view) && !this.reports.some((r) => r.name === this.view)) this.view = "reports";
   }
   reportFor(topic) { return (this.reports ?? []).find((r) => r.topic === topic) ?? null; }
 
   tabButton(t, z, view, label) {
-    const on = this.view === view || (view === "reports" && this.view !== "list");
+    const on = this.view === view || (view === "reports" && !["list", "videos"].includes(this.view));
     return div().id(`tab-${view}`).h(28).px(10).flex().items_center().rounded(6).cursor_pointer().font_semibold()
       .bg(on ? t.selected : t.surface).text_color(on ? t.foreground : t.muted).hover((s) => s.bg(t.hover))
       .on_mouse_down("left", stop).on_click((_e, cx) => { this.view = view; cx.notify(); }).child(label);
@@ -174,6 +175,28 @@ export default class Trend extends View {
         .child(small("rep-reload", "⟳", () => webCall(REPORT_CELL, "reload"))))
       .when(Boolean(this.webNote), (el) => el.child(div().px(10).py(4).text_size(z - 1.5).text_color(t.muted).truncate().child(this.webNote)))
       .child(div().flex_1().min_h(0).child(web.new(REPORT_CELL, { src: fileUrl(`${this.reportDir}/${this.view}`) })));
+  }
+  // My videos: what fetch.js's YouTube searches (one per line of videos.txt) found, newest first; a click plays it in
+  // the browser, right-click copies the link. Thumbnails: the copies fetch.js keeps in trend/thumbs/.
+  videoList(t, z) {
+    const v = this.videos, list = v_flex().id("videos").flex_1().min_h(0).overflow_y_scrollbar();
+    const errs = Object.entries(v?.errors ?? {});
+    if (errs.length) list.child(div().px(12).py(6).text_size(z - 1.5).text_color(t.ansi1).whitespace_normal()
+      .child(errs.map(([q, e]) => (q ? `「${q}」：${e}` : e)).join("\n")));
+    if (!v?.queries?.length) return list.child(div().p(14).text_color(t.muted).whitespace_normal()
+      .child(`在 ${this.dir}/videos.txt 一行寫一個 YouTube 搜尋（例如 TWICE 子瑜），排程每 3 小時搜一次這週的新影片；按 ↻ 現在更新 馬上搜。`));
+    if (!v.items?.length) return list.child(div().p(14).text_color(t.muted).child("還沒找到影片"));
+    for (const x of v.items) {
+      const url = `https://www.youtube.com/watch?v=${x.id}`;
+      list.child(h_flex().id(`v-${x.id}`).px(12).py(8).gap(10).items_start().border_b(1).border_color(t.border).cursor_pointer()
+        .hover((s) => s.bg(t.hover)).on_mouse_down("right", copyOn(url)).on_click(() => openLink(url))
+        .child(div().w(128).h(72).flex_none().rounded(6).overflow_hidden().bg(t.raised).child(image(`trend/thumbs/${x.id}.jpg`).size_full()))
+        .child(v_flex().flex_1().min_w(0).gap(2)
+          .child(div().font_semibold().whitespace_normal().child(x.title))
+          .child(div().text_size(z - 1.5).text_color(t.muted).truncate().child([x.channel, x.length, x.published, x.views].filter(Boolean).join(" · ")))
+          .child(div().text_size(z - 2).text_color(t.dim).truncate().child(`搜「${x.query}」· ${ago(Date.parse(x.found))}找到`))));
+    }
+    return list;
   }
   get results() { return Array.isArray(this.data?.results) ? this.data.results : []; }
   // What the list shows: last30days' topics, then HN's, Reddit's and Digg's own front pages taken in turn (each site's
@@ -311,7 +334,7 @@ export default class Trend extends View {
     const t = theme(), z = fs();
     return v_flex().id("trend").size_full().bg(t.surface).text_size(z).text_color(t.foreground)
       .child(this.header(t, z))
-      .child(this.view === "list" ? this.list(t, z) : this.view === "reports" ? this.reportList(t, z) : this.reportView(t, z))
+      .child(this.view === "list" ? this.list(t, z) : this.view === "videos" ? this.videoList(t, z) : this.view === "reports" ? this.reportList(t, z) : this.reportView(t, z))
       .child(this.askCard(t, z));
   }
 
@@ -349,6 +372,7 @@ export default class Trend extends View {
       .child(h_flex().px(10).py(6).gap(6).items_center()
         .child(h_flex().flex_1().min_w(0).gap(2).items_center()
           .child(this.tabButton(t, z, "list", "熱門"))
+          .child(this.tabButton(t, z, "videos", `影片${this.videos?.items?.length ? ` ${this.videos.items.length}` : ""}`))
           .child(this.tabButton(t, z, "reports", `報告${this.reports?.length ? ` ${this.reports.length}` : ""}`)))
         .child(btn("refresh", this.running ? "更新中…" : "↻ 現在更新", (_e, cx) => cx.spawn(async (cx) => this.kick(cx))))
         .when(Boolean(find(layout(), TOGGLE)), (el) => el.child(btn("hide", "✕", () => run("layout.hide", { id: PANEL })))))

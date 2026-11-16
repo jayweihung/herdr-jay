@@ -4,6 +4,7 @@
 //   trends.json   last30days' discovery JSON (schema 1.x), replaced only by a run that succeeded
 //   status.json   { started, finished, ok, error }: the panel's ring and 「上次更新」
 //   last.log      the last run's own output
+//   videos.json   my videos: what YouTube's search found for each line of videos.txt (yours), kept, newest first
 // <last30days.py>: the skill's scripts/last30days.py in your kit source.
 // A proxy goes in <Herdr home>/trend/proxy, one line http://user:pass@host:port (keep it private: chmod 600 on macOS):
 // last30days' requests go through it (not Reddit's page below: a proxy didn't get past Reddit's 403 either).
@@ -106,6 +107,78 @@ function reddit(f, before) {
   Object.assign(f, { reddit: posts, redditAt: now(), redditBlockedAt: null, redditBlocks: 0 });
 }
 
+// My videos: videos.txt holds one YouTube search per line (e.g. TWICE 子瑜; # starts a comment). Each is run on
+// YouTube's own search page (uploads of this week) and read from its ytInitialData: no key, no browser (a search
+// page needs no PO token; only playing or downloading does). Gently, from the home IP every device in the house
+// shares (a production crawler's advice, 2026-11-16): a search at most once every 3 hours, a few seconds apart, zh-TW, the
+// installed Chrome's version in the user agent, YouTube's cookies kept between runs (a visitor coming back, not a
+// new one each time). A sign of a block (429, the consent or sorry page, "confirm you're not a bot", no
+// ytInitialData) stops all searches for 6 hours, then 12, then 24 (one try each time, with fresh cookies); a page
+// with ytInitialData but no videos is "nothing this week", not a block.
+// shortcut: Node's TLS fingerprint, not Chrome's (curl_cffi isn't installed); if YouTube starts blocking, that or a YouTube Data API key (search.list, 100 a day free).
+// shortcut: scrapes the search page, it breaks when YouTube changes it; the same API key then.
+// 我的影片：videos.txt 一行一個搜尋；每個搜尋 3 小時最多一次；被擋就全部停 6、12、24 小時（全家共用一個 IP，寧可保守）。
+const VIDEO_EVERY = 3 * HOUR_MS, VIDEO_KEEP = 300;
+class Blocked extends Error {}
+async function ytSearch(q, ua, cookies) {
+  const r = await fetch(`https://www.youtube.com/results?search_query=${encodeURIComponent(q)}&sp=EgIIAw%3D%3D&hl=zh-TW&gl=TW`, {
+    headers: { "user-agent": ua, "accept-language": "zh-TW,zh;q=0.9", cookie: Object.entries(cookies).map(([k, v]) => `${k}=${v}`).join("; ") },
+    signal: AbortSignal.timeout(30000) });
+  for (const c of r.headers.getSetCookie()) { const m = /^([^=;\s]+)=([^;]*)/.exec(c); if (m) cookies[m[1]] = m[2]; }
+  const html = await r.text();
+  if (r.status === 429 || /consent\.youtube\.com|google\.com\/sorry/.test(r.url) || /confirm you.re not a bot/i.test(html)) throw new Blocked(`YouTube 擋了（HTTP ${r.status}）`);
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  const m = /var ytInitialData = (\{.*?\});<\/script>/s.exec(html);
+  if (!m) throw new Blocked("頁面裡沒有搜尋結果的資料（可能被擋）");
+  const found = [];
+  const walk = (o) => { if (o && typeof o === "object") { if (o.videoRenderer) found.push(o.videoRenderer); else for (const v of Object.values(o)) walk(v); } };
+  walk(JSON.parse(m[1]));
+  return found.filter((v) => v.videoId).map((v) => ({ id: v.videoId, title: (v.title?.runs ?? []).map((x) => x.text).join(""),
+    channel: (v.ownerText?.runs?.[0]?.text ?? "").trim(), length: v.lengthText?.simpleText ?? "",
+    views: v.viewCountText?.simpleText ?? "", published: v.publishedTimeText?.simpleText ?? "" }));
+}
+async function videos() {
+  let queries = [], before = null;
+  try { queries = fs.readFileSync(path.join(out, "videos.txt"), "utf8").split("\n").map((l) => l.trim()).filter((l) => l && !l.startsWith("#")); } catch {}
+  try { before = JSON.parse(fs.readFileSync(path.join(out, "videos.json"), "utf8")); } catch {}
+  // a search taken out of videos.txt takes its videos with it
+  const v = { queries, searched: {}, items: (before?.items ?? []).filter((x) => queries.includes(x.query)), errors: {},
+    blockedAt: before?.blockedAt ?? null, blocks: before?.blocks ?? 0, cookies: before?.cookies ?? {} };
+  for (const q of queries) if (before?.searched?.[q]) v.searched[q] = before.searched[q];
+  const left = () => (v.blockedAt ? Date.parse(v.blockedAt) + 6 * HOUR_MS * 2 ** Math.min(Math.max(v.blocks - 1, 0), 2) - Date.now() : 0);   // 6, 12, 24 hours
+  const paused = left() > 0;
+  if (v.blockedAt && !paused) v.cookies = {};   // the try after a block starts clean
+  const exe = findChrome(), major = exe ? chromeMajor(exe) : "150";
+  const ua = process.platform === "win32" ? `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${major}.0.0.0 Safari/537.36`
+    : `Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${major}.0.0.0 Safari/537.36`;
+  let asked = false;
+  for (const q of paused ? [] : queries) {
+    if (Date.now() - Date.parse(v.searched[q] ?? "") < VIDEO_EVERY) continue;
+    if (asked) await new Promise((ok) => setTimeout(ok, 3000 + Math.random() * 4000));
+    asked = true;
+    try {
+      const have = new Set(v.items.map((x) => x.id)), at = now();
+      v.items = [...(await ytSearch(q, ua, v.cookies)).filter((x) => !have.has(x.id)).map((x) => ({ ...x, query: q, found: at })), ...v.items];
+      v.searched[q] = at;
+      Object.assign(v, { blockedAt: null, blocks: 0 });
+    } catch (e) {
+      v.errors[q] = String(e.message ?? e).slice(0, 200);
+      if (e instanceof Blocked) { Object.assign(v, { blockedAt: now(), blocks: v.blocks + 1 }); break; }
+    }
+  }
+  if (left() > 0) v.errors[""] = `被 YouTube 擋了：${Math.ceil(left() / HOUR_MS)} 小時後再試一次`;
+  v.items = v.items.slice(0, VIDEO_KEEP);
+  // thumbnails (i.ytimg.com, YouTube's image servers) for the panel, one copy each, gone with their video
+  const thumbs = path.join(out, "thumbs"), keep = new Set(v.items.map((x) => `${x.id}.jpg`));
+  fs.mkdirSync(thumbs, { recursive: true });
+  for (const n of fs.readdirSync(thumbs)) if (!keep.has(n)) fs.rmSync(path.join(thumbs, n), { force: true });
+  for (const x of v.items) if (!fs.existsSync(path.join(thumbs, `${x.id}.jpg`))) try {
+    const r = await fetch(`https://i.ytimg.com/vi/${x.id}/mqdefault.jpg`, { headers: { "user-agent": ua }, signal: AbortSignal.timeout(15000) });
+    if (r.ok) fs.writeFileSync(path.join(thumbs, `${x.id}.jpg`), Buffer.from(await r.arrayBuffer()));
+  } catch {}
+  put("videos.json", JSON.stringify(v) + "\n");
+}
+
 async function feeds() {
   const f = { at: now(), hn: [], reddit: [], digg: [], errors: {} };
   let before = null;
@@ -130,7 +203,7 @@ async function feeds() {
   } catch (e) { f.errors.digg = String(e.message ?? e).slice(0, 200); }
   put("feeds.json", JSON.stringify(f) + "\n");
 }
-feeds().catch(() => {}).finally(() => {
+feeds().catch(() => {}).then(videos).catch(() => {}).finally(() => {
   put("status.json", JSON.stringify({ started, finished: now(), ok: !error, error }) + "\n");
   process.exit(error ? 1 : 0);
 });

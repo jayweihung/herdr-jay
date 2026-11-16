@@ -116,6 +116,28 @@ Windows 一樣：複製 mod，用工作排程器每小時跑；公司電腦先�
 | X | `AUTH_TOKEN` + `CT0` (x.com cookies: risks the account, jay's was suspended on 2026-11-16 after tries with last30days' bird), or `X_BEARER_TOKEN` / `XAI_API_KEY` (paid, no account), stored with `printf '%s\n' "$T" \| python3 …/last30days.py setup --store-key AUTH_TOKEN` into `~/.config/last30days/.env` |
 | A proxy | one line `http://user:pass@host:port` in `<Herdr home>/trend/proxy` (private: `chmod 600`): last30days' requests go through it (not Reddit's page) |
 
+## My videos / 我的影片
+
+The panel's **影片** tab: your own YouTube searches, one per line in `~/.config/herdr-app/trend/videos.txt` (`#`
+starts a comment), e.g.
+
+```
+TWICE 子瑜
+TZUYU
+```
+
+`fetch.js` reads YouTube's own search page (uploads of this week) for each: no API key, no browser, no tokens. Each
+row has the thumbnail, title, channel, length, when it was posted and the views; click plays it in the browser,
+right-click copies the link. A search taken out of the file takes its videos with it; the list keeps the newest 300.
+影片分頁：videos.txt 一行一個搜尋，點一下用瀏覽器播。
+
+Gently, since every device in the house shares the IP (a production crawler's advice): each search at most every 3 hours, a few
+seconds apart, your Chrome's version in the user agent, YouTube's cookies kept between runs. A sign of a block (429,
+the consent or "sorry" page, "confirm you're not a bot", a page without results data) stops all searches for 6 hours,
+then 12, then 24 (one try each time, with fresh cookies), and the tab says so; a search with nothing this week is not a
+block. It reads the page, so a change at YouTube can break it: then a YouTube Data API key (`search.list`, 100 searches
+a day free) is the way. 全家共用 IP，所以保守：每個搜尋 3 小時最多一次；被擋停 6、12、24 小時。
+
 ## Files / 檔案
 
 `~/.config/herdr-app/trend/`: `trends.json` (last30days' discovery JSON, replaced only by a run that worked),
@@ -124,3 +146,5 @@ Windows 一樣：複製 mod，用工作排程器每小時跑；公司電腦先�
 `{ at, hn, reddit, digg, errors, redditAt, redditBlockedAt, redditBlocks }`), `reddit-profile/` (the browser profile
 Reddit's page is opened with: its cookies only).
 `<Herdr home>/mods/trend/.reports/`: the agent's reports (hidden: writing one doesn't reload the mod; git ignores it).
+`videos.txt` (yours: the searches), `videos.json` (`{ queries, searched, items, errors, blockedAt, blocks, cookies }`)
+and `thumbs/` (one thumbnail per video in the list) in the same `trend/` folder: the 影片 tab.

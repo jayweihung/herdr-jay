@@ -9,6 +9,12 @@ says which) · **kit** = update kit itself on every machine where agents run (`k
 **snap hook** = a line in Claude Code's `settings.json` on each machine where you added the hook (the entry says
 which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/keys.md).
 
+## 2026-11-16, 方案用量 has bars
+
+The 方案用量 box in an agent's context window draws a bar under each window (5 小時, 每週…): the accent color, from
+70 % yellow, from 90 % red; a window that reset is empty. 方案用量每一行下面多一條比例條。
+Needs: **mods** (kit).
+
 ## 2026-11-16, Gerrit: 深入 Review
 
 A fifth 問 agent button, **深入 Review**: the panel gets the change's code on this computer the way 在 nvim 看 does

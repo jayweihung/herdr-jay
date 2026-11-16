@@ -9,6 +9,17 @@ says which) · **kit** = update kit itself on every machine where agents run (`k
 **snap hook** = a line in Claude Code's `settings.json` on each machine where you added the hook (the entry says
 which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/keys.md).
 
+## 2026-11-16, trend: every 30 minutes
+
+Needs: **mods** (Windows: copy `trend` again; macOS link: nothing), and the job's interval: macOS
+`StartInterval` 1800 in `~/Library/LaunchAgents/com.herdr-jay.trend.plist`, then `launchctl bootout
+gui/$(id -u)/com.herdr-jay.trend` and `launchctl bootstrap gui/$(id -u) <that plist>`; Windows: register the task
+again with `New-TimeSpan -Minutes 30` (docs/trend.md「安裝」).
+
+- The job runs every 30 minutes (was every hour); the line under the title says 「下次約」 by it and no longer says
+  「不花 token」. Reddit, PTT, Dcard and Threads keep their own 2 to 4 hours, the 影片 searches their 3 hours.
+  熱門每 30 分鐘更新一次；標題下那行不再寫「不花 token」。
+
 ## 2026-11-16, trend: a card shows the post's first lines
 
 Needs: **mods** (Windows: copy `trend` again; macOS link: nothing).

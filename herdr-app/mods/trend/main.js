@@ -1,12 +1,12 @@
 // What's trending on the social sites now, beside your agents, and a trend agent to ask about it (like Gerrit's
-// panel and its 問 agent). The data costs no tokens: launchd runs fetch.js every hour (last30days --discover, no
+// panel and its 問 agent). The data costs no tokens: launchd runs fetch.js every 30 minutes (last30days --discover, no
 // model), which writes <Herdr home>/trend/trends.json and status.json; this mod only reads them (docs/trend.md).
 // Asking costs tokens, only when you ask: the question goes to a kit trend agent (agents/trend.md in a kit source,
 // skills: last30days) in this space with `hc send`; none here: the Kit panel places one (kit place) and it starts on
 // the question.
 // Roles (props.role): the panel (default) and "toggle", the tab-bar button that shows or hides the layout's
 // "trend-panel": a number for topics you haven't seen, a ring while fetch.js runs, a red ! when its last run failed.
-// 熱門：launchd 每小時跑 fetch.js（不花 token）寫 trend/；這個 mod 只讀。問問題才叫 trend agent（花 token）。
+// 熱門：launchd 每 30 分鐘跑 fetch.js（不花 token）寫 trend/；這個 mod 只讀。問問題才叫 trend agent（花 token）。
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
 import { theme, settings, notify, appHome, readTextFile, writeTextFile, checking, exec, run, layout, shared, setShared, agents, terminals, focused, spaces, window, web, webCall, nextWebEvent, hc as herdrHc, props as blockProps } from "herdr";
@@ -15,7 +15,7 @@ import * as fsp from "fs/promises";
 const TOGGLE = "trend-toggle", PANEL = "trend-panel";
 const JOB = "com.herdr-jay.trend";   // the launchd job that runs fetch.js (docs/trend.md)
 const TASK = "herdr-jay-trend";      // the same on Windows: a Task Scheduler task
-const HOUR = 3600000;                // its StartInterval
+const EVERY = 30 * 60000;            // its StartInterval: every 30 minutes
 const SEEN = "trend.seen.v1";        // the topics shown when the panel was last opened: the button counts the others
 // The Kit panel's (mods/kit): the agents its sources have, and the places it is asked to make. A kit trend agent
 // placed in a space is a folder whose .agentkit says agent:trend (kit place).
@@ -570,9 +570,9 @@ export default class Trend extends View {
     const btn = (id, label, fn) => div().id(id).h(28).px(10).flex().items_center().rounded(6).cursor_pointer().bg(t.raised).text_color(t.foreground)
       .hover((s) => s.bg(t.hover)).on_mouse_down("left", stop).on_click(fn).child(label);
     const done = Date.parse(this.status?.finished ?? this.data?.generated_at ?? "");
-    const next = Date.parse(this.status?.started ?? "") + HOUR;
+    const next = Date.parse(this.status?.started ?? "") + EVERY;
     const line = this.running ? `更新中…（${ago(Date.parse(this.status.started)).replace("前", "開始")}，通常幾分鐘）`
-      : this.bad ?? this.failed ?? (Number.isFinite(done) ? `更新於 ${ago(done)}${Number.isFinite(next) && next > Date.now() ? ` · 下次約 ${hhmm(next)}` : ""} · 不花 token` : "還沒有資料：排程還沒跑過（docs/trend.md「安裝」）");
+      : this.bad ?? this.failed ?? (Number.isFinite(done) ? `更新於 ${ago(done)}${Number.isFinite(next) && next > Date.now() ? ` · 下次約 ${hhmm(next)}` : ""}` : "還沒有資料：排程還沒跑過（docs/trend.md「安裝」）");
     const red = Boolean(this.bad || (this.failed && !this.running));
     // One row, each site once: ✓ when it answered (last30days' search and the site's own front page), else why not.
     // Reddit, PTT, Dcard and Threads are only their front pages, read every 2 to 4 hours (how long ago, red when blocked).

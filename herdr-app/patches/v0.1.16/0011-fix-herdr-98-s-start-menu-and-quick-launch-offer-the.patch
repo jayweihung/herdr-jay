@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: jayweihung <3034830+jayweihung@users.noreply.github.com>
 Date: Sun, 15 Nov 2026 02:40:18 +0800
-Subject: [PATCH 11/27] fix: herdr 98's start menu and quick launch offer the
+Subject: [PATCH 11/30] fix: herdr 98's start menu and quick launch offer the
  agents herdr knows, codex as codex --no-daemon
 
 The taskbar had its own agent list, started each one by its bare command (codex

@@ -1,8 +1,9 @@
-From 69a6ec832007ff36abba31579c33197d998b71ec Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: jayweihung <3034830+jayweihung@users.noreply.github.com>
 Date: Mon, 16 Nov 2026 18:06:20 +0800
-Subject: [PATCH] fix: the app drops an hc identity it was started with (opened
- from a terminal in Herdr), so a mod's hc runs as the app, not that terminal
+Subject: [PATCH 28/30] fix: the app drops an hc identity it was started with
+ (opened from a terminal in Herdr), so a mod's hc runs as the app, not that
+ terminal
 
 ---
  src/main.rs | 6 ++++++
@@ -25,6 +26,3 @@ index 33e4337..df2dd63 100644
      let args: Vec<String> = std::env::args().collect();
      #[cfg(target_os = "macos")]
      macos_check::startup(&args);
--- 
-2.54.0
-

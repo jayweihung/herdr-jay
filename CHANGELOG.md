@@ -9,6 +9,13 @@ says which) · **kit** = update kit itself on every machine where agents run (`k
 **snap hook** = a line in Claude Code's `settings.json` on each machine where you added the hook (the entry says
 which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/keys.md).
 
+## 2026-11-17, files dropped on a terminal reach it again
+
+A web page that had been shown and then moved away (熱門's video, QT, 說明頁, a zoomed pane restored) still took the
+files and screenshots dropped where it had been, so the terminal under it got no path. A hidden page now keeps no
+frame (macOS and Windows; patch 0030). 拖到終端機的截圖、檔案不會再被藏起來的網頁格收走。
+Needs: **app** (rebuild with patch 0030).
+
 ## 2026-11-16, 方案用量 has bars
 
 The 方案用量 box in an agent's context window draws a bar under each window (5 小時, 每週…): the accent color, from

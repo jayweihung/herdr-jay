@@ -1,0 +1,40 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: jayweihung <3034830+jayweihung@users.noreply.github.com>
+Date: Tue, 17 Nov 2026 00:40:54 +0800
+Subject: [PATCH 30/30] fix: a hidden web page no longer takes files dropped on
+ the terminal under it
+
+---
+ src/web/macos.rs | 4 ++++
+ src/web/win.rs   | 3 +++
+ 2 files changed, 7 insertions(+)
+
+diff --git a/src/web/macos.rs b/src/web/macos.rs
+index dc97ce9..8c358d1 100644
+--- a/src/web/macos.rs
++++ b/src/web/macos.rs
+@@ -171,6 +171,10 @@ impl Page {
+                     self.give_back_keys();
+                 }
+                 self.view.setHidden(true);
++                // AppKit still offers drags to a hidden view by its frame: a
++                // page hidden where a terminal now is took the files dropped
++                // on the terminal. No frame, no drops.
++                self.view.setFrame(NSRect::ZERO);
+             }
+         }
+     }
+diff --git a/src/web/win.rs b/src/web/win.rs
+index 0a1887d..223f231 100644
+--- a/src/web/win.rs
++++ b/src/web/win.rs
+@@ -330,6 +330,9 @@ impl Page {
+                     self.give_back_keys();
+                 }
+                 let _ = self.web.set_visible(false);
++                // As on macOS: no frame left where the page was, so a hidden
++                // page can't take what is dropped on a terminal there.
++                let _ = self.web.set_bounds(Rect { position: LogicalPosition::new(0.0, 0.0).into(), size: LogicalSize::new(0.0, 0.0).into() });
+             }
+         }
+     }

@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: jayweihung <3034830+jayweihung@users.noreply.github.com>
 Date: Mon, 16 Nov 2026 02:49:49 +0800
-Subject: [PATCH 18/27] feat: layout() marks the node layout.zoom shows alone
+Subject: [PATCH 18/30] feat: layout() marks the node layout.zoom shows alone
  with zoomed: true
 
 ---

@@ -1,8 +1,9 @@
-From 8091b2eaab7ade87ada0d3b039a9223cbb2350cc Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: jayweihung <3034830+jayweihung@users.noreply.github.com>
 Date: Mon, 16 Nov 2026 18:16:10 +0800
-Subject: [PATCH] fix: agents, files and changes panels remember folds, open
- folders, the picked file and the unsent message across reloads and restarts
+Subject: [PATCH 29/30] fix: agents, files and changes panels remember folds,
+ open folders, the picked file and the unsent message across reloads and
+ restarts
 
 ---
  defaults/mods/agents/main.js  | 13 ++++++++++-
@@ -283,6 +284,3 @@ index ad348d9..128a253 100644
 +  const { view: broken } = await harness("changes", { kept: "[]" });
 +  expect(broken.open).toBe(null);
 +});
--- 
-2.54.0
-

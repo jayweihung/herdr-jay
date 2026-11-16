@@ -317,7 +317,9 @@ export class Header {
   // agent-page beside this agent: shown while it's open (in the accent color), else on hover like the others
   pageButton(t, p, live) {
     const on = Boolean(pageOpen(p));
-    const b = div().id(`kit-head-p-${p.pane}`).flex_none().p(3).rounded(4).text_color(on ? t.accent : t.dim)
+    // the id changes with the state: Herdr keeps a tooltip while the pointer stays, so after a click (open / close) the
+    // old text ("關掉說明頁") would stay; a new id starts a new one with the right words
+    const b = div().id(`kit-head-p-${p.pane}-${on ? "on" : "off"}`).flex_none().p(3).rounded(4).text_color(on ? t.accent : t.dim)
       .child(svg("mods/agent-page/icon.svg").size(14));
     if (!live && !on) return b.invisible();
     return b.tooltip(on ? "關掉說明頁" : "說明頁：進度和它寫的頁面").hover((s) => s.bg(t.hover).text_color(t.foreground))

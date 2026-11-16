@@ -259,10 +259,17 @@ export default class Gerrit extends View {
     const start = blockProps() ?? {};
     if (this.role !== "toggle" && start.edit_prompts) this.editPrompts(); // {open, edit_prompts: true}: open on the button editor
     this.inTab = Boolean(start.open || start.search); // a copy started on a change or search (its own tab): the panel's width isn't its business
-    if (this.role !== "toggle" && start.search && !start.open) cx.spawn(async (cx) => { this.searchState().set_value(String(start.search)); await this.runSearch(cx); });
-    if (this.role !== "toggle" && start.open) cx.spawn(async (cx) => {
-      await this.openChange({ id: String(start.open) }, cx);
-      if (start.diff && this.detail && !this.detail.error) await this.openDiff(String(start.diff), cx);
+    // the panel itself: back on the change, file, compared patch sets or search it showed before a reload or restart
+    // (kept by the 1 s timer below; open/expanded bits by change id)
+    const go = this.inTab || this.role === "toggle" ? { ...start, search: start.open ? null : start.search } : this.keptView();
+    this.allComments = this.load("allComments") || null; this.fullMsg = this.load("fullMsg") || null; this.showPassed = this.load("showPassed") || null;
+    if (this.role !== "toggle" && (go.search || go.open)) cx.spawn(async (cx) => {
+      if (go.search) { this.searchState().set_value(String(go.search)); await this.runSearch(cx); }
+      if (!go.open) return;
+      if (go.search) this.remember(); // ← 返回 goes back to the search, as it did
+      await this.openChange({ id: String(go.open) }, cx);
+      if (go.cmp?.to != null && this.detail && !this.detail.error) await this.setCompare(go.cmp.base ?? null, go.cmp.to, cx);
+      if (go.diff && this.detail && !this.detail.error) await this.openDiff(String(go.diff), cx);
     });
     this.collapsed = new Set(JSON.parse(this.load("collapsed") ?? '["最近合併／放棄"]'));
     this.seen = JSON.parse(this.load("seen") ?? "null"); // change id -> updated; null until the first poll
@@ -286,10 +293,21 @@ export default class Gerrit extends View {
     cx.timer.every(30000, (cx) => cx.notify()); // keep "幾分前" fresh
     // Jenkins builds of the open change: every 10 s while one runs or waits, else every minute
     if (this.role !== "toggle") cx.timer.every(1000, (cx) => {
+      this.keepView();
       const c = this.detail?.change;
       if (!c?._number || !this.cfg?.jenkins || this.jk?.loading) return;
       if (this.jk?.change !== c._number || Date.now() >= (this.jk.nextAt ?? 0)) this.loadJenkins(c, cx);
     });
+  }
+
+  // Where the panel is (localStorage "view"), written when it changed; a copy in its own tab keeps nothing.
+  keepView() {
+    if (this.inTab) return;
+    const v = JSON.stringify({ open: this.detail?.change?._number ?? this.openId ?? null, diff: this.diff?.path ?? null, cmp: this.detail ? this.cmp ?? null : null, search: this.search?.q ?? null });
+    if (v !== this.viewKept) { this.viewKept = v; this.save("view", v); }
+  }
+  keptView() {
+    try { const v = JSON.parse(this.load("view") ?? "{}"); return v && typeof v === "object" ? v : {}; } catch { return {}; }
   }
 
   // One copy asks Gerrit: the tab-bar button when the layout has one, else the panel itself.
@@ -1636,7 +1654,7 @@ export default class Gerrit extends View {
     const fold = missing.length > 0 && passed.length > 3 && this.showPassed !== c.id;
     const shownReqs = fold ? missing : [...missing, ...passed];
     const foldRow = fold && div().id("req-passed").pl(26).py(1).text_size(z - 1).text_color(t.accent).cursor_pointer().hover((st) => st.bg(t.hover))
-      .on_mouse_down("left", stop).on_click((_e, cx) => { this.showPassed = c.id; cx.notify(); })
+      .on_mouse_down("left", stop).on_click((_e, cx) => { this.showPassed = c.id; this.save("showPassed", c.id); cx.notify(); })
       .child(`✓ 已通過 ${passed.length} 項（點開）`);
     const systems = this.systemsOf(c), used = new Set();
     for (const r of shownReqs) {
@@ -1898,7 +1916,7 @@ export default class Gerrit extends View {
           .child(div().whitespace_normal().child(textBlock(`th-${i}-${k}-text`, String(m.message ?? "").trim())))))
         .when(Boolean(shared(SAFE_CFG)?.auth) && c.status === "NEW", (el) => el.child(this.threadButtons(t, z, c, x)))));
       if (list.length > shown.length || all) body.child(div().id("more-comments").text_size(z - 1).text_color(t.accent).cursor_pointer().hover((s) => s.underline())
-        .on_click((_e, cx) => { this.allComments = all ? null : c.id; cx.notify(); })
+        .on_click((_e, cx) => { this.allComments = all ? null : c.id; this.save("allComments", this.allComments ?? ""); cx.notify(); })
         .child(all ? "只看未解決的" : `還有 ${list.length - shown.length} 串已解決的，點一下看`));
     }
 
@@ -1912,7 +1930,7 @@ export default class Gerrit extends View {
         .child(div().id("commit-msg").font_family(mono()).text_size(z - 1.5).p(8).rounded(6).bg(t.raised).whitespace_normal()
           .on_mouse_down("right", copyOn(msg))
           .when(long, (el) => el.cursor_pointer().hover((st) => st.bg(t.hover)).on_mouse_down("left", pressOn("commit-msg")).on_mouse_move(moveOn("commit-msg"))
-            .on_click((_e, cx) => { if (dragged("commit-msg")) return; this.fullMsg = full ? null : c.id; cx.notify(); }))
+            .on_click((_e, cx) => { if (dragged("commit-msg")) return; this.fullMsg = full ? null : c.id; this.save("fullMsg", this.fullMsg ?? ""); cx.notify(); }))
           .child(textBlock("commit-msg-text", long && !full ? lines.slice(0, 6).join("\n") : msg))
           .when(long && !full, (el) => el.child(div().child("…（點一下看全部）"))));
     }

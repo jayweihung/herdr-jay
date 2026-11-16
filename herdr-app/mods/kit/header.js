@@ -415,7 +415,9 @@ export class Header {
     this.asked = false;                // asked once when it opens; ⟳ asks again
     this.err = null;        // why the last ask failed (an older answer stays)
     this.loading = false;
-    this.open = { msgs: true };   // which lists are open (group id, "group|name")
+    // which lists are open (group id, "group|name"); the groups are kept for the next time it opens
+    try { this.open = JSON.parse(localGet("kit.ctx.open") || "null") ?? { msgs: true }; } catch { this.open = { msgs: true }; }
+    if (typeof this.open !== "object" || Array.isArray(this.open)) this.open = { msgs: true };
     this.more = {};         // lists shown in full
     this.ask = null;        // what waits for 確定: "compact", "clear", "clear2", "rm:<group>|<name>"
     this.msg = null;        // { ok, text } after a button
@@ -688,7 +690,11 @@ export class Header {
   ctxGroup(t, z, g, list) {
     const items = g.items ?? [], open = Boolean(this.open[g.id]);
     const head = h_flex().id(`g-${g.id}`).gap(6).items_center().rounded(4).cursor_pointer().hover((s) => s.bg(t.hover)).on_mouse_down("left", stop)
-      .on_click((_e, cx) => { this.open[g.id] = !open; cx.notify(); })
+      .on_click((_e, cx) => {
+        this.open[g.id] = !open;
+        localSet("kit.ctx.open", JSON.stringify(Object.fromEntries(Object.entries(this.open).filter(([k]) => !k.includes("|")))));
+        cx.notify();
+      })
       .child(div().w(12).text_color(t.dim).child(open ? "▾" : "▸"))
       .child(div().flex_1().min_w(0).truncate().font_semibold().child(`${g.name}（${items.length}）`))
       .child(div().flex_none().text_color(t.dim).child(g.tokens == null ? "" : `${g.est ? "≈" : ""}${kfmt(g.tokens)}`));

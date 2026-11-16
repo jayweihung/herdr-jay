@@ -174,14 +174,15 @@ export class Agents {
       });
       return;
     }
-    this.open = null;      // the agent shown in detail (its name)
+    this.open = localGet("kit.agents.open") || null;   // the agent shown in detail (its name), kept for a reload or restart
     this.placing = null;   // the agent whose 放到 space… list of spaces is open (its name)
     this.adding = {};      // kind -> the "加上…" list is unfolded
     this.edit = null;      // { path, orig, dirty, err } while its file is open; this.code is the editor
     this.tool = localGet("kit.agents.tool") || "claude";
     this.tab = props()?.big || localGet("kit.agents.tab") === "rel" ? "rel" : "defs";   // 定義 | 關係
-    this.scope = (props()?.scope ?? localGet("kit.agents.scope")) === "all" ? "all" : "space";   // 關係: the shown space, or every space
-    this.sel = null;       // 關係: the selected card (an address)
+    // 關係: the shown space, or every space (放大's window: its own last click first, then the panel's when it opened)
+    this.scope = (localGet("kit.agents.scope") ?? props()?.scope) === "all" ? "all" : "space";
+    this.sel = localGet("kit.agents.sel") || null;   // 關係: the selected card (an address)
     this.view = localGet("kit.agents.view") === "time" ? "time" : "graph";   // 關係: 圖 | 時間軸
     this.span = SPANS.some(([k]) => k === localGet("kit.agents.span")) ? localGet("kit.agents.span") : "1h";
     this.mine = null;      // the id of the action this window started in kit.busy (shared with Kit: one kit action at a time)
@@ -371,7 +372,7 @@ export class Agents {
     const sub = a ? `${a.source} · ${shortDir(a.path)}` : d && !d.error ? `${n} 個 agent · 用 kit run 開` : "Kit 來源裡定義好的 agent";
     const overlay = props()?.overlay;
     return h_flex().flex_none().px(10).py(8).gap(8).items_center().border_b(1).border_color(t.border)
-      .when(Boolean(a) && !this.edit, (el) => el.child(btn(t, z, "back", "← 回去", { small: true, on: (cx) => { this.open = null; this.adding = {}; cx.notify(); } })))
+      .when(Boolean(a) && !this.edit, (el) => el.child(btn(t, z, "back", "← 回去", { small: true, on: (cx) => { this.open = null; localSet("kit.agents.open", ""); this.adding = {}; cx.notify(); } })))
       .when(!a, (el) => el.child(div().size(32).flex_none().rounded(8).bg(t.raised).flex().items_center().justify_center().font_semibold().text_size(z - 4).child("agent")))
       .child(v_flex().flex_1().min_w(0)
         .child(a ? copyOnRight(div().truncate().font_semibold().child(a.name), a.name) : div().truncate().font_semibold().child("Agents"))
@@ -401,13 +402,14 @@ export class Agents {
     pending.push(...pushStuck(shared(DATA), shared(PUSH_CHECK)));
     const ol = outdatedLine(shared(OUTDATED)); if (ol) pending.push(ol);   // collected skills whose author has a newer one, or is gone
     const ags = agents(), g = graphData({ agents: ags, terms: terminals(), names: sidebarNames(ags, panes(), spaces()), space: this.scope === "space" ? shownSpace : null, ctx: shared(CTX), notes: shared(NOTE), log: eventLog(), down: downMachines(), said: shared(SAID), subs: shared(SUBS), bg: shared(BG), steps: shared(STEPS), owner, limitSent: shared(LIMIT_SENT), now });
-    if (this.sel && !g.nodes.some((n) => n.address === this.sel)) this.sel = null;
+    // (no cards yet, right after a start: the kept one stays until they come)
+    if (this.sel && g.nodes.length && !g.nodes.some((n) => n.address === this.sel)) this.sel = null;
     const scope = (id, label) => btn(t, z, `kit-graph-scope-${id}`, label, { tiny: true, kind: this.scope === id ? "primary" : undefined,
       on: (cx) => { this.scope = id; localSet("kit.agents.scope", id); cx.notify(); } });
     const pick = (key, field, id, label) => btn(t, z, `kit-graph-${field}-${id}`, label, { tiny: true, kind: this[field] === id ? "primary" : undefined,
       on: (cx) => { this[field] = id; localSet(key, id); cx.notify(); } });
     const spName = (spaces() ?? []).find((s) => s.id === shownSpace)?.name;
-    const select = (a, cx) => { this.sel = a; this.view = "graph"; localSet("kit.agents.view", "graph"); cx.notify(); };
+    const select = (a, cx) => { this.sel = a; localSet("kit.agents.sel", a ?? ""); this.view = "graph"; localSet("kit.agents.view", "graph"); cx.notify(); };
     const body = v_flex().id("kit-graph-body").flex_1().min_h(0).overflow_y_scrollbar()
       .on_size_change((size, cx) => {   // the drawing and the timeline fill the panel's width
         const w = Math.round(size.width / (Number(settings()?.zoom) || 1));
@@ -438,7 +440,7 @@ export class Agents {
     return body
       .child(legendView(t, z))
       .child(div().id("kit-graph-scroll").flex_none().w_full().h(layoutOf(g.cols, this.width ?? 0).h + 12).overflow_x_scrollbar()
-        .child(graphView(t, z, g, this.sel, { now, width: this.width ?? 0, onSelect: (a, cx) => { this.sel = a; cx.notify(); } })))
+        .child(graphView(t, z, g, this.sel, { now, width: this.width ?? 0, onSelect: (a, cx) => { this.sel = a; localSet("kit.agents.sel", a ?? ""); cx.notify(); } })))
       .child(edgeList(t, z, g, this.sel, now));
   }
 
@@ -478,7 +480,8 @@ export class Agents {
 
   // every agent: name, git state, what it is, where from, how much it uses; click for its detail
   list(t, z, d) {
-    const body = v_flex().flex_1().min_h(0).overflow_y_scrollbar().px(10).py(8).gap(2);
+    // named: a scroll area without a name starts at the top again when a message appears above it
+    const body = v_flex().id("kit-agents-list").flex_1().min_h(0).overflow_y_scrollbar().px(10).py(8).gap(2);
     const ags = [...(d.agents ?? [])].sort((x, y) => x.name.localeCompare(y.name));
     if (!ags.length) return body.child(div().p(8).text_color(t.muted).child("來源裡還沒有 agent。在終端機打  kit new agent <名字>  寫一個。"));
     // giving an agent its own folder in a space: drag (a newer Herdr), or the button (an older one only)
@@ -490,7 +493,7 @@ export class Agents {
       const counts = `規則 ${(a.rules ?? []).length} · skill ${(a.skills ?? []).length} · MCP ${(a.mcp ?? []).length}`;
       body.child(draggable(h_flex().id(`ag-${a.name}`).gap(10).items_center().px(8).py(6).rounded(6).cursor_pointer()
         .hover((s) => s.bg(t.hover)).on_mouse_down("left", stop)
-        .on_click((_e, cx) => { this.open = a.name; this.adding = {}; this.picking = false; this.liveBot(cx); setShared(AGENTS_MSG, null); cx.notify(); })
+        .on_click((_e, cx) => { this.open = a.name; localSet("kit.agents.open", a.name); this.adding = {}; this.picking = false; this.liveBot(cx); setShared(AGENTS_MSG, null); cx.notify(); })
         .child(botIcon(t, botOf(a), 44))
         .child(v_flex().flex_1().min_w(0).gap(1)
           .child(h_flex().gap(5).items_center().min_w(0)
@@ -531,7 +534,7 @@ export class Agents {
   // one agent: what it is, its tools, what it uses (拿掉) and could use (加上…), open it, edit its file
   detail(t, z, d, a) {
     const busy = Boolean(this.busy), avail = d.available ?? {};
-    const body = v_flex().flex_1().min_h(0).overflow_y_scrollbar().px(10).py(8).gap(8);
+    const body = v_flex().id(`kit-agents-detail-${a.name}`).flex_1().min_h(0).overflow_y_scrollbar().px(10).py(8).gap(8);
     body.child(h_flex().gap(10).items_center()
       .child(this.live ?? botIcon(t, botOf(a), 84))
       .child(v_flex().flex_1().min_w(0).gap(2)

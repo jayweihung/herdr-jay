@@ -79,7 +79,9 @@ export default class AgentPage extends View {
     this.root = `${appHome()}/mods/agent-page`;
     this.folder = `${this.root}/.pages/${this.dir}`;
     this.names = [];
-    this.tab = "status";
+    // The tab last shown for this dir (shared: a reopened pane is a new copy); read() checks its page is still there.
+    const kept = shared(`agent-page/${this.dir}/tab`);
+    this.tab = typeof kept === "string" ? kept : "status";
     this.status = null;
     this.alive = true;
     cx.spawn(async (cx) => {
@@ -234,6 +236,11 @@ export default class AgentPage extends View {
     else if (this.tab !== "status" && !this.names.includes(this.tab)) this.tab = "status";
     // The same src never loads again: a page rewritten in place needs a reload.
     if (written && written === before) webCall(CELL, "reload");
+    if (this.tab !== before) this.keepTab();
+  }
+
+  keepTab() {
+    setShared(`agent-page/${this.dir}/tab`, this.tab);
   }
 
   render() {
@@ -245,7 +252,7 @@ export default class AgentPage extends View {
     const bar = h_flex().h(30).px(6).gap(4).flex_none().items_center().bg(t.chrome).border_b(1).border_color(t.border).text_size(z - 1)
       .child(tabs)
       .when(page, (el) => el.child(this.tool(t, "ap-reload", "⟳", () => webCall(CELL, "reload"))));
-    const body = page ? web.new(CELL, { src: fileUrl(`${this.folder}/${this.tab}`) }) : this.renderStatus(t, z);
+    const body = page ? web.new(CELL, { src: fileUrl(`${this.folder}/${this.tab}`), persist: true }) : this.renderStatus(t, z);
     return v_flex().id("agent-page").size_full().bg(t.surface).text_size(z).text_color(t.foreground)
       .child(bar)
       .when(Boolean(this.note && page), (el) => el.child(div().px(8).py(4).text_size(z - 1).text_color(t.muted).child(this.note)))
@@ -332,7 +339,7 @@ export default class AgentPage extends View {
       .bg(on ? t.selected : t.chrome).text_color(on ? t.foreground : t.muted)
       .cursor_pointer().hover((s) => s.bg(t.hover).text_color(t.foreground))
       .on_mouse_down("left", stop)
-      .on_click((_e, cx) => { this.tab = id; cx.notify(); })
+      .on_click((_e, cx) => { this.tab = id; this.keepTab(); cx.notify(); })
       .child(label);
   }
 

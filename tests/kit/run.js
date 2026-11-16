@@ -134,6 +134,7 @@ function fresh() {
   H.machines = []; H.hcAnswer = null; H.reads = []; H.clipboard = []; H.appHome = null; H.drags = []; H.afters = []; H.writeFail = null;
   delete globalThis.__stubs.nextDrop;   // an older Herdr: no drag API
   timers.length = 0; skew = 0;
+  for (const k of ["kit.agents.open", "kit.agents.sel"]) localStorage.removeItem(k);   // what the last test left open
 }
 // a fake kit, answering as kit 0.3.0 does (kit's README, "給程式讀的介面"): argv after the program -> answer.
 // api: what kit api prints (null: an older kit, "kit: 沒有這個指令：api"); missing: no kit anywhere (exec can't start
@@ -1342,6 +1343,38 @@ test("agent logo: bot: in the frontmatter is read, set after description, replac
   assert.deepEqual(readBot("---\nname: x\nbot: fox\n---\n"), { animal: "fox", color: null }, "an animal alone: its own colors");
   assert.equal(withBot(file, { animal: "fox", color: null }), set.replace("fox amber", "fox"));
   assert.equal(withBot("no frontmatter\n", { animal: "cat", color: "mint" }), null);
+});
+test("Kit's search words and the context popup's open lists come back after a reload or restart", async (M) => {
+  fresh(); fakeKit();
+  localStorage.setItem("kit.filter", "Review ");
+  const v = view(M, { role: "repo" }); await settle();
+  assert.equal(v.part.filter, "review");
+  assert.equal(v.part.input.value(), "Review ");
+  localStorage.removeItem("kit.filter");
+  assert.equal(view(M, { role: "repo" }).part.filter, "");
+  const target = { key: "|/x|t1", pane: "p1", term: "t1", machine: null, cwd: "/x", tool: "claude", title: "Claude Code" };
+  localStorage.setItem("kit.ctx.open", JSON.stringify({ msgs: false, memory: true }));
+  assert.deepEqual(view(M, { role: "context", target }).part.open, { msgs: false, memory: true });
+  localStorage.setItem("kit.ctx.open", "[1]");
+  assert.deepEqual(view(M, { role: "context", target }).part.open, { msgs: true }, "not what it keeps: the default");
+  localStorage.removeItem("kit.ctx.open");
+});
+test("agents: the agent open in detail, the selected card and 放大's scope click are kept for a reload or restart", async (M) => {
+  fresh();
+  fakeKit({ agents: { kit: "0.3.0", tools: ["claude"], available: {}, agents: [{ name: "reviewer", description: "看 PR", rules: [], skills: [], mcp: [], source: "team", path: "/s/agents/reviewer.md" }] } });
+  const v = view(M, { role: "agents" }); await settle(); await tick();
+  render(v); H.clicks["ag-reviewer"]({}, cx);
+  const again = view(M, { role: "agents" }); await settle();
+  assert.equal(again.part.open, "reviewer");
+  assert.match(render(again), /← 回去/);
+  H.clicks["back"]({}, cx);
+  assert.equal(view(M, { role: "agents" }).part.open, null);
+  localStorage.setItem("kit.agents.sel", "t7");
+  assert.equal(view(M, { role: "agents" }).part.sel, "t7");
+  localStorage.setItem("kit.agents.scope", "all");
+  assert.equal(view(M, { role: "agents", big: true, scope: "space" }).part.scope, "all", "its own last click wins over the props it opened with");
+  localStorage.removeItem("kit.agents.scope");
+  assert.equal(view(M, { role: "agents", big: true, scope: "all" }).part.scope, "all");
 });
 test("agents: 換 logo — an animal / color click writes bot: into the agent's file (as it was read) and shows it at once; 照名字 takes it out", async (M) => {
   fresh();

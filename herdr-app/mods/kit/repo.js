@@ -196,7 +196,9 @@ export class Repo {
     // is under way in another copy
     if (!PASTE_LABELS.includes(this.busy)) cx.spawn(async (cx) => { await this.blankPasteFile(pastePath()); cx.notify(); });
     this.input = InputState.new({ placeholder: "找：名字、說明、來源" });
-    this.input.on("change", (_e, cx) => { this.filter = this.input.value().trim().toLowerCase(); cx.notify(); });
+    this.input.on("change", (_e, cx) => { localSet("kit.filter", this.input.value()); this.filter = this.input.value().trim().toLowerCase(); cx.notify(); });
+    const typed = localGet("kit.filter") || "";   // what was typed here before a reload or restart
+    if (typed) { this.input.set_value(typed); this.filter = typed.trim().toLowerCase(); }
     this.newName = InputState.new({ placeholder: "名字：小寫英文、數字和 -" });
     this.newName.on("submit", (_e, cx) => (this.kind === "mcp" && this.making?.mode === "paste" ? this.lookPaste(cx) : this.make(cx)));
     this.newName.on("change", (_e, cx) => cx.notify());   // the path it will make follows the name

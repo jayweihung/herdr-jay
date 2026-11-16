@@ -9,6 +9,16 @@ says which) · **kit** = update kit itself on every machine where agents run (`k
 **snap hook** = a line in Claude Code's `settings.json` on each machine where you added the hook (the entry says
 which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/keys.md).
 
+## 2026-11-16, panels come back where you left them
+
+Closed and opened again, after a mod reload or a Herdr restart: agent-page shows the tab you were on (and its pages
+keep their localStorage); Gerrit is back on the change, file, compared patch sets or search you had open, with
+resolved threads, the full commit message and passed requirements still unfolded; kit's Agents panel is back on the
+agent you had open and the 關係 card you picked, 放大's window keeps its own scope click, the Kit panel's search words
+and the context popup's open lists stay.
+面板關掉再開、mod 重新載入或重開 Herdr，都回到你上次看的地方（分頁、change、檔案、搜尋、展開的區塊）。
+Needs: **mods** (Windows: copy `agent-page`, `gerrit` and `kit` again; macOS links: nothing).
+
 ## 2026-11-16, the Agents menu's 壓縮 works again after Herdr was opened from a terminal
 
 App patch `0028`: Herdr opened from a terminal inside Herdr (an agent running `open`) kept that terminal's hc identity,

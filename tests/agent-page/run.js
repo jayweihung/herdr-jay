@@ -32,7 +32,7 @@ globalThis.__stubs = {
   shared: (k) => H.shared[k], setShared: (k, v) => { H.shared[k] = v; },
   nextWebEvent: () => new Promise((resolve) => { H.event = resolve; }),
   watchFolder: (dir) => new Promise((resolve, reject) => { H.watching.push(dir); H.wake = resolve; H.fail = reject; }),
-  web: { new: (id, p) => { H.web.push([id, p.src]); return el; } },
+  web: { new: (id, p) => { H.web.push([id, p.src, p.persist]); return el; } },
   webCall: (id, action) => { H.calls.push([id, action]); return null; },
   window: () => ({ platform: "macos" }),
   // exec: the other machine's listing (H.remote: name -> text), scp copies those files into the local folder.
@@ -181,6 +181,7 @@ test("tabs: 進度 first, then pages newest first, titled without the time; a pa
   v.tab = v.names[0];
   render(v);
   assert.equal(H.web[0][0], "page");
+  assert.equal(H.web[0][2], true, "the page keeps its localStorage (persist): our own local file");
   assert.ok(H.web[0][1].startsWith("file://") && H.web[0][1].endsWith("/mods/agent-page/.pages/t63/2026-11-16-0430-%E6%AF%94%E8%BC%83.html"), H.web[0][1]);
 });
 
@@ -198,6 +199,24 @@ test("a page written while open opens in its tab; one rewritten in place reloads
   await changed(folder, [""]);
   assert.equal(v.tab, "status");
   assert.equal(H.watching.length, 4, "keeps watching");
+});
+
+test("the tab shown is kept for the dir: a copy opened again (reload, reopen, restart) shows it; a page gone falls back to 進度", async (V) => {
+  const folder = world();
+  write(folder, "2026-11-16-0400-a.html");
+  write(folder, "2026-11-16-0500-b.html");
+  const v = await open(V);
+  assert.equal(v.tab, "status");
+  write(folder, "2026-11-16-0600-c.html");
+  await changed(folder, ["2026-11-16-0600-c.html"]);
+  assert.equal(H.shared["agent-page/t63/tab"], "2026-11-16-0600-c.html", "a page that opened by itself is kept too");
+  H.shared["agent-page/t63/tab"] = "2026-11-16-0400-a.html"; // as a click on its tab leaves it
+  const w = await open(V);
+  assert.equal(w.tab, "2026-11-16-0400-a.html");
+  rmSync(join(folder, "2026-11-16-0400-a.html"));
+  const x = await open(V);
+  assert.equal(x.tab, "status");
+  assert.equal(H.shared["agent-page/t63/tab"], "status");
 });
 
 test("events naming where a linked mod really is still count; other agents' folders don't", async (V) => {

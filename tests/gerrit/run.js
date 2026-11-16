@@ -117,6 +117,7 @@ const change = (n, extra = {}) => ({ id: `tools%2Fbuild~${n}`, _number: n, proje
   owner: ALICE, updated: "2026-11-10 01:00:00.000000000", status: "NEW", labels: {}, ...extra });
 function freshView(G) {
   H.store = {}; H.notes = []; H.runs = []; H.props = {};
+  for (const k of ["view", "allComments", "fullMsg", "showPassed"]) mem.delete(`gerrit.${k}`); // what the last test left open
   const g = new G();
   g.init({}, { timer: { every() {} }, spawn: () => {} });
   return g;
@@ -1069,6 +1070,32 @@ test("移到上排 on a layout like Herdr's main (tab bar in a column): the butt
     ({ row } = await place({ platform: "windows", buttons: true }));
     assert.deepEqual(row.children.map((c) => c.id), ["gerrit-toggle", "tabs"], "Windows: before the bar (close stays in the corner)");
   } finally { H.window = undefined; }
+});
+
+test("the panel comes back where it was (search, change, compared patch sets, file) after a reload or restart; a copy in its own tab keeps nothing", async (G) => {
+  const g = freshView(G);
+  g.detail = { change: change(5) }; g.diff = { path: "a.c" }; g.cmp = { base: 1, to: 2 }; g.search = { q: "is:open" };
+  g.keepView();
+  assert.deepEqual(JSON.parse(mem.get("gerrit.view")), { open: 5, diff: "a.c", cmp: { base: 1, to: 2 }, search: "is:open" });
+  g.inTab = true; g.diff = null; g.keepView();
+  assert.equal(JSON.parse(mem.get("gerrit.view")).diff, "a.c", "its own tab: nothing written");
+  mem.set("gerrit.allComments", "tools%2Fbuild~5");
+  const calls = [], tasks = [];
+  const h = new G();
+  h.runSearch = async () => { calls.push(["search", h.searchState().value()]); h.search = { q: h.searchState().value(), items: [] }; };
+  h.remember = () => calls.push(["remember"]);
+  h.openChange = async (c) => { calls.push(["open", c.id]); h.detail = { change: change(5) }; };
+  h.setCompare = async (base, to) => calls.push(["compare", base, to]);
+  h.openDiff = async (path) => calls.push(["diff", path]);
+  H.props = {};
+  h.init({}, { timer: { every() {} }, spawn: (f) => tasks.push(f) });
+  for (const f of tasks) await f(cx);
+  assert.deepEqual(calls, [["search", "is:open"], ["remember"], ["open", "5"], ["compare", 1, 2], ["diff", "a.c"]]);
+  assert.equal(h.allComments, "tools%2Fbuild~5", "resolved threads still shown");
+  mem.set("gerrit.view", "{{{not json");
+  const k = new G(); const none = [];
+  k.init({}, { timer: { every() {} }, spawn: (f) => none.push(f) });
+  assert.equal(none.length, 0, "nothing kept: the list");
 });
 
 // ---------- run ----------

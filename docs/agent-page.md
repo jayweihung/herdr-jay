@@ -6,11 +6,13 @@ A pane right of an agent with tabs:
   the command to type), **正在做**, **還沒做**, and **做完的** of the last 3 days by day (older ones stay in the file,
   counted). The agent keeps it in `status.json` (below); the tab redraws when it changes.
 - Then one tab per HTML page the agent wrote for you (a comparison, a design, a diagram), newest first. A new page
-  opens in its tab by itself; ⟳ loads it again.
+  opens in its tab by itself; ⟳ loads it again. Closed and opened again (or after a Herdr restart) it shows the tab
+  you left it on, and a page keeps what it saved in its localStorage.
 
 Open it with the page button in an agent pane's header (beside split / zoom / close; it stays lit while the pane is
 open, and closes it again), or **說明頁** in the Agents list's right-click menu (both from the kit mod), or by the agent.
 agent 右邊一格：第一個分頁「進度」是等你、正在做、還沒做、最近 3 天做完的；後面每個分頁是 agent 寫給你的一頁。
+關掉再開、或重開 Herdr，會回到你上次看的那個分頁。
 用 agent 那格標題列的說明頁按鈕（再按一下關掉）、Agents 清單右鍵的「說明頁」，或 agent 自己開。
 
 - **Only local files** the agent wrote into this mod's folder. No web sites: a link to one opens in the system

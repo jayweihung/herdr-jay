@@ -128,7 +128,7 @@ TZUYU
 
 `fetch.js` reads YouTube's own search page (uploads of this week) for each: no API key, no browser, no tokens. Each
 row has the thumbnail, title, channel, length, when it was posted and the views; click plays it in the panel
-(YouTube's own watch page in a web element; **↗ 瀏覽器** opens it there, **← 影片** goes back), right-click copies the
+(YouTube's own watch page in a web element; **← 影片** goes back), right-click copies the
 link. A search taken out of the file takes its videos with it; the list keeps the newest 300.
 影片分頁：videos.txt 一行一個搜尋，點一下在面板裡播（⤢ 放大面板）。
 

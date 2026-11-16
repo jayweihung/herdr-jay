@@ -59,7 +59,7 @@ const why = (r) => String(r.why_spiking ?? "").replace(/^\d+ evidence items? on 
 const fs = () => Number(settings().ui_font_size) || 13;
 const stop = (_e, cx) => cx.stop_propagation();
 const spin = (size, color) => svg("mods/workspace-chrome/spinner.svg").size(size).flex_none().text_color(color).spin(900);
-// the small buttons above a web page (← back, ⟳, ↗)
+// the small buttons above a web page (← back, ⟳)
 const smallBtn = (t, z, id, label, fn) => div().id(id).h(26).px(8).flex().items_center().rounded(5).cursor_pointer().text_size(z - 1)
   .bg(t.raised).hover((s) => s.bg(t.hover)).on_mouse_down("left", stop).on_click(fn).child(label);
 const ago = (ms) => { const m = Math.max(0, Math.floor((Date.now() - ms) / 60000)); return m < 1 ? "剛剛" : m < 60 ? `${m} 分前` : m < 1440 ? `${Math.floor(m / 60)} 小時前` : `${Math.floor(m / 1440)} 天前`; };
@@ -179,15 +179,14 @@ export default class Trend extends View {
       .when(Boolean(this.webNote), (el) => el.child(div().px(10).py(4).text_size(z - 1.5).text_color(t.muted).truncate().child(this.webNote)))
       .child(div().flex_1().min_h(0).child(web.new(REPORT_CELL, { src: fileUrl(`${this.reportDir}/${this.view}`) })));
   }
-  // one video played here: YouTube's own watch page; ↗ opens it in the browser, ← goes back to the list
+  // one video played here: YouTube's own watch page; ← goes back to the list
   videoPlayer(t, z) {
-    const x = this.playing, url = `https://www.youtube.com/watch?v=${x.id}`;
+    const x = this.playing;
     return v_flex().flex_1().min_h(0)
       .child(h_flex().h(34).px(8).gap(6).flex_none().items_center().border_b(1).border_color(t.border)
         .child(smallBtn(t, z, "vid-back", "← 影片", (_e, cx) => { this.playing = null; cx.notify(); }))
-        .child(div().flex_1().min_w(0).truncate().text_size(z - 1).text_color(t.muted).child(x.title))
-        .child(smallBtn(t, z, "vid-open", "↗ 瀏覽器", () => openLink(url))))
-      .child(div().flex_1().min_h(0).child(web.new(VIDEO_CELL, { src: url })));
+        .child(div().flex_1().min_w(0).truncate().text_size(z - 1).text_color(t.muted).child(x.title)))
+      .child(div().flex_1().min_h(0).child(web.new(VIDEO_CELL, { src: `https://www.youtube.com/watch?v=${x.id}` })));
   }
   // My videos: what fetch.js's YouTube searches (one per line of videos.txt) found, newest first; a click plays it
   // here, right-click copies the link. Thumbnails: the copies fetch.js keeps in trend/thumbs/.

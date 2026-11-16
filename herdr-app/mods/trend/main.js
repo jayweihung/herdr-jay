@@ -758,7 +758,10 @@ export default class Trend extends View {
   // the videos: a chip per search (videos.txt's order), its videos as cards with YouTube's thumbnail, newest found
   // first; a card plays it (do=play&name=<id>). When found: a date, not 「幾分前」, so the page doesn't change every minute
   videosHtml() {
-    const v = this.videos ?? {}, t = theme(), sug = (v.suggest ?? []).filter((s) => !this.handled?.has(s.q));
+    // suggestions are fetch.js's (its last run): ones you've since said ＋ or 不要 to stay away here (videos-skip.txt,
+    // your searches), also after the panel reloads
+    const v = this.videos ?? {}, t = theme(), sug = (v.suggest ?? []).filter((s) => !this.handled?.has(s.q)
+      && !(this.skip ?? []).includes(s.q.toLowerCase()) && !(v.queries ?? []).some((q) => q.toLowerCase() === s.q.toLowerCase()));
     // 不要 to a suggestion hides the videos it's about: what it says beyond your searches' words ("tzuyu owndays" →
     // owndays; "twice 子瑜搞笑" → 搞笑), all of it in the title; a starred video stays
     const qwords = (v.queries ?? []).flatMap((q) => q.toLowerCase().split(/\s+/)).filter(Boolean);
@@ -778,15 +781,18 @@ export default class Trend extends View {
     return pageHtml(`<style>.vid{display:flex;gap:10px;align-items:flex-start}.vid img{flex:none;width:136px;aspect-ratio:16/9;object-fit:cover;border-radius:6px;background:var(--bg)}`
       + `.vb{flex:1;min-width:0}.err{margin:8px 12px;font-size:.88em;color:${t.ansi1}}`
       + `.star{flex:none;border:0;background:none;padding:0 2px;font-size:1.2em;line-height:1;color:var(--muted);cursor:pointer}.star:hover,.star.on{color:var(--yellow)}`
-      + `.sugs{display:flex;flex-wrap:wrap;gap:6px;margin:0 10px 8px}.card.pill{display:inline-flex;align-items:center;gap:6px;margin:0;padding:3px 4px 3px 10px}`
+      + `.sugbox{margin:10px 10px 4px;padding:8px 10px;border:1px dashed var(--border);border-radius:9px}.sugbox .hd{font-size:.85em;color:var(--muted);margin-bottom:6px}`
+      + `.sugbox .hint{font-size:.8em;color:var(--dim);margin-top:6px}.sugs{display:flex;flex-wrap:wrap;gap:6px}`
+      + `.card.pill{display:inline-flex;align-items:center;gap:6px;margin:0;padding:3px 4px 3px 10px}`
       + `.pill button{font:inherit;font-size:.85em;padding:1px 7px;border-radius:5px;border:1px solid var(--border);background:var(--bg);color:var(--fg);cursor:pointer}</style>`
       + `<nav><button data-cat="all">全部 ${items.length}</button>${starred.length ? `<button data-cat="⭐ 收藏">⭐ 收藏 ${starred.length}</button>` : ""}`
       + `${groups.map(([q, xs]) => `<button data-cat="${esc(q)}"${xs.length ? "" : " disabled"}>${esc(q)} ${xs.length}</button>`).join("")}</nav>`
-      + `<main>${sug.length ? `<h2>建議的主題：「＋ 搜這個」會加成新主題、馬上搜；「不要」只是不再建議（滑過看原因）</h2><div class="sugs">${sug.map((s) => `<div class="card pill" data-name="${esc(s.q)}" title="${esc(s.why)}">`
-        + `<span>${esc(s.q)}</span><button data-do="add" title="加進 videos.txt，馬上搜">＋ 搜這個</button><button data-do="skip" title="不再建議（不會刪任何影片）">不要</button></div>`).join("")}</div>` : ""}`
+      + `<main>${sug.length ? `<div class="sugbox"><div class="hd">💡 建議的主題（還沒加入；下面的影片是你已有主題的，跟這些無關）</div><div class="sugs">${sug.map((s) => `<div class="card pill" data-name="${esc(s.q)}" title="${esc(s.why)}">`
+        + `<span>${esc(s.q)}</span><button data-do="add" title="加成主題，馬上搜">＋ 搜這個</button><button data-do="skip" title="不再建議，相關影片也拿掉">不要</button></div>`).join("")}</div>`
+        + `<div class="hint">＋ 搜這個：加成新主題、馬上搜，影片出現在它自己的分類。不要：不再建議，標題跟它有關的影片也拿掉。滑過看為什麼建議。</div></div>` : ""}`
       + `${errs}${items.length ? "" : '<p class="err" style="color:var(--muted)">還沒找到影片</p>'}`
       + `${starred.length ? `<section data-cat="⭐ 收藏"><h2>⭐ 收藏</h2>${starred.map(card).join("")}</section>` : ""}`
-      + `${groups.filter(([, xs]) => xs.length).map(([q, xs]) => `<section data-cat="${esc(q)}"><h2>${esc(q)}</h2>${xs.map(card).join("")}</section>`).join("")}</main>`);
+      + `${groups.filter(([, xs]) => xs.length).map(([q, xs]) => `<section data-cat="${esc(q)}"><h2>🔍 主題「${esc(q)}」搜到的</h2>${xs.map(card).join("")}</section>`).join("")}</main>`);
   }
 
   // 問 agent: which trend agent (this space's first), the tool a new one opens with, a free question, what happened

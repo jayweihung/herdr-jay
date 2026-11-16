@@ -425,7 +425,9 @@ export default class Trend extends View {
   playSrc(x) {
     const from = this.playFrom > 0 ? this.playFrom : 0;
     if (!this.player?.includes("{id}")) return `https://www.youtube.com/watch?v=${x.id}${from ? `&t=${from}s` : ""}`;
-    const u = this.player.replace("{id}", x.id), q = [from ? `t=${from}` : "", localStorage.getItem("glow") === "0" ? "glow=0" : ""].filter(Boolean).join("&");
+    // sb: the video's storyboard spec (its progress-bar frames), so the 背光 follows the video
+    const sb = localStorage.getItem("glow") !== "0" && this.storyboards?.[x.id];
+    const u = this.player.replace("{id}", x.id), q = [from ? `t=${from}` : "", localStorage.getItem("glow") === "0" ? "glow=0" : "", sb ? `sb=${encodeURIComponent(sb)}` : ""].filter(Boolean).join("&");
     return q ? `${u}${u.includes("?") ? "&" : "?"}${q}` : u;
   }
   // one video played here (the player page in trend/player, else YouTube's watch page); 📝 整理重點 asks the trend
@@ -453,7 +455,8 @@ export default class Trend extends View {
   // My videos: what fetch.js's YouTube searches (one per line of videos.txt) found, a web page like the list's
   // (writePages): a chip per search, newest found first; a click plays it here
   videoList(t, z) {
-    if (this.playing) return this.videoPlayer(t, z);
+    // the storyboard spec on its way (a few seconds, once a day a video): the player waits for it, not loads twice
+    if (this.playing) return this.sbWait === this.playing.id ? div().flex_1().bg(theme().background) : this.videoPlayer(t, z);
     return this.pageCell(t, VIDEOS_CELL, "videos.html");
   }
   get results() { return Array.isArray(this.data?.results) ? this.data.results : []; }
@@ -495,11 +498,26 @@ export default class Trend extends View {
   // fetch.js --videos / --topics: the 影片 or 熱門 topic searches that are due (a new one is), with the node the job
   // uses (Herdr's own PATH may lack Homebrew's); a 熱門 topic opens Reddit's and Dcard's pages in Chrome: minutes
   async searchNow(flag) {
+    const r = await this.fetchJs([flag], 300000);
+    if (r?.code !== 0) throw new Error(String(r?.stderr || r?.stdout || `exit ${r?.code}`).trim().slice(0, 200));
+  }
+  async fetchJs(args, timeout) {
     let node = "node";
     if (window()?.platform !== "windows") for (const p of ["/opt/homebrew/bin/node", "/usr/local/bin/node", "/usr/bin/node"])
       if (await fsp.exists(p).catch(() => false)) { node = p; break; }   // the mod's fs/promises has exists, not access
-    const r = await exec(node, [`${appHome().replace(/\\/g, "/")}/mods/trend/fetch.js`, flag], { timeout: 300000 });
-    if (r?.code !== 0) throw new Error(String(r?.stderr || r?.stdout || `exit ${r?.code}`).trim().slice(0, 200));
+    return exec(node, [`${appHome().replace(/\\/g, "/")}/mods/trend/fetch.js`, ...args], { timeout });
+  }
+  // a video's storyboard spec (fetch.js --storyboard: its watch page, once a day), for the player page's 背光; none
+  // in 8 seconds: it plays without (the thumbnails)
+  storyboardFor(x, cx) {
+    if ((this.storyboards ??= {})[x.id] !== undefined || this.sbWait === x.id) return;
+    this.sbWait = x.id;
+    cx.spawn(async (cx) => {
+      const r = await this.fetchJs(["--storyboard", x.id], 8000).catch(() => null);
+      this.storyboards[x.id] = r?.code === 0 ? String(r.stdout ?? "").trim() : "";
+      if (this.sbWait === x.id) this.sbWait = null;
+      cx.notify();
+    });
   }
   // ↻: run the scheduled job now (launchd on macOS, Task Scheduler on Windows); it writes status.json at once
   async kick(cx) {
@@ -741,6 +759,7 @@ export default class Trend extends View {
       const x = this.videos?.items?.find((i) => i.id === h.get("name")) ?? this.stars?.[h.get("name")];
       if (!x) return;
       this.playing = x; this.playFrom = this.progress?.[x.id] > 5 ? this.progress[x.id] : 0; this.played = true; this.notes = null; this.load(cx);
+      this.storyboardFor(x, cx);
       // what you play: fetch.js suggests searches from it (channels, title words); the newest 300
       cx.spawn(async () => {
         const file = `${this.dir}/plays.json`, was = await readTextFile(file).catch(() => null);

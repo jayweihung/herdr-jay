@@ -26,10 +26,12 @@ const put = (name, text) => { fs.writeFileSync(path.join(out, `${name}.tmp`), te
 const now = () => new Date().toISOString().replace(/\.\d+Z$/, "Z");
 const started = now();
 // `node fetch.js --videos`: only the 影片 searches that are due (the panel runs it when you ＋ a search, so it shows
-// at once); `--topics`: only 熱門's topic searches that are due (its ＋). No status.json, last30days or front pages.
-// 只搜影片／只搜熱門主題：面板按「＋」加主題時馬上跑
+// at once); `--topics`: only 熱門's topic searches that are due (its ＋); `--storyboard <id>`: prints a video's
+// storyboard spec (below). No status.json, last30days or front pages.
+// 只搜影片／只搜熱門主題／拿一支影片的預覽圖位置：面板按「＋」或播放時跑
 const VIDEOS_ONLY = process.argv[2] === "--videos", TOPICS_ONLY = process.argv[2] === "--topics";
-if (!VIDEOS_ONLY && !TOPICS_ONLY) put("status.json", JSON.stringify({ started, finished: null, ok: null, error: null }) + "\n");
+const STORYBOARD = process.argv[2] === "--storyboard" ? String(process.argv[3] ?? "") : null;
+if (!VIDEOS_ONLY && !TOPICS_ONLY && STORYBOARD === null) put("status.json", JSON.stringify({ started, finished: null, ok: null, error: null }) + "\n");
 
 // EXCLUDE_SOURCES=reddit: last30days' own Reddit search only gets 403 (Reddit's rows come from its page, below), and
 // every try is one more hit from the house's IP / last30days 自己的 Reddit 搜尋只會 403，不讓它打
@@ -43,7 +45,7 @@ if (proxy) {
 
 let error = null;
 const l30 = process.argv[2];
-if (VIDEOS_ONLY || TOPICS_ONLY) {}
+if (VIDEOS_ONLY || TOPICS_ONLY || STORYBOARD !== null) {}
 else if (!l30 || !fs.existsSync(l30)) error = `找不到 last30days.py：排程給的路徑是「${l30 ?? ""}」（docs/trend.md「安裝」）`;
 else {
   const tmp = path.join(out, "trends.json.tmp");
@@ -642,7 +644,25 @@ function track(rows) {
   put("history.json", JSON.stringify(h) + "\n");
   return h.since;
 }
-if (VIDEOS_ONLY) videos().catch(() => {}).finally(() => process.exit(0));
+// A video's storyboard spec: where YouTube keeps the small frames of its progress-bar preview (sprite sheets, one
+// frame every few seconds; the format: yt-dlp's _extract_storyboard), for the player page's 背光 to follow the
+// video. Read once from its watch page (ytInitialPlayerResponse), kept a day in storyboards.json; printed, or nothing.
+// 一支影片的預覽小圖位置（背光跟著劇情換色用）：讀一次它的影片頁，存一天。
+async function storyboard(id) {
+  if (!/^[\w-]{11}$/.test(id)) return;
+  let kept = {};
+  try { kept = JSON.parse(fs.readFileSync(path.join(out, "storyboards.json"), "utf8")); } catch {}
+  if (kept[id] && Date.now() - Date.parse(kept[id].at) < 24 * HOUR_MS) return void process.stdout.write(kept[id].spec);
+  const r = await fetch(`https://www.youtube.com/watch?v=${id}&hl=zh-TW&gl=TW`, { headers: { "user-agent": chromeUa(), "accept-language": "zh-TW,zh;q=0.9" }, signal: AbortSignal.timeout(15000) });
+  const spec = JSON.parse(`"${/"playerStoryboardSpecRenderer":\{"spec":"((?:[^"\\]|\\.)*)"/.exec(await r.text())?.[1] ?? ""}"`);
+  const t = Date.now();
+  kept = Object.fromEntries(Object.entries(kept).filter(([, v]) => t - Date.parse(v.at) < 24 * HOUR_MS));
+  kept[id] = { at: now(), spec };
+  put("storyboards.json", JSON.stringify(kept) + "\n");
+  process.stdout.write(spec);
+}
+if (STORYBOARD !== null) storyboard(STORYBOARD).catch(() => {}).finally(() => process.exit(0));
+else if (VIDEOS_ONLY) videos().catch(() => {}).finally(() => process.exit(0));
 else if (TOPICS_ONLY) topics().catch(() => {}).finally(() => process.exit(0));
 else feeds().catch(() => {}).then(topics).catch(() => {}).then(videos).catch(() => {}).finally(() => {
   put("status.json", JSON.stringify({ started, finished: now(), ok: !error, error }) + "\n");

@@ -138,8 +138,11 @@ Windows 一樣：複製 mod，用工作排程器每 30 分鐘跑；公司電腦�
 
 ## My videos / 我的影片
 
-The panel's **影片** tab: your own YouTube searches, one per line in `~/.config/herdr-app/trend/videos.txt` (`#`
-starts a comment), e.g.
+The panel's **影片** tab: your topics, each a YouTube search. The row on top is the topics: click one for its videos
+only, **✕** on one takes it out with its videos (it asks first; a starred video stays under ⭐ 收藏), **＋ 加主題**
+opens a box to type one or click a suggestion: it's searched at once (`node fetch.js --videos`, 「正在搜」 meanwhile)
+and shows up in the row with its videos. The topics live in `~/.config/herdr-app/trend/videos.txt`, one per line
+(`#` starts a comment), which you may also edit by hand, e.g.
 
 ```
 TWICE 子瑜
@@ -147,11 +150,10 @@ TZUYU
 ```
 
 `fetch.js` reads YouTube's own search page (uploads of this week) for each: no API key, no browser, no tokens; its
-videos and its Shorts shelves (a Short says `Shorts` for its length). Each
-card has YouTube's thumbnail, the title, channel, length, when it was posted and the views, under a chip per search;
-click plays it in the panel (**← 影片** goes back). A search taken out of the file takes its videos with it; the list
-keeps the newest 300.
-影片分頁：videos.txt 一行一個搜尋，點一下在面板裡播（⤢ 放大面板）。
+videos and its Shorts shelves (a Short says `Shorts` for its length). Each card has YouTube's thumbnail, the title,
+channel, length, when it was posted and the views; a video stays under the topic that found it first, never two.
+Click plays it in the panel (**← 影片** goes back). The list keeps the newest 300.
+影片分頁：上面一排就是主題（點一個只看它的影片、✕ 連影片一起拿掉、「＋ 加主題」打字或點建議，馬上搜）；點影片在面板裡播（⤢ 放大面板）。
 
 **📝 整理重點** above a playing video asks the trend agent (as the list's buttons do: tokens, only when you press
 it) for the video's key points: it gets that one video's subtitles (or, without them, its description and comments)
@@ -159,14 +161,11 @@ and writes a one-line summary and 3 to 8 points with times to `<Herdr home>/tren
 the player (right-click copies it); **📝 重新整理** asks again. 懶得看整支：按「📝 整理重點」，trend agent 整理好的重點會
 出現在播放器下面。
 
-**建議的主題** at the top of the tab, no tokens: a channel you played 2 or more videos of, a word in the titles of 2
+The suggestions in the ＋ 加主題 box, no tokens: a channel you played 2 or more videos of, a word in the titles of 2
 or more of them (Chinese: a run of 2 to 4 characters in 3 or more), and what YouTube's own search box suggests for
-each of your searches (asked once a day each), as small chips (the reason when you hover one). **＋ 搜這個** puts it in
-`videos.txt` and searches it right away (`node fetch.js --videos`, 「正在搜」 meanwhile): its videos show under its own
-chip (a video stays under the search that found it first, never two). **不要** puts it in `videos-skip.txt`: not
-suggested again, and the videos it's about leave the tab at once: what it says beyond your searches' words, all of it
-in the title (`tzuyu owndays` → OWNDAYS; `twice 子瑜搞笑` → 搞笑); a starred video stays. Take a line out of
-`videos-skip.txt` to have them back. 不用自己想主題：「＋ 搜這個」加成主題並馬上搜；「不要」不再建議，相關影片也一起拿掉。
+each of your topics (asked once a day each); hover one for why. A line in `videos-skip.txt` (yours) is never suggested
+and hides the videos it's about: what it says beyond your topics' words, all of it in the title (`tzuyu owndays` →
+OWNDAYS); a starred video stays. 加主題的框裡有建議（看你點過的影片、YouTube 的搜尋建議），點一下就加。
 
 **☆** on a card stars the video: it stays under **⭐ 收藏** for good (`trend/stars.json`), whatever the searches later
 find or drop (the list keeps only the newest 300, and a search taken out takes its videos); **⭐** unstars it.

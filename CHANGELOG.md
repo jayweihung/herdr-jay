@@ -9,6 +9,15 @@ says which) · **kit** = update kit itself on every machine where agents run (`k
 **snap hook** = a line in Claude Code's `settings.json` on each machine where you added the hook (the entry says
 which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/keys.md).
 
+## 2026-11-16, trend: the 影片 tab's top row is your topics
+
+Needs: **mods** (Windows: copy `trend` again; macOS link: nothing).
+
+- The row on top is your topics: click one for its videos, ✕ takes it out with its videos (a starred one stays),
+  ＋ 加主題 opens a box to type one or click a suggestion, searched at once. The suggestions no longer sit above the
+  videos as if they were about them, and lose their 不要. 影片分頁上面一排就是主題：點它看影片、✕ 連影片拿掉、
+  「＋ 加主題」打字或點建議，馬上搜。
+
 ## 2026-11-16, trend: every 30 minutes
 
 Needs: **mods** (Windows: copy `trend` again; macOS link: nothing), and the job's interval: macOS

@@ -199,6 +199,8 @@ const smallBtn = (t, z, id, label, fn) => div().id(id).h(26).px(8).flex().items_
 const ago = (ms) => { const m = Math.max(0, Math.floor((Date.now() - ms) / 60000)); return m < 1 ? "剛剛" : m < 60 ? `${m} 分前` : m < 1440 ? `${Math.floor(m / 60)} 小時前` : `${Math.floor(m / 1440)} 天前`; };
 const hhmm = (ms) => { const d = new Date(ms); return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; };
 const mmss = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+// the topics in videos.txt: one per line, # a comment
+const topicsOf = (text) => String(text ?? "").split("\n").map((l) => l.trim()).filter((l) => l && !l.startsWith("#"));
 const num = (n) => (n >= 10000 ? `${(n / 1000).toFixed(0)}k` : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
 // "HN 4.7k 分 · 3.5k 留言 · Reddit 1.2k 分": each source's own counters, the ones people know
 function engagementText(e) {
@@ -278,7 +280,9 @@ export default class Trend extends View {
     }
     // the videos you starred (stars.json, the panel's own): kept for good, whatever the searches find or drop
     if (this.stars === undefined) try { this.stars = JSON.parse((await readTextFile(`${this.dir}/stars.json`).catch(() => null)) ?? "{}") ?? {}; } catch { this.stars = {}; }
-    // the suggestions you said 不要 to (videos-skip.txt): their videos leave the 影片 tab too (videosHtml)
+    // your topics (videos.txt, which the 影片 tab's ＋ and ✕ write), and videos-skip.txt: a line there is never suggested
+    // and hides the videos it's about (videosHtml)
+    this.queries = topicsOf(await readTextFile(`${this.dir}/videos.txt`).catch(() => null));
     this.skip = ((await readTextFile(`${this.dir}/videos-skip.txt`).catch(() => null)) ?? "").split("\n").map((l) => l.trim().toLowerCase()).filter(Boolean);
     // the key points of the video playing, once the trend agent has written them (📝 整理重點)
     this.notes = this.playing ? await readTextFile(`${this.dir}/notes/${this.playing.id}.txt`).catch(() => null) : null;
@@ -372,8 +376,6 @@ export default class Trend extends View {
   // (writePages): a chip per search, newest found first; a click plays it here
   videoList(t, z) {
     if (this.playing) return this.videoPlayer(t, z);
-    if (!this.videos?.queries?.length && !Object.keys(this.stars ?? {}).length) return div().flex_1().p(14).text_color(t.muted).whitespace_normal()
-      .child(`在 ${this.dir}/videos.txt 一行寫一個 YouTube 搜尋（例如 TWICE 子瑜），排程每 3 小時搜一次這週的新影片；按 ↻ 現在更新 馬上搜。`);
     return this.pageCell(t, VIDEOS_CELL, "videos.html");
   }
   get results() { return Array.isArray(this.data?.results) ? this.data.results : []; }
@@ -678,21 +680,23 @@ export default class Trend extends View {
       });
       return;
     }
-    // a suggested search: ＋ puts it in videos.txt and searches it now (fetch.js --videos; the page says 搜尋中 meanwhile),
-    // ✕ puts it in videos-skip.txt (never suggested again)
-    if (act === "add" || act === "skip") {
-      const q = (h.get("name") ?? "").trim();
+    // ＋ 加主題 (typed, or a suggestion clicked): into videos.txt and searched now (fetch.js --videos; 正在搜 meanwhile).
+    // ✕ on a topic: out of videos.txt, and its videos with it (a starred one stays under ⭐ 收藏)
+    if (act === "add" || act === "drop") {
+      const q = (h.get("name") ?? "").trim().replace(/\s+/g, " ");
       if (!q) return;
-      (this.handled ??= new Set()).add(q);   // gone from the page now; videos.json drops it on the next run
-      if (act === "skip") (this.skip ??= []).push(q.toLowerCase());   // its videos go at once (videosHtml)
+      const file = `${this.dir}/videos.txt`;
       cx.spawn(async (cx) => {
-        const file = `${this.dir}/${act === "add" ? "videos.txt" : "videos-skip.txt"}`, was = await readTextFile(file).catch(() => null);
-        await writeTextFile(file, `${was ?? ""}${was && !was.endsWith("\n") ? "\n" : ""}${q}\n`, was).catch(() => {});
+        const was = await readTextFile(file).catch(() => null), lines = (was ?? "").split("\n");
+        const same = (l) => l.trim().toLowerCase() === q.toLowerCase();
+        if (act === "add" && lines.some(same)) return;
+        const text = act === "add" ? `${was ?? ""}${was && !was.endsWith("\n") ? "\n" : ""}${q}\n` : lines.filter((l) => !same(l)).join("\n");
+        if (!(await writeTextFile(file, text, was).then(() => true, () => false))) return;
+        this.queries = topicsOf(text);
+        if (act === "add") (this.searching ??= new Set()).add(q);
         await this.writePages();
         cx.notify();
         if (act !== "add") return;
-        (this.searching ??= new Set()).add(q);
-        await this.writePages();
         // one search run at a time: two at once would both rewrite videos.json
         this.searchRun = (this.searchRun ?? Promise.resolve()).then(() => this.searchVideos()).catch(() => {});
         await this.searchRun;
@@ -755,21 +759,21 @@ export default class Trend extends View {
       + `<div class="top"><span class="title">${esc(r.title || r.topic || r.name)}</span></div>`
       + `<div class="meta">${esc([reportWhen(r.name), r.topic].filter(Boolean).join(" · "))}</div></div>`).join("")}</main>`);
   }
-  // the videos: a chip per search (videos.txt's order), its videos as cards with YouTube's thumbnail, newest found
-  // first; a card plays it (do=play&name=<id>). When found: a date, not 「幾分前」, so the page doesn't change every minute
+  // the videos: a chip per topic (videos.txt's order; ✕ takes the topic and its videos out), ＋ 加主題 opening a box
+  // to type one or click a suggestion (searched at once), then each topic's videos as cards with YouTube's thumbnail,
+  // newest found first; a card plays it (do=play&name=<id>). When found: a date, not 「幾分前」, so the page doesn't
+  // change every minute. The topic and add clicks are this page's own (data-act, below), not pageHtml's.
   videosHtml() {
-    // suggestions are fetch.js's (its last run): ones you've since said ＋ or 不要 to stay away here (videos-skip.txt,
-    // your searches), also after the panel reloads
-    const v = this.videos ?? {}, t = theme(), sug = (v.suggest ?? []).filter((s) => !this.handled?.has(s.q)
-      && !(this.skip ?? []).includes(s.q.toLowerCase()) && !(v.queries ?? []).some((q) => q.toLowerCase() === s.q.toLowerCase()));
-    // 不要 to a suggestion hides the videos it's about: what it says beyond your searches' words ("tzuyu owndays" →
-    // owndays; "twice 子瑜搞笑" → 搞笑), all of it in the title; a starred video stays
-    const qwords = (v.queries ?? []).flatMap((q) => q.toLowerCase().split(/\s+/)).filter(Boolean);
+    const v = this.videos ?? {}, t = theme(), queries = this.queries ?? v.queries ?? [];
+    const isTopic = (s) => queries.some((q) => q.toLowerCase() === s.toLowerCase());
+    const sug = (v.suggest ?? []).filter((s) => !(this.skip ?? []).includes(s.q.toLowerCase()) && !isTopic(s.q));
+    // a line of videos-skip.txt hides the videos it's about: what it says beyond your topics' words ("tzuyu owndays" →
+    // owndays), all of it in the title; a starred video stays
+    const qwords = queries.flatMap((q) => q.toLowerCase().split(/\s+/)).filter(Boolean);
     const nots = (this.skip ?? []).map((s) => qwords.reduce((r, w) => r.split(w).join(" "), s).split(/\s+/).filter(Boolean)).filter((ws) => ws.length);
-    const items = (v.items ?? []).filter((x) => this.stars?.[x.id] || !nots.some((ws) => ws.every((w) => x.title.toLowerCase().includes(w))));
+    const items = (v.items ?? []).filter((x) => queries.includes(x.query) && (this.stars?.[x.id] || !nots.some((ws) => ws.every((w) => x.title.toLowerCase().includes(w)))));
     const when = (s) => { const d = new Date(Date.parse(s)); return Number.isNaN(d.getTime()) ? "" : `${d.getMonth() + 1}/${d.getDate()} ${hhmm(d.getTime())} 找到`; };
-    const errs = [...[...(this.searching ?? [])].map((q) => `<p class="err" style="color:var(--muted)">正在搜「${esc(q)}」…</p>`),
-      ...Object.entries(v.errors ?? {}).map(([q, e]) => `<p class="err">${esc(q ? `「${q}」：${e}` : e)}</p>`)].join("");
+    const errs = Object.entries(v.errors ?? {}).filter(([q]) => !q || isTopic(q)).map(([q, e]) => `<p class="err">${esc(q ? `「${q}」：${e}` : e)}</p>`).join("");
     const card = (x) => `<div class="card vid" data-do="play" data-name="${esc(x.id)}">`
       + `<img src="https://i.ytimg.com/vi/${esc(x.id)}/mqdefault.jpg" alt="" loading="lazy"><div class="vb">`
       + `<div class="title">${esc(x.title)}</div>`
@@ -777,22 +781,33 @@ export default class Trend extends View {
       + `<div class="meta">${esc([when(x.found), this.progress?.[x.id] > 5 ? `▶ 上次看到 ${mmss(this.progress[x.id])}` : ""].filter(Boolean).join(" · "))}</div></div>`
       + `<button class="star${this.stars?.[x.id] ? " on" : ""}" data-do="star" title="${this.stars?.[x.id] ? "取消收藏" : "收藏：一直留著"}">${this.stars?.[x.id] ? "⭐" : "☆"}</button></div>`;
     const starred = Object.values(this.stars ?? {}).sort((a, b) => String(b.starred).localeCompare(String(a.starred)));
-    const groups = (v.queries ?? []).map((q) => [q, items.filter((x) => x.query === q)]);
+    const groups = queries.map((q) => [q, items.filter((x) => x.query === q)]);
+    const status = (q, n) => this.searching?.has(q) ? "正在搜…" : n ? "" : "這週還沒有影片";
     return pageHtml(`<style>.vid{display:flex;gap:10px;align-items:flex-start}.vid img{flex:none;width:136px;aspect-ratio:16/9;object-fit:cover;border-radius:6px;background:var(--bg)}`
-      + `.vb{flex:1;min-width:0}.err{margin:8px 12px;font-size:.88em;color:${t.ansi1}}`
+      + `.vb{flex:1;min-width:0}.err{margin:8px 12px;font-size:.88em;color:${t.ansi1}}.empty{margin:4px 12px 10px;font-size:.88em;color:var(--muted)}`
       + `.star{flex:none;border:0;background:none;padding:0 2px;font-size:1.2em;line-height:1;color:var(--muted);cursor:pointer}.star:hover,.star.on{color:var(--yellow)}`
-      + `.sugbox{margin:10px 10px 4px;padding:8px 10px;border:1px dashed var(--border);border-radius:9px}.sugbox .hd{font-size:.85em;color:var(--muted);margin-bottom:6px}`
-      + `.sugbox .hint{font-size:.8em;color:var(--dim);margin-top:6px}.sugs{display:flex;flex-wrap:wrap;gap:6px}`
-      + `.card.pill{display:inline-flex;align-items:center;gap:6px;margin:0;padding:3px 4px 3px 10px}`
-      + `.pill button{font:inherit;font-size:.85em;padding:1px 7px;border-radius:5px;border:1px solid var(--border);background:var(--bg);color:var(--fg);cursor:pointer}</style>`
+      + `nav .x{margin-left:7px;opacity:.55}nav .x:hover{opacity:1;color:${t.ansi1}}nav button.addt{color:var(--accent);border-style:dashed}`
+      + `#addbox{margin:10px 10px 4px;padding:10px;border:1px dashed var(--border);border-radius:9px}#addbox .hd{font-size:.85em;color:var(--muted);margin-bottom:8px}`
+      + `#addform{display:flex;gap:6px;margin-bottom:8px}#addq{flex:1;min-width:0;font:inherit;padding:4px 8px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--fg)}`
+      + `#addbox button{font:inherit;font-size:.88em;padding:3px 10px;border-radius:6px;border:1px solid var(--border);background:var(--raised);color:var(--fg);cursor:pointer}`
+      + `#addform button{background:var(--solid);color:var(--solid-fg);border-color:var(--solid)}.sugs{display:flex;flex-wrap:wrap;gap:6px}</style>`
       + `<nav><button data-cat="all">全部 ${items.length}</button>${starred.length ? `<button data-cat="⭐ 收藏">⭐ 收藏 ${starred.length}</button>` : ""}`
-      + `${groups.map(([q, xs]) => `<button data-cat="${esc(q)}"${xs.length ? "" : " disabled"}>${esc(q)} ${xs.length}</button>`).join("")}</nav>`
-      + `<main>${sug.length ? `<div class="sugbox"><div class="hd">💡 建議的主題（還沒加入；下面的影片是你已有主題的，跟這些無關）</div><div class="sugs">${sug.map((s) => `<div class="card pill" data-name="${esc(s.q)}" title="${esc(s.why)}">`
-        + `<span>${esc(s.q)}</span><button data-do="add" title="加成主題，馬上搜">＋ 搜這個</button><button data-do="skip" title="不再建議，相關影片也拿掉">不要</button></div>`).join("")}</div>`
-        + `<div class="hint">＋ 搜這個：加成新主題、馬上搜，影片出現在它自己的分類。不要：不再建議，標題跟它有關的影片也拿掉。滑過看為什麼建議。</div></div>` : ""}`
-      + `${errs}${items.length ? "" : '<p class="err" style="color:var(--muted)">還沒找到影片</p>'}`
+      + `${groups.map(([q, xs]) => `<button data-cat="${esc(q)}">${esc(q)} ${this.searching?.has(q) ? "…" : xs.length}<span class="x" data-act="drop" data-q="${esc(q)}" title="拿掉這個主題和它的影片">✕</span></button>`).join("")}`
+      + `<button class="addt" data-act="toggle">＋ 加主題</button></nav>`
+      + `<main><div id="addbox" hidden><div class="hd">加主題：打一個 YouTube 搜尋，或點一個建議，馬上搜；影片會出現在它自己的分類</div>`
+      + `<form id="addform"><input id="addq" placeholder="例如：TWICE 子瑜 直拍" autocomplete="off"><button>加</button></form>`
+      + `${sug.length ? `<div class="sugs">${sug.map((s) => `<button data-act="add" data-q="${esc(s.q)}" title="${esc(s.why)}">＋ ${esc(s.q)}</button>`).join("")}</div>` : ""}</div>`
+      + `${errs}${queries.length ? "" : '<p class="empty">還沒有主題：按上面的「＋ 加主題」</p>'}`
       + `${starred.length ? `<section data-cat="⭐ 收藏"><h2>⭐ 收藏</h2>${starred.map(card).join("")}</section>` : ""}`
-      + `${groups.filter(([, xs]) => xs.length).map(([q, xs]) => `<section data-cat="${esc(q)}"><h2>🔍 主題「${esc(q)}」搜到的</h2>${xs.map(card).join("")}</section>`).join("")}</main>`);
+      + `${groups.map(([q, xs]) => `<section data-cat="${esc(q)}"><h2>🔍 ${esc(q)}</h2>${status(q, xs.length) ? `<p class="empty">${status(q, xs.length)}</p>` : ""}${xs.map(card).join("")}</section>`).join("")}</main>`
+      // this page's own clicks, before pageHtml's: ＋ 加主題 opens the box (remembered), a suggestion or 加 adds, ✕ drops
+      + `<script>(()=>{const K="videos.html:add",box=document.getElementById("addbox"),inp=document.getElementById("addq");`
+      + `const go=(a,q)=>{if(!q)return;location.hash="do="+a+"&name="+encodeURIComponent(q)+"&n="+Date.now();setTimeout(()=>history.replaceState(null,"",location.pathname),500)};`
+      + `const open=(on)=>{box.hidden=!on;try{localStorage.setItem(K,on?"1":"")}catch{}};try{open(localStorage.getItem(K)==="1")}catch{}`
+      + `document.addEventListener("click",(e)=>{const b=e.target.closest("[data-act]");if(!b)return;e.preventDefault();e.stopPropagation();const a=b.dataset.act;`
+      + `if(a==="toggle"){open(box.hidden);if(!box.hidden)inp.focus();return}`
+      + `if(a==="drop"&&!confirm("拿掉主題「"+b.dataset.q+"」和它的影片？（收藏的會留著）"))return;go(a,b.dataset.q)},true);`
+      + `document.getElementById("addform").addEventListener("submit",(e)=>{e.preventDefault();go("add",inp.value.trim());inp.value=""})})()</script>`);
   }
 
   // 問 agent: which trend agent (this space's first), the tool a new one opens with, a free question, what happened

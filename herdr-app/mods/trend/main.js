@@ -294,6 +294,9 @@ export default class Trend extends View {
     if (this.role !== "toggle") {
       this.box = InputState.new({ placeholder: "問 trend agent，例如：這週 AI 圈最大的事是什麼？" });
       this.box.on("submit", (_e, cx) => cx.spawn(async (cx) => this.askFree(cx))); // Enter
+      // while a video plays the box asks about it (askFree adds which video)
+      this.videoBox = InputState.new({ placeholder: "問這支影片，例如：這段在講什麼？" });
+      this.videoBox.on("submit", (_e, cx) => cx.spawn(async (cx) => this.askFree(cx)));
     }
     this.view = "list";   // "list" (the topics), "videos", "reports", or a report's file name
     this.load(cx);
@@ -592,11 +595,13 @@ export default class Trend extends View {
     });
     cx.notify();
   }
+  get watching() { return this.view === "videos" ? this.playing : null; }
   async askFree(cx) {
-    const q = this.box.value().trim();
+    const x = this.watching, box = x ? this.videoBox : this.box, q = box.value().trim();
     if (!q) return;
-    this.box.set_value("");
-    await this.ask("你的問題", q, cx);
+    box.set_value("");
+    if (!x) return this.ask("你的問題", q, cx);
+    await this.ask(`問影片：${q}`, `關於 YouTube 影片「${x.title}」（${[x.channel, `https://www.youtube.com/watch?v=${x.id}`].filter(Boolean).join("，")}）：${q}\n先看它的字幕（沒有就說明和留言），不夠再查。用繁體中文回答。`, cx);
   }
 
   render(cx) {
@@ -981,7 +986,10 @@ export default class Trend extends View {
   askCard(t, z) {
     const list = this.agentList(), picked = this.picked(list);
     const card = v_flex().id("ask").flex_none().gap(6).p(10).bg(t.chrome).border_t(1).border_color(t.border);
-    card.child(div().text_size(z - 1).font_semibold().text_color(t.muted).child(picked ? `問 agent：${picked.title || picked.tab_name}（花 token）` : "問 agent（花 token）"));
+    // the line says what the box asks about: the video playing, or what's trending (the agent's own tab title, often
+    // its last task, said nothing about it)
+    const x = this.watching;
+    card.child(div().text_size(z - 1).font_semibold().text_color(t.muted).truncate().child(x ? `問這支影片：${x.title}（花 token）` : "問 trend agent（花 token）"));
     if (list.length > 1) card.child(h_flex().gap(6).flex_wrap().children(list.slice(0, 8).map((x, i) => {
       const on = picked?.address === x.address;
       return div().id(`ag-${i}`).px(8).py(3).rounded(5).text_size(z - 1.5).cursor_pointer()
@@ -1002,7 +1010,7 @@ export default class Trend extends View {
       .child(div().text_size(z - 1.5).text_color(t.dim).child("開")));
     card.child(h_flex().gap(6).items_center()
       .child(div().id("ask-box").flex_1().min_w(0).h(34).px(6).flex().items_center().rounded(6).bg(t.background).border_1().border_color(t.input)
-        .cursor_text().child(Input.new(this.box).w_full().text_size(z).text_color(t.foreground)))
+        .cursor_text().child(Input.new(x ? this.videoBox : this.box).w_full().text_size(z).text_color(t.foreground)))
       .child(div().id("ask-send").h(34).px(14).flex().items_center().rounded(7).cursor_pointer().font_semibold().bg(t.solid).text_color(t.solid_foreground)
         .hover((s) => s.opacity(0.88)).on_click((_e, cx) => cx.spawn(async (cx) => this.askFree(cx))).child("送出")));
     const s = this.asked;

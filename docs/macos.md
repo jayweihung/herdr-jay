@@ -270,3 +270,7 @@ A version folder holding only `README.md` means jay checked that tag and it need
 Then: new default keys from [docs/keys.md](keys.md); quit and reopen Herdr; `herdr-app check` each mod (`nvim-jay`,
 `agent-files`, and `kit`, `gerrit` if you use them). With symlinks the mods are already current (copied:
 copy again). A mod that was renamed or merged (the CHANGELOG says which): link the new folder, remove the old link.
+
+Optional, per Mac (not in the layout file): the tab bar's **Files** / **Changes** buttons look only at the folder a
+pane started in, so jay turned them off (2026-11-16): ⌘K → `Welcome` → **Next** twice → **Choose your panels** → turn
+both off → close the window (×). 分頁列的 Files、Changes：⌘K 搜 Welcome → Next 兩次 → 兩個關掉 → 關視窗。

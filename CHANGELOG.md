@@ -19,6 +19,17 @@ Needs: **mods** (Windows: copy `trend` again; macOS link: nothing), Chrome or Ed
   the title says how each front page did. 熱門清單多了 Reddit 今日熱門：用本機 Chrome／Edge 無頭開一頁（不讀你的登入），
   2 到 3 小時一次；被擋就停 6、12、24 小時並跳通知。
 
+## 2026-11-16, trend: 影片, your own YouTube searches
+
+Needs: **mods** (Windows: copy `trend` again; macOS link: nothing). To use it: `~/.config/herdr-app/trend/videos.txt`,
+one search per line.
+
+- The panel's new 影片 tab lists what YouTube's search found this week for each line of `videos.txt` (e.g. `TWICE
+  子瑜`), with thumbnails, newest found first; click plays it in the browser. `fetch.js` reads YouTube's search page
+  (no key, no browser), each search at most every 3 hours, gently (your Chrome's version in the user agent, cookies
+  kept); blocked, it stops for 6, 12, then 24 hours and the tab says so. 熱門面板多了「影片」分頁：videos.txt 一行一個
+  YouTube 搜尋，每 3 小時最多搜一次，被擋就停 6、12、24 小時。
+
 ## 2026-11-16, Herdr app v0.1.16, and text in mod panels can be copied
 
 Needs: **app** (build v0.1.16 with its 26 patches, `herdr-app/patches/v0.1.16/`; core unchanged, v0.1.21), restart
@@ -31,6 +42,10 @@ Herdr.
   copied with the copy key; with nothing selected the key goes to the terminal as before, and a plain click still
   clicks. 所有 mod 面板的字都能拖曳選取、按複製鍵複製；沒選字時複製鍵照舊給終端機。
 - The v0.1.15 folder stays for a machine still on that tag. 還在 v0.1.15 的機器照舊用那個資料夾。
+- Windows, in order: `git pull` herdr-jay ([windows.md](docs/windows.md) 8.1) → the **app** blocks of 8.2 with
+  `$tag = "v0.1.16"` → quit and reopen Herdr → try copying text in the Kit panel. Then `kit self-update; kit sync`
+  (agents there get the progress-note rule: they keep agent-page's 進度). Optional: 8.7, the Files / Changes buttons
+  off. Windows 照順序：pull → 8.2 的 app 段落（v0.1.16）→ 重開 → 試複製 → kit 更新；選用 8.7 關掉兩個按鈕。
 
 ## 2026-11-16, trend: what's trending, beside your agents
 

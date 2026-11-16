@@ -559,7 +559,9 @@ Windows 欄沒有日期的 tag 不要切過去，留在 `main`。 ZIP: delete th
 Only if the README table lists a newer version, **or the same version with different patches** (e.g. 2026-11-13: app v0.1.15 got two patches for dragging an agent onto a space, then three more for a terminal's own icon, refused drop targets and a place in a space; 2026-11-14: two more, 0006 a
 Gerrit review tab that closes with nvim and 0007 linked mods that reload: run the **app** blocks only; later that day core
 v0.1.21 got its `0001` (who sent to whom) and the app `0008` (its event): run **all** the blocks, core, server and app;
-2026-11-16: the app got `0009`…`0022`, among them web pages in mods and `layout.zoom`: run the **app** blocks only). Order: **core** checkout block → its build block → [8.3](#83-core-on-the-linux-server)
+2026-11-16: the app got `0009`…`0022`, among them web pages in mods and `layout.zoom`: run the **app** blocks only; later that day the app moved to
+**v0.1.16** with 26 patches, `0026` text in mod panels can be selected and copied: run the **app** blocks only, with
+`$tag = "v0.1.16"`; the core stays v0.1.21). Order: **core** checkout block → its build block → [8.3](#83-core-on-the-linux-server)
 (server) → **app** checkout block (`$repo = "herdr-app"`, the app version) → its build block.
 In the first line replace `<version from the README table>` with that version (e.g. `v0.1.21`).
 Paste each block with **Ctrl+V as one block** (not right-click, not line by line).
@@ -642,3 +644,12 @@ with the new tag (`rm -rf build .deps` first; from a pack: a new pack). **Check*
 ### 8.6 Keys, then restart
 
 If the new app version adds default keys, paste them from [docs/keys.md](keys.md). Quit and reopen Herdr.
+
+### 8.7 Optional: no Files / Changes buttons / 拿掉 Files、Changes 按鈕（選用）
+
+Herdr's own tab bar has **Files** (the pane's folder as a tree) and **Changes** (its git diff). They look only at the
+folder the pane started in, not where an agent edits, so jay turned them off (2026-11-16). The setting is per PC (not in
+the layout file): Ctrl+K → `Welcome` → **Next** twice → **Choose your panels** → turn **Files** and **Changes** off →
+close the window (×). The buttons go at once; the same page turns them back on.
+分頁列的 Files、Changes 只看那格一開始的資料夾，jay 關掉了。每台自己關：Ctrl+K 搜 Welcome → Next 兩次 →
+「Choose your panels」把兩個關掉 → 關視窗。要回來也是這一頁。

@@ -321,12 +321,19 @@ async function ytSearch(q, ua, cookies) {
       channel: "", length: "Shorts", views, published };
   }).filter((x) => x.id)];
 }
+// A video is about a topic when its title has at least half the topic's words ("tzuyu run away": 2 of 3), since
+// YouTube fills a thin week with whatever it likes (another member's vlog, a drama trailer)
+// 影片標題至少要有主題一半的字，YouTube 這週沒東西時會塞不相干的影片
+const about = (q, title) => {
+  const ws = q.toLowerCase().split(/\s+/).filter(Boolean), t = String(title).toLowerCase();
+  return ws.filter((w) => t.includes(w)).length >= Math.ceil(ws.length / 2);
+};
 async function videos() {
   let queries = [], before = null;
   try { queries = fs.readFileSync(path.join(out, "videos.txt"), "utf8").split("\n").map((l) => l.trim()).filter((l) => l && !l.startsWith("#")); } catch {}
   try { before = JSON.parse(fs.readFileSync(path.join(out, "videos.json"), "utf8")); } catch {}
-  // a search taken out of videos.txt takes its videos with it
-  const v = { queries, searched: {}, items: (before?.items ?? []).filter((x) => queries.includes(x.query)), errors: {},
+  // a search taken out of videos.txt takes its videos with it, and so does a video not about its search
+  const v = { queries, searched: {}, items: (before?.items ?? []).filter((x) => queries.includes(x.query) && about(x.query, x.title)), errors: {},
     blockedAt: before?.blockedAt ?? null, blocks: before?.blocks ?? 0, cookies: before?.cookies ?? {} };
   for (const q of queries) if (before?.searched?.[q]) v.searched[q] = before.searched[q];
   const left = () => (v.blockedAt ? Date.parse(v.blockedAt) + 6 * HOUR_MS * 2 ** Math.min(Math.max(v.blocks - 1, 0), 2) - Date.now() : 0);   // 6, 12, 24 hours
@@ -340,7 +347,7 @@ async function videos() {
     asked = true;
     try {
       const have = new Set(v.items.map((x) => x.id)), at = now();
-      v.items = [...(await ytSearch(q, ua, v.cookies)).filter((x) => !have.has(x.id) && have.add(x.id)).map((x) => ({ ...x, query: q, found: at })), ...v.items];
+      v.items = [...(await ytSearch(q, ua, v.cookies)).filter((x) => about(q, x.title) && !have.has(x.id) && have.add(x.id)).map((x) => ({ ...x, query: q, found: at })), ...v.items];
       v.searched[q] = at;
       Object.assign(v, { blockedAt: null, blocks: 0 });
     } catch (e) {

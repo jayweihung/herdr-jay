@@ -17,6 +17,8 @@ Needs: **mods** (Windows: copy `trend` again; macOS link: nothing).
   ＋ 加主題 opens a box to type one or click a suggestion, searched at once. The suggestions no longer sit above the
   videos as if they were about them, and lose their 不要. 影片分頁上面一排就是主題：點它看影片、✕ 連影片拿掉、
   「＋ 加主題」打字或點建議，馬上搜。
+- A topic keeps only videos whose title has at least half its words (YouTube filled 「tzuyu run away」 with other
+  members' vlogs and a drama); ＋ 加主題 really searches now. 主題只收標題有一半以上關鍵字的影片；加主題現在真的會馬上搜。
 
 ## 2026-11-16, trend: every 30 minutes
 

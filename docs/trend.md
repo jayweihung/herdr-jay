@@ -12,8 +12,8 @@ A tab-bar button **熱門** and a panel, like Gerrit's (macOS and Windows):
   red `!` when the last run failed. 按鈕：沒看過的主題數、抓的時候轉圈、上次失敗是紅色 `!`。
 - **The panel**: the list and the 報告 tab are web pages the mod writes to `<Herdr home>/mods/trend/.view/` (in
   Herdr's colors and font size): subject chips on top filter the list; each topic is a card with its numbers (HN
-  分／留言…), why it's up and the first three lines of the post itself (PTT's text, read once per post, at most 20 new
-  a refresh; Dcard's excerpt; a Reddit text post; Threads' post), **更多** for all of it, the top comment and its sources (a link opens the browser), and
+  分／留言…), why it's up and the first three lines of the post itself (PTT's text, read once per post, 20 not yet read
+  each run, most 推 first, until it says 「內文還沒讀到」; Dcard's excerpt; a Reddit text post; Threads' post), **更多** for all of it, the top comment and its sources (a link opens the browser), and
   **🔎 深入查** / **三句話說明** / **📄 看報告**. The line under the title says when
   it last ran and when it runs next, and a 來源 line names each site once: ✓ when it answered (Reddit, PTT: how long
   ago its page was read), else why not (`讀不到` is not "nothing happened there"; right-click copies it). **↻ 現在更新**
@@ -149,14 +149,17 @@ TWICE 子瑜
 TZUYU
 ```
 
-`fetch.js` reads YouTube's own search page for each: a topic's first search takes any upload time (YouTube's best for
-it, the official M/V too), the later ones this week's uploads; no API key, no browser, no tokens; its
-videos and its Shorts shelves (a Short says `Shorts` for its length). Each card has YouTube's thumbnail, the title,
-channel, length, when it was posted and the views; a video stays under the topic that found it first, never two, and
-only if its title has at least half the topic's words (YouTube fills a thin week with unrelated videos). A topic's
-videos go most watched first; the **排序** bar under the topics also sorts by 最新上傳 (YouTube's 「…前」 from when it
-was found), 最近找到, 短的先 or 長的先 (a Short counts as 45 s), remembered.
-Click plays it in the panel (**← 影片** goes back). The list keeps the newest 300.
+`fetch.js` reads YouTube's own search page; each topic has three lists, each its own search, and the **看** bar under
+the topics shows one (a video may be in more than one; remembered):
+
+- **最相關**: YouTube's own order, any upload time (the official M/V too); searched once a day.
+- **最多人看**: YouTube's search sorted by view count; once a day.
+- **最新上傳**: this week's uploads, searched every 3 hours and gathered while under 5 weeks old, newest first.
+
+No API key, no browser, no tokens; its videos and its Shorts shelves (a Short says `Shorts` for its length). Each card
+has YouTube's thumbnail, the title, channel, length, when it was posted and the views; a video stays under the topic
+that found it first, never two, and only if its title has at least half the topic's words (YouTube fills a thin
+search with unrelated videos). Click plays it in the panel (**← 影片** goes back). The list keeps the newest 600.
 影片分頁：上面一排就是主題（點一個只看它的影片、✕ 連影片一起拿掉、「＋ 加主題」打字或點建議，馬上搜）；點影片在面板裡播（⤢ 放大面板）。
 
 **📝 整理重點** above a playing video asks the trend agent (as the list's buttons do: tokens, only when you press

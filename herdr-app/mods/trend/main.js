@@ -209,8 +209,6 @@ const agoMs = (s) => {
     : /^(天|day)/.test(u) ? 864e5 : /^(週|周|week)/.test(u) ? 6048e5 : /^(個月|月|month)/.test(u) ? 2592e6 : 31536e6;
   return Number(m[1]) * unit;
 };
-// "1:02:03" / "3:25" as seconds; a Short has no length shown, say 45 s
-const lengthOf = (s) => (/^shorts$/i.test(String(s)) ? 45 : String(s ?? "").split(":").reduce((n, p) => n * 60 + (Number(p) || 0), 0));
 // YouTube's view count as a number: "觀看次數：24,442,452次", "18萬次", "1.4萬", "2.3億", "1.2M views"
 const viewsOf = (s) => {
   const m = /([\d.,]+)\s*([萬万億亿KMB])?/i.exec(String(s ?? ""));
@@ -793,19 +791,21 @@ export default class Trend extends View {
     const items = (v.items ?? []).filter((x) => queries.includes(x.query) && (this.stars?.[x.id] || !nots.some((ws) => ws.every((w) => x.title.toLowerCase().includes(w)))));
     const when = (s) => { const d = new Date(Date.parse(s)); return Number.isNaN(d.getTime()) ? "" : `${d.getMonth() + 1}/${d.getDate()} ${hhmm(d.getTime())} 找到`; };
     const errs = Object.entries(v.errors ?? {}).filter(([q]) => !q || isTopic(q)).map(([q, e]) => `<p class="err">${esc(q ? `「${q}」：${e}` : e)}</p>`).join("");
-    // data-*: what the sort bar sorts by (views, when it was put up: found minus 「…前」, when found, length)
+    // data-rel / data-views / data-new: the video's rank in that list of its topic (fetch.js: each list its own YouTube
+    // search), empty when it isn't in it; data-v its views, data-up when it was put up (found minus 「…前」)
+    const rank = (x, l) => (x.lists?.[l] ?? "");
     const card = (x) => `<div class="card vid" data-do="play" data-name="${esc(x.id)}" data-v="${viewsOf(x.views)}"`
-      + ` data-up="${agoMs(x.published) ? Date.parse(x.found) - agoMs(x.published) : 0}" data-found="${Date.parse(x.found) || 0}" data-len="${lengthOf(x.length)}">`
+      + ` data-up="${agoMs(x.published) ? Date.parse(x.found) - agoMs(x.published) : 0}" data-rel="${rank(x, "rel")}" data-views="${rank(x, "views")}" data-new="${rank(x, "new")}">`
       + `<img src="https://i.ytimg.com/vi/${esc(x.id)}/mqdefault.jpg" alt="" loading="lazy"><div class="vb">`
       + `<div class="title">${esc(x.title)}</div>`
       + `<div class="meta">${esc([x.channel, x.length, x.published, x.views].filter(Boolean).join(" · "))}</div>`
       + `<div class="meta">${esc([when(x.found), this.progress?.[x.id] > 5 ? `▶ 上次看到 ${mmss(this.progress[x.id])}` : ""].filter(Boolean).join(" · "))}</div></div>`
       + `<button class="star${this.stars?.[x.id] ? " on" : ""}" data-do="star" title="${this.stars?.[x.id] ? "取消收藏" : "收藏：一直留著"}">${this.stars?.[x.id] ? "⭐" : "☆"}</button></div>`;
     const starred = Object.values(this.stars ?? {}).sort((a, b) => String(b.starred).localeCompare(String(a.starred)));
-    // each topic's videos, the most watched first
-    const groups = queries.map((q) => [q, items.filter((x) => x.query === q).sort((a, b) => viewsOf(b.views) - viewsOf(a.views))]);
-    const status = (q, n) => this.searching?.has(q) ? "正在搜…" : n ? "" : "這週還沒有影片";
-    return pageHtml(`<style>.vid{display:flex;gap:10px;align-items:flex-start}.vid img{flex:none;width:136px;aspect-ratio:16/9;object-fit:cover;border-radius:6px;background:var(--bg)}`
+    // each topic's videos: all its lists' (the 看 bar shows one list at a time)
+    const groups = queries.map((q) => [q, items.filter((x) => x.query === q)]);
+    const status = (q, n) => this.searching?.has(q) ? "正在搜…" : n ? "" : "還沒有影片";
+    return pageHtml(`<style>.vid{display:flex;gap:10px;align-items:flex-start}.vid[hidden]{display:none}.vid img{flex:none;width:136px;aspect-ratio:16/9;object-fit:cover;border-radius:6px;background:var(--bg)}`
       + `.vb{flex:1;min-width:0}.err{margin:8px 12px;font-size:.88em;color:${t.ansi1}}.empty{margin:4px 12px 10px;font-size:.88em;color:var(--muted)}`
       + `.star{flex:none;border:0;background:none;padding:0 2px;font-size:1.2em;line-height:1;color:var(--muted);cursor:pointer}.star:hover,.star.on{color:var(--yellow)}`
       + `nav .x{margin-left:7px;opacity:.55}nav .x:hover{opacity:1;color:${t.ansi1}}nav button.addt{color:var(--accent);border-style:dashed}`
@@ -822,20 +822,24 @@ export default class Trend extends View {
       + `<main><div id="addbox" hidden><div class="hd">加主題：打一個 YouTube 搜尋，或點一個建議，馬上搜；影片會出現在它自己的分類</div>`
       + `<form id="addform"><input id="addq" placeholder="例如：TWICE 子瑜 直拍" autocomplete="off"><button>加</button></form>`
       + `${sug.length ? `<div class="sugs">${sug.map((s) => `<button data-act="add" data-q="${esc(s.q)}" title="${esc(s.why)}">＋ ${esc(s.q)}</button>`).join("")}</div>` : ""}</div>`
-      + `<div class="sortbar">排序：${[["views", "最多人看"], ["up", "最新上傳"], ["found", "最近找到"], ["short", "短的先"], ["long", "長的先"]]
+      + `<div class="sortbar">看：${[["rel", "最相關"], ["views", "最多人看"], ["new", "最新上傳"]]
         .map(([k, l]) => `<button data-act="sort" data-q="${k}">${l}</button>`).join("")}</div>`
       + `${errs}${queries.length ? "" : '<p class="empty">還沒有主題：按上面的「＋ 加主題」</p>'}`
-      + `${starred.length ? `<section data-cat="⭐ 收藏"><h2>⭐ 收藏</h2>${starred.map(card).join("")}</section>` : ""}`
-      + `${groups.map(([q, xs]) => `<section data-cat="${esc(q)}"><h2>🔍 ${esc(q)}</h2>${status(q, xs.length) ? `<p class="empty">${status(q, xs.length)}</p>` : ""}${xs.map(card).join("")}</section>`).join("")}</main>`
+      + `${starred.length ? `<section data-cat="⭐ 收藏" data-keep><h2>⭐ 收藏</h2>${starred.map(card).join("")}</section>` : ""}`
+      + `${groups.map(([q, xs]) => `<section data-cat="${esc(q)}"><h2>🔍 ${esc(q)}</h2>${status(q, xs.length) ? `<p class="empty">${status(q, xs.length)}</p>` : ""}`
+        + `<p class="empty none" hidden>這份清單還沒有影片</p>${xs.map(card).join("")}</section>`).join("")}</main>`
       // this page's own clicks, before pageHtml's: ＋ 加主題 opens the box (remembered), a suggestion or 加 adds, ✕ drops
       + `<script>(()=>{const K="videos.html:add",box=document.getElementById("addbox"),inp=document.getElementById("addq");`
       + `const go=(a,q)=>{if(!q)return;location.hash="do="+a+"&name="+encodeURIComponent(q)+"&n="+Date.now();setTimeout(()=>history.replaceState(null,"",location.pathname),500)};`
       + `const open=(on)=>{box.hidden=!on;try{localStorage.setItem(K,on?"1":"")}catch{}};try{open(localStorage.getItem(K)==="1")}catch{}`
-      // the sort bar: each section's cards re-ordered here, the choice remembered (most watched as written)
-      + `const S="videos.html:sort",by={views:(c)=>-c.dataset.v,up:(c)=>-c.dataset.up,found:(c)=>-c.dataset.found,short:(c)=>+c.dataset.len,long:(c)=>-c.dataset.len};`
-      + `const sortBy=(k)=>{if(!by[k])k="views";for(const s of document.querySelectorAll("section")){const cs=[...s.querySelectorAll(":scope>.card.vid")];`
-      + `cs.sort((a,b)=>by[k](a)-by[k](b)).forEach((c)=>s.appendChild(c))}for(const b of document.querySelectorAll(".sortbar button"))b.classList.toggle("on",b.dataset.q===k);`
-      + `try{localStorage.setItem(S,k)}catch{}};try{sortBy(localStorage.getItem(S)||"views")}catch{sortBy("views")}`
+      // 看: which list each topic shows (its own YouTube search), the choice remembered: 最相關 in YouTube's order,
+      // 最多人看 by views, 最新上傳 newest first; ⭐ 收藏 shows all of it
+      + `const S="videos.html:list",by={rel:(c)=>+c.dataset.rel,views:(c)=>-c.dataset.v,new:(c)=>-c.dataset.up||+c.dataset.new};`
+      + `const sortBy=(k)=>{if(!by[k])k="rel";for(const s of document.querySelectorAll("section")){const cs=[...s.querySelectorAll(":scope>.card.vid")];`
+      + `const on=s.hasAttribute("data-keep")?cs:cs.filter((c)=>c.dataset[k]!=="");for(const c of cs)c.hidden=!on.includes(c);`
+      + `on.sort((a,b)=>by[k](a)-by[k](b)).forEach((c)=>s.appendChild(c));const none=s.querySelector(".none");if(none)none.hidden=!!on.length||!cs.length}`
+      + `for(const b of document.querySelectorAll(".sortbar button"))b.classList.toggle("on",b.dataset.q===k);try{localStorage.setItem(S,k)}catch{}};`
+      + `try{sortBy(localStorage.getItem(S)||"rel")}catch{sortBy("rel")}`
       + `document.addEventListener("click",(e)=>{const b=e.target.closest("[data-act]");if(!b)return;e.preventDefault();e.stopPropagation();const a=b.dataset.act;`
       + `if(a==="toggle"){open(box.hidden);if(!box.hidden)inp.focus();return}if(a==="sort"){sortBy(b.dataset.q);return}`
       + `if(a==="drop"&&!confirm("拿掉主題「"+b.dataset.q+"」和它的影片？（收藏的會留著）"))return;go(a,b.dataset.q)},true);`

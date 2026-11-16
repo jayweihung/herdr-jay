@@ -21,8 +21,9 @@ Needs: **mods** (Windows: copy `trend` again; macOS link: nothing).
   members' vlogs and a drama); ＋ 加主題 really searches now. 主題只收標題有一半以上關鍵字的影片；加主題現在真的會馬上搜。
 - A topic's first search takes any upload time (the official M/V, the music shows), the later ones this week's
   uploads; topics you have got that search once on the next run. 新主題第一次搜不限時間（正版 MV 也會出來），之後只搜這週新上傳的。
-- A topic's videos go most watched first; a 排序 bar sorts by 最多人看 / 最新上傳 / 最近找到 / 短的先 / 長的先.
-  每個主題的影片預設照觀看次數排，「排序」可以改成最新上傳、最近找到、片長。
+- Each topic has three lists, each its own YouTube search, and a 看 bar picks one: 最相關 (YouTube's order, any
+  time), 最多人看 (YouTube sorted by views), 最新上傳 (this week's, gathered 5 weeks). 每個主題三份清單，各自去 YouTube
+  搜：最相關、最多人看、最新上傳，用「看」切換。
 
 ## 2026-11-16, trend: every 30 minutes
 
@@ -34,6 +35,14 @@ again with `New-TimeSpan -Minutes 30` (docs/trend.md「安裝」).
 - The job runs every 30 minutes (was every hour); the line under the title says 「下次約」 by it and no longer says
   「不花 token」. Reddit, PTT, Dcard and Threads keep their own 2 to 4 hours, the 影片 searches their 3 hours.
   熱門每 30 分鐘更新一次；標題下那行不再寫「不花 token」。
+
+## 2026-11-16, trend: PTT's texts read on every run
+
+Needs: **mods** (Windows: copy `trend` again; macOS link: nothing).
+
+- PTT post texts are read on every run (20 not yet read, most 推 first), not only when PTT's list is read again, so
+  the whole list has them within a few hours; a card still without one says 「內文還沒讀到」 under **更多**. PTT 內文改成
+  每輪都讀 20 篇，幾小時內讀完；還沒讀到的卡片在「更多」裡會說。
 
 ## 2026-11-16, trend: a card shows the post's first lines
 

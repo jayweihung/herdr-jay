@@ -291,11 +291,17 @@ async function readThreads(before) {
 // shortcut: Node's TLS fingerprint, not Chrome's (curl_cffi isn't installed); if YouTube starts blocking, that or a YouTube Data API key (search.list, 100 a day free).
 // shortcut: scrapes the search page, it breaks when YouTube changes it; the same API key then.
 // 我的影片：videos.txt 一行一個搜尋；每個搜尋 3 小時最多一次；被擋就全部停 6、12、24 小時（全家共用一個 IP，寧可保守）。
-const VIDEO_EVERY = 3 * HOUR_MS, VIDEO_KEEP = 300;
+// Each topic has three lists, each its own YouTube search, a video maybe in more than one (the 影片 tab's 看 bar):
+//   rel    最相關: YouTube's own order, any upload time; once a day
+//   views  最多人看: YouTube sorted by view count (sp=CAM); once a day
+//   new    最新上傳: this week's uploads every 3 hours, gathered: one stays while it's under 5 weeks old (YouTube's
+//          upload-date sort is gone, it answers by relevance; its month filter lets old ones through)
+// 每個主題三份清單，各是一次 YouTube 搜尋：最相關、最多人看（每天一次）、最新上傳（每 3 小時搜這週的，累積 5 週）。
+const LISTS = { rel: { sp: "", every: 24 * HOUR_MS }, views: { sp: "&sp=CAM%3D", every: 24 * HOUR_MS }, new: { sp: "&sp=EgIIAw%3D%3D", every: 3 * HOUR_MS } };
+const VIDEO_KEEP = 600;
 class Blocked extends Error {}
-// all: any upload time (a topic's first search), else this week's uploads
-async function ytSearch(q, ua, cookies, all) {
-  const r = await fetch(`https://www.youtube.com/results?search_query=${encodeURIComponent(q)}${all ? "" : "&sp=EgIIAw%3D%3D"}&hl=zh-TW&gl=TW`, {
+async function ytSearch(q, ua, cookies, sp) {
+  const r = await fetch(`https://www.youtube.com/results?search_query=${encodeURIComponent(q)}${sp}&hl=zh-TW&gl=TW`, {
     headers: { "user-agent": ua, "accept-language": "zh-TW,zh;q=0.9", cookie: Object.entries(cookies).map(([k, v]) => `${k}=${v}`).join("; ") },
     signal: AbortSignal.timeout(30000) });
   for (const c of r.headers.getSetCookie()) { const m = /^([^=;\s]+)=([^;]*)/.exec(c); if (m) cookies[m[1]] = m[2]; }
@@ -333,30 +339,44 @@ async function videos() {
   let queries = [], before = null;
   try { queries = fs.readFileSync(path.join(out, "videos.txt"), "utf8").split("\n").map((l) => l.trim()).filter((l) => l && !l.startsWith("#")); } catch {}
   try { before = JSON.parse(fs.readFileSync(path.join(out, "videos.json"), "utf8")); } catch {}
-  // a search taken out of videos.txt takes its videos with it, and so does a video not about its search
-  const v = { queries, searched: {}, items: (before?.items ?? []).filter((x) => queries.includes(x.query) && about(x.query, x.title)), errors: {},
-    blockedAt: before?.blockedAt ?? null, blocks: before?.blocks ?? 0, cookies: before?.cookies ?? {}, full: {} };
-  for (const q of queries) if (before?.searched?.[q]) v.searched[q] = before.searched[q];
-  // full: a topic's first search took any upload time (YouTube's best for it, old ones too); later ones, this week's
-  for (const q of queries) if (before?.full?.[q]) v.full[q] = before.full[q];
+  // a search taken out of videos.txt takes its videos with it, and so does a video not about its search; one from
+  // before the lists counts as 最相關 until that list is searched again
+  const v = { queries, done: {}, errors: {}, blockedAt: before?.blockedAt ?? null, blocks: before?.blocks ?? 0, cookies: before?.cookies ?? {},
+    items: (before?.items ?? []).filter((x) => queries.includes(x.query) && about(x.query, x.title)).map((x) => ({ ...x, lists: x.lists ?? { rel: 999 } })) };
+  for (const q of queries) for (const l of Object.keys(LISTS)) if (before?.done?.[`${l} ${q}`]) v.done[`${l} ${q}`] = before.done[`${l} ${q}`];
+// YouTube's 「6 小時前」/「3 週前」/「2 年前」 as days (Infinity when it says nothing)
+const daysAgo = (s) => {
+  const m = /(\d+)\s*(秒|分鐘|分|小時|天|週|周|個月|月|年)/.exec(String(s ?? ""));
+  return m ? Number(m[1]) * ({ 秒: 1 / 86400, 分鐘: 1 / 1440, 分: 1 / 1440, 小時: 1 / 24, 天: 1, 週: 7, 周: 7, 個月: 30, 月: 30, 年: 365 }[m[2]]) : Infinity;
+};
   const left = () => (v.blockedAt ? Date.parse(v.blockedAt) + 6 * HOUR_MS * 2 ** Math.min(Math.max(v.blocks - 1, 0), 2) - Date.now() : 0);   // 6, 12, 24 hours
   const paused = left() > 0;
   if (v.blockedAt && !paused) v.cookies = {};   // the try after a block starts clean
   const ua = chromeUa();
   let asked = false;
-  for (const q of paused ? [] : queries) {
-    if (v.full[q] && Date.now() - Date.parse(v.searched[q] ?? "") < VIDEO_EVERY) continue;
+  search: for (const q of paused ? [] : queries) for (const [l, { sp, every }] of Object.entries(LISTS)) {
+    const k = `${l} ${q}`;
+    if (Date.now() - Date.parse(v.done[k] ?? "") < every) continue;
     if (asked) await new Promise((ok) => setTimeout(ok, 3000 + Math.random() * 4000));
     asked = true;
     try {
-      const have = new Set(v.items.map((x) => x.id)), at = now(), all = !v.full[q];
-      v.items = [...(await ytSearch(q, ua, v.cookies, all)).filter((x) => about(q, x.title) && !have.has(x.id) && have.add(x.id)).map((x) => ({ ...x, query: q, found: at })), ...v.items];
-      v.searched[q] = at;
-      if (all) v.full[q] = at;
+      // 最新上傳 takes only what says it's from the last 5 weeks (the Shorts shelves, no date shown, ignore the filter)
+      const got = (await ytSearch(q, ua, v.cookies, sp)).filter((x) => about(q, x.title) && (l !== "new" || daysAgo(x.published) <= 35)), at = now();
+      // rel and views start over in YouTube's order (its rank kept); new gathers. A video under another topic stays
+      // there, never two
+      if (l !== "new") for (const x of v.items) if (x.query === q && x.lists?.[l] !== undefined) { x.lists = { ...x.lists }; delete x.lists[l]; }
+      const byId = new Map(v.items.map((x) => [x.id, x])), fresh = [];
+      got.forEach((x, i) => {
+        const had = byId.get(x.id);
+        if (!had) { const n = { ...x, query: q, found: at, lists: { [l]: i } }; fresh.push(n); byId.set(x.id, n); }
+        else if (had.query === q) Object.assign(had, { views: x.views || had.views, published: x.published || had.published, lists: { ...had.lists, [l]: i } });
+      });
+      v.items = [...fresh, ...v.items];
+      v.done[k] = at;
       Object.assign(v, { blockedAt: null, blocks: 0 });
     } catch (e) {
       v.errors[q] = String(e.message ?? e).slice(0, 200);
-      if (e instanceof Blocked) { Object.assign(v, { blockedAt: now(), blocks: v.blocks + 1 }); break; }
+      if (e instanceof Blocked) { Object.assign(v, { blockedAt: now(), blocks: v.blocks + 1 }); break search; }
     }
   }
   if (left() > 0) v.errors[""] = `被 YouTube 擋了：${Math.ceil(left() / HOUR_MS)} 小時後再試一次`;
@@ -369,6 +389,11 @@ async function videos() {
 // tokens: from the videos you played there (plays.json, the panel writes it) a channel you watched 2 or more of, a
 // word in 2 or more of their titles (Chinese, with no spaces between words: the longest run of 2 to 4 characters in 3
 // or more); and what YouTube's own search box suggests for each of your searches, asked once a day each, a few
+  // 最新上傳 lets go of a video once it's 5 weeks old (its 「…前」 from when it was found)
+  for (const x of v.items) if (x.lists.new !== undefined && Date.now() - Date.parse(x.found) + daysAgo(x.published) * 864e5 > 35 * 864e5) {
+    x.lists = { ...x.lists }; delete x.lists.new;
+  }
+  v.items = v.items.filter((x) => Object.keys(x.lists).length);   // in none of its topic's lists any more: gone
 // seconds apart, not while YouTube's search is paused for a block.
 // 建議的主題（不花 token）：看過 2 支以上的頻道、看過的標題裡反覆出現的詞、YouTube 搜尋框對每個主題的建議（每天一次）。
 const SUGGEST_EVERY = 24 * HOUR_MS;

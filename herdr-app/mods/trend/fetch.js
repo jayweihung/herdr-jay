@@ -4,7 +4,8 @@
 //   trends.json   last30days' discovery JSON (schema 1.x), replaced only by a run that succeeded
 //   status.json   { started, finished, ok, error }: the panel's ring and 「上次更新」
 //   last.log      the last run's own output
-//   videos.json   my videos: what YouTube's search found for each line of videos.txt (yours), kept, newest first
+//   videos.json   my videos: what YouTube's search found for each line of videos.txt (yours), kept, newest first, and
+//                 searches to suggest (from plays.json, the panel's, and YouTube's search box; videos-skip.txt: no)
 // <last30days.py>: the skill's scripts/last30days.py in your kit source.
 // A proxy goes in <Herdr home>/trend/proxy, one line http://user:pass@host:port (keep it private: chmod 600 on macOS):
 // last30days' requests go through it (not Reddit's page below: a proxy didn't get past Reddit's 403 either).
@@ -296,9 +297,7 @@ async function videos() {
   const left = () => (v.blockedAt ? Date.parse(v.blockedAt) + 6 * HOUR_MS * 2 ** Math.min(Math.max(v.blocks - 1, 0), 2) - Date.now() : 0);   // 6, 12, 24 hours
   const paused = left() > 0;
   if (v.blockedAt && !paused) v.cookies = {};   // the try after a block starts clean
-  const exe = findChrome(), major = exe ? chromeMajor(exe) : "150";
-  const ua = process.platform === "win32" ? `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${major}.0.0.0 Safari/537.36`
-    : `Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${major}.0.0.0 Safari/537.36`;
+  const ua = chromeUa();
   let asked = false;
   for (const q of paused ? [] : queries) {
     if (Date.now() - Date.parse(v.searched[q] ?? "") < VIDEO_EVERY) continue;
@@ -316,7 +315,53 @@ async function videos() {
   }
   if (left() > 0) v.errors[""] = `被 YouTube 擋了：${Math.ceil(left() / HOUR_MS)} 小時後再試一次`;
   v.items = v.items.slice(0, VIDEO_KEEP);
+  await suggest(v, before, ua, paused);
   put("videos.json", JSON.stringify(v) + "\n");
+}
+
+// Searches you might want, shown in the 影片 tab as 建議 (＋ 加入 puts one in videos.txt, 不要 in videos-skip.txt), no
+// tokens: from the videos you played there (plays.json, the panel writes it) a channel you watched 2 or more of, a
+// word in 2 or more of their titles (Chinese, with no spaces between words: the longest run of 2 to 4 characters in 3
+// or more); and what YouTube's own search box suggests for each of your searches, asked once a day each, a few
+// seconds apart, not while YouTube's search is paused for a block.
+// 建議的主題（不花 token）：看過 2 支以上的頻道、看過的標題裡反覆出現的詞、YouTube 搜尋框對每個主題的建議（每天一次）。
+const SUGGEST_EVERY = 24 * HOUR_MS;
+const NOISE = /^(the|and|for|with|from|official|video|music|live|full|ver|version|shorts|teaser|trailer|cover|reaction|eng|sub|subs|vlog|m\/v)$/i;
+async function suggest(v, before, ua, paused) {
+  let plays = [], skip = [];
+  try { plays = JSON.parse(fs.readFileSync(path.join(out, "plays.json"), "utf8")); } catch {}
+  try { skip = fs.readFileSync(path.join(out, "videos-skip.txt"), "utf8").split("\n").map((l) => l.trim().toLowerCase()).filter(Boolean); } catch {}
+  const found = new Map();
+  const add = (q, why) => {
+    const k = q.trim().toLowerCase();
+    if (k && !found.has(k) && !skip.includes(k) && !v.queries.some((x) => x.toLowerCase().includes(k))) found.set(k, { q: q.trim(), why });
+  };
+  const watched = [...new Map((Array.isArray(plays) ? plays : []).map((p) => [p.id, p])).values()];
+  const count = (keys) => { const m = new Map(); for (const p of watched) for (const k of new Set(keys(p))) m.set(k, (m.get(k) ?? 0) + 1); return m; };
+  for (const [c, n] of count((p) => [p.channel].filter(Boolean))) if (n >= 2) add(c, `你看過這個頻道 ${n} 支影片`);
+  const words = (t) => (String(t).match(/[A-Za-z][\w'’.-]{2,}|[\uAC00-\uD7A3]{2,}/g) ?? []).map((w) => w.toLowerCase()).filter((w) => !NOISE.test(w));
+  for (const [w, n] of count((p) => words(p.title))) if (n >= 2) add(w, `你看過的 ${n} 支影片標題都有`);
+  const grams = [...count((p) => (String(p.title).match(/[\u4E00-\u9FFF]+/g) ?? []).flatMap((s) => {
+    const g = [];
+    for (let k = 2; k <= 4; k++) for (let i = 0; i + k <= s.length; i++) g.push(s.slice(i, i + k));
+    return g;
+  }))].filter(([, n]) => n >= 3);
+  for (const [g, n] of grams) if (!grams.some(([h, m]) => h !== g && h.includes(g) && m >= n)) add(g, `你看過的 ${n} 支影片標題都有`);
+  v.suggested = {};
+  let asked = false;
+  for (const q of v.queries) {
+    const last = before?.suggested?.[q];
+    v.suggested[q] = last;
+    if (!paused && !(Date.now() - Date.parse(last?.at ?? "") < SUGGEST_EVERY)) try {
+      if (asked) await new Promise((ok) => setTimeout(ok, 3000 + Math.random() * 4000));
+      asked = true;
+      const r = await fetch(`https://suggestqueries.google.com/complete/search?client=firefox&ds=yt&hl=zh-TW&gl=TW&q=${encodeURIComponent(q)}`,
+        { headers: { "user-agent": ua }, signal: AbortSignal.timeout(15000) });
+      if (r.ok) v.suggested[q] = { at: now(), list: ((await r.json())[1] ?? []).slice(0, 10) };
+    } catch {}   // kept the last list: tried again next run
+    for (const s of (v.suggested[q]?.list ?? []).slice(0, 4)) add(s, `YouTube 對「${q}」的建議`);
+  }
+  v.suggest = [...found.values()].slice(0, 12);
 }
 
 async function feeds() {

@@ -157,6 +157,12 @@ and writes a one-line summary and 3 to 8 points with times to `<Herdr home>/tren
 the player (right-click copies it); **📝 重新整理** asks again. 懶得看整支：按「📝 整理重點」，trend agent 整理好的重點會
 出現在播放器下面。
 
+**建議的主題** at the top of the tab, no tokens: a channel you played 2 or more videos of, a word in the titles of 2
+or more of them (Chinese: a run of 2 to 4 characters in 3 or more), and what YouTube's own search box suggests for
+each of your searches (asked once a day each). **＋ 加入** puts it in `videos.txt` (searched on the next run, ↻ for
+now), **不要** in `videos-skip.txt` (not suggested again). 不用自己想主題：影片分頁上面會建議（看你點過的影片、YouTube
+的搜尋建議），按「＋ 加入」或「不要」。
+
 Gently, since every device in the house shares the IP (a production crawler's advice): each search at most every 3 hours, a few
 seconds apart, your Chrome's version in the user agent, YouTube's cookies kept between runs. A sign of a block (429,
 the consent or "sorry" page, "confirm you're not a bot", a page without results data) stops all searches for 6 hours,
@@ -204,5 +210,6 @@ each row with `first` and maybe `rise`, and, for the sites read gently, `<site>A
 `history.json` (`{ since, links: { <url>: { first, last, samples: [[time, score]…] } } }`), `reddit-profile/`,
 `dcard-profile/`, `threads-profile/` (the browser profiles those pages are opened with: their cookies only).
 `<Herdr home>/mods/trend/.reports/`: the agent's reports (hidden: writing one doesn't reload the mod; git ignores it).
-`videos.txt` (yours: the searches) and `videos.json` (`{ queries, searched, items, errors, blockedAt, blocks, cookies }`)
-in the same `trend/` folder: the 影片 tab; `trend/player` (yours, optional): its player page.
+`videos.txt` (yours: the searches), `videos-skip.txt` (searches not to suggest), `plays.json` (the videos you played,
+newest 300: the panel writes it) and `videos.json` (`{ queries, searched, items, errors, blockedAt, blocks, cookies,
+suggest, suggested }`) in the same `trend/` folder: the 影片 tab; `trend/player` (yours, optional): its player page.

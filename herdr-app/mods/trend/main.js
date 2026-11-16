@@ -608,7 +608,30 @@ export default class Trend extends View {
     }
     if (act === "play") {
       const x = this.videos?.items?.find((i) => i.id === h.get("name"));
-      if (x) { this.playing = x; this.notes = null; this.load(cx); }
+      if (!x) return;
+      this.playing = x; this.notes = null; this.load(cx);
+      // what you play: fetch.js suggests searches from it (channels, title words); the newest 300
+      cx.spawn(async () => {
+        const file = `${this.dir}/plays.json`, was = await readTextFile(file).catch(() => null);
+        let plays = [];
+        try { plays = JSON.parse(was ?? "[]"); } catch {}
+        plays = [{ id: x.id, title: x.title, channel: x.channel, query: x.query, at: new Date().toISOString() }, ...(Array.isArray(plays) ? plays : [])].slice(0, 300);
+        await writeTextFile(file, JSON.stringify(plays) + "\n", was).catch(() => {});
+      });
+      return;
+    }
+    // a suggested search: ＋ 加入 puts it in videos.txt (searched on the next run), 不要 in videos-skip.txt (never again)
+    if (act === "add" || act === "skip") {
+      const q = (h.get("name") ?? "").trim();
+      if (!q) return;
+      (this.handled ??= new Set()).add(q);   // gone from the page now; videos.json drops it on the next run
+      cx.spawn(async (cx) => {
+        const file = `${this.dir}/${act === "add" ? "videos.txt" : "videos-skip.txt"}`, was = await readTextFile(file).catch(() => null);
+        await writeTextFile(file, `${was ?? ""}${was && !was.endsWith("\n") ? "\n" : ""}${q}\n`, was).catch(() => {});
+        if (act === "add") notify({ title: "影片：加了「" + q + "」", body: "下次更新就會搜（↻ 現在更新：馬上）", level: "success", timeout: 4000 });
+        await this.writePages();
+        cx.notify();
+      });
       return;
     }
     const r = this.shown.find((x) => x.topic === h.get("topic"));
@@ -664,7 +687,7 @@ export default class Trend extends View {
   // the videos: a chip per search (videos.txt's order), its videos as cards with YouTube's thumbnail, newest found
   // first; a card plays it (do=play&name=<id>). When found: a date, not 「幾分前」, so the page doesn't change every minute
   videosHtml() {
-    const v = this.videos ?? {}, items = v.items ?? [], t = theme();
+    const v = this.videos ?? {}, items = v.items ?? [], t = theme(), sug = (v.suggest ?? []).filter((s) => !this.handled?.has(s.q));
     const when = (s) => { const d = new Date(Date.parse(s)); return Number.isNaN(d.getTime()) ? "" : `${d.getMonth() + 1}/${d.getDate()} ${hhmm(d.getTime())} 找到`; };
     const errs = Object.entries(v.errors ?? {}).map(([q, e]) => `<p class="err">${esc(q ? `「${q}」：${e}` : e)}</p>`).join("");
     const card = (x) => `<div class="card vid" data-do="play" data-name="${esc(x.id)}">`
@@ -676,7 +699,10 @@ export default class Trend extends View {
     return pageHtml(`<style>.vid{display:flex;gap:10px;align-items:flex-start}.vid img{flex:none;width:136px;aspect-ratio:16/9;object-fit:cover;border-radius:6px;background:var(--bg)}`
       + `.vb{flex:1;min-width:0}.err{margin:8px 12px;font-size:.88em;color:${t.ansi1}}</style>`
       + `<nav><button data-cat="all">全部 ${items.length}</button>${groups.map(([q, xs]) => `<button data-cat="${esc(q)}"${xs.length ? "" : " disabled"}>${esc(q)} ${xs.length}</button>`).join("")}</nav>`
-      + `<main>${errs}${items.length ? "" : '<p class="err" style="color:var(--muted)">還沒找到影片</p>'}`
+      + `<main>${sug.length ? `<h2>建議的主題（看你點過的影片和 YouTube 的搜尋建議）</h2>${sug.map((s) => `<div class="card" data-name="${esc(s.q)}">`
+        + `<div class="top"><span class="title">${esc(s.q)}</span></div><div class="meta">${esc(s.why)}</div>`
+        + `<div class="acts"><button class="main" data-do="add">＋ 加入</button><button data-do="skip">不要</button></div></div>`).join("")}` : ""}`
+      + `${errs}${items.length ? "" : '<p class="err" style="color:var(--muted)">還沒找到影片</p>'}`
       + `${groups.filter(([, xs]) => xs.length).map(([q, xs]) => `<section data-cat="${esc(q)}"><h2>${esc(q)}</h2>${xs.map(card).join("")}</section>`).join("")}</main>`);
   }
 

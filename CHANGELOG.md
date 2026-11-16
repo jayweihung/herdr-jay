@@ -81,6 +81,8 @@ it: `~/.config/herdr-app/trend/videos.txt`, one search per line.
   只要播放器：自己的 https 網站放一頁，網址寫進 `trend/player`。
 - 📝 整理重點 above a playing video: the trend agent writes its key points (from the subtitles), shown under the
   player. 播放時按「📝 整理重點」，trend agent 整理的重點顯示在播放器下面。
+- 建議的主題 at the top of the 影片 tab (no tokens): channels and title words from the videos you play, and YouTube's
+  search box suggestions for your searches; ＋ 加入 or 不要. 影片分頁上面自動建議新主題，按一下加入。
 
 ## 2026-11-16, Herdr app v0.1.16, and text in mod panels can be copied
 

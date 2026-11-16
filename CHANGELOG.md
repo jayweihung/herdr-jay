@@ -9,6 +9,14 @@ says which) · **kit** = update kit itself on every machine where agents run (`k
 **snap hook** = a line in Claude Code's `settings.json` on each machine where you added the hook (the entry says
 which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/keys.md).
 
+## 2026-11-16, trend: a card shows the post's first lines
+
+Needs: **mods** (Windows: copy `trend` again; macOS link: nothing).
+
+- A card shows the first three lines of the post itself (PTT's text, Dcard's excerpt, a Reddit text post, Threads'
+  whole post) and **更多** opens all of it. PTT's texts are read once each (`trend/ptt-text.json`), at most 20 new ones
+  a refresh. 卡片上顯示內文前三行，按「更多」看全文；PTT 每篇只讀一次，每次最多讀 20 篇新的。
+
 ## 2026-11-16, trend: what's rising, what's new, one card per story
 
 Needs: **mods** (Windows: copy `trend` again; macOS link: nothing).

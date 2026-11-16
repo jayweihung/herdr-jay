@@ -93,15 +93,19 @@ function chromeMajor(exe) {
   return /(\d+)\.\d+\./.exec(spawnSync(exe, ["--version"], { encoding: "utf8", timeout: 20000 }).stdout ?? "")?.[1] ?? "150";
 }
 const unescapeHtml = (s) => s.replace(/&quot;/g, '"').replace(/&#39;|&#x27;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
-// the <shreddit-post> elements of the page (each says its title, subreddit, score, comments), NSFW ones left out
+// the <shreddit-post> elements of the page (each says its title, subreddit, score, comments; a text post holds its
+// words in slot="text-body"), NSFW ones left out
 function redditPosts(html) {
   // \s: not <shreddit-post-overflow-menu> (an ad's menu)
-  return [...html.matchAll(/<shreddit-post\s([^>]*)>/g)].map((m) => Object.fromEntries([...m[1].matchAll(/([\w-]+)(?:="([^"]*)")?/g)].map((a) => [a[1], unescapeHtml(a[2] ?? "")])))
+  return [...html.matchAll(/<shreddit-post\s([^>]*)>([\s\S]*?)<\/shreddit-post>/g)]
+    .map((m) => ({ ...Object.fromEntries([...m[1].matchAll(/([\w-]+)(?:="([^"]*)")?/g)].map((a) => [a[1], unescapeHtml(a[2] ?? "")])), inner: m[2] }))
     .filter((a) => a["post-title"] && a.permalink && !("nsfw" in a))
     .map((a) => {
       const discussion = new URL(a.permalink, "https://www.reddit.com").href;
+      const text = a.inner.split(/slot="text-body"[^>]*>/)[1]?.split(/<[^>]+slot="|<\/shreddit-post/)[0] ?? "";
       return { title: a["post-title"], url: a["content-href"] || discussion, discussion, subreddit: a["subreddit-prefixed-name"] ?? "",
-        score: Number(a.score) || 0, comments: Number(a["comment-count"]) || 0 };
+        score: Number(a.score) || 0, comments: Number(a["comment-count"]) || 0,
+        body: unescapeHtml(text.replace(/<\/p>|<br\s*\/?>/gi, "\n").replace(/<[^>]+>/g, "")).replace(/\n{3,}/g, "\n\n").trim().slice(0, 2000) };
     });
 }
 // a plain Chrome's user agent, its version the installed one's (150 when there's none)
@@ -153,7 +157,23 @@ async function readPtt() {
       score: s === "爆" ? 100 : s.startsWith("X") ? -10 * (s[1] === "X" ? 10 : Number(s[1]) || 1) : Number(s) || 0, created: new Date(Number(a[2]) * 1000).toISOString() });
   }
   if (!posts.length) throw new Error("熱門看板裡沒有文章");
-  return posts.sort((x, y) => y.score - x.score || y.created.localeCompare(x.created));
+  posts.sort((x, y) => y.score - x.score || y.created.localeCompare(x.created));
+  // Each post's text, read once (trend/ptt-text.json keeps them): the 20 best not read yet on each refresh, so a few
+  // refreshes have them all and then only new posts cost a request. 每篇內文只讀一次，每次最多讀 20 篇新的。
+  let texts = {};
+  try { texts = JSON.parse(fs.readFileSync(path.join(out, "ptt-text.json"), "utf8")); } catch {}
+  for (const p of posts.filter((x) => texts[x.url] == null).slice(0, 20)) {
+    try { texts[p.url] = pttText(await get(p.url.slice(PTT.length))); } catch (e) { if (e instanceof Blocked) throw e; texts[p.url] = ""; }
+  }
+  for (const p of posts) if (texts[p.url]) p.body = texts[p.url];
+  put("ptt-text.json", JSON.stringify(Object.fromEntries(posts.filter((x) => texts[x.url] != null).map((x) => [x.url, texts[x.url]]))) + "\n");
+  return posts;
+}
+// a post's own words: what's between the header lines and 「※ 發信站」 (no signature, no 推文), 2000 characters at most
+function pttText(html) {
+  const main = /<div id="main-content"[^>]*>([\s\S]*)/.exec(html)?.[1] ?? "";
+  return unescapeHtml(main.replace(/<div class="article-metaline(-right)?">[\s\S]*?<\/div>/g, "").split(/※ 發信站|<span class="f2">※/)[0]
+    .replace(/<br\s*\/?>/gi, "\n").replace(/<[^>]+>/g, "")).replace(/\n--\s*$/m, "").replace(/\n{3,}/g, "\n\n").trim().slice(0, 2000);
 }
 
 // A page opened by the installed Chrome or Edge, headless but saying it is a plain Chrome, driven over DevTools
@@ -228,7 +248,7 @@ async function readDcard() {
   walk(JSON.parse(list.body));
   const shown = posts.filter((x) => !x.nsfw && !x.unsafe && !DCARD_ADULT.test(x.forumAlias)).map((x) => ({ title: x.title,
     url: `https://www.dcard.tw/f/${x.forumAlias}/p/${x.id}`, score: x.likeCount ?? 0, comments: x.totalCommentCount ?? x.commentCount ?? 0,
-    board: x.forumName ?? x.forumAlias, forum: x.forumAlias, created: x.createdAt }));
+    board: x.forumName ?? x.forumAlias, forum: x.forumAlias, created: x.createdAt, body: String(x.excerpt ?? "").trim() }));
   if (!shown.length) throw new Error("熱門清單裡沒有文章");
   return shown;
 }
@@ -248,9 +268,9 @@ async function readThreads(before) {
   };
   for (const m of p.html.matchAll(/<script type="application\/json"[^>]*>([\s\S]*?)<\/script>/g)) if (m[1].includes("thread_items")) try { walk(JSON.parse(m[1])); } catch {}
   for (const b of p.bodies) for (const line of b.body.split("\n")) if (line.includes("thread_items")) try { walk(JSON.parse(line)); } catch {}
-  const fresh = found.map((x) => ({ title: (x.caption?.text ?? "").replace(/\s+/g, " ").trim().slice(0, 120) || "(無文字)",
-    url: `https://www.threads.com/@${x.user?.username}/post/${x.code}`, score: x.like_and_view_counts_disabled ? 0 : x.like_count ?? 0,
-    comments: x.text_post_app_info?.direct_reply_count ?? 0, author: x.user?.username ?? "", created: new Date(x.taken_at * 1000).toISOString(), seen: now() }));
+  const fresh = found.map((x) => { const text = (x.caption?.text ?? "").trim(); return { title: text.replace(/\s+/g, " ").slice(0, 120) || "(無文字)",
+    url: `https://www.threads.com/@${x.user?.username}/post/${x.code}`, score: x.like_and_view_counts_disabled ? 0 : x.like_count ?? 0, body: text.slice(0, 2000),
+    comments: x.text_post_app_info?.direct_reply_count ?? 0, author: x.user?.username ?? "", created: new Date(x.taken_at * 1000).toISOString(), seen: now() }; });
   if (!fresh.length) throw new Error("首頁沒有貼文（要登入了，或版面改了）");
   const all = new Map([...(before?.threads ?? []).filter((x) => Date.now() - Date.parse(x.seen ?? "") < 24 * HOUR_MS), ...fresh].map((x) => [x.url, x]));
   return [...all.values()].sort((a, b) => b.score - a.score).slice(0, 30);

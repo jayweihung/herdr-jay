@@ -75,6 +75,9 @@ a.title:hover{text-decoration:underline}
 .dot{flex:none;width:6px;height:6px;margin-top:.55em;border-radius:3px;background:var(--accent)}
 .meta{margin-top:2px;font-size:.85em;color:var(--muted)}
 .why{margin-top:3px;font-size:.9em;color:var(--dim);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.excerpt{margin-top:5px;font-size:.92em;color:var(--fg);opacity:.85;white-space:pre-line;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.card:has(details[open]) .excerpt{display:none}
+.body{margin:6px 0;white-space:pre-line;overflow-wrap:anywhere;color:var(--fg)}
 details{margin-top:4px;font-size:.88em}summary{color:var(--muted);cursor:pointer}
 blockquote{margin:6px 0;padding-left:8px;border-left:2px solid var(--border);color:var(--muted)}
 .links a{display:block;color:var(--accent);text-decoration:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -377,7 +380,7 @@ export default class Trend extends View {
   get shown() {
     if (this.shownOf && this.shownOf.data === this.data && this.shownOf.feeds === this.feeds) return this.shownOf.rows;
     const topics = this.results, cited = new Set(topics.flatMap((r) => r.evidence_urls ?? []));
-    const moved = (x) => ({ first: x.first, rise: x.rise });   // fetch.js: when it showed up, how its score rose
+    const moved = (x) => ({ first: x.first, rise: x.rise, body: x.body });   // fetch.js: when it showed up, how its score rose, its text
     const hn = (this.feeds?.hn ?? []).map((h) => ({ topic: h.title, feed: "HN", line: `HN ${num(h.points)} 分 · ${num(h.comments)} 留言`, ...moved(h),
       why_spiking: shortLink(h.url).split("/")[0], evidence_urls: [h.url, h.discussion].filter((u, i, a) => u && a.indexOf(u) === i) }));
     const digg = (this.feeds?.digg ?? []).map((d) => ({ topic: d.title, feed: "Digg", ...moved(d),
@@ -685,7 +688,10 @@ export default class Trend extends View {
       const links = (r.evidence_urls ?? []).filter((u) => /^https?:\/\//i.test(u));
       const title = links[0] ? `<a class="title" href="${esc(links[0])}">${esc(r.topic)}</a>` : `<span class="title">${esc(r.topic)}</span>`;
       const line = r.line ?? (engagementText(r.engagement) || (r.sources ?? []).map((s) => SOURCE[s] ?? s).join("、"));
-      const more = [r.top_comment ? `<blockquote>${esc(r.top_comment)}</blockquote>` : "",
+      // the post's own text (PTT, Dcard's excerpt, Threads, Reddit): its first lines on the card, all of it under 更多
+      // (Threads' title is already its first 120 characters)
+      const body = String(r.body ?? "").trim(), longer = body && !(r.feed === "Threads" && body.replace(/\s+/g, " ").length <= 120);
+      const more = [longer ? `<div class="body">${esc(body)}</div>` : "", r.top_comment ? `<blockquote>${esc(r.top_comment)}</blockquote>` : "",
         links.length ? `<div class="links">${links.slice(0, 6).map((u) => `<a href="${esc(u)}">↗ ${esc(shortLink(u))}</a>`).join("")}</div>` : ""].join("");
       // the same story elsewhere: each with its own numbers and link
       const also = r.also?.length ? `<div class="also">${r.also.map((a) => `<a href="${esc(a.evidence_urls[0])}"><b>${esc(a.feed)}</b> ${esc(a.topic)}<span>${esc(a.line ?? "")}</span></a>`).join("")}</div>` : "";
@@ -695,7 +701,8 @@ export default class Trend extends View {
         + `${MOMENTUM[r.momentum] ? `<span class="chip ${r.momentum === "new-this-week" ? "new" : "up"}">${MOMENTUM[r.momentum]}</span>` : ""}`
         + `${r.also?.length ? `<span class="chip x">${sites > 1 ? `${sites} 站` : `${all.length} 篇`}</span>` : ""}`
         + `<span class="chip${r.feed ? "" : " x"}">${esc(r.feed ?? "跨站")}</span></div>`
-        + `${line ? `<div class="meta">${esc(line)}</div>` : ""}${why(r) ? `<div class="why">${esc(why(r))}</div>` : ""}${also}`
+        + `${line ? `<div class="meta">${esc(line)}</div>` : ""}${why(r) ? `<div class="why">${esc(why(r))}</div>` : ""}`
+        + `${longer && r.feed !== "Threads" ? `<div class="excerpt">${esc(body)}</div>` : ""}${also}`
         + `${more ? `<details><summary>更多</summary>${more}</details>` : ""}`
         + `<div class="acts"><button class="main" data-do="deep">🔎 深入查</button><button data-do="three">三句話說明</button>`
         + `${this.reportFor(r.topic) ? '<button class="rep" data-do="report">📄 看報告</button>' : ""}</div></div>`;

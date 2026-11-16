@@ -12,7 +12,8 @@ A tab-bar button **熱門** and a panel, like Gerrit's (macOS and Windows):
   red `!` when the last run failed. 按鈕：沒看過的主題數、抓的時候轉圈、上次失敗是紅色 `!`。
 - **The panel**: the list and the 報告 tab are web pages the mod writes to `<Herdr home>/mods/trend/.view/` (in
   Herdr's colors and font size): subject chips on top filter the list; each topic is a card with its numbers (HN
-  分／留言…) and why it's up, **更多** for the top comment and its sources (a link opens the browser), and
+  分／留言…), why it's up and the first three lines of the post itself (PTT's text, read once per post, at most 20 new
+  a refresh; Dcard's excerpt; a Reddit text post; Threads' post), **更多** for all of it, the top comment and its sources (a link opens the browser), and
   **🔎 深入查** / **三句話說明** / **📄 看報告**. The line under the title says when
   it last ran and when it runs next, and a 來源 line names each site once: ✓ when it answered (Reddit, PTT: how long
   ago its page was read), else why not (`讀不到` is not "nothing happened there"; right-click copies it). **↻ 現在更新**
@@ -231,8 +232,9 @@ Without `player` a click opens YouTube's watch page. 只要播放器：在你自
 `status.json` (`started`, `finished`, `ok`, `error`), `last.log` (the last run's output), `proxy` (yours, optional),
 `feeds.json` (HN's front page, Reddit's r/all top of today, PTT's popular posts, Dcard's popular list, Threads' pick of
 the last day and Digg's top stories of the last 24 h: `{ at, since, hn, reddit, ptt, dcard, threads, digg, errors }`,
-each row with `first` and maybe `rise`, and, for the sites read gently, `<site>At`, `<site>BlockedAt`, `<site>Blocks`),
-`history.json` (`{ since, links: { <url>: { first, last, samples: [[time, score]…] } } }`), `reddit-profile/`,
+each row with `first`, maybe `rise` and `body` (its text), and, for the sites read gently, `<site>At`, `<site>BlockedAt`,
+`<site>Blocks`), `ptt-text.json` (each PTT post's text, read once), `history.json`
+(`{ since, links: { <url>: { first, last, samples: [[time, score]…] } } }`), `reddit-profile/`,
 `dcard-profile/`, `threads-profile/` (the browser profiles those pages are opened with: their cookies only).
 `<Herdr home>/mods/trend/.reports/`: the agent's reports (hidden: writing one doesn't reload the mod; git ignores it).
 `videos.txt` (yours: the searches), `videos-skip.txt` (searches not to suggest), `plays.json` (the videos you played,

@@ -276,6 +276,42 @@ cp "$R/mod.json" "$L/mod.json"   # then add "https://www.example.com" to "allow"
 Without `player` a click opens YouTube's watch page. 只要播放器：在你自己的 https 網站放上面那頁，網址（`{id}`
 代表影片）寫進 `trend/player`，網站加進本機那份 `mod.json`；mod 資料夾改成本機的，只有 `mod.json` 是自己的。
 
+## Sync / 同步
+
+Optional: your topics, stars, progress, plays, the trend agent's notes and the player's settings kept on a site of
+yours, so another device has them too. The site serves a **sync page** (`/sync-bridge.html`, same-origin with its own
+sync API and its sign-in) that the panel keeps in a persistent web element, **`trend-sync`** (mod `trend`,
+`persist: true`, 1 px). Its origin is one line in `<Herdr home>/trend/sync-origin` (e.g. `https://www.example.com`)
+and in your local `mod.json`'s allow list (as for the player); no `sync-origin`: the panel reads and writes its files
+only, as before. 同步：在自己的網站放同步頁，網址寫進 `trend/sync-origin`、網站加進本機 `mod.json`；沒寫就照舊只用本機檔。
+
+**The channel**: the panel sets the page's `#` (`#op=state|pull|push&id=<n>&k=<key>[&items=<URL-encoded JSON>]`)
+and the page answers in its own (`#res=<n>&ok=1&data=…&pending=<n>[&full=1]`, or `&err=login|offline|rejected:<status>`),
+one command at a time. The key is what the page says on its first load (`#hello=1&key=…`), kept in the mod's
+localStorage (`sync.key`); a command with a wrong key gets no answer: after 5 s (30 s for a pull or push, which go to
+the site) the page is loaded again (`?r=<n>`) for a new key and the command sent once more, then it gives up until the
+panel is opened again. Tried in Herdr (2026-11-17): a `src` that changes only after `#` is a `hashchange`, not a reload
+(no loading / loaded events); 4 MB of URL went through and a 40 kB answer came back. A push takes 50 items, 1 MB at
+most. 通道：改同步頁網址的 #，頁面把結果寫回自己的 #；只改 # 不會整頁重載，4 MB 的網址也傳得過去。
+
+**Signing in**: the page says `err=login` → `trend-sync` becomes the whole panel with the site's `/login`, and you sign
+in yourself (the panel never sees a password, token or cookie: the page's own requests carry its cookie). The site going
+to `/market/index` means done: back to the sync page, 1 px, and the pull again. **稍後** puts it back without signing
+in (not asked again until Herdr restarts or the mod reloads). 沒登入：那格放大成網站的登入頁，你自己登入；登入好自動縮回。
+
+**What syncs**: items `{ kind, key, data, at, deleted }`, the later `at` winning: `video_topic` / `hot_topic` /
+`muted_topic` (a line of `videos.txt` / `topics.txt` / `videos-skip.txt`), `fav_video` / `fav_card` (`stars.json` /
+`hot-stars.json`), `progress` (`{ t }` seconds), `history` (a play; the newest 300 kept), `note` (`{ text }`, the
+trend agent's `notes/<id>.txt`: the panel passes a new one on when it shows it), `settings` (key `panel`: ✨ 背光,
+字卡, 📝 重點 open). The panel starts from the page's copy (`state`), pulls every 5 minutes and when opened, and
+pushes each change of yours. The first sync that works moves the files up, once (`sync.migrated` in the mod's
+localStorage), for each kind the site has none of yet (plays: the newest 200); the files stay as they were. From then
+on the panel rewrites the files from the synced state when it changes (`videos.txt`, `topics.txt`,
+`videos-skip.txt`, `plays.json` for `fetch.js`; the others for when the sync is off), a list file keeping its `#`
+comments; a line you add or take out there by hand is synced too. The status line says `同步：✓`, `未登入`, `離線`
+or `待送 n 筆`; signed out or offline, the page keeps the changes and sends them later.
+搬家只做一次：後台沒有的種類才從本機檔搬上去，舊檔留著當備份；之後面板從同步狀態重寫本機檔給 fetch.js 讀。
+
 ## Files / 檔案
 
 `~/.config/herdr-app/trend/`: `trends.json` (last30days' discovery JSON, replaced only by a run that worked),
@@ -293,4 +329,5 @@ done, errors, <site>BlockedAt, <site>Blocks }`), `hot-stars.json` (the panel's: 
 `videos.txt` (yours: the searches), `videos-skip.txt` (searches not to suggest), `stars.json` (the videos you starred),
 `progress.json` (how far you got in each), `plays.json` (the videos you played,
 newest 300: the panel writes it) and `videos.json` (`{ queries, searched, items, errors, blockedAt, blocks, cookies,
-suggest, suggested }`) in the same `trend/` folder: the 影片 tab; `trend/player` (yours, optional): its player page.
+suggest, suggested }`) in the same `trend/` folder: the 影片 tab; `trend/player` (yours, optional): its player page;
+`trend/sync-origin` (yours, optional): the site the panel syncs with (「Sync」).

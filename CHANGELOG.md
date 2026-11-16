@@ -9,6 +9,15 @@ says which) · **kit** = update kit itself on every machine where agents run (`k
 **snap hook** = a line in Claude Code's `settings.json` on each machine where you added the hook (the entry says
 which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/keys.md).
 
+## 2026-11-17, 熱門 syncs with a site of yours
+
+Optional: 熱門's topics, stars, progress, plays, the trend agent's notes and the player's settings kept on a site of
+yours through its sync page, which the panel keeps in a 1 px persistent web element (`trend-sync`) and talks to over its
+`#`. Not signed in: that element becomes the whole panel with the site's sign-in page, for you to sign in. The first
+sync moves your files up once (they stay as a backup); then the files `fetch.js` reads are rewritten from the synced
+state. No `trend/sync-origin`: nothing changes. 熱門可以同步到自己的網站：沒登入會放大登入頁給你登入；第一次同步把本機檔搬上去，舊檔留著。
+Needs: **mods**; to use it, your site's origin in `trend/sync-origin` and your local `mod.json` (docs/trend.md「Sync」).
+
 ## 2026-11-17, files dropped on a terminal reach it again
 
 A web page that had been shown and then moved away (熱門's video, QT, 說明頁, a zoomed pane restored) still took the

@@ -52,6 +52,15 @@ const notesAsk = (x, file, extra) => `用繁體中文整理這支 YouTube 影片
 // 面板的頁面用網頁畫：mod 寫 .view/*.html；網頁裡的按鈕改 #hash，mod 收到再去問 agent 或開報告。
 const LIST_CELL = "trend-list", REPORTS_CELL = "trend-reports", VIDEOS_CELL = "trend-videos";
 const PAGE_CELLS = { list: LIST_CELL, reports: REPORTS_CELL, videos: VIDEOS_CELL };   // a tab and the web element of its page
+// 同步: your topics, stars, progress, plays, the agent's notes and the player's settings kept on your own site, so
+// another device has them too (docs/trend.md「Sync」). The site's sync page runs in a persistent web element (1 px; the
+// whole panel while you sign in, yourself) told what to do by its #hash, answering in its own. The site: one line in
+// <Herdr home>/trend/sync-origin, local only like its place in your local mod.json's allow list; none: the files only.
+// 同步：同步頁放在 1px 的持久網頁格，用 #hash 下指令、收結果；沒登入就放大給你自己登入。沒有 sync-origin 就照舊只用本機檔。
+const SYNC_CELL = "trend-sync", SYNC_KEY = "sync.key", SYNC_MOVED = "sync.migrated", SYNC_NOTES = "sync.notes";
+// a pull every 5 minutes; a push: 50 items, 1 MB of URL at most (4 MB went through, 2026-11-17)
+const SYNC_EVERY = 5 * 60000, SYNC_BATCH = 50, SYNC_URL = 1000000;
+const hash = (s) => { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return h; };
 const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 // a page in Herdr's colors and font size: <nav> chips filter the <section data-cat>s; [data-do] clicks set the #hash
 function pageHtml(body) {
@@ -248,6 +257,8 @@ const hhmm = (ms) => { const d = new Date(ms); return `${String(d.getHours()).pa
 const mmss = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 // the topics in videos.txt: one per line, # a comment
 const topicsOf = (text) => String(text ?? "").split("\n").map((l) => l.trim()).filter((l) => l && !l.startsWith("#"));
+// videos-skip.txt's lines, lowercase
+const skipOf = (text) => topicsOf(text).map((l) => l.toLowerCase());
 // YouTube's "2 年前" / "3 天前" / "1 hour ago" as milliseconds (0: not said)
 const agoMs = (s) => {
   const m = /(\d+)\s*(秒|分鐘|分|小時|天|週|周|個月|月|年|second|minute|hour|day|week|month|year)/i.exec(String(s ?? ""));
@@ -306,9 +317,11 @@ export default class Trend extends View {
     // copy draws (and its page plays) even while the panel is hidden or off screen; its card says ▶ 上次看到 instead
     this.view = (this.role !== "toggle" && localStorage.getItem("view")) || "list";   // "list" (the topics), "videos", "reports", or a report's file name
     this.load(cx);
+    if (this.role !== "toggle" && !checking()) cx.spawn(async (cx) => this.syncStart(cx));
     if (this.role !== "toggle") cx.spawn(async (cx) => {
       for (;;) {
         const e = await nextWebEvent();
+        if (e?.id === SYNC_CELL) { await this.syncHeard(e, cx); continue; }
         // our pages (and a report) stay ours: a link to a site mod.json allows (YouTube, for the player) would load
         // in the element itself with no way back, so the page comes back and the link opens in the browser
         if ([LIST_CELL, REPORTS_CELL, VIDEOS_CELL, REPORT_CELL].includes(e?.id) && e.kind === "url" && /^https?:/i.test(e.url ?? "")) {
@@ -321,8 +334,8 @@ export default class Trend extends View {
         // by load(), and the next play of it starts there; #card=0/1: its 字卡 button, kept for the next video
         if (e?.id === VIDEO_CELL && e.kind === "url" && this.playing && (e.url ?? "").includes(this.playing.id)) {
           const m = /#t=(\d+)/.exec(e.url ?? ""), card = /#card=([01])/.exec(e.url ?? "");
-          if (m) { (this.progress ??= {})[this.playing.id] = Number(m[1]); this.progressDirty = true; }
-          if (card) localStorage.setItem("card", card[1]);
+          if (m) { (this.progress ??= {})[this.playing.id] = Number(m[1]); this.progressDirty = true; (this.progressIds ??= new Set()).add(this.playing.id); }
+          if (card && localStorage.getItem("card") !== card[1]) { localStorage.setItem("card", card[1]); this.syncSettings(cx); }
           continue;
         }
         if ((e?.id === LIST_CELL || e?.id === REPORTS_CELL || e?.id === VIDEOS_CELL) && e.kind === "url") { this.fromPage(e.url ?? "", cx); continue; }
@@ -344,6 +357,8 @@ export default class Trend extends View {
     if (this.progress === undefined) try { this.progress = JSON.parse((await readTextFile(pf).catch(() => null)) ?? "{}") ?? {}; } catch { this.progress = {}; }
     else if (this.progressDirty) {
       this.progressDirty = false;
+      this.syncPut([...(this.progressIds ?? [])].map((id) => ({ kind: "progress", key: id, data: { t: this.progress[id] } })), cx);
+      this.progressIds = new Set();
       await writeTextFile(pf, JSON.stringify(this.progress) + "\n", await readTextFile(pf).catch(() => null)).catch(() => { this.progressDirty = true; });
     }
     // the videos you starred (stars.json, the panel's own): kept for good, whatever the searches find or drop
@@ -351,14 +366,22 @@ export default class Trend extends View {
     // 熱門's own: the cards you starred (hot-stars.json, by title), your topics (topics.txt, its ＋ and ✕ write it) and
     // what fetch.js's searches found for them (topics.json; the same text: the same object, so topicRows stays)
     if (this.hotStars === undefined) try { this.hotStars = JSON.parse((await readTextFile(`${this.dir}/hot-stars.json`).catch(() => null)) ?? "{}") ?? {}; } catch { this.hotStars = {}; }
-    this.hotQueries = topicsOf(await readTextFile(`${this.dir}/topics.txt`).catch(() => null));
-    if (tj !== this.topicsText) try { this.topicsData = tj ? JSON.parse(tj) : null; this.topicsText = tj; } catch { this.topicsData = null; }
     // your topics (videos.txt, which the 影片 tab's ＋ and ✕ write), and videos-skip.txt: a line there is never suggested
-    // and hides the videos it's about (videosHtml)
-    this.queries = topicsOf(await readTextFile(`${this.dir}/videos.txt`).catch(() => null));
-    this.skip = ((await readTextFile(`${this.dir}/videos-skip.txt`).catch(() => null)) ?? "").split("\n").map((l) => l.trim().toLowerCase()).filter(Boolean);
-    // the key points of the video playing, once the trend agent has written them (📝 整理重點)
-    this.notes = this.playing ? await readTextFile(`${this.dir}/notes/${this.playing.id}.txt`).catch(() => null) : null;
+    // and hides the videos it's about (videosHtml). Synced: the synced lists, a line changed by hand synced too
+    const [ht, vt, kt] = await Promise.all(["topics.txt", "videos.txt", "videos-skip.txt"].map((n) => readTextFile(`${this.dir}/${n}`).catch(() => null)));
+    if (this.syncOn && this.syncFiles) for (const [name, text, kind, field] of [["topics.txt", ht, "hot_topic", "hotQueries"], ["videos.txt", vt, "video_topic", "queries"],
+      ["videos-skip.txt", kt, "muted_topic", "skip"]]) this.syncHand(name, text, kind, field, cx);
+    else { this.hotQueries = topicsOf(ht); this.queries = topicsOf(vt); this.skip = skipOf(kt); }
+    if (tj !== this.topicsText) try { this.topicsData = tj ? JSON.parse(tj) : null; this.topicsText = tj; } catch { this.topicsData = null; }
+    // the key points of the video playing, once the trend agent has written them (📝 整理重點). Synced: a new text in
+    // the file goes up (the panel passes the agent's notes on), and the synced one shows (another device's, maybe newer)
+    if (!this.playing) this.notes = null;
+    else {
+      const id = this.playing.id, file = await readTextFile(`${this.dir}/notes/${id}.txt`).catch(() => null);
+      if (this.syncOn && file && this.noteSeen[id] !== hash(file)) { this.syncPut([{ kind: "note", key: id, data: { text: file } }], cx); this.noteSeen[id] = hash(file); localStorage.setItem(SYNC_NOTES, JSON.stringify(this.noteSeen)); }
+      const synced = this.syncOn ? this.syncCopy.get(`note\t${id}`) : null;
+      this.notes = synced && !synced.deleted && typeof synced.data?.text === "string" ? synced.data.text : file;
+    }
     // the same text: the same object, so the list (shown, worked out from it) isn't worked out again
     if (f !== this.feedsText) try { this.feeds = f ? JSON.parse(f) : null; this.feedsText = f; } catch { this.feeds = null; }
     // Reddit blocked the house's IP: the button says so, once (fetch.js waits 6, 12, 24 hours before trying again)
@@ -374,6 +397,17 @@ export default class Trend extends View {
     // off as 「This view could not be rendered」)
     void this.shown;
     if (this.role !== "toggle" && !checking()) { await this.writePages(); this.searchMissed(cx); }
+    // 同步: a pull every 5 minutes and whenever the panel is opened again (a hidden panel's sync page isn't told anything)
+    if (this.syncOrigin) {
+      const shown = this.panelShown;
+      if (shown && (!this.syncShown || Date.now() - (this.syncPullAt ?? 0) > SYNC_EVERY)) {
+        if (!this.syncShown) this.syncDead = false;
+        this.syncPullAt = Date.now();
+        this.syncNeed.add("pull");
+      }
+      this.syncShown = shown;
+      this.syncKick(cx);
+    }
     cx.notify();
   }
   get reportDir() { return `${appHome().replace(/\\/g, "/")}/mods/trend/.reports`; }
@@ -451,6 +485,7 @@ export default class Trend extends View {
         .child(div().flex_1().min_w(0).truncate().text_size(z - 1).text_color(t.muted).child(x.title))
         .child(smallBtn(t, z, "vid-glow", localStorage.getItem("glow") === "0" ? "✨ 背光：關" : "✨ 背光：開", (_e, cx) => {
           localStorage.setItem("glow", localStorage.getItem("glow") === "0" ? "1" : "0");
+          this.syncSettings(cx);
           if (this.progress?.[x.id] > 5) this.playFrom = this.progress[x.id];   // the page reloads: on from where it was
           cx.notify();
         }))
@@ -461,7 +496,7 @@ export default class Trend extends View {
         const open = localStorage.getItem("notesOpen") === "1";
         return el.child(h_flex().id("vid-notes-bar").flex_none().h(30).px(12).gap(8).items_center().border_t(1).border_color(t.border).cursor_pointer()
           .text_size(z - 1).text_color(t.muted).hover((s) => s.bg(t.hover)).on_mouse_down("left", stop)
-          .on_click((_e, cx) => { localStorage.setItem("notesOpen", open ? "0" : "1"); cx.notify(); })
+          .on_click((_e, cx) => { localStorage.setItem("notesOpen", open ? "0" : "1"); this.syncSettings(cx); cx.notify(); })
           .child(div().flex_none().text_color(t.foreground).child(open ? "▾ 📝 重點" : "▸ 📝 重點"))
           .child(div().flex_1().min_w(0).truncate().child(open ? "收起" : notes.split("\n").find((l) => l.trim()) ?? "")))
           .when(open, (el) => el.child(div().id("vid-notes-text").flex_none().max_h(240).overflow_y_scrollbar().px(12).py(8)
@@ -556,6 +591,189 @@ export default class Trend extends View {
     } catch (e) { this.msg = `沒跑起來：${e?.message ?? e}`; }
     cx.timer.after(1500, (cx) => this.load(cx));
     cx.notify();
+  }
+
+  // ---- 同步 (docs/trend.md「Sync」): the sync page in SYNC_CELL, told by its #hash (op, id, k: the pairing key its
+  // first load said in #hello), answering in its own (res=<id>). One command at a time: a src change may load the page
+  // again, which would cut the one before off.
+  async syncStart(cx) {
+    const origin = String((await readTextFile(`${this.dir}/sync-origin`).catch(() => null)) ?? "").trim().split("\n")[0].trim().replace(/\/+$/, "");
+    if (!/^https:\/\/[^/\s]+$/.test(origin)) return;   // none: the files only
+    Object.assign(this, { syncOrigin: origin, syncR: 0, syncN: 0, syncOut: [], syncCopy: new Map(), syncNeed: new Set(["state", "pull"]), syncPending: 0 });
+    this.syncSrc = this.syncBase;   // its first load says #hello
+    cx.notify();
+  }
+  get syncBase() { return `${this.syncOrigin}/sync-bridge.html${this.syncR ? `?r=${this.syncR}` : ""}`; }
+  // synced: once the first sync moved the files up (syncMove); before that, or with no sync-origin, the files only
+  get syncOn() { return Boolean(this.syncOrigin) && localStorage.getItem(SYNC_MOVED) === "1"; }
+  get panelShown() { const n = find(layout(), PANEL); return !n || !n.hidden; }
+  get noteSeen() { if (!this.noteSeenOf) try { this.noteSeenOf = JSON.parse(localStorage.getItem(SYNC_NOTES) ?? "{}") ?? {}; } catch { this.noteSeenOf = {}; } return this.noteSeenOf; }
+  get syncLine() {
+    if (!this.syncOrigin) return null;
+    const n = this.syncPending + this.syncOut.length;
+    return `同步：${this.syncErr ?? (this.syncOn ? "✓" : "連線中…")}${n ? `，待送 ${n} 筆` : ""}`;
+  }
+  // the next command: the page's copy first, then what waits to go up (SYNC_BATCH at most, SYNC_URL of URL), then a pull
+  syncKick(cx) {
+    if (!this.syncKey || this.syncCmd || this.syncLogin || this.syncDead || !this.panelShown) return;
+    let cmd = null;
+    if (this.syncNeed.has("state")) cmd = { op: "state" };
+    else if (this.syncOn && this.syncOut.length) {
+      const size = (x) => encodeURIComponent(JSON.stringify(x)).length;
+      let n = 0, len = 0;
+      while (n < Math.min(this.syncOut.length, SYNC_BATCH) && (n === 0 || len + size(this.syncOut[n]) <= SYNC_URL)) len += size(this.syncOut[n++]);
+      cmd = { op: "push", items: this.syncOut.slice(0, n) };
+    } else if (this.syncNeed.has("pull")) cmd = { op: "pull" };
+    if (cmd) { this.syncCmd = cmd; this.syncSend(cmd, cx); }
+  }
+  syncSend(cmd, cx) {
+    cmd.id = String(++this.syncN);
+    this.syncSrc = `${this.syncBase}#op=${cmd.op}&id=${cmd.id}&k=${encodeURIComponent(this.syncKey)}${cmd.items ? `&items=${encodeURIComponent(JSON.stringify(cmd.items))}` : ""}`;
+    this.syncWait(cmd, cmd.op === "state" ? 5000 : 30000, cx);   // state is the page's own copy; pull and push go to the site
+    cx.notify();
+  }
+  // No answer: a key the page doesn't know (it answers none) or a page that's gone. Once: the page loaded again (?r=: a
+  // new load) for a new key (#hello), and the command sent again; twice: given up until the panel is opened again
+  syncWait(cmd, ms, cx) {
+    const at = cmd.at = (cmd.at ?? 0) + 1;
+    cx.timer.after(ms, (cx) => {
+      if (this.syncCmd !== cmd || cmd.at !== at) return;
+      if (cmd.again) { this.syncCmd = null; this.syncDead = true; this.syncErr = "同步頁沒有回應（重開面板再試）"; cx.notify(); return; }
+      cmd.again = true; this.syncKey = null; this.syncR++; this.syncSrc = this.syncBase;
+      this.syncWait(cmd, 10000, cx);
+      cx.notify();
+    });
+  }
+  // What the sync page did: #hello=1&key=…, #res=<id>&ok=1&data=…&pending=n[&full=1] or &err=login|offline|rejected:…;
+  // while you sign in, the site's own pages (/market/index: signed in)
+  async syncHeard(e, cx) {
+    if (e.kind === "failed" && !this.syncLogin) { this.syncErr = "離線（同步頁沒載入）"; cx.notify(); return; }
+    if (e.kind !== "url") return;
+    const url = e.url ?? "";
+    if (this.syncLogin) {
+      let path = "";
+      try { path = new URL(url).pathname; } catch {}
+      if (path.startsWith("/market/index")) { this.syncLogin = false; this.syncErr = null; this.syncR++; this.syncSrc = this.syncBase; cx.notify(); }
+      return;
+    }
+    const h = new URLSearchParams(url.split("#")[1] ?? "");
+    if (h.get("hello") === "1" && h.get("key")) {
+      this.syncKey = h.get("key");
+      localStorage.setItem(SYNC_KEY, this.syncKey);
+      if (this.syncCmd) this.syncSend(this.syncCmd, cx); else this.syncKick(cx);
+      return;
+    }
+    const cmd = this.syncCmd;
+    if (!cmd || h.get("res") !== cmd.id) return;
+    this.syncCmd = null;
+    const ok = h.get("ok") === "1", err = h.get("err");
+    let data = null;
+    try { data = JSON.parse(h.get("data") ?? "null"); } catch {}
+    if (h.get("pending") !== null) this.syncPending = Number(h.get("pending")) || 0;
+    this.syncErr = !err ? null : err === "login" ? "未登入" : err === "offline" ? "離線" : err.startsWith("rejected:") ? `有資料被拒（${err.slice(9)}）` : err.slice(0, 80);
+    if (cmd.op === "push" && ok) this.syncOut = this.syncOut.slice(cmd.items.length);   // the page has them (queued, if it couldn't send yet)
+    if (cmd.op === "state" && ok) { this.syncNeed.delete("state"); this.syncPending = Number(data?.pending) || 0; this.syncTake(data?.items ?? [], true); }
+    if (cmd.op === "pull") {
+      this.syncNeed.delete("pull");
+      if (ok) { this.syncTake(Array.isArray(data) ? data : [], h.get("full") === "1"); if (!this.syncOn) await this.syncMove(); }
+    }
+    // not signed in: the site's sign-in page, the whole panel, for you to sign in; the pull again after it
+    if (err === "login" && !this.syncLater) { this.syncLogin = true; this.syncKey = null; this.syncSrc = `${this.syncOrigin}/login`; this.syncNeed.add("pull"); }
+    if (ok && cmd.op !== "push" && this.syncOn) await this.syncApply(cx);
+    this.syncKick(cx);
+    cx.notify();
+  }
+  // the page's copy into the panel's (full: all of it, else what changed), what still waits to go up kept on top
+  syncTake(items, full) {
+    if (full) this.syncCopy = new Map();
+    for (const it of [...items, ...(full ? this.syncOut : [])]) if (typeof it?.kind === "string" && typeof it.key === "string") this.syncMerge(it);
+  }
+  syncMerge(it) { const id = `${it.kind}\t${it.key}`, cur = this.syncCopy.get(id); if (!cur || it.at >= cur.at) this.syncCopy.set(id, it); }
+  // a change of yours: in the panel's copy now, up with the next push (none before the first sync moved the files up)
+  syncPut(items, cx) {
+    if (!this.syncOn || !items.length) return;
+    const at = Date.now();
+    for (const it of items) { const x = { kind: it.kind, key: it.key, data: it.data ?? {}, at, deleted: Boolean(it.deleted) }; this.syncMerge(x); this.syncOut.push(x); }
+    this.syncKick(cx);
+  }
+  // the player's settings (✨ 背光, its 字卡, 📝 重點 open or not): one item
+  syncSettings(cx) {
+    if (!this.syncOn) return;
+    const data = Object.fromEntries(["glow", "card", "notesOpen"].map((k) => [k, localStorage.getItem(k) ?? ""]));
+    if (JSON.stringify(this.syncCopy.get("settings\tpanel")?.data) !== JSON.stringify(data)) this.syncPut([{ kind: "settings", key: "panel", data }], cx);
+  }
+  // The first sync, once: each kind the site has nothing of yet goes up from the files (the newest 200 plays), which
+  // stay as they are, a backup. 第一次同步：後台沒有的種類才從本機檔搬上去，舊檔留著。
+  async syncMove() {
+    if (this.stars === undefined || this.hotStars === undefined) return;   // the files not read yet: the next pull
+    const have = new Set([...this.syncCopy.values()].map((x) => x.kind)), now = Date.now(), items = [];
+    const add = (kind, key, data, at) => { if (!have.has(kind) && key) items.push({ kind, key, data, at: at || now, deleted: false }); };
+    (this.queries ?? []).forEach((q, i) => add("video_topic", q, {}, now + i));   // in the file's order
+    (this.hotQueries ?? []).forEach((q, i) => add("hot_topic", q, {}, now + i));
+    (this.skip ?? []).forEach((q, i) => add("muted_topic", q, {}, now + i));
+    for (const [id, x] of Object.entries(this.stars)) add("fav_video", id, x, Date.parse(x?.starred));
+    for (const [title, x] of Object.entries(this.hotStars)) add("fav_card", title, x, Date.parse(x?.starred));
+    for (const [id, t] of Object.entries(this.progress ?? {})) add("progress", id, { t }, now);
+    let plays = [];
+    try { plays = JSON.parse((await readTextFile(`${this.dir}/plays.json`).catch(() => null)) ?? "[]"); } catch {}
+    for (const x of (Array.isArray(plays) ? plays : []).slice(0, 200)) add("history", `${x?.at} ${x?.id}`, x, Date.parse(x?.at));
+    for (const n of await fsp.readdir(`${this.dir}/notes`).catch(() => [])) {
+      const text = /\.txt$/.test(n) ? await readTextFile(`${this.dir}/notes/${n}`).catch(() => null) : null;
+      if (text) { add("note", n.slice(0, -4), { text }, now); this.noteSeen[n.slice(0, -4)] = hash(text); }
+    }
+    for (const it of items) { this.syncMerge(it); this.syncOut.push(it); }
+    localStorage.setItem(SYNC_NOTES, JSON.stringify(this.noteSeen));
+    localStorage.setItem(SYNC_MOVED, "1");
+  }
+  // the synced items as the panel's own, then the files (syncMirror) and the pages
+  async syncApply(cx) {
+    const live = [...this.syncCopy.values()].filter((x) => !x.deleted).sort((a, b) => a.at - b.at), of = (k) => live.filter((x) => x.kind === k);
+    this.queries = of("video_topic").map((x) => x.key);
+    this.hotQueries = of("hot_topic").map((x) => x.key);
+    this.skip = of("muted_topic").map((x) => x.key.toLowerCase());
+    this.stars = Object.fromEntries(of("fav_video").map((x) => [x.key, x.data]));
+    this.hotStars = Object.fromEntries(of("fav_card").map((x) => [x.key, x.data]));
+    const p = Object.fromEntries(of("progress").map((x) => [x.key, Number(x.data?.t) || 0]));
+    if (this.playing && this.progress?.[this.playing.id] != null) p[this.playing.id] = this.progress[this.playing.id];   // the playing one's is newer
+    this.progress = p;
+    const s = this.syncCopy.get("settings\tpanel");
+    if (s && !s.deleted) for (const k of ["glow", "card", "notesOpen"]) if (typeof s.data?.[k] === "string" && s.data[k]) localStorage.setItem(k, s.data[k]);
+    await this.syncMirror(of("history").reverse().slice(0, 300).map((x) => x.data));
+    await this.writePages();
+    cx.notify();
+  }
+  // The files rewritten from the synced state, each only when its content changed: fetch.js reads videos.txt,
+  // topics.txt, videos-skip.txt and plays.json; the others are the panel's, read when the sync is off. A list file
+  // keeps its # comments.
+  async syncMirror(plays) {
+    const list = (was, qs, parse) => (parse(was).join("\n") === qs.join("\n") ? was
+      : [...String(was ?? "").split("\n").filter((l) => l.trim().startsWith("#")), ...qs, ""].join("\n"));
+    const json = (o) => JSON.stringify(o) + "\n";
+    const files = { "videos.txt": (w) => list(w, this.queries, topicsOf), "topics.txt": (w) => list(w, this.hotQueries, topicsOf), "videos-skip.txt": (w) => list(w, this.skip, skipOf),
+      "stars.json": () => json(this.stars), "hot-stars.json": () => json(this.hotStars), "progress.json": () => json(this.progress), "plays.json": () => json(plays) };
+    this.syncFiles ??= {};
+    for (const [name, make] of Object.entries(files)) {
+      const path = `${this.dir}/${name}`, was = await readTextFile(path).catch(() => null), text = make(was);
+      if (text != null && text !== was && !(await writeTextFile(path, text, was).then(() => true, () => false))) continue;
+      this.syncFiles[name] = text;
+    }
+  }
+  // synced, a list file that isn't what syncMirror wrote was changed by hand: its lines added or taken out are synced
+  syncHand(name, text, kind, field, cx) {
+    if (text == null || text === this.syncFiles[name]) return;
+    this.syncFiles[name] = text;
+    const now = (field === "skip" ? skipOf : topicsOf)(text), was = this[field] ?? [], same = (a) => (b) => a.toLowerCase() === b.toLowerCase();
+    this.syncPut([...now.filter((q) => !was.some(same(q))).map((key) => ({ kind, key })), ...was.filter((w) => !now.some(same(w))).map((key) => ({ kind, key, deleted: true }))], cx);
+    this[field] = now;
+  }
+  syncCell() { return web.new(SYNC_CELL, { src: this.syncSrc, persist: true }); }
+  // signing in: the site's page as the whole panel; 稍後: back to 1 px, not asked again this session
+  syncLoginView(t, z) {
+    return v_flex().flex_1().min_h(0)
+      .child(h_flex().h(34).px(8).gap(6).flex_none().items_center().border_b(1).border_color(t.border)
+        .child(div().flex_1().min_w(0).truncate().text_size(z - 1).text_color(t.muted).child("同步：請在下面登入，登入好會自動縮回"))
+        .child(smallBtn(t, z, "sync-later", "稍後", (_e, cx) => { this.syncLater = true; this.syncLogin = false; this.syncR++; this.syncSrc = this.syncBase; cx.notify(); })))
+      .child(div().flex_1().min_h(0).child(this.syncCell()));
   }
 
   // ---- asking the trend agent (as Gerrit's panel asks its gerrit agent)
@@ -661,13 +879,15 @@ export default class Trend extends View {
     if (this.view !== this.savedView) { this.savedView = this.view; localStorage.setItem("view", this.view); }
     return v_flex().id("trend").size_full().bg(t.surface).text_size(z).text_color(t.foreground)
       .child(this.header(t, z))
-      .child(this.view === "list" ? this.list(t, z) : this.view === "videos" ? this.videoList(t, z) : this.view === "reports" ? this.reportList(t, z) : this.reportView(t, z))
+      .child(this.syncLogin ? this.syncLoginView(t, z) : this.view === "list" ? this.list(t, z) : this.view === "videos" ? this.videoList(t, z) : this.view === "reports" ? this.reportList(t, z) : this.reportView(t, z))
       .child(this.askCard(t, z))
       // ← 影片: a web element lives on unseen, so its page turns to a blank one, or the video would keep playing;
       // drawn 1 px, only once a video was played. Another tab, the panel hidden or off screen: the player page
       // pauses itself (it hears the page go hidden; tried 2026-11-16) and goes on when shown, no reload
       .when(Boolean(this.played) && !this.playing, (el) => el.child(div().w(1).h(1).flex_none()
-        .child(web.new(VIDEO_CELL, { src: fileUrl(`${this.viewDir}/blank.html`) }))));
+        .child(web.new(VIDEO_CELL, { src: fileUrl(`${this.viewDir}/blank.html`) }))))
+      // the sync page (syncStart): 1 px, the whole panel while you sign in (syncLoginView)
+      .when(Boolean(this.syncSrc) && !this.syncLogin, (el) => el.child(div().w(1).h(1).flex_none().child(this.syncCell())));
   }
 
   // The tab-bar button: 熱門, how many topics you haven't seen, a ring while fetching, ! when the last run failed
@@ -723,7 +943,8 @@ export default class Trend extends View {
       .child(h_flex().px(12).pb(4).gap(5).items_center().min_w(0)
         .when(this.running, (el) => el.child(spin(z - 3, t.muted)))
         .child(div().id("status").flex_1().min_w(0).text_size(z - 1.5).truncate().text_color(red ? t.ansi1 : t.muted)
-          .on_mouse_down("right", copyOn(line)).child(line)))
+          .on_mouse_down("right", copyOn(line)).child(line))
+        .when(Boolean(this.syncLine), (el) => el.child(div().id("sync").flex_none().text_size(z - 1.5).text_color(this.syncErr ? t.ansi1 : t.dim).child(this.syncLine))))
       .when(Boolean(this.msg), (el) => el.child(div().id("msg").px(12).pb(4).text_size(z - 1.5).text_color(t.ansi1).whitespace_normal()
         .on_mouse_down("right", copyOn(this.msg)).child(this.msg)))
       .when(Boolean(this.data || this.feeds), (el) => el.child(h_flex().px(12).pb(6).gap(10).flex_wrap().items_center().text_size(z - 2)
@@ -779,13 +1000,17 @@ export default class Trend extends View {
       const x = this.videos?.items?.find((i) => i.id === h.get("name")) ?? this.stars?.[h.get("name")];
       if (!x) return;
       this.playing = x; this.playFrom = this.progress?.[x.id] > 5 ? this.progress[x.id] : 0; this.played = true; this.notes = null; this.load(cx);
+      const play = { id: x.id, title: x.title, channel: x.channel, query: x.query, at: new Date().toISOString() };
+      // synced: a history item, the ones past the newest 300 taken out
+      const old = this.syncOn ? [...this.syncCopy.values()].filter((p) => p.kind === "history" && !p.deleted).sort((a, b) => b.at - a.at).slice(299) : [];
+      this.syncPut([{ kind: "history", key: `${play.at} ${play.id}`, data: play }, ...old.map((p) => ({ kind: "history", key: p.key, deleted: true }))], cx);
       this.extraFor(x, cx);
       // what you play: fetch.js suggests searches from it (channels, title words); the newest 300
       cx.spawn(async () => {
         const file = `${this.dir}/plays.json`, was = await readTextFile(file).catch(() => null);
         let plays = [];
         try { plays = JSON.parse(was ?? "[]"); } catch {}
-        plays = [{ id: x.id, title: x.title, channel: x.channel, query: x.query, at: new Date().toISOString() }, ...(Array.isArray(plays) ? plays : [])].slice(0, 300);
+        plays = [play, ...(Array.isArray(plays) ? plays : [])].slice(0, 300);
         await writeTextFile(file, JSON.stringify(plays) + "\n", was).catch(() => {});
       });
       return;
@@ -796,6 +1021,7 @@ export default class Trend extends View {
       if (!x || !this.stars) return;
       if (this.stars[id]) delete this.stars[id];
       else this.stars[id] = { ...x, starred: new Date().toISOString() };
+      this.syncPut([{ kind: "fav_video", key: id, data: this.stars[id], deleted: !this.stars[id] }], cx);
       const stars = JSON.stringify(this.stars) + "\n";
       cx.spawn(async (cx) => {
         const file = `${this.dir}/stars.json`;
@@ -811,6 +1037,7 @@ export default class Trend extends View {
       if (!x || !this.hotStars) return;
       if (this.hotStars[id]) delete this.hotStars[id];
       else { const { key, ...row } = x; this.hotStars[id] = { ...row, under: x.q ?? categoryOf(x), starred: new Date().toISOString() }; }
+      this.syncPut([{ kind: "fav_card", key: id, data: this.hotStars[id], deleted: !this.hotStars[id] }], cx);
       const stars = JSON.stringify(this.hotStars) + "\n";
       cx.spawn(async (cx) => {
         const file = `${this.dir}/hot-stars.json`;
@@ -833,6 +1060,8 @@ export default class Trend extends View {
         if (adding && lines.some(same)) return;
         const text = adding ? `${was ?? ""}${was && !was.endsWith("\n") ? "\n" : ""}${q}\n` : lines.filter((l) => !same(l)).join("\n");
         if (!(await writeTextFile(file, text, was).then(() => true, () => false))) return;
+        this.syncPut([{ kind: hot ? "hot_topic" : "video_topic", key: adding ? q : ((hot ? this.hotQueries : this.queries) ?? []).find(same) ?? q, deleted: !adding }], cx);
+        if (this.syncFiles) this.syncFiles[`${hot ? "topics" : "videos"}.txt`] = text;
         if (hot) this.hotQueries = topicsOf(text); else this.queries = topicsOf(text);
         if (adding) await this.runSearch(hot, [q], cx);
         else { await this.writePages(); cx.notify(); }

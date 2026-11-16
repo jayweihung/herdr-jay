@@ -995,6 +995,50 @@ test("reply hook: codex and omp", function()
   check("omp sub-agent: listed with its kind", d and d.list[1] and d.list[1].id == "EchoSub" and d.list[1].type == "sonic", d)
 end)
 
+-- the reply hook's agent-page check: a turn with 3 tool calls or more that didn't write its status.json: once
+test("reply hook: agent-page 進度", function()
+  local hook = HOME .. "/.config/nvim-jay/reply_hook.lua"
+  local tr = ROOT .. "/page.jsonl"
+  local app = HOME .. "/.config/herdr-app"
+  local file = app .. "/mods/agent-page/.pages/t5/status.json"
+  local function tool(cmd) return vim.json.encode({ type = "assistant", message = { content = { { type = "tool_use", name = "Bash", input = { command = cmd } } } } }) .. "\n" end
+  local function add(text) local f = assert(io.open(tr, "ab")) f:write(text) f:close() end
+  local function run(active)
+    local r = vim.system({ vim.v.progpath, "--clean", "-l", hook }, { env = { HC_TERMINAL_ID = "t5" },
+      stdin = vim.json.encode({ session_id = "pg1", transcript_path = tr, stop_hook_active = active or false }), text = true }):wait(20000)
+    local ok, out = pcall(vim.json.decode, r.stdout ~= "" and r.stdout or "null")
+    return ok and out ~= vim.NIL and out or nil
+  end
+  write(tr, tool("ls") .. tool("ls") .. tool("ls"))
+  check("no Herdr folder for this user: quiet", run() == nil)
+  write(app .. "/mods/agent-page/main.js", "")
+  add(tool("ls") .. tool("ls") .. tool("ls"))
+  local out = run()
+  check("3 tool calls, no status.json: reminded, with its file under .pages", out and out.decision == "block"
+    and out.reason:find("[Herdr 進度頁]", 1, true) and out.reason:find(file, 1, true) and out.reason:find("還沒有", 1, true), out)
+  check("kept going once already: quiet", run(true) == nil)
+  vim.uv.sleep(1100)
+  add(tool("ls") .. tool("ls"))
+  check("2 tool calls: quiet", run() == nil)
+  vim.uv.sleep(1100)
+  write(file, "{}")
+  add(tool("ls") .. tool("ls") .. tool("ls"))
+  check("written in this turn: quiet", run() == nil)
+  vim.uv.sleep(1100)
+  add(tool("ls") .. tool("ls") .. tool("ls") .. vim.json.encode({ type = "user", message = { content = '<hc from="t3 lead">Review y.rs</hc>' } }) .. "\n")
+  out = run()
+  check("not written since the last stop, and a message unanswered: one block with both", out and out.reason:find("從上一輪到現在沒更新", 1, true)
+    and out.reason:find("[Herdr 回覆檢查]", 1, true) and out.reason:find("t3 lead", 1, true), out)
+  vim.fn.delete(app, "rf")
+  write(app .. "/settings.json", "{}")
+  vim.uv.sleep(1100)
+  add(tool("ls") .. tool("ls") .. tool("ls"))
+  out = run()
+  check("agent-page not installed here (a machine Herdr connects to): its pages/ folder", out
+    and out.reason:find(app .. "/mods/agent-page/pages/t5/status.json", 1, true), out)
+  vim.fn.delete(app, "rf")
+end)
+
 print(("%d checks, %d failed"):format(n, fails))
 write(ROOT .. "/result", fails == 0 and "pass" or "fail")
 vim.cmd("qa!")

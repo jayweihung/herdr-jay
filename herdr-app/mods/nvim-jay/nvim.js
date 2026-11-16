@@ -130,6 +130,8 @@ os.exit(0)
 // what the agent said last (its last question, else its last line) to ~/.cache/nvim-jay/said/<terminal id>, for the
 // kit mod's 關係 tab (said.js). Also set for SubagentStart / SubagentStop (it then only does this), it and every stop
 // write the agent's sub-agents (running, or done in the last 30 minutes) to ~/.cache/nvim-jay/subs/<terminal id>.
+// In the same stop it also checks agent-page's 進度: a turn of 3 tool calls or more in a Herdr terminal whose
+// status.json wasn't written since the last stop keeps it going once to write it (one block with the reply reminder).
 const REPLY_HOOK = String.raw`-- nvim-jay's reply hook: written by nvim-jay (herdr-jay mods/nvim-jay/nvim.js); edits here are overwritten.
 -- Stop hook of Claude Code or Codex (omp: through omp_hook.js), run as: nvim -l <this file>. Before the agent stops:
 -- did a message from another agent come in
@@ -290,6 +292,7 @@ pcall(function()
   local TAIL = 4 * 1024 * 1024 -- at most this much of the newest transcript is read
   local dir = vim.uv.os_homedir() .. "/.cache/nvim-jay/reply"
   local mark = dir .. "/" .. sid
+  local prev = vim.uv.fs_stat(mark) -- written at each stop: its time is where this turn began (none: the first stop)
   local from = math.max(0, st.size - 256 * 1024) -- the first look: only the last bit
   local fd = vim.uv.fs_open(mark, "r", 0)
   if fd then
@@ -313,7 +316,19 @@ pcall(function()
   -- Only what really came in: a prompt that starts with the tag (typed in by herdr-core, or queued while the agent
   -- worked); never the tag inside a tool's output or the agent's own code. Answers: hc send in a command it ran.
   -- Each transcript line is one JSON record; the first one may be cut off (it then doesn't decode and is skipped).
-  local wants, order, n = {}, {}, 0
+  local wants, order, n, worked = {}, {}, 0, 0
+  -- tool calls in this turn (the agent-page check below): Claude Code tool_use, omp toolCall, Codex's calls
+  local function tools(rec)
+    local m, k = type(rec.message) == "table" and rec.message, 0
+    if m and (rec.type == "assistant" or (rec.type == "message" and m.role == "assistant")) then
+      for _, b in ipairs(type(m.content) == "table" and m.content or {}) do
+        if type(b) == "table" and (b.type == "tool_use" or b.type == "toolCall") then k = k + 1 end
+      end
+    end
+    local p = rec.type == "response_item" and type(rec.payload) == "table" and rec.payload
+    if p and (p.type == "function_call" or p.type == "custom_tool_call" or p.type == "local_shell_call") then k = k + 1 end
+    return k
+  end
   local function texts(c, kinds)
     if type(c) == "string" then return { c } end
     local out = {}
@@ -363,6 +378,7 @@ pcall(function()
     n = n + 1
     local okl, rec = pcall(vim.json.decode, line)
     if okl and type(rec) == "table" then
+      worked = worked + tools(rec)
       for _, msg in ipairs(incoming(rec)) do
         if type(msg) == "string" then
           local attrs, body = msg:match('^%s*<hc from="([^>]-)">(.*)$')
@@ -406,7 +422,6 @@ pcall(function()
       end
     end
   end
-  if not next(wants) then return end
   local left, said = {}, {}
   for _, id in ipairs(order) do
     local m = not said[id] and wants[id] -- an agent that wrote again after an answer is in order twice: once here
@@ -417,9 +432,32 @@ pcall(function()
         .. (m.reach and ("，它要你用 " .. m.reach .. " 回報") or "")
     end
   end
-  if #left == 0 then return end
-  io.stdout:write(vim.json.encode({ decision = "block", reason = "[Herdr 回覆檢查] 這段時間有別的 agent 傳訊息給你，你還沒用 hc send 回："
-    .. table.concat(left, "；") .. "。要回就用 hc send <它的位址> 回給它；只是通知或報告、不用回的話，直接結束就好（這個提醒只出現一次）。" }))
+  local reasons = {}
+  if #left > 0 then
+    reasons[#reasons + 1] = "[Herdr 回覆檢查] 這段時間有別的 agent 傳訊息給你，你還沒用 hc send 回："
+      .. table.concat(left, "；") .. "。要回就用 hc send <它的位址> 回給它；只是通知或報告、不用回的話，直接結束就好（這個提醒只出現一次）。"
+  end
+  -- Its 進度 for agent-page (docs/agent-page.md): a turn that did work (3 tool calls or more) in a Herdr terminal, and
+  -- its status.json not written since the last stop (or never written): keep it going once to write it. Only where
+  -- this user has Herdr's folder (~/.config/herdr-app, or HERDR_APP_HOME); the folder: .pages/ when agent-page is
+  -- installed here, else pages/ (a machine Herdr connects to, which copies it from there).
+  local tid = tostring(vim.env.HC_TERMINAL_ID or ""):gsub("[^%w%-_.]", "_")
+  local home = vim.env.HERDR_APP_HOME or (vim.uv.os_homedir() .. "/.config/herdr-app")
+  if worked >= 3 and tid ~= "" and vim.uv.fs_stat(home) then
+    local mod = home .. "/mods/agent-page"
+    local file = mod .. (vim.uv.fs_stat(mod .. "/main.js") and "/.pages/" or "/pages/") .. tid .. "/status.json"
+    local s = vim.uv.fs_stat(file)
+    local function at(x) return x.mtime.sec + (x.mtime.nsec or 0) / 1e9 end
+    if not s or (prev and at(s) < at(prev)) then
+      reasons[#reasons + 1] = "[Herdr 進度頁] 這一輪你做了事，但旁邊說明頁的進度（" .. file .. "）"
+        .. (s and "從上一輪到現在沒更新" or "還沒有") .. "。請先 mkdir -p 那個資料夾，再重寫整個檔："
+        .. '{"title","updated"（完整時間，例如 2026-11-16T17:10:00+08:00）,"waiting":[{"text","cmd"}] 真的在等使用者的事,'
+        .. '"doing":[{"text","project"}],"todo":[...],"done":[{"text","project","date"}] 做完的留著}。'
+        .. "這一輪的進度沒變的話，直接結束就好（這個提醒只出現一次）。"
+    end
+  end
+  if #reasons == 0 then return end
+  io.stdout:write(vim.json.encode({ decision = "block", reason = table.concat(reasons, "\n") }))
 end)
 `;
 

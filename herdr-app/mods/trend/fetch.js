@@ -8,9 +8,10 @@
 // <last30days.py>: the skill's scripts/last30days.py in your kit source.
 // A proxy goes in <Herdr home>/trend/proxy, one line http://user:pass@host:port (keep it private: chmod 600 on macOS):
 // last30days' requests go through it (not Reddit's page below: a proxy didn't get past Reddit's 403 either).
-// PYTHON: the Python to run it with (default python3; on Windows python). CHROME: the Chrome or Edge for Reddit's page.
+// PYTHON: the Python to run it with (default python3; on Windows python). CHROME: the Chrome or Edge for the pages
+// read in a browser (Reddit, Dcard, Threads).
 // 每小時抓一次全網熱門（不叫模型、不花 token）。代理寫在 trend/proxy 一行，只給 last30days 用。
-const { spawnSync } = require("child_process");
+const { spawn, spawnSync } = require("child_process");
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
@@ -50,9 +51,9 @@ else {
 }
 
 // last30days names at most 10 topics (and enriches 6): the panel fills its list with each site's own front page,
-// ranked by that site. feeds.json: { at, hn: [...], reddit: [...], ptt: [...], digg: [...], errors: {...}, and for each
-// site read gently (reddit, ptt): <site>At, <site>BlockedAt, <site>Blocks }. Free, no keys, no model.
-// 面板用各站自己的熱門（HN 首頁、Reddit r/all 今日、PTT 熱門看板、Digg 排行）補足清單。
+// ranked by that site. feeds.json: { at, hn, reddit, ptt, dcard, threads, digg (arrays), errors: {...}, and for each
+// site read gently (reddit, ptt, dcard, threads): <site>At, <site>BlockedAt, <site>Blocks }. Free, no keys, no model.
+// 面板用各站自己的熱門（HN 首頁、Reddit r/all 今日、PTT 熱門看板、Dcard 熱門、Threads 推薦、Digg 排行）補足清單。
 
 // Sites read gently, since a block is likely by IP and every device in the house shares it (a production crawler's
 // advice): no login, its own Chrome version in the user agent, zh-TW first, once every 2 to 3 hours (a random pick,
@@ -60,12 +61,12 @@ else {
 // so. What a site gave last stays until a new try says otherwise.
 // 全家共用 IP，所以保守：每站 2 到 3 小時一次；被擋停 6、12、24 小時，面板會說。
 const HOUR_MS = 3600000;
-async function gently(f, before, key, read) {
+async function gently(f, before, key, read, hours = 2) {
   const at = `${key}At`, blockedAt = `${key}BlockedAt`, blocks = `${key}Blocks`;
   for (const k of [key, at, blockedAt, blocks]) if (before?.[k] != null) f[k] = before[k];
   const pause = 6 * HOUR_MS * 2 ** Math.min(2, Math.max(0, (f[blocks] ?? 1) - 1));
   if (Date.now() - Date.parse(f[blockedAt] ?? "") < pause) throw new Error(`被擋了，${Math.round(pause / HOUR_MS)} 小時內不再試（${f[blockedAt]}）`);
-  if (Date.now() - Date.parse(f[at] ?? "") < (2 + Math.random()) * HOUR_MS) return;
+  if (Date.now() - Date.parse(f[at] ?? "") < (hours + Math.random()) * HOUR_MS) return;
   try {
     f[key] = await read();
   } catch (e) {
@@ -154,6 +155,106 @@ async function readPtt() {
   return posts.sort((x, y) => y.score - x.score || y.created.localeCompare(x.created));
 }
 
+// A page opened by the installed Chrome or Edge, headless but saying it is a plain Chrome, driven over DevTools
+// (127.0.0.1 only) for pages where --dump-dom never returns (they never go idle): keeps the bodies of the responses
+// whose url matches `keep`, waits up to `wait` seconds (less once done(bodies) or the text matches `stop`), scrolls
+// `scrolls` times (more of a feed), and gives { status (the page's own), text (what it shows), html, bodies }.
+// One profile of its own per site, kept between runs (nothing of yours is read).
+async function chromePage(site, url, { keep, wait = 30, done = () => false, stop = null, scrolls = 0 }) {
+  const exe = findChrome();
+  if (!exe) throw new Error("沒有 Chrome 或 Edge（或設 CHROME）");
+  const profile = path.join(out, `${site}-profile`), sleep = (ms) => new Promise((ok) => setTimeout(ok, ms));
+  fs.mkdirSync(profile, { recursive: true });
+  fs.rmSync(path.join(profile, "DevToolsActivePort"), { force: true });
+  const chrome = spawn(exe, ["--headless=new", `--user-data-dir=${profile}`, "--no-first-run", "--no-default-browser-check", `--user-agent=${chromeUa()}`,
+    "--accept-lang=zh-TW,zh,en-US,en", "--window-size=1200,2000", "--disable-blink-features=AutomationControlled",
+    "--remote-debugging-address=127.0.0.1", "--remote-debugging-port=0", "about:blank"], { stdio: "ignore", windowsHide: true });
+  let ws;
+  try {
+    let port;
+    for (let i = 0; i < 100 && !port; i++) { await sleep(100); try { port = fs.readFileSync(path.join(profile, "DevToolsActivePort"), "utf8").split("\n")[0]; } catch {} }
+    if (!port) throw new Error("Chrome 沒開起來");
+    const tab = (await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()).find((t) => t.type === "page");
+    ws = new WebSocket(tab.webSocketDebuggerUrl);
+    await new Promise((ok, no) => { ws.onopen = ok; ws.onerror = () => no(new Error("連不上 Chrome")); });
+    let id = 0, status = 0;
+    const waiting = new Map(), resp = new Map(), bodies = [];
+    const cdp = (method, params = {}) => new Promise((ok) => { waiting.set(++id, ok); ws.send(JSON.stringify({ id, method, params })); });
+    ws.onmessage = async (e) => {
+      const m = JSON.parse(e.data);
+      if (m.id) { waiting.get(m.id)?.(m); waiting.delete(m.id); return; }
+      if (m.method === "Network.responseReceived") {
+        if (m.params.type === "Document" && !status) status = m.params.response.status;
+        resp.set(m.params.requestId, m.params.response);
+      }
+      const r = m.method === "Network.loadingFinished" && resp.get(m.params.requestId);
+      if (r && keep.test(r.url)) bodies.push({ url: r.url, status: r.status, body: (await cdp("Network.getResponseBody", { requestId: m.params.requestId })).result?.body ?? "" });
+    };
+    const read = async (expression) => (await cdp("Runtime.evaluate", { expression, returnByValue: true })).result?.result?.value ?? "";
+    const shows = () => read("document.title + ' ' + (document.body?.innerText ?? '').slice(0, 3000)");
+    await cdp("Network.enable");
+    await cdp("Page.navigate", { url });
+    let text = "";
+    for (let i = 0; i < wait && !done(bodies); i++) {
+      await sleep(1000);
+      if (stop?.test(text = await shows())) break;
+    }
+    for (let i = 0; i < scrolls && !stop?.test(text); i++) {
+      await read("window.scrollTo(0, document.body.scrollHeight)");
+      await sleep(4000 + Math.random() * 2000);
+    }
+    return { status, text: await shows(), html: await read("document.documentElement.outerHTML"), bodies };
+  } finally { ws?.close(); chrome.kill(); }
+}
+
+// Dcard: Cloudflare answers its API (and plain HTTP) with 403; opened in Chrome, https://www.dcard.tw/f asks Dcard's
+// API itself (tried 2026-11-16): its popular list (globalPaging/page …listKey=popular…) is kept, about 21 posts.
+// Every 3 to 4 hours. Dcard：Cloudflare 擋 API；本機 Chrome 無頭開熱門頁，接下頁面自己抓的熱門清單。3 到 4 小時一次。
+// shortcut: adult forums by alias besides the post's own nsfw flag, add one when it shows up
+const DCARD_ADULT = /^(sex|sexuality|bdsm|lgbt_sex|sex_toy|r18|adult|18x)$/i;
+const CF_BLOCK = /Attention Required|you have been blocked|unable to access/i;
+async function readDcard() {
+  const p = await chromePage("dcard", "https://www.dcard.tw/f", { keep: /globalPaging\/page.*listKey=popular/, done: (b) => b.length > 0, stop: CF_BLOCK });
+  const list = p.bodies[0];
+  if (!list && (CF_BLOCK.test(p.text) || /Just a moment|verify you are human/i.test(p.text))) throw new Blocked("被 Dcard 擋了（之後 6、12、24 小時再試一次）");
+  if (list?.status !== 200) throw new Error(`拿不到熱門清單（HTTP ${list?.status ?? p.status}）`);
+  const posts = [], ids = new Set();
+  const walk = (o) => {
+    if (!o || typeof o !== "object") return;
+    if (typeof o.title === "string" && o.forumAlias && Number.isInteger(o.id) && "likeCount" in o && !ids.has(o.id)) { ids.add(o.id); posts.push(o); }
+    for (const v of Object.values(o)) walk(v);
+  };
+  walk(JSON.parse(list.body));
+  const shown = posts.filter((x) => !x.nsfw && !x.unsafe && !DCARD_ADULT.test(x.forumAlias)).map((x) => ({ title: x.title,
+    url: `https://www.dcard.tw/f/${x.forumAlias}/p/${x.id}`, score: x.likeCount ?? 0, comments: x.totalCommentCount ?? x.commentCount ?? 0,
+    board: x.forumName ?? x.forumAlias, forum: x.forumAlias, created: x.createdAt }));
+  if (!shown.length) throw new Error("熱門清單裡沒有文章");
+  return shown;
+}
+
+// Threads has no logged-out trending list (search is empty, the Trending Topics API is US and Japan, with Meta's app
+// review); what it shows a visitor from here is its own pick of posts, about 10 a load (the page's JSON and the
+// feed page one scroll brings). So each run's pick is added to the last day's, most 讚 first, 30 kept.
+// Threads 沒有訪客看得到的熱門榜；開首頁拿它推薦給訪客的約 10 則，累積 24 小時、依讚數排，留 30 則。
+async function readThreads(before) {
+  const p = await chromePage("threads", "https://www.threads.com/", { keep: /\/graphql\//, wait: 8, scrolls: 2 });
+  if (p.status && p.status !== 200 || /checkpoint|verify you are human|unusual activity|請稍後再試|Please wait a few minutes/i.test(p.text))
+    throw new Blocked(`被 Threads 擋了（HTTP ${p.status}；之後 6、12、24 小時再試一次）`);
+  const found = [];
+  const walk = (o) => {
+    if (Array.isArray(o)) o.forEach(walk);
+    else if (o && typeof o === "object") { if (Array.isArray(o.thread_items) && o.thread_items[0]?.post?.code) found.push(o.thread_items[0].post); else Object.values(o).forEach(walk); }
+  };
+  for (const m of p.html.matchAll(/<script type="application\/json"[^>]*>([\s\S]*?)<\/script>/g)) if (m[1].includes("thread_items")) try { walk(JSON.parse(m[1])); } catch {}
+  for (const b of p.bodies) for (const line of b.body.split("\n")) if (line.includes("thread_items")) try { walk(JSON.parse(line)); } catch {}
+  const fresh = found.map((x) => ({ title: (x.caption?.text ?? "").replace(/\s+/g, " ").trim().slice(0, 120) || "(無文字)",
+    url: `https://www.threads.com/@${x.user?.username}/post/${x.code}`, score: x.like_and_view_counts_disabled ? 0 : x.like_count ?? 0,
+    comments: x.text_post_app_info?.direct_reply_count ?? 0, author: x.user?.username ?? "", created: new Date(x.taken_at * 1000).toISOString(), seen: now() }));
+  if (!fresh.length) throw new Error("首頁沒有貼文（要登入了，或版面改了）");
+  const all = new Map([...(before?.threads ?? []).filter((x) => Date.now() - Date.parse(x.seen ?? "") < 24 * HOUR_MS), ...fresh].map((x) => [x.url, x]));
+  return [...all.values()].sort((a, b) => b.score - a.score).slice(0, 30);
+}
+
 // My videos: videos.txt holds one YouTube search per line (e.g. TWICE 子瑜; # starts a comment). Each is run on
 // YouTube's own search page (uploads of this week) and read from its ytInitialData: no key, no browser (a search
 // page needs no PO token; only playing or downloading does). Gently, from the home IP every device in the house
@@ -219,7 +320,7 @@ async function videos() {
 }
 
 async function feeds() {
-  const f = { at: now(), hn: [], reddit: [], ptt: [], digg: [], errors: {} };
+  const f = { at: now(), hn: [], reddit: [], ptt: [], dcard: [], threads: [], digg: [], errors: {} };
   let before = null;
   try { before = JSON.parse(fs.readFileSync(path.join(out, "feeds.json"), "utf8")); } catch {}
   try {
@@ -230,8 +331,8 @@ async function feeds() {
       discussion: `https://news.ycombinator.com/item?id=${h.objectID}`, points: h.points ?? 0, comments: h.num_comments ?? 0,
     }));
   } catch (e) { f.errors.hn = String(e.message ?? e).slice(0, 200); }
-  for (const [key, read] of [["reddit", readReddit], ["ptt", readPtt]])
-    try { await gently(f, before, key, read); } catch (e) { f.errors[key] = String(e.message ?? e).slice(0, 200); }
+  for (const [key, read, hours] of [["reddit", readReddit], ["ptt", readPtt], ["dcard", readDcard, 3], ["threads", () => readThreads(before)]])
+    try { await gently(f, before, key, read, hours); } catch (e) { f.errors[key] = String(e.message ?? e).slice(0, 200); }
   // digg-pp-cli on PATH (docs/trend.md): the stories of every Digg topic in the last 24 h, by Digg Score
   const d = spawnSync(process.platform === "win32" ? "digg-pp-cli.exe" : "digg-pp-cli", ["top", "--limit", "30", "--agent"],
     { encoding: "utf8", maxBuffer: 16 << 20, timeout: 120000, windowsHide: true });

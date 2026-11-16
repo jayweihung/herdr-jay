@@ -9,6 +9,15 @@ says which) · **kit** = update kit itself on every machine where agents run (`k
 **snap hook** = a line in Claude Code's `settings.json` on each machine where you added the hook (the entry says
 which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/keys.md).
 
+## 2026-11-16, trend: Dcard and Threads in the list
+
+Needs: **mods** (Windows: copy `trend` again; macOS link: nothing), Chrome or Edge installed.
+
+- Dcard's popular list (what https://www.dcard.tw/f fetches itself, in headless Chrome: its API gives scripts
+  Cloudflare's 403; every 3 to 4 hours) and Threads' pick for a visitor (it has no logged-out trending list: each
+  run's 10 or so posts join the last day's, most 讚 first, 30 kept) join the list, which now goes to 60. Pages that
+  never go idle are driven over DevTools on 127.0.0.1. 熱門清單加了 Dcard 熱門和 Threads（訪客推薦累積 24 小時），清單放到 60 條。
+
 ## 2026-11-16, trend: PTT in the list
 
 Needs: **mods** (Windows: copy `trend` again; macOS link: nothing).

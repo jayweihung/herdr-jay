@@ -50,6 +50,35 @@ const PRESETS = [
 const MOMENTUM = { "new-this-week": "本週新", building: "升溫中" };
 const SHOWN = 20;   // last30days names 5 to 10 topics; the sites' own front pages fill the list to this many
 const DIGG_TOPIC = { ai: "AI", tech: "科技", "world-business": "國際商業", sports: "體育", science: "科學", gaming: "遊戲", entertainment: "娛樂" };
+// The list by subject (no model, no tokens): words in the title first, then what the site says (Digg's topic,
+// Reddit's subreddit), then the site's usual (HN: 科技, Reddit's front page: 趣聞). Shown in CATS order.
+// 依主題分類：先看標題關鍵字，再看 Digg 的分類、Reddit 的看板，最後照網站慣例。
+// shortcut: keyword lists misfile some titles; a cheap model call per row if that starts to matter.
+const CATS = ["AI", "科技", "財經", "國際政治", "科學", "娛樂", "遊戲", "體育", "趣聞", "其他"];
+const WORDS = [
+  ["AI", /\b(AI|A\.I\.|AGI|LLMs?|GPTs?|ChatGPT|OpenAI|Anthropic|Claude|Gemini|Copilot|Qwen\w*|DeepSeek|Llama|Mistral|Grok|xAI|machine learning|neural)\b|人工智慧/i],
+  ["財經", /\b(stocks?|shares|markets?|Fed|interest rates?|inflation|earnings|IPO|bitcoin|crypto\w*|tariffs?|economy|recession|S&P|Nasdaq|Dow|Wall Street|layoffs?)\b|股|經濟/i],
+  ["國際政治", /\b(Trump|Biden|Harris|election|Congress|Senate|White House|president|prime minister|government|war|Ukraine|Russia|Putin|Israel|Gaza|Iran|NATO|China|Taiwan|sanctions?)\b|政府|選舉/i],
+  ["科學", /\b(NASA|SpaceX|Starship|rocket|space|physics|biology|scientists?|study finds|climate|El Niño|species|fossil|quantum)\b|科學/i],
+  ["體育", /\b(NBA|NFL|MLB|NHL|FIFA|World Cup|Olympics?|Premier League|Formula 1|F1|tennis|golf)\b/i],
+  ["科技", /\b(Nvidia|Jensen Huang|Apple|Microsoft|Google|Amazon|Meta|Tesla|Musk|Altman|Zuckerberg|Intel|AMD|TSMC|iPhone|Android|Linux|Windows|software|chips?|GPUs?|open source|outage|hack(ed|ers?)?|browser)\b|台積電/i],
+];
+const DIGG_CAT = { ai: "AI", tech: "科技", "world-business": "國際政治", sports: "體育", science: "科學", gaming: "遊戲", entertainment: "娛樂" };
+const SUB_CAT = [
+  ["國際政治", /^r\/(politics|worldnews|news|europe|ukraine|geopolitics|PoliticalHumor)$/i],
+  ["科技", /^r\/(technology|gadgets|programming|apple|android|pcmasterrace|hardware)$/i],
+  ["財經", /^r\/(wallstreetbets|stocks|investing|economics|personalfinance|CryptoCurrency|Bitcoin)$/i],
+  ["科學", /^r\/(science|space|askscience|EarthPorn)$/i],
+  ["娛樂", /^r\/(movies|television|music|entertainment|shittymoviedetails|popculturechat|anime|Marvel)$/i],
+  ["遊戲", /^r\/(gaming|pcgaming|Games|nintendo|PS5|xbox|GTA\w*|leagueoflegends|Minecraft)$/i],
+  ["體育", /^r\/(sports|nba|nfl|soccer|baseball|hockey|formula1|tennis|MMA|CFB)$/i],
+];
+function categoryOf(r) {
+  const text = `${r.topic} ${r.feed ? "" : why(r)}`;
+  const ai = WORDS[0][1].test(text) && "AI";
+  const site = r.digg ? DIGG_CAT[r.digg] : r.sub ? SUB_CAT.find(([, re]) => re.test(r.sub))?.[0] : null;
+  return ai || site || WORDS.slice(1).find(([, re]) => re.test(text))?.[0] || (r.feed === "HN" ? "科技" : r.feed === "Reddit" ? "趣聞" : "其他");
+}
 const SOURCE = { hackernews: "HN", reddit: "Reddit", digg: "Digg", x: "X", grounding: "網頁", youtube: "YouTube", polymarket: "Polymarket", github: "GitHub" };
 const STATE = { "rate-limited": "被限流", "auth-failed": "登入失效", "payment-required": "額度用完", unreachable: "連不到", timeout: "逾時",
   "schema-drift": "讀不到（常是被擋）", "skipped-unconfigured": "沒設定", error: "出錯", partial: "部分", "no-results": "沒結果" };
@@ -220,8 +249,8 @@ export default class Trend extends View {
       why_spiking: shortLink(h.url).split("/")[0], evidence_urls: [h.url, h.discussion].filter((u, i, a) => u && a.indexOf(u) === i) }));
     const digg = (this.feeds?.digg ?? []).map((d) => ({ topic: d.title, feed: "Digg",
       line: `Digg ${num(d.score)} 分 · ${d.sources} 個來源${DIGG_TOPIC[d.topic] ? ` · ${DIGG_TOPIC[d.topic]}` : ""}`,
-      why_spiking: d.description, evidence_urls: [d.url] }));
-    const reddit = (this.feeds?.reddit ?? []).map((p) => ({ topic: p.title, feed: "Reddit", line: `Reddit ${num(p.score)} 分 · ${num(p.comments)} 留言`,
+      why_spiking: d.description, evidence_urls: [d.url], digg: d.topic }));
+    const reddit = (this.feeds?.reddit ?? []).map((p) => ({ topic: p.title, feed: "Reddit", line: `Reddit ${num(p.score)} 分 · ${num(p.comments)} 留言`, sub: p.subreddit,
       why_spiking: [p.subreddit, shortLink(p.url).split("/")[0]].filter(Boolean).join(" · "), evidence_urls: [p.url, p.discussion].filter((u, i, a) => u && a.indexOf(u) === i) }));
     const out = [...topics], names = new Set(topics.map((r) => r.topic));
     for (let i = 0; out.length < SHOWN && (i < hn.length || i < reddit.length || i < digg.length); i++)
@@ -417,12 +446,14 @@ export default class Trend extends View {
       const why = this.data?.outcome === "nothing-solid" ? `這一輪沒有夠強的熱門${this.data.weak_signal ? `（最接近的：${this.data.weak_signal}）` : ""}` : "還沒有主題";
       return list.child(div().p(14).text_color(t.muted).child(why));
     }
+    // by subject, each with its rows in the list's order (last30days' cross-checked topics first, marked 跨站)
     const seen = new Set(Array.isArray(shared(SEEN)) ? shared(SEEN) : []);
-    this.shown.forEach((r, i) => {
-      if (r.feed && !this.shown[i - 1]?.feed) list.child(div().px(12).pt(10).pb(4).text_size(z - 1.5).text_color(t.dim)
-        .child("各站自己的熱門（沒經過 last30days 跨站比對）"));
-      list.child(this.row(t, z, r, !seen.has(r.topic)));
-    });
+    const groups = new Map(CATS.map((c) => [c, []]));
+    for (const r of this.shown) groups.get(categoryOf(r)).push(r);
+    for (const [cat, rows] of groups) if (rows.length) {
+      list.child(div().px(12).pt(10).pb(4).text_size(z - 1.5).font_semibold().text_color(t.muted).border_b(1).border_color(t.border).child(`${cat} · ${rows.length}`));
+      for (const r of rows) list.child(this.row(t, z, r, !seen.has(r.topic)));
+    }
     return list;
   }
 
@@ -437,7 +468,7 @@ export default class Trend extends View {
         .child(div().flex_1().min_w(0).truncate().font_semibold().on_mouse_down("right", copyOn(r.topic)).child(r.topic))
         .when(fresh, (el) => el.child(div().w(6).h(6).rounded(3).flex_none().bg(t.accent)))
         .when(Boolean(MOMENTUM[r.momentum]), (el) => el.child(chip(MOMENTUM[r.momentum], r.momentum === "new-this-week" ? t.ansi2 : t.ansi3)))
-        .when(Boolean(r.feed), (el) => el.child(chip(r.feed, t.muted))))
+        .child(chip(r.feed ?? "跨站", r.feed ? t.muted : t.accent)))
       .child(div().pl(24).text_size(z - 1.5).text_color(t.muted).truncate().child(r.line ?? (engagementText(r.engagement) || (r.sources ?? []).map((s) => SOURCE[s] ?? s).join("、"))));
     if (!open) return row.child(div().pl(24).text_size(z - 1.5).text_color(t.dim).truncate().child(why(r)));
     row.child(div().pl(24).text_size(z - 1).whitespace_normal().child(why(r)));

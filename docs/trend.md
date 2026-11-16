@@ -15,12 +15,15 @@ A tab-bar button **熱門** and a panel, like Gerrit's (macOS and Windows):
   it last ran and when it runs next, and a 來源 line names each site once: ✓ when it answered (Reddit: how long ago its
   page was read), else why not (`讀不到` is not "nothing happened there"; right-click copies it). **↻ 現在更新**
   runs it now; **⤢** shows the panel alone in its row (again: back). 面板：每個主題的數字和原因；點開看熱門留言、來源連結、深入查／三句話說明。標題下面寫上次和下次更新、哪些網站有回應；⤢ 放大。
-  last30days names 5 to 10 topics (it checks each across sites), so the list goes on to 20 with each site's own front
-  page, HN's, Reddit's (r/all, today) and Digg's in turn (marked HN / Reddit / Digg, under 「各站自己的熱門」; a story
-  a topic already cites is left out). Reddit's page is opened by your installed Chrome or Edge, headless, with a
+  last30days names 5 to 10 topics (it checks each across sites, marked 跨站), so the list goes on to 20 with each
+  site's own front page, HN's, Reddit's (r/all, today) and Digg's in turn (marked HN / Reddit / Digg; a story a topic
+  already cites is left out). The 20 are grouped by subject (AI, 科技, 財經, 國際政治, 科學, 娛樂, 遊戲, 體育, 趣聞,
+  其他) from words in the title, Digg's topic or Reddit's subreddit: no model, so some land in the wrong group.
+  Reddit's page is opened by your installed Chrome or Edge, headless, with a
   profile of its own (Reddit blocks scripts with 403), every 2 to 3 hours; blocked, it waits 6, then 12, then 24 hours
   before one more try, and the button posts a notification.
-  last30days 只挑 5 到 10 題（每題跨站比對過），後面用 HN、Reddit、Digg 自己的熱門輪流補到 20 條。Reddit 那頁用本機的
+  last30days 只挑 5 到 10 題（每題跨站比對過，標「跨站」），後面用 HN、Reddit、Digg 自己的熱門輪流補到 20 條，再依主題分組
+  （看標題關鍵字、Digg 分類、Reddit 看板；不叫模型，偶爾會分錯）。Reddit 那頁用本機的
   Chrome／Edge 無頭開（自己的設定檔，不讀你的登入），2 到 3 小時一次；被擋就停 6、12、24 小時，並跳通知。
 - **Asking costs tokens, only when you ask.** The buttons and the box at the bottom send to a **kit trend agent** in
   this space (`hc send`), as Gerrit's 問 agent does: with none here, the Kit panel puts one in this space (`kit place`,

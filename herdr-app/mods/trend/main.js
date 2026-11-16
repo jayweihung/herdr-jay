@@ -337,6 +337,8 @@ export default class Trend extends View {
       // the button's hide ask; shown again after a hide: the video comes back; whether a video shows, for the button
       const s = shared(VIDEO_STATE) ?? {}, node = find(layout(), PANEL);
       if (s.hide && s.hide !== this.hideSeen) { this.hideSeen = s.hide; this.hidePanel(cx); }
+      // hidden some other way (a key, the layout): the same blank page, if a hidden panel still draws
+      if (node?.hidden && this.watching) { this.hiding = true; this.hidingAt = Date.now(); cx.notify(); }
       if (this.hiding && node && !node.hidden && Date.now() - this.hidingAt > 1500) { this.hiding = false; cx.notify(); }
       if (Boolean(this.watching) !== Boolean(s.playing)) setShared(VIDEO_STATE, { ...s, playing: Boolean(this.watching) });
     });

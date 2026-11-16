@@ -17,6 +17,9 @@ const JOB = "com.herdr-jay.trend";   // the launchd job that runs fetch.js (docs
 const TASK = "herdr-jay-trend";      // the same on Windows: a Task Scheduler task
 const EVERY = 30 * 60000;            // its StartInterval: every 30 minutes
 const SEEN = "trend.seen.v1";        // the topics shown when the panel was last opened: the button counts the others
+// between the tab-bar button and the panel: { playing: the panel shows a video, hide: when the button asked it to
+// hide (the panel turns the video's page blank first: a hidden page plays on) }
+const VIDEO_STATE = "trend.video.v1";
 // The Kit panel's (mods/kit): the agents its sources have, and the places it is asked to make. A kit trend agent
 // placed in a space is a folder whose .agentkit says agent:trend (kit place).
 const KIT_AGENTS = "kit.agents.data.v1", KIT_PLACE_ASK = "kit.place.ask", KIT_TAKEN_WAIT = 8000;
@@ -298,7 +301,10 @@ export default class Trend extends View {
       this.videoBox = InputState.new({ placeholder: "問這支影片，例如：這段在講什麼？" });
       this.videoBox.on("submit", (_e, cx) => cx.spawn(async (cx) => this.askFree(cx)));
     }
-    this.view = "list";   // "list" (the topics), "videos", "reports", or a report's file name
+    // where you were: the tab and the video you watched (localStorage, so a closed panel or a restart comes back to it)
+    this.view = (this.role !== "toggle" && localStorage.getItem("view")) || "list";   // "list" (the topics), "videos", "reports", or a report's file name
+    if (this.role !== "toggle") try { this.playing = JSON.parse(localStorage.getItem("playing") || "null"); this.played = Boolean(this.playing); this.resume = this.played; } catch {}
+    this.hideSeen = shared(VIDEO_STATE)?.hide;
     this.load(cx);
     if (this.role !== "toggle") cx.spawn(async (cx) => {
       for (;;) {
@@ -325,7 +331,24 @@ export default class Trend extends View {
       }
     });
     cx.timer.every(15000, (cx) => this.load(cx)); // fetch.js writes once an hour; this also keeps 「幾分前」 fresh
-    cx.timer.every(1000, (cx) => { if (this.kitChanged) { this.kitChanged = false; cx.notify(); } }); // a trend agent's folder found
+    cx.timer.every(1000, (cx) => {
+      if (this.kitChanged) { this.kitChanged = false; cx.notify(); } // a trend agent's folder found
+      if (this.role === "toggle") return;
+      // the button's hide ask; shown again after a hide: the video comes back; whether a video shows, for the button
+      const s = shared(VIDEO_STATE) ?? {}, node = find(layout(), PANEL);
+      if (s.hide && s.hide !== this.hideSeen) { this.hideSeen = s.hide; this.hidePanel(cx); }
+      if (this.hiding && node && !node.hidden && Date.now() - this.hidingAt > 1500) { this.hiding = false; cx.notify(); }
+      if (Boolean(this.watching) !== Boolean(s.playing)) setShared(VIDEO_STATE, { ...s, playing: Boolean(this.watching) });
+    });
+  }
+  // ✕ (or the tab-bar button) while a video plays: its page turns blank first, then the panel hides (a hidden page
+  // would play on); shown again, the video comes back from where it got to (keepPlace)
+  hidePanel(cx) {
+    if (!this.watching) return run("layout.hide", { id: PANEL });
+    this.hiding = true;
+    this.hidingAt = Date.now();
+    cx.notify();
+    cx.timer.after(300, () => run("layout.hide", { id: PANEL }));
   }
 
   get dir() { return `${appHome().replace(/\\/g, "/")}/trend`; }
@@ -339,6 +362,8 @@ export default class Trend extends View {
       this.progressDirty = false;
       await writeTextFile(pf, JSON.stringify(this.progress) + "\n", await readTextFile(pf).catch(() => null)).catch(() => { this.progressDirty = true; });
     }
+    // the video you were watching last time: on from where it got to
+    if (this.resume) { this.resume = false; if (this.progress?.[this.playing?.id] > 5) this.playFrom = this.progress[this.playing.id]; }
     // the videos you starred (stars.json, the panel's own): kept for good, whatever the searches find or drop
     if (this.stars === undefined) try { this.stars = JSON.parse((await readTextFile(`${this.dir}/stars.json`).catch(() => null)) ?? "{}") ?? {}; } catch { this.stars = {}; }
     // 熱門's own: the cards you starred (hot-stars.json, by title), your topics (topics.txt, its ＋ and ✕ write it) and
@@ -447,7 +472,7 @@ export default class Trend extends View {
   // My videos: what fetch.js's YouTube searches (one per line of videos.txt) found, a web page like the list's
   // (writePages): a chip per search, newest found first; a click plays it here
   videoList(t, z) {
-    if (this.playing) return this.videoPlayer(t, z);
+    if (this.playing && !this.hiding && this.progress !== undefined) return this.videoPlayer(t, z);
     return this.pageCell(t, VIDEOS_CELL, "videos.html");
   }
   get results() { return Array.isArray(this.data?.results) ? this.data.results : []; }
@@ -595,7 +620,7 @@ export default class Trend extends View {
     });
     cx.notify();
   }
-  get watching() { return this.view === "videos" ? this.playing : null; }
+  get watching() { return this.view === "videos" && !this.hiding ? this.playing : null; }
   async askFree(cx) {
     const x = this.watching, box = x ? this.videoBox : this.box, q = box.value().trim();
     if (!q) return;
@@ -614,13 +639,19 @@ export default class Trend extends View {
     if (this.role === "toggle") return this.renderToggle();
     const t = theme(), z = fs();
     this.keepPlace();
+    const where = JSON.stringify([this.view, this.playing?.id ?? null]);
+    if (where !== this.savedWhere) {
+      this.savedWhere = where;
+      localStorage.setItem("view", this.view);
+      localStorage.setItem("playing", this.playing ? JSON.stringify(this.playing) : "");
+    }
     return v_flex().id("trend").size_full().bg(t.surface).text_size(z).text_color(t.foreground)
       .child(this.header(t, z))
       .child(this.view === "list" ? this.list(t, z) : this.view === "videos" ? this.videoList(t, z) : this.view === "reports" ? this.reportList(t, z) : this.reportView(t, z))
       .child(this.askCard(t, z))
-      // a video left (← 影片, another tab): a web element lives on unseen, so its page turns to a blank one, or the
-      // video would keep playing; drawn 1 px, only once a video was played
-      .when(Boolean(this.played) && !(this.view === "videos" && this.playing), (el) => el.child(div().w(1).h(1).flex_none()
+      // a video left (← 影片, another tab, the panel hidden): a web element lives on unseen, so its page turns to a
+      // blank one, or the video would keep playing; drawn 1 px, only once a video was played
+      .when(Boolean(this.played) && !this.watching, (el) => el.child(div().w(1).h(1).flex_none()
         .child(web.new(VIDEO_CELL, { src: fileUrl(`${this.viewDir}/blank.html`) }))));
   }
 
@@ -638,6 +669,12 @@ export default class Trend extends View {
         .hover((st) => st.bg(t.hover)).on_mouse_down("left", stop)
         .on_click((_e, cx) => {
           if (!on) setShared(SEEN, this.shown.map((r) => r.topic)); // opening it: what it shows now counts as seen
+          // a video showing: the panel stops it and hides itself; if it doesn't (gone), hidden from here
+          if (on && shared(VIDEO_STATE)?.playing) {
+            setShared(VIDEO_STATE, { ...shared(VIDEO_STATE), hide: Date.now() });
+            cx.timer.after(1800, () => { if (find(layout(), PANEL) && !find(layout(), PANEL).hidden) run("layout.hide", { id: PANEL }); });
+            return;
+          }
           run("layout.toggle", { id: PANEL });
           cx.notify();
         })
@@ -673,7 +710,7 @@ export default class Trend extends View {
           .child(this.tabButton(t, z, "reports", `報告${this.reports?.length ? ` ${this.reports.length}` : ""}`)))
         .child(btn("refresh", this.running ? "更新中…" : "↻ 現在更新", (_e, cx) => cx.spawn(async (cx) => this.kick(cx))))
         .when(Boolean(find(layout(), PANEL)), (el) => el.child(btn("zoom", "⤢", () => run("layout.zoom", { id: PANEL }))))   // alone in its row; again: back
-        .when(Boolean(find(layout(), TOGGLE)), (el) => el.child(btn("hide", "✕", () => run("layout.hide", { id: PANEL })))))
+        .when(Boolean(find(layout(), TOGGLE)), (el) => el.child(btn("hide", "✕", (_e, cx) => this.hidePanel(cx)))))
       .child(h_flex().px(12).pb(4).gap(5).items_center().min_w(0)
         .when(this.running, (el) => el.child(spin(z - 3, t.muted)))
         .child(div().id("status").flex_1().min_w(0).text_size(z - 1.5).truncate().text_color(red ? t.ansi1 : t.muted)

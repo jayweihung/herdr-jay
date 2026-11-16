@@ -424,8 +424,9 @@ export default class Trend extends View {
   async searchVideos() {
     let node = "node";
     if (window()?.platform !== "windows") for (const p of ["/opt/homebrew/bin/node", "/usr/local/bin/node", "/usr/bin/node"])
-      if (await fsp.access(p).then(() => true, () => false)) { node = p; break; }
-    await exec(node, [`${appHome().replace(/\\/g, "/")}/mods/trend/fetch.js`, "--videos"]);
+      if (await fsp.exists(p).catch(() => false)) { node = p; break; }   // the mod's fs/promises has exists, not access
+    const r = await exec(node, [`${appHome().replace(/\\/g, "/")}/mods/trend/fetch.js`, "--videos"], { timeout: 180000 });
+    if (r?.code !== 0) throw new Error(String(r?.stderr || r?.stdout || `exit ${r?.code}`).trim().slice(0, 200));
   }
   // ↻: run the scheduled job now (launchd on macOS, Task Scheduler on Windows); it writes status.json at once
   async kick(cx) {
@@ -698,7 +699,8 @@ export default class Trend extends View {
         cx.notify();
         if (act !== "add") return;
         // one search run at a time: two at once would both rewrite videos.json
-        this.searchRun = (this.searchRun ?? Promise.resolve()).then(() => this.searchVideos()).catch(() => {});
+        this.searchRun = (this.searchRun ?? Promise.resolve()).then(() => this.searchVideos())
+          .catch((e) => notify({ title: `影片：「${q}」沒搜成`, body: String(e?.message ?? e), level: "error", timeout: 10000 }));
         await this.searchRun;
         this.searching.delete(q);
         await this.load(cx);

@@ -35,6 +35,7 @@ const runsAgent = (t) => /^(claude|codex|omp|pi)(\.exe|\.cmd)?$/i.test(String(t?
 // reload the mod; inside the mod's folder: a web element may show it), named <YYYY-MM-DD-HHMM>-<topic>.html, with
 // <meta name="trend-topic" content="the topic as asked"> so a topic's row finds its report (agents/trend.md).
 const REPORT_CELL = "trend-report";
+const VIDEO_CELL = "trend-video";   // a video played in the panel: YouTube's watch page (mod.json allows www.youtube.com)
 const fileUrl = (p) => { const s = p.replace(/\\/g, "/"); return "file://" + (/^[A-Za-z]:/.test(s) ? "/" : "") + encodeURI(s).replace(/#/g, "%23").replace(/\?/g, "%3F"); };
 const unescape = (s) => (s == null ? null : String(s).replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&").trim());
 const metaTopic = (html) => unescape(/<meta\s+name=["']trend-topic["']\s+content=["']([^"']*)["']/i.exec(html)?.[1]);
@@ -58,6 +59,9 @@ const why = (r) => String(r.why_spiking ?? "").replace(/^\d+ evidence items? on 
 const fs = () => Number(settings().ui_font_size) || 13;
 const stop = (_e, cx) => cx.stop_propagation();
 const spin = (size, color) => svg("mods/workspace-chrome/spinner.svg").size(size).flex_none().text_color(color).spin(900);
+// the small buttons above a web page (← back, ⟳, ↗)
+const smallBtn = (t, z, id, label, fn) => div().id(id).h(26).px(8).flex().items_center().rounded(5).cursor_pointer().text_size(z - 1)
+  .bg(t.raised).hover((s) => s.bg(t.hover)).on_mouse_down("left", stop).on_click(fn).child(label);
 const ago = (ms) => { const m = Math.max(0, Math.floor((Date.now() - ms) / 60000)); return m < 1 ? "剛剛" : m < 60 ? `${m} 分前` : m < 1440 ? `${Math.floor(m / 60)} 小時前` : `${Math.floor(m / 1440)} 天前`; };
 const hhmm = (ms) => { const d = new Date(ms); return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; };
 const num = (n) => (n >= 10000 ? `${(n / 1000).toFixed(0)}k` : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
@@ -166,8 +170,7 @@ export default class Trend extends View {
   // a report as a web page (the system's WebKit / WebView2); links in it open in the browser
   reportView(t, z) {
     const r = (this.reports ?? []).find((x) => x.name === this.view);
-    const small = (id, label, fn) => div().id(id).h(26).px(8).flex().items_center().rounded(5).cursor_pointer().text_size(z - 1)
-      .bg(t.raised).hover((s) => s.bg(t.hover)).on_mouse_down("left", stop).on_click(fn).child(label);
+    const small = (id, label, fn) => smallBtn(t, z, id, label, fn);
     return v_flex().flex_1().min_h(0)
       .child(h_flex().h(34).px(8).gap(6).flex_none().items_center().border_b(1).border_color(t.border)
         .child(small("rep-back", "← 報告", (_e, cx) => { this.view = "reports"; cx.notify(); }))
@@ -176,9 +179,20 @@ export default class Trend extends View {
       .when(Boolean(this.webNote), (el) => el.child(div().px(10).py(4).text_size(z - 1.5).text_color(t.muted).truncate().child(this.webNote)))
       .child(div().flex_1().min_h(0).child(web.new(REPORT_CELL, { src: fileUrl(`${this.reportDir}/${this.view}`) })));
   }
-  // My videos: what fetch.js's YouTube searches (one per line of videos.txt) found, newest first; a click plays it in
-  // the browser, right-click copies the link. Thumbnails: the copies fetch.js keeps in trend/thumbs/.
+  // one video played here: YouTube's own watch page; ↗ opens it in the browser, ← goes back to the list
+  videoPlayer(t, z) {
+    const x = this.playing, url = `https://www.youtube.com/watch?v=${x.id}`;
+    return v_flex().flex_1().min_h(0)
+      .child(h_flex().h(34).px(8).gap(6).flex_none().items_center().border_b(1).border_color(t.border)
+        .child(smallBtn(t, z, "vid-back", "← 影片", (_e, cx) => { this.playing = null; cx.notify(); }))
+        .child(div().flex_1().min_w(0).truncate().text_size(z - 1).text_color(t.muted).child(x.title))
+        .child(smallBtn(t, z, "vid-open", "↗ 瀏覽器", () => openLink(url))))
+      .child(div().flex_1().min_h(0).child(web.new(VIDEO_CELL, { src: url })));
+  }
+  // My videos: what fetch.js's YouTube searches (one per line of videos.txt) found, newest first; a click plays it
+  // here, right-click copies the link. Thumbnails: the copies fetch.js keeps in trend/thumbs/.
   videoList(t, z) {
+    if (this.playing) return this.videoPlayer(t, z);
     const v = this.videos, list = v_flex().id("videos").flex_1().min_h(0).overflow_y_scrollbar();
     const errs = Object.entries(v?.errors ?? {});
     if (errs.length) list.child(div().px(12).py(6).text_size(z - 1.5).text_color(t.ansi1).whitespace_normal()
@@ -189,7 +203,7 @@ export default class Trend extends View {
     for (const x of v.items) {
       const url = `https://www.youtube.com/watch?v=${x.id}`;
       list.child(h_flex().id(`v-${x.id}`).px(12).py(8).gap(10).items_start().border_b(1).border_color(t.border).cursor_pointer()
-        .hover((s) => s.bg(t.hover)).on_mouse_down("right", copyOn(url)).on_click(() => openLink(url))
+        .hover((s) => s.bg(t.hover)).on_mouse_down("right", copyOn(url)).on_click((_e, cx) => { this.playing = x; cx.notify(); })
         .child(div().w(128).h(72).flex_none().rounded(6).overflow_hidden().bg(t.raised).child(image(`trend/thumbs/${x.id}.jpg`).size_full()))
         .child(v_flex().flex_1().min_w(0).gap(2)
           .child(div().font_semibold().whitespace_normal().child(x.title))
@@ -375,6 +389,7 @@ export default class Trend extends View {
           .child(this.tabButton(t, z, "videos", `影片${this.videos?.items?.length ? ` ${this.videos.items.length}` : ""}`))
           .child(this.tabButton(t, z, "reports", `報告${this.reports?.length ? ` ${this.reports.length}` : ""}`)))
         .child(btn("refresh", this.running ? "更新中…" : "↻ 現在更新", (_e, cx) => cx.spawn(async (cx) => this.kick(cx))))
+        .when(Boolean(find(layout(), PANEL)), (el) => el.child(btn("zoom", "⤢", () => run("layout.zoom", { id: PANEL }))))   // alone in its row; again: back
         .when(Boolean(find(layout(), TOGGLE)), (el) => el.child(btn("hide", "✕", () => run("layout.hide", { id: PANEL })))))
       .child(h_flex().px(12).pb(4).gap(5).items_center().min_w(0)
         .when(this.running, (el) => el.child(spin(z - 3, t.muted)))

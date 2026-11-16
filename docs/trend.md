@@ -12,7 +12,7 @@ A tab-bar button **熱門** and a panel, like Gerrit's (macOS and Windows):
 - **The panel**: each topic with its numbers (HN 分／留言…) and why it's up; click one for the top comment, its sources
   (click opens the browser, right-click copies) and **🔎 深入查** / **三句話說明**. The line under the title says when
   it last ran and when it runs next, and which sites answered (`✗ 讀不到` is not "nothing happened there"). **↻ 現在更新**
-  runs it now. 面板：每個主題的數字和原因；點開看熱門留言、來源連結、深入查／三句話說明。標題下面寫上次和下次更新、哪些網站有回應。
+  runs it now; **⤢** shows the panel alone in its row (again: back). 面板：每個主題的數字和原因；點開看熱門留言、來源連結、深入查／三句話說明。標題下面寫上次和下次更新、哪些網站有回應；⤢ 放大。
   last30days names 5 to 10 topics (it checks each across sites), so the list goes on to 20 with each site's own front
   page, HN's, Reddit's (r/all, today) and Digg's in turn (marked HN / Reddit / Digg, under 「各站自己的熱門」; a story
   a topic already cites is left out). Reddit's page is opened by your installed Chrome or Edge, headless, with a
@@ -127,9 +127,10 @@ TZUYU
 ```
 
 `fetch.js` reads YouTube's own search page (uploads of this week) for each: no API key, no browser, no tokens. Each
-row has the thumbnail, title, channel, length, when it was posted and the views; click plays it in the browser,
-right-click copies the link. A search taken out of the file takes its videos with it; the list keeps the newest 300.
-影片分頁：videos.txt 一行一個搜尋，點一下用瀏覽器播。
+row has the thumbnail, title, channel, length, when it was posted and the views; click plays it in the panel
+(YouTube's own watch page in a web element; **↗ 瀏覽器** opens it there, **← 影片** goes back), right-click copies the
+link. A search taken out of the file takes its videos with it; the list keeps the newest 300.
+影片分頁：videos.txt 一行一個搜尋，點一下在面板裡播（⤢ 放大面板）。
 
 Gently, since every device in the house shares the IP (a production crawler's advice): each search at most every 3 hours, a few
 seconds apart, your Chrome's version in the user agent, YouTube's cookies kept between runs. A sign of a block (429,

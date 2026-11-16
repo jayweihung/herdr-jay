@@ -25,7 +25,7 @@ Needs: **mods** (Windows: copy `trend` again; macOS link: nothing). To use it: `
 one search per line.
 
 - The panel's new 影片 tab lists what YouTube's search found this week for each line of `videos.txt` (e.g. `TWICE
-  子瑜`), with thumbnails, newest found first; click plays it in the browser. `fetch.js` reads YouTube's search page
+  子瑜`), with thumbnails, newest found first; click plays it in the panel (⤢ shows the panel alone in its row). `fetch.js` reads YouTube's search page
   (no key, no browser), each search at most every 3 hours, gently (your Chrome's version in the user agent, cookies
   kept); blocked, it stops for 6, 12, then 24 hours and the tab says so. 熱門面板多了「影片」分頁：videos.txt 一行一個
   YouTube 搜尋，每 3 小時最多搜一次，被擋就停 6、12、24 小時。

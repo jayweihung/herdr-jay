@@ -9,6 +9,14 @@ says which) · **kit** = update kit itself on every machine where agents run (`k
 **snap hook** = a line in Claude Code's `settings.json` on each machine where you added the hook (the entry says
 which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/keys.md).
 
+## 2026-11-16, the Agents menu's 壓縮 works again after Herdr was opened from a terminal
+
+App patch `0028`: Herdr opened from a terminal inside Herdr (an agent running `open`) kept that terminal's hc identity,
+so the Agents right-click 壓縮 / 清空 / 繼續 reached the agent as a message from that terminal and did nothing. The app
+now drops it when it starts. kit's page button also says the right words right after a click.
+從 Herdr 裡的終端機重開 Herdr 後，右鍵「壓縮」等會變成「某格傳來的訊息」而沒作用；app 啟動時清掉那個身分。
+Needs: **app** (v0.1.16 with its 28 patches), **mods** (kit).
+
 ## 2026-11-16, everything you can click answers the mouse
 
 Needs: **mods** (Windows: copy `kit`, `gerrit` and `trend` again; macOS links: nothing).

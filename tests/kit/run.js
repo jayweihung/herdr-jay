@@ -1565,6 +1565,40 @@ test("agent popup: a row's 加到… says 加入中… while kit runs, then ✓ 
   shown = render(v);
   assert.doesNotMatch(shown, /✓ 已加到/, "the list shows it: the row as usual");
 });
+test("agent popup: kit 0.7.0's blocked: 被擋下 with why; 收進 kit into an own source (URL: kit collect --allow → agentkit-library; none: kit new --from → my-own), then kit add; no blocked key: as before", async (M) => {
+  fresh(); fakeKit();
+  try { localStorage.removeItem("kit.folded"); } catch {}
+  const target = { key: "|/x|t1", term: "t1", machine: null, cwd: "/x", title: "Claude Code" };
+  const sources = [{ name: "agentkit-library", push: "direct" }, { name: "my-own", push: "direct" }, { name: "team", push: "pr" }];
+  const base = { items: [{ kind: "skill", name: "pdf", status: "used" }], here: { items: [{ scope: "user", kind: "skill", name: "mine", path: "/Users/amy/.claude/skills/mine" }] }, sources };
+  H.store["kit.agent.data.v1"] = { [target.key]: base };
+  H.store["kit.agent.v1"] = { [target.key]: { started: Date.now(), at: Date.now() } };
+  const v = view(M, { role: "agent", target }); await settle();
+  const before = render(v);
+  assert.match(before, /這個帳號（不是 kit 的）/); assert.doesNotMatch(before, /被擋下/);
+  H.store["kit.agent.data.v1"] = { [target.key]: { ...base, blocked: [] } };
+  assert.equal(render(v), before, "nothing blocked: the same list");
+  const bl = { kind: "skill", name: "brand", tool: "claude", path: "/Users/amy/.claude/skills/brand", scope: "account" };
+  H.store["kit.agent.data.v1"] = { [target.key]: { ...base, blocked: [bl, { kind: "mcp", name: "x", tool: "codex", path: "/Users/amy/.codex/config.toml", scope: "account" }] } };
+  let shown = render(v);
+  assert.match(shown, /被擋下的（2）/); assert.match(shown, /被擋下：不是 kit 的/);
+  assert.match(shown, /不是公司的，也不是 kit 放的，所以 Claude Code 不載入它/); assert.match(shown, /MCP：到倉庫用「貼上設定」收進 kit/);
+  const key = `claude-skill-brand-${bl.path}`;
+  H.clicks[`take-${key}`]({}, cx); render(v);
+  assert.ok("take-to-my-own" in H.clicks && !("take-to-team" in H.clicks), "own sources (push: direct) only");
+  H.clicks[`take-go-${key}`]({}, cx);
+  assert.match(render(v), /收進中…/);
+  await settle();
+  assert.deepEqual(kitCalls("new")[0].argv.slice(1), ["new", "skill", "brand", "--from", bl.path, "--to", "my-own"]);
+  assert.deepEqual(kitCalls("add").at(-1).argv.slice(1), ["add", "skill", "brand"]);
+  assert.match(render(v), /✓ 已收進 kit/); assert.match(H.store["kit.msg.agent:|/x|t1"].text, /已收進 my-own 並加到整個帳號/);
+  v.part.pend = null; render(v);
+  H.clicks[`take-${key}`]({}, cx);
+  const url = "https://github.com/x/y/tree/main/skills/brand";
+  v.part.takeUrl.set_value(url); render(v);
+  H.clicks[`take-go-${key}`]({}, cx); await settle();
+  assert.deepEqual(kitCalls("collect")[0].argv.slice(1), ["collect", url, "--to", "agentkit-library", "--allow"]);
+});
 test("agent popup: 還沒用的 grouped by the URL a skill was collected from (third_party.lock there), closed until clicked; 找 over the whole list", async (M) => {
   fresh(); fakeKit();
   const target = { key: "|/x|t1", term: "t1", machine: null, cwd: "/x", title: "Claude Code" };

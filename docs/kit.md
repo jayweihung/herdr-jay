@@ -166,6 +166,7 @@ the mod doesn't know shows a card 「不認得的 role」 naming it: check the s
 
 - 標 `Kit · 整個帳號` 的是 kit 裝給整個帳號的，可以「從帳號拿掉」；標 `Kit · 這個資料夾` 的是只加給這個資料夾的，可以「從資料夾拿掉」；標 `Kit · 團隊必備` 的是團隊規定要有的，拿不掉。
 - 標 `這個資料夾`、`這個帳號（不是 kit 的）` 的是 agent 自己讀到的（`CLAUDE.md`、`.claude/rules`、`.claude/skills`、`.mcp.json`），只顯示，不改。
+- **被擋下的**（kit 0.7.0 起）：`kit sync` 不讓工具載入的東西（不是公司的，也不是 kit 放的），標 `被擋下：不是 kit 的`、在哪、哪個工具。「收進 kit」：填原本的網址就用 `kit collect <網址> --to <來源> --allow`（可以貼 skill 資料夾的網頁網址；預設收進 `agentkit-library`），不填就用 `kit new skill <名字> --from <它的資料夾> --to <來源>`（預設是另一個自己的來源），只列 `push: direct` 的自己的來源；收好再 `kit add`（資料夾的加 `--dir`）。外掛要網址；MCP 到倉庫用「貼上設定」收。舊的 kit 沒有這一段。
 - **兩種加法，看 agent 在哪裡開的**（按鈕只會改到 agent 所在的地方，不會改到更大的範圍）：
   - 在一般資料夾開的 agent：只有「加到這個資料夾」「從資料夾拿掉」（`kit add --dir <資料夾>`）。加的東西只有在這個資料夾（含子資料夾）開的 agent 讀得到，整個帳號、別的資料夾、別的 agent 都不受影響。整個帳號的東西會列出來（標 `Kit · 整個帳號`），但這裡不能改。kit 會在資料夾裡放一個 `.agentkit` 記下加了哪些，再寫進各工具在專案裡會讀的地方（`CLAUDE.md`、`AGENTS.md`、`.claude/skills`、`.agents/skills`、`.mcp.json`、`.codex/config.toml`）。在子資料夾開的 agent 按，會加到上面已經有 `.agentkit` 的那個資料夾。
   - 在家目錄 `~` 開的 agent：只有「加到整個帳號」「從帳號拿掉」（`kit add`／`kit rm`）。這台電腦上你帳號的 Claude Code、Codex、omp（有裝的）和每個 agent、每個資料夾都會有或都沒有。

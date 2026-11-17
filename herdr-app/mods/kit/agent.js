@@ -1,7 +1,8 @@
 // Role "agent" of the kit mod (see main.js): a popup for one agent, opened by the Kit button in its pane header (role
 // "header", header.js): what it uses (the set kit run started it with, kit's for the account, its folder's own), what
 // kit has that it doesn't use yet, and the buttons that change that (kit add / rm, --dir for its folder; kit
-// install-tool / install-deps for what a skill or an MCP needs; an MCP's unset ${VAR}s). All on the agent's machine.
+// install-tool / install-deps for what a skill or an MCP needs; an MCP's unset ${VAR}s; what kit sync blocked and 收進
+// kit: kit collect / kit new --from, then kit add). All on the agent's machine.
 // The header is the one that asks kit (kit list --json --dir --pid); this popup shows that answer (AGENT_DATA) and asks
 // the header for a fresh one (AGENT_WANT).
 import { div } from "gpui-kit";
@@ -38,6 +39,10 @@ export class AgentPopup {
     this.used = undefined;   // what this conversation used (kit used): undefined not asked yet, null asking or no answer
     cx.timer.every(2000, (cx) => { if (!this.data) cx.notify(); if (this.used === undefined) this.loadUsed(cx); });   // (also: kit api known later)
     this.loadUsed(cx);
+    // 收進 kit (a blocked row): which row's form is open ({ key, source: picked or null }) and its original URL
+    this.taking = null;
+    this.takeUrl = InputState.new({ placeholder: "原本的網址（不知道就留白）" });
+    this.takeUrl.on("change", (_e, cx) => cx.notify());
   }
 
   // kit used (kit api 1.10) on the agent's machine: when the popup opens and on ⟳
@@ -175,6 +180,14 @@ export class AgentPopup {
       if (!n) { body.child(div().pl(18).text_size(z - 1.5).text_color(t.dim).child("沒有")); continue; }
       body.child(v_flex().gap(2).children([...kitRows.map((i) => this.row(t, z, i)), ...ownRows.map((i) => this.hereRow(t, z, i))]));
     }
+    // what kit sync blocked (kit 0.7.0 list --json "blocked"; an older kit has no such key: nothing here)
+    const blocked = (d.blocked ?? []).filter(hit);
+    if (blocked.length) {
+      const folded = !f0 && (this.folded.blocked ?? false);
+      body.child(div().mt(6).border_t(1).border_color(t.border));
+      body.child(this.secHead(t, z, "blocked", `被擋下的（${blocked.length}）`, folded, ""));
+      if (!folded) body.child(v_flex().gap(2).children(blocked.map((b) => this.blockedRow(t, z, b, d.sources ?? []))));
+    }
     if (d.here?.error) body.child(div().text_size(z - 1.5).text_color(t.muted).child(textBlock(`here-error-${this.where}`, `${shortDir(d.here.dir)}：${d.here.error}`)));
     // 3. what kit has that the account does not use yet
     //    kit's own first, then what kit collect took, one group per URL it came from (closed until clicked; open while
@@ -227,6 +240,68 @@ export class AgentPopup {
     const sub = i.description || shortDir(i.path);
     return this.descCol(t, z, `here-${i.scope}-${i.kind}-${i.path}-${i.name}`, head, sub, i.description || i.path)
       .px(8).py(4).rounded(6).hover((s) => s.bg(t.hover));
+  }
+
+  // something kit sync keeps the tool from loading: not the company's and not placed by kit. 收進 kit: with its original
+  // URL kit collect, without kit new skill --from its folder, into one of your own sources (push: direct); then kit add
+  blockedRow(t, z, b, sources) {
+    const busy = Boolean(this.busy), key = `${b.tool}-${b.kind}-${b.name}-${b.path}`, pk = `blocked:${b.kind}:${b.name}`;
+    const badge = (text, color) => div().flex_none().px(5).rounded(4).text_size(z - 2.5).text_color(t.background).bg(color).child(text);
+    const tool = { claude: "Claude Code", codex: "Codex", omp: "omp" }[b.tool] ?? b.tool;
+    const head = h_flex().gap(5).items_center().min_w(0)
+      .child(copyOnRight(div().min_w(0).truncate().font_semibold().text_color(t.muted).child(b.name), b.name))
+      .child(badge("被擋下：不是 kit 的", t.ansi1))
+      .child(badge(b.scope === "folder" ? shortDir(b.dir ?? b.path) : "這個帳號", t.muted))
+      .child(badge(tool, t.dim));
+    let p = this.pend?.[pk];
+    if (p?.done && Date.now() - p.at > 60000) { this.pend[pk] = null; p = null; }
+    const action = h_flex().flex_none().gap(4).items_center();
+    if (p) action.child(p.doing
+      ? h_flex().gap(4).items_center().px(8).h(24).rounded(6).bg(t.raised).text_size(z - 1.5).text_color(t.muted).child(spin(z - 3, t.muted)).child("收進中…")
+      : div().text_size(z - 1.5).text_color(t.done).child("✓ 已收進 kit"));
+    else if (b.kind === "mcp") action.child(div().text_size(z - 1.5).text_color(t.dim).child("MCP：到倉庫用「貼上設定」收進 kit"));
+    else if (this.taking?.key !== key) action.child(btn(t, z, `take-${key}`, "收進 kit", { small: true, kind: "primary", off: busy,
+      on: (cx) => { this.taking = { key, source: null }; this.takeUrl.set_value(""); cx.notify(); } }));
+    const why = `不是公司的，也不是 kit 放的，所以 ${tool} 不載入它 · ${shortDir(b.path)}`;
+    const row = v_flex().id(`blocked-${key}`).gap(4).px(8).py(5).rounded(6).hover((s) => s.bg(t.hover))
+      .child(h_flex().gap(8).items_center()
+        .child(v_flex().flex_1().min_w(0).child(this.descCol(t, z, `blocked-${key}`, head, why, b.path)))
+        .child(action));
+    if (p || b.kind === "mcp" || this.taking?.key !== key) return row;
+    // the form: the URL (optional) and which own source; others' (a URL) go to agentkit-library, your own (none) to
+    // another own source (your personal one)
+    const url = this.takeUrl.value().trim(), own = sources.filter((s) => s.push === "direct");
+    const lib = (s) => s.name === "agentkit-library";
+    const source = this.taking.source ?? (own.find((s) => (url ? lib(s) : !lib(s))) ?? own[0])?.name ?? null;
+    const note = (text, color) => div().text_size(z - 1.5).text_color(color ?? t.muted).child(text);
+    const form = v_flex().gap(4).pl(2)
+      .child(note(b.kind === "plugin" ? "外掛要原本的網址（kit collect 連同 LICENSE 收）。可以貼它資料夾的網頁網址。"
+        : "知道原本的網址：kit collect 連同 LICENSE 收（可以貼 skill 資料夾的網頁網址）。不知道：kit new 照這台的這份收。"))
+      .child(Input.new(this.takeUrl).flex_none().h(28).px(8).rounded(6).border_1().border_color(t.border).bg(t.background).text_size(z - 1).text_color(t.foreground));
+    if (!own.length) return row.child(form.child(note("沒有自己的來源（push: direct）可以收：只收進自己的，不收進團隊的。", t.ansi1)));
+    form.child(h_flex().gap(4).items_center().flex_wrap().child(note("收進："))
+      .children(own.map((s) => btn(t, z, `take-to-${s.name}`, s.name, { small: true, kind: s.name === source ? "primary" : undefined,
+        on: (cx) => { this.taking = { key, source: s.name }; cx.notify(); } }))));
+    return row.child(form.child(h_flex().gap(6)
+      .child(btn(t, z, `take-go-${key}`, "確定收進 kit", { small: true, kind: "primary", off: busy || (b.kind === "plugin" && !url),
+        on: (cx) => { this.taking = null; this.takeIn(b, url, source, cx); } }))
+      .child(btn(t, z, `take-no-${key}`, "取消", { small: true, off: busy, on: (cx) => { this.taking = null; cx.notify(); } }))));
+  }
+  // 收進 kit: kit collect <url> --to <source> --allow (an own source may add the author to collect_sources), or kit new
+  // skill <name> --from <its folder> --to <source>; when it worked kit add (its folder's with --dir; a plugin the account's)
+  takeIn(b, url, source, cx) {
+    const pk = `blocked:${b.kind}:${b.name}`, machine = this.target?.machine ?? null, msg = MSG(this.where);
+    const first = url ? ["collect", url, "--to", source, "--allow"] : ["new", "skill", b.name, "--from", b.path, "--to", source];
+    const dir = b.scope === "folder" && b.dir && b.kind !== "plugin" ? b.dir : null;
+    const end = (ok) => { this.pend = { ...(this.pend ?? {}), [pk]: ok ? { done: true, at: Date.now() } : null }; markChanged(machine); };
+    const started = kitAction(this, cx, { label: `收進 kit ${b.name}`, args: first, ttl: LONG, machine, msg, after: (cx) => {
+      if (shared(msg)?.ok !== true) return end(false);
+      const where = dir ? shortDir(dir) : "整個帳號";
+      if (!kitAction(this, cx, { label: `加到${where} ${b.name}`, args: ["add", ...(dir ? ["--dir", dir] : []), b.kind, b.name], ttl: SHORT, machine, msg,
+        okText: `已收進 ${source} 並加到${where}：${b.name}。開新的對話就讀得到；要給別台用，到倉庫按「送出」。`,
+        after: () => end(shared(msg)?.ok === true) })) end(false);
+    } });
+    if (started) this.pend = { ...(this.pend ?? {}), [pk]: { doing: true } };
   }
 
   // 這次用了 N 次 (・剛剛: in the conversation's last turn) after a row's name, when this conversation used it

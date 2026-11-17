@@ -263,14 +263,18 @@ Add it to PATH: [Add to PATH](#add-a-folder-to-path) with the first line `$add =
 it creates its home (`%USERPROFILE%\.config\herdr-app`, or `HERDR_APP_HOME` if you set it) with `keys.json`, `settings.json` and `mods\`.
 先從開始選單打開 Herdr 一次，它會建立設定目錄。
 
-**Web pages in mods** (patches `0015`…`0022`) use the **WebView2 Runtime**, part of Windows 11 and of current
+**Web pages in mods** (patches `0015`…`0030`) use the **WebView2 Runtime**, part of Windows 11 and of current
 Windows 10 (it comes with Edge). Check: `Get-ItemProperty "HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}" -ErrorAction SilentlyContinue | Select-Object pv`
 shows a version (or the same path under `HKCU:\SOFTWARE\Microsoft\EdgeUpdate\Clients\…` for a per-user install).
 Missing: install the Evergreen Runtime from Microsoft, or ask the company software center. Without it a mod's web
 element shows "cannot open a web view" and the rest of Herdr works. **The Windows side is written and type-checked on a
 Mac, not yet run on Windows**: if a page is invisible, misplaced or keys get lost, photo + note which, and tell jay.
-網頁格（patch 0015–0022）要 WebView2 Runtime（Windows 11 內建，新的 Windows 10 也隨 Edge 有）。Windows 這部分還沒實機跑過，
-有問題拍照告訴 jay。
+Known from reading the code (2026-11-18, not fixed yet): Herdr may crash the first time a page opens while a terminal
+is printing; after moving the window to a screen with another scale a page sits in the wrong place until the layout
+changes; after a click in a page, keys stay in it until you click a terminal.
+網頁格（patch 0015–0030）要 WebView2 Runtime（Windows 11 內建，新的 Windows 10 也隨 Edge 有）。Windows 這部分還沒實機跑過，
+有問題拍照告訴 jay。已知（看程式看出來的，還沒修）：終端機在輸出時第一次開網頁可能讓 Herdr 當掉；視窗移到不同縮放的螢幕，網頁位置會跑掉；
+點過網頁後打字還在網頁裡，點一下終端機才回來。
 
 ---
 

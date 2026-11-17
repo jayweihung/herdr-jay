@@ -138,6 +138,10 @@ $k.Close()
 It keeps entries like `%USERPROFILE%\…` as they are; the last two calls on the long line only tell Explorer that
 PATH changed (so new windows see it).
 
+Herdr's terminals don't see it yet: the core that opens them still has the PATH it started with (reopening Herdr
+doesn't restart it). In a **new** PowerShell run `hc server restart` once: the new core takes over, terminals keep running.
+Herdr 的終端機是 core 開的，core 還帶著舊的 PATH（重開 Herdr 不會重開 core）：在新開的 PowerShell 跑一次 `hc server restart`，終端機不會斷。
+
 If PowerShell refuses ("method invocation is supported only on core types"), or simply to do it by hand:
 `rundll32 sysdm.cpl,EditEnvironmentVariables` → your user **Path** → **New** → paste the folder → OK.
 手動也可以：上面那個指令打開「環境變數」→ 使用者的 Path → 新增 → 貼上資料夾。
@@ -592,7 +596,9 @@ just install                                        # terminals keep running
 ```
 
 Scripts blocked: core `cargo build --release --locked` then `hc update --from target\release\herdr-core.exe`;
-app: quit Herdr, `cargo build --release --locked`, copy `target\release\herdr-app.exe` as in step 3.
+app: `cargo build --release --locked`, then copy `target\release\herdr-app.exe` as in step 3; Herdr may stay open if you
+first rename the running one (`Move-Item -Force "$env:LOCALAPPDATA\Programs\herdr-app\herdr-app.exe" "$env:LOCALAPPDATA\Programs\herdr-app\herdr-app.exe.old"`:
+Windows lets a running program be renamed, not overwritten), then quit and reopen it.
 **Check**: `hc --version` / `herdr-app --version | Out-Host` print the new versions.
 
 Rollback (`git am` failed, or the new one misbehaves): `git am --abort`, rebuild the version you had (same block

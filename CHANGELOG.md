@@ -9,6 +9,16 @@ says which) · **kit** = update kit itself on every machine where agents run (`k
 **snap hook** = a line in Claude Code's `settings.json` on each machine where you added the hook (the entry says
 which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/keys.md).
 
+## 2026-11-18, Windows: the app builds with web pages; PATH and updates without stopping
+
+From the first Windows build at the office. `0022` (web pages on Windows) left `wry` out of the Windows dependencies, so
+the app didn't build there (`unresolved import wry`); it is in now, and `any_page` (used on macOS only) no longer warns.
+docs/windows.md: after adding a folder to PATH, `hc server restart` once in a new PowerShell (the core keeps the PATH it
+started with; terminals keep running); the app can be updated by hand while Herdr is open (rename the running exe first).
+Windows 第一次實機 build：0022 少了 wry，app build 不起來，補上了。PATH 加完要 `hc server restart` 一次；app 可以開著換。
+Needs: **app** (Windows: run the app blocks of docs/windows.md 8.2 again; macOS: nothing, the build there is the same).
+The tag `for-herdr-v0.1.16-r1` still has the old `0022`: follow `main`.
+
 ## 2026-11-17, tag for Herdr app v0.1.16 / core v0.1.21
 
 `for-herdr-v0.1.16-r1`: herdr-jay for Herdr app v0.1.16 with the 30 patches in `herdr-app/patches/v0.1.16/` (up to

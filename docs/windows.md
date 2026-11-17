@@ -120,7 +120,7 @@ Install them the way your company does; the versions are what matter (the build 
 | Visual Studio 2022 Build Tools | **Desktop development with C++** + a **Windows 11 SDK** | `link.exe` found by the build |
 | Rust | **1.95.0**, MSVC (`x86_64-pc-windows-msvc`); for the Linux server's core also the target `x86_64-unknown-linux-musl` | `rustc --version` |
 | Zig | **0.16.0** | `zig version` |
-| LLVM (only for the app) | any recent, `LIBCLANG_PATH` = its `bin` | `Test-Path "$env:LIBCLANG_PATH\libclang.dll"` |
+| LLVM (only for the app) | any recent; the no-admin archive also needs `setx LIBCLANG_PATH "<its folder>\bin"` (then a new PowerShell) | `Get-ChildItem "$env:LIBCLANG_PATH", "C:\Program Files\LLVM\bin" -Filter libclang.dll -ErrorAction SilentlyContinue` |
 | just | any | `just --version` |
 
 ### Add a folder to PATH
@@ -138,9 +138,11 @@ $k.Close()
 It keeps entries like `%USERPROFILE%\…` as they are; the last two calls on the long line only tell Explorer that
 PATH changed (so new windows see it).
 
-Herdr's terminals don't see it yet: the core that opens them still has the PATH it started with (reopening Herdr
-doesn't restart it). In a **new** PowerShell run `hc server restart` once: the new core takes over, terminals keep running.
-Herdr 的終端機是 core 開的，core 還帶著舊的 PATH（重開 Herdr 不會重開 core）：在新開的 PowerShell 跑一次 `hc server restart`，終端機不會斷。
+New Herdr tabs see it (the core reads PATH again for each new terminal); tabs already open keep the old one: close and
+reopen them. Mods see it after you quit Herdr and open it again from the Start menu. If something Herdr starts (a new
+tab, nvim-jay's nvim) still can't find it: in a new PowerShell from the Start menu (not inside Herdr) run
+`hc server restart --fresh` once (plain `hc server restart` keeps the PATH the core started with); terminals keep running.
+新開的分頁看得到；已開的分頁要關掉重開，mod 要 Herdr 整個關掉從開始選單重開。還是找不到：在 Herdr 外面新開的 PowerShell 跑 `hc server restart --fresh`（不加 `--fresh` 會沿用舊的 PATH），終端機不會斷。
 
 If PowerShell refuses ("method invocation is supported only on core types"), or simply to do it by hand:
 `rundll32 sysdm.cpl,EditEnvironmentVariables` → your user **Path** → **New** → paste the folder → OK.
@@ -257,7 +259,7 @@ Copy-Item -Force target\release\herdr-app.exe $a
 Add it to PATH: [Add to PATH](#add-a-folder-to-path) with the first line `$add = "$env:LOCALAPPDATA\Programs\herdr-app"`. No Start-menu entry this way: right-click
 `herdr-app.exe` in Explorer → **Pin to Start**, and open Herdr from that pin (below: "from the Start menu").
 
-**Check**: `herdr-app --version | Out-Host` → `herdr-app 0.1.15`. Then open **Herdr** once from the Start menu:
+**Check**: `herdr-app --version | Out-Host` → `herdr-app 0.1.16`. Then open **Herdr** once from the Start menu:
 it creates its home (`%USERPROFILE%\.config\herdr-app`, or `HERDR_APP_HOME` if you set it) with `keys.json`, `settings.json` and `mods\`.
 先從開始選單打開 Herdr 一次，它會建立設定目錄。
 
@@ -597,8 +599,8 @@ just install                                        # terminals keep running
 
 Scripts blocked: core `cargo build --release --locked` then `hc update --from target\release\herdr-core.exe`;
 app: `cargo build --release --locked`, then copy `target\release\herdr-app.exe` as in step 3; Herdr may stay open if you
-first rename the running one (`Move-Item -Force "$env:LOCALAPPDATA\Programs\herdr-app\herdr-app.exe" "$env:LOCALAPPDATA\Programs\herdr-app\herdr-app.exe.old"`:
-Windows lets a running program be renamed, not overwritten), then quit and reopen it.
+first rename the running one (`Remove-Item "$env:LOCALAPPDATA\Programs\herdr-app\herdr-app.exe.old*" -ErrorAction SilentlyContinue; Rename-Item "$env:LOCALAPPDATA\Programs\herdr-app\herdr-app.exe" "herdr-app.exe.old-$(Get-Random)"`:
+Windows lets a running program be renamed, not overwritten; an `.old` still running stays until next time), then quit and reopen it.
 **Check**: `hc --version` / `herdr-app --version | Out-Host` print the new versions.
 
 Rollback (`git am` failed, or the new one misbehaves): `git am --abort`, rebuild the version you had (same block
@@ -644,7 +646,7 @@ server 不用複製：nvim-jay 開格子時會把程式和檔案樹放到 server
 ### 8.5 Neovim
 
 Only when the README says so (nvim-jay needs ≥ 0.11). PC: the same way you installed it (step 4: winget / scoop /
-a new `nvim-win64.zip` over the old folder). Server: **build it on the server** (not on the PC; it only builds on Linux), [linux-remote.md step 3](linux-remote.md#3-neovim-and-git-on-the-server--server-上的-neovim-和-git)
+a new `nvim-win64.zip`: close every nvim pane first, `Remove-Item -Recurse -Force "$env:LOCALAPPDATA\Programs\nvim-win64"`, then step 4's `Expand-Archive` line). Server: **build it on the server** (not on the PC; it only builds on Linux), [linux-remote.md step 3](linux-remote.md#3-neovim-and-git-on-the-server--server-上的-neovim-和-git)
 with the new tag (`rm -rf build .deps` first; from a pack: a new pack). **Check**: `nvim --version` on both.
 
 ### 8.6 Keys, then restart

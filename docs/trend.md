@@ -107,7 +107,7 @@ Remove: `launchctl bootout gui/$(id -u)/com.herdr-jay.trend` and delete the plis
 
 ```powershell
 $j = "$env:USERPROFILE\src\herdr-jay"
-$h = if ($env:HERDR_APP_HOME) { $env:HERDR_APP_HOME } else { "$env:USERPROFILE\.config\herdr-app" }
+$h = if ($env:HERDR_APP_HOME) { $env:HERDR_APP_HOME } elseif ($env:XDG_CONFIG_HOME) { "$env:XDG_CONFIG_HOME\herdr-app" } else { "$env:USERPROFILE\.config\herdr-app" }
 Remove-Item -Recurse -Force "$h\mods\trend" -ErrorAction SilentlyContinue
 Copy-Item -Recurse -Force "$j\herdr-app\mods\trend" "$h\mods\"
 herdr-app check "$h\mods\trend" | Out-Host                                      # check passed

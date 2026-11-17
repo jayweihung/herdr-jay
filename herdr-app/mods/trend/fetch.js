@@ -20,7 +20,7 @@ const fs = require("fs");
 const path = require("path");
 const os = require("os");
 
-const out = path.join(process.env.HERDR_APP_HOME || path.join(os.homedir(), ".config", "herdr-app"), "trend");
+const out = path.join(process.env.HERDR_APP_HOME || path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config"), "herdr-app"), "trend");
 fs.mkdirSync(out, { recursive: true });
 const put = (name, text) => { fs.writeFileSync(path.join(out, `${name}.tmp`), text); fs.renameSync(path.join(out, `${name}.tmp`), path.join(out, name)); };
 const now = () => new Date().toISOString().replace(/\.\d+Z$/, "Z");

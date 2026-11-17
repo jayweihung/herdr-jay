@@ -13,10 +13,13 @@ which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/key
 
 From the first Windows build at the office. `0022` (web pages on Windows) left `wry` out of the Windows dependencies, so
 the app didn't build there (`unresolved import wry`); it is in now, and `any_page` (used on macOS only) no longer warns.
-docs/windows.md: after adding a folder to PATH, `hc server restart` once in a new PowerShell (the core keeps the PATH it
-started with; terminals keep running); the app can be updated by hand while Herdr is open (rename the running exe first).
-Windows 第一次實機 build：0022 少了 wry，app build 不起來，補上了。PATH 加完要 `hc server restart` 一次；app 可以開著換。
-Needs: **app** (Windows: run the app blocks of docs/windows.md 8.2 again; macOS: nothing, the build there is the same).
+docs/windows.md: after adding a folder to PATH, new tabs see it; if what Herdr starts still can't find it,
+`hc server restart --fresh` from a PowerShell outside Herdr (plain `restart` keeps the old PATH; terminals keep running);
+the app can be updated by hand while Herdr is open (rename the running exe first); Neovim updates replace the folder;
+the app's version check says 0.1.16; LLVM's `LIBCLANG_PATH` only for the no-admin archive. 熱門 (`fetch.js`, trend.md)
+finds Herdr's home through `XDG_CONFIG_HOME` too, as Herdr does; the kit panel no longer runs `sh` on Windows.
+Windows 第一次實機 build：0022 少了 wry，app build 不起來，補上了。PATH 加完新分頁就看得到，還是找不到才跑 `hc server restart --fresh`；app 可以開著換。
+Needs: **app** (Windows: run the app blocks of docs/windows.md 8.2 again; macOS: nothing, the build there is the same), **mods**.
 The tag `for-herdr-v0.1.16-r1` still has the old `0022`: follow `main`.
 
 ## 2026-11-17, tag for Herdr app v0.1.16 / core v0.1.21

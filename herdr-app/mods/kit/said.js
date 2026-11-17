@@ -79,6 +79,7 @@ export function bgJobs(out, pid, kind = null) {
   return jobs.slice(0, 3);
 }
 async function readBg(addr, kind = null) {
+  if (isWindows() && !machineOf(addr)) return null;   // sh, ps and awk: not on Windows
   const g = await hc(["get", addr, "--json"]).catch(() => null);
   let pid = null;
   try { const j = JSON.parse(g?.stdout ?? "{}"); pid = j.foreground?.pid ?? j.pid ?? null; } catch {}
@@ -415,6 +416,7 @@ async function readOwn(addr, kind) {
 // its last step, and its description from the meta file next to it (the subs file may not have it yet: the hook ran
 // before Claude Code wrote it)
 async function readStep(addr, path) {
+  if (isWindows() && !machineOf(addr)) return null;   // sh, tail and head: not on Windows
   const meta = path.replace(/\.jsonl$/, ".meta.json");
   const r = await exec("sh", ["-c", 'tail -c 65536 "$1" 2>/dev/null; printf "\\n@@kit-meta@@\\n"; head -c 8192 "$2" 2>/dev/null', "sh", path, meta],
     { timeout: 15000, on: machineOf(addr) }).catch(() => null);

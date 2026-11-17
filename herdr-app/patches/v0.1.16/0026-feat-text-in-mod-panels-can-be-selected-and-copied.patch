@@ -75,7 +75,7 @@ index 225da04..36ca940 100644
      cmd("terminal.paste", &[], "Paste into the focused terminal (copied files as if dropped; an image alone as terminal.paste_image pastes it)."),
      cmd("terminal.paste_image", &[], "Ctrl+V: the clipboard's image as a file on the focused terminal's machine, when that's another one; on Windows, paste clipboard text; otherwise Ctrl+V goes to the terminal."),
 diff --git a/src/window.rs b/src/window.rs
-index a261d10..72f0756 100644
+index 6aaab1b..96b8a3f 100644
 --- a/src/window.rs
 +++ b/src/window.rs
 @@ -5382,6 +5382,13 @@ impl Render for AppWindow {
@@ -92,7 +92,7 @@ index a261d10..72f0756 100644
                      if !this.copy_key(w, cx) {
                          cx.propagate();
                      }
-@@ -6846,6 +6853,36 @@ mod tests {
+@@ -6851,6 +6858,36 @@ mod tests {
          assert_eq!(running(cx), 0, "and the clock stopped with it");
      }
  

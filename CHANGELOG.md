@@ -18,7 +18,14 @@ docs/windows.md: after adding a folder to PATH, new tabs see it; if what Herdr s
 the app can be updated by hand while Herdr is open (rename the running exe first); Neovim updates replace the folder;
 the app's version check says 0.1.16; LLVM's `LIBCLANG_PATH` only for the no-admin archive. 熱門 (`fetch.js`, trend.md)
 finds Herdr's home through `XDG_CONFIG_HOME` too, as Herdr does; the kit panel no longer runs `sh` on Windows.
+Web pages on Windows (`0022`, after a review of the code; type-checked on a Mac, not run on Windows yet): a page is made
+after the frame, not while Herdr draws (wry waits for WebView2 by running the window's messages: Herdr could crash when
+a page first opened while a terminal printed); it moves to its place again after the window goes to a screen with
+another scale; a click anywhere else in Herdr gives the keys back; pages without `persist` keep their data in
+`%LOCALAPPDATA%\herdr-app\WebView2` (not beside the exe, where it could stop `just install`) and each page has its own
+profile (no sign-in shared between mods). `0023`, `0025`, `0026`, `0030` only moved with it.
 Windows 第一次實機 build：0022 少了 wry，app build 不起來，補上了。PATH 加完新分頁就看得到，還是找不到才跑 `hc server restart --fresh`；app 可以開著換。
+網頁格：不在畫面繪製中建立（之前可能當掉）、換螢幕縮放會重新對位、點別處鍵盤會回來、資料不放安裝資料夾、每頁自己的登入。
 Needs: **app** (Windows: run the app blocks of docs/windows.md 8.2 again; macOS: nothing, the build there is the same), **mods**.
 The tag `for-herdr-v0.1.16-r1` still has the old `0022`: follow `main`.
 

@@ -268,13 +268,10 @@ Windows 10 (it comes with Edge). Check: `Get-ItemProperty "HKLM:\SOFTWARE\WOW643
 shows a version (or the same path under `HKCU:\SOFTWARE\Microsoft\EdgeUpdate\Clients\…` for a per-user install).
 Missing: install the Evergreen Runtime from Microsoft, or ask the company software center. Without it a mod's web
 element shows "cannot open a web view" and the rest of Herdr works. **The Windows side is written and type-checked on a
-Mac, not yet run on Windows**: if a page is invisible, misplaced or keys get lost, photo + note which, and tell jay.
-Known from reading the code (2026-11-18, not fixed yet): Herdr may crash the first time a page opens while a terminal
-is printing; after moving the window to a screen with another scale a page sits in the wrong place until the layout
-changes; after a click in a page, keys stay in it until you click a terminal.
-網頁格（patch 0015–0030）要 WebView2 Runtime（Windows 11 內建，新的 Windows 10 也隨 Edge 有）。Windows 這部分還沒實機跑過，
-有問題拍照告訴 jay。已知（看程式看出來的，還沒修）：終端機在輸出時第一次開網頁可能讓 Herdr 當掉；視窗移到不同縮放的螢幕，網頁位置會跑掉；
-點過網頁後打字還在網頁裡，點一下終端機才回來。
+Mac (2026-11-18: `cargo check --target x86_64-pc-windows-msvc`), not yet run on Windows**: if a page is invisible,
+misplaced or keys get lost, photo + note which, and tell jay.
+網頁格（patch 0015–0030）要 WebView2 Runtime（Windows 11 內建，新的 Windows 10 也隨 Edge 有）。Windows 這部分只在 Mac 上做過型別檢查，還沒實機跑過，
+有問題拍照告訴 jay。
 
 ---
 

@@ -155,7 +155,7 @@ index f0de137..6ec5b9e 100644
      /// No edge swaps their places; an edge places the source beside the target.
      pub fn move_pane(&mut self, source: &str, target: &str, edge: Option<crate::layout::Edge>) -> bool {
 diff --git a/src/window.rs b/src/window.rs
-index 3f5d2dd..a261d10 100644
+index 4c8656c..6aaab1b 100644
 --- a/src/window.rs
 +++ b/src/window.rs
 @@ -2645,7 +2645,7 @@ impl AppWindow {

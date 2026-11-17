@@ -36,7 +36,7 @@ index 17eddb5..9dd49a3 100644
   *  Target names the clicked pane/terminal, not necessarily the focused one; pass it to actions.
   *  Close the popup with closeOverlay(props().overlay). */
 diff --git a/src/window.rs b/src/window.rs
-index b3fe969..3f5d2dd 100644
+index 6f0a3a9..4c8656c 100644
 --- a/src/window.rs
 +++ b/src/window.rs
 @@ -2656,6 +2656,9 @@ impl AppWindow {

@@ -9,10 +9,11 @@ Subject: [PATCH 22/30] feat: web elements on windows (webview2 through wry),
  Cargo.toml                                    |   5 +
  defaults/AGENTS.md                            |  14 +-
  defaults/herdr.d.ts                           |   7 +-
- src/web.rs                                    |  39 +-
- src/web/win.rs                                | 459 ++++++++++++++++++
+ src/web.rs                                    | 106 +++-
+ src/web/win.rs                                | 466 ++++++++++++++++++
+ src/window.rs                                 |   7 +-
  .../gpui-pre-windows/src/directx_renderer.rs  |   3 +-
- 7 files changed, 507 insertions(+), 22 deletions(-)
+ 8 files changed, 581 insertions(+), 29 deletions(-)
  create mode 100644 src/web/win.rs
 
 diff --git a/Cargo.lock b/Cargo.lock
@@ -29,7 +30,7 @@ index fbb062a..4c42220 100644
   "winresource",
   "wry",
 diff --git a/Cargo.toml b/Cargo.toml
-index 4dc2c7d..a377379 100644
+index 4dc2c7d..e07366c 100644
 --- a/Cargo.toml
 +++ b/Cargo.toml
 @@ -72,6 +72,11 @@ objc2-web-kit = { version = "0.3.2", default-features = false, features = ["std"
@@ -40,7 +41,7 @@ index 4dc2c7d..a377379 100644
 +# windows (wry's own versions) cover what wry leaves out on Windows.
 +wry = { version = "=0.57.1", default-features = false }
 +webview2-com = "=0.39.1"
-+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_WindowsAndMessaging"] }
++windows = { version = "0.62", features = ["Win32_Foundation", "Win32_UI_HiDpi", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_WindowsAndMessaging"] }
  raw-window-handle = "0.6"
  windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_UI_Shell", "Win32_UI_Input_KeyboardAndMouse", "Win32_System_Console", "Win32_System_Com", "Win32_Media_Multimedia"] }
  
@@ -105,7 +106,7 @@ index 449455e..17eddb5 100644
  export const web: { new(id: string, props: WebProps): import("gpui-kit").NativeElement };
  
 diff --git a/src/web.rs b/src/web.rs
-index e9e903f..1763ca0 100644
+index e9e903f..bd1130d 100644
 --- a/src/web.rs
 +++ b/src/web.rs
 @@ -1,5 +1,6 @@
@@ -151,15 +152,124 @@ index e9e903f..1763ca0 100644
          }
          pub fn load(&self, _: &url::Url) {}
          pub fn place(&mut self, _: Option<Bounds<Pixels>>) {}
-@@ -220,6 +225,7 @@ impl Action {
+@@ -219,7 +224,8 @@ impl Action {
+     }
  }
  
- /// The same 16 bytes every time for one mod's page id: its WebKit data store.
-+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+-/// The same 16 bytes every time for one mod's page id: its WebKit data store.
++/// The same 16 bytes every time for one mod's page id: its WebKit data store
++/// (WebView2: its profile).
  pub fn store_id(name: &str, id: &str) -> [u8; 16] {
      use sha2::{Digest, Sha256};
      let digest = Sha256::digest(format!("herdr-web\0{name}\0{id}").as_bytes());
-@@ -527,21 +533,30 @@ pub fn focus_set_aside(focus: Option<FocusHandle>) {
+@@ -262,6 +268,9 @@ thread_local! {
+     static GPUI_FOCUS: RefCell<Option<FocusHandle>> = const { RefCell::new(None) };
+     /// A click in a page waits for the window to move GPUI's focus aside.
+     static FOCUS_PENDING: Cell<bool> = const { Cell::new(false) };
++    /// Windows: pages being made (None) or that couldn't be (the spec tried, why).
++    #[cfg(windows)]
++    static CREATING: RefCell<HashMap<Key, Option<(Spec, String)>>> = RefCell::new(HashMap::new());
+ }
+ 
+ /// A copy's `nextWebEvent()` queue (called when its `herdr` module is built).
+@@ -320,7 +329,7 @@ pub fn element(copy: u64, rules: &Rc<Rules>, id: &str, props: Value, children: V
+     }
+     let shown = match &rules.problem {
+         Some(p) => Err(p.clone()),
+-        None => Spec::parse(&props, rules).and_then(|spec| ensure(&key, spec, rules, window)),
++        None => Spec::parse(&props, rules).and_then(|spec| ensure(&key, spec, rules, window, _cx)),
+     };
+     match shown {
+         Ok(()) => el.child(Probe { key }).into_any_element(),
+@@ -332,7 +341,7 @@ pub fn element(copy: u64, rules: &Rc<Rules>, id: &str, props: Value, children: V
+ }
+ 
+ /// Creates the page, or loads a new `src` into it.
+-fn ensure(key: &Key, spec: Spec, rules: &Rc<Rules>, window: &mut Window) -> Result<(), String> {
++fn ensure(key: &Key, spec: Spec, rules: &Rc<Rules>, window: &mut Window, _cx: &mut App) -> Result<(), String> {
+     let same = with_views_mut(|v| {
+         let view = v.get_mut(key)?;
+         if view.spec.persist != spec.persist {
+@@ -350,9 +359,52 @@ fn ensure(key: &Key, spec: Spec, rules: &Rc<Rules>, window: &mut Window) -> Resu
+         Some(false) => dispose(key),
+         None => {}
+     }
+-    let page = imp::Page::new(window, key, &spec, rules.clone())?;
+-    page.load(&spec.url);
+-    with_views_mut(|v| v.insert(key.clone(), View { page, spec, rect: None, painter: 0, zoom: 0.0 }));
++    #[cfg(windows)]
++    {
++        create_later(key, spec, rules, window, _cx)
++    }
++    #[cfg(not(windows))]
++    {
++        let page = imp::Page::new(window, key, &spec, rules.clone())?;
++        page.load(&spec.url);
++        with_views_mut(|v| v.insert(key.clone(), View { page, spec, rect: None, painter: 0, zoom: 0.0 }));
++        Ok(())
++    }
++}
++
++/// Windows: wry waits for a new WebView2 page by pumping the thread's
++/// messages, which in a draw would run GPUI's tasks while the app is busy (a
++/// panic). So a task makes it after the frame, once; a failure shows on the
++/// element until its props change.
++#[cfg(windows)]
++fn create_later(key: &Key, spec: Spec, rules: &Rc<Rules>, window: &mut Window, cx: &mut App) -> Result<(), String> {
++    let known = CREATING.with_borrow_mut(|c| match c.get(key) {
++        Some(None) => Some(Ok(())),
++        Some(Some((tried, e))) if *tried == spec => Some(Err(e.clone())),
++        _ => {
++            c.insert(key.clone(), None);
++            None
++        }
++    });
++    if let Some(known) = known {
++        return known;
++    }
++    let (key, rules, here) = (key.clone(), rules.clone(), imp::window_of(window));
++    window
++        .spawn(cx, async move |cx| {
++            match imp::Page::new(here, &key, &spec, rules) {
++                Ok(page) => {
++                    page.load(&spec.url);
++                    CREATING.with_borrow_mut(|c| c.remove(&key));
++                    with_views_mut(|v| v.insert(key, View { page, spec, rect: None, painter: 0, zoom: 0.0 }));
++                }
++                Err(e) => {
++                    CREATING.with_borrow_mut(|c| c.insert(key, Some((spec, e))));
++                }
++            }
++            let _ = cx.update(|window, _| window.refresh());
++        })
++        .detach();
+     Ok(())
+ }
+ 
+@@ -479,6 +531,8 @@ pub fn frame_end(frame: Frame) -> impl IntoElement {
+ 
+ fn apply(frame: Frame, window: &mut Window, cx: &mut App) {
+     EVENTS.with_borrow_mut(|e| e.retain(|copy, tx| frame.alive.contains(copy) && !tx.is_closed()));
++    #[cfg(windows)]
++    CREATING.with_borrow_mut(|c| c.retain(|key, _| frame.alive.contains(&key.copy)));
+     let here = imp::window_of(window);
+     let dead: Vec<Key> = with_views(|v| v.iter().filter(|(k, view)| view.page.window() == here && !frame.alive.contains(&k.copy)).map(|(k, _)| k.clone()).collect());
+     for key in dead {
+@@ -520,6 +574,13 @@ pub(crate) fn page_clicked() {
+     crate::mods::request(crate::mods::Request::WebFocus);
+ }
+ 
++/// A click GPUI saw (Windows: never one in a page, whose clicks go to its own
++/// window): a page holding the keys gives them back.
++#[cfg(windows)]
++pub fn clicked_outside() {
++    with_views(|v| v.values().filter(|view| view.page.has_keys()).for_each(|view| view.page.give_back_keys()));
++}
++
+ /// The window did (`Request::WebFocus`): where GPUI's focus now is.
+ pub fn focus_set_aside(focus: Option<FocusHandle>) {
+     GPUI_FOCUS.with_borrow_mut(|f| *f = focus);
+@@ -527,21 +588,30 @@ pub fn focus_set_aside(focus: Option<FocusHandle>) {
  }
  
  /// Whether `f` holds for any page (the monitors); false while the registry is busy.
@@ -198,10 +308,10 @@ index e9e903f..1763ca0 100644
  }
 diff --git a/src/web/win.rs b/src/web/win.rs
 new file mode 100644
-index 0000000..0a1887d
+index 0000000..35c2c30
 --- /dev/null
 +++ b/src/web/win.rs
-@@ -0,0 +1,459 @@
+@@ -0,0 +1,466 @@
 +//! The Windows side of web elements: wry's WebView2 as a child window of
 +//! GPUI's, plus what wry leaves out here:
 +//!
@@ -215,7 +325,7 @@ index 0000000..0a1887d
 +//! - the keyboard: a page that takes the keys moves GPUI's focus aside, and
 +//!   Herdr's shortcuts (Ctrl or Alt with a letter, digit, sign or Tab, and the
 +//!   F keys) still reach Herdr while a page types; the editing keys stay with
-+//!   the page;
++//!   the page; a click GPUI sees (never one in a page) takes the keys back;
 +//! - the user agent: WebView2's own plus "Herdr/<version>".
 +//!
 +//! alert / confirm / prompt and `<input type=file>` are WebView2's own dialogs.
@@ -227,9 +337,11 @@ index 0000000..0a1887d
 +
 +use super::{Action, Key, Rules, Spec};
 +use gpui::{Bounds, Pixels, Window};
-+use raw_window_handle::{HasWindowHandle, RawWindowHandle};
++use raw_window_handle::{HasWindowHandle, RawWindowHandle, Win32WindowHandle, WindowHandle};
 +use serde_json::json;
 +use std::cell::{Cell, RefCell};
++use std::num::NonZeroIsize;
++use std::path::PathBuf;
 +use std::rc::Rc;
 +use webview2_com::Microsoft::Web::WebView2::Win32::*;
 +use webview2_com::{
@@ -237,6 +349,7 @@ index 0000000..0a1887d
 +    ProcessFailedEventHandler, SourceChangedEventHandler, take_pwstr,
 +};
 +use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
++use windows::Win32::UI::HiDpi::GetDpiForWindow;
 +use windows::Win32::UI::Input::KeyboardAndMouse::{GetKeyState, VIRTUAL_KEY, VK_CONTROL, VK_F1, VK_F24, VK_MENU, VK_SHIFT, VK_TAB};
 +use windows::Win32::UI::WindowsAndMessaging::{PostMessageW, WM_KEYDOWN, WM_SYSKEYDOWN};
 +use windows::core::{BOOL, HSTRING, Interface, PWSTR};
@@ -281,22 +394,26 @@ index 0000000..0a1887d
 +    web: wry::WebView,
 +    core: ICoreWebView2,
 +    status: Rc<Status>,
-+    /// Where a persisted page keeps its data; WebView2 reads it at creation.
-+    _context: Option<WebContext>,
++    /// Where the page keeps its data; WebView2 reads it at creation.
++    _context: WebContext,
 +    window: usize,
-+    /// The bounds last applied (None: hidden), in window px.
-+    placed: Option<Option<Bounds<Pixels>>>,
++    /// The bounds last applied (None: hidden), in window px, and the window's
++    /// DPI then (wry turns them into device px with it).
++    placed: Option<(Option<Bounds<Pixels>>, u32)>,
 +}
 +
 +impl Page {
-+    pub fn new(window: &mut Window, key: &Key, spec: &Spec, rules: Rc<Rules>) -> Result<Page, String> {
-+        let here = window_of(window);
-+        let mut context = if spec.persist {
-+            let dir = super::store_dir(&rules, &key.id).ok_or("persist needs a mod name and page id of letters, digits, . _ -")?;
-+            Some(WebContext::new(Some(dir.join("WebView2"))))
++    /// Made from a task, not in a draw (see `super::create_later`): `here` is GPUI's window.
++    pub fn new(here: usize, key: &Key, spec: &Spec, rules: Rc<Rules>) -> Result<Page, String> {
++        let hwnd = NonZeroIsize::new(here as isize).ok_or("the window is gone")?;
++        // Valid while the window is: the page is its child and goes with it.
++        let parent = unsafe { WindowHandle::borrow_raw(RawWindowHandle::Win32(Win32WindowHandle::new(hwnd))) };
++        let mut context = WebContext::new(Some(if spec.persist {
++            super::store_dir(&rules, &key.id).ok_or("persist needs a mod name and page id of letters, digits, . _ -")?.join("WebView2")
 +        } else {
-+            None
-+        };
++            // Not WebView2's default, next to the exe: installs replace that folder.
++            std::env::var_os("LOCALAPPDATA").map_or_else(std::env::temp_dir, PathBuf::from).join("herdr-app").join("WebView2")
++        }));
 +        let status = Rc::new(Status {
 +            key: key.clone(),
 +            rules: rules.clone(),
@@ -308,13 +425,11 @@ index 0000000..0a1887d
 +        // The new-window handler loads into the page, which exists only once built.
 +        let slot: Rc<RefCell<Option<ICoreWebView2>>> = Rc::default();
 +        let (nav, downloads, windows, titles, opened) = (status.clone(), status.clone(), status.clone(), status.clone(), slot.clone());
-+        let builder = match context.as_mut() {
-+            Some(c) => WebViewBuilder::new_with_web_context(c),
-+            None => WebViewBuilder::new(),
-+        };
-+        let web = builder
-+            // Not persisted: cookies and storage in memory only, gone with the page.
++        let web = WebViewBuilder::new_with_web_context(&mut context)
++            // Not persisted: cookies and storage in memory only, gone with the
++            // page. Its own profile: WebView2 shares InPrivate data per profile.
 +            .with_incognito(!spec.persist)
++            .with_profile_name(format!("herdr-{}", super::store_id(&rules.name, &key.id).iter().map(|b| format!("{b:02x}")).collect::<String>()))
 +            .with_visible(false)
 +            .with_focused(false)
 +            .with_devtools(false)
@@ -337,7 +452,7 @@ index 0000000..0a1887d
 +                NewWindowResponse::Deny
 +            })
 +            .with_document_title_changed_handler(move |title| titles.title_changed(title))
-+            .build_as_child(&*window)
++            .build_as_child(&parent)
 +            .map_err(|e| format!("cannot open a web view: {e}"))?;
 +        let core = web.webview();
 +        *slot.borrow_mut() = Some(core.clone());
@@ -515,10 +630,12 @@ index 0000000..0a1887d
 +
 +    /// Moves the page to `rect` (window px, top-left origin), or hides it.
 +    pub fn place(&mut self, rect: Option<Bounds<Pixels>>) {
-+        if self.placed == Some(rect) {
++        // A new DPI (another screen) keeps the logical rect but not the device one.
++        let dpi = unsafe { GetDpiForWindow(HWND(self.window as _)) };
++        if self.placed == Some((rect, dpi)) {
 +            return;
 +        }
-+        self.placed = Some(rect);
++        self.placed = Some((rect, dpi));
 +        match rect {
 +            Some(b) => {
 +                let bounds = Rect {
@@ -661,6 +778,24 @@ index 0000000..0a1887d
 +        assert!(!herdr_key(0x08, true, false, false));
 +    }
 +}
+diff --git a/src/window.rs b/src/window.rs
+index b3fe969..6f0a3a9 100644
+--- a/src/window.rs
++++ b/src/window.rs
+@@ -5416,7 +5416,12 @@ impl Render for AppWindow {
+                     }
+                 }
+             }))
+-            .capture_any_mouse_down(cx.listener(|this, ev: &MouseDownEvent, _, _| this.pointer = ev.position))
++            .capture_any_mouse_down(cx.listener(|this, ev: &MouseDownEvent, _, _| {
++                // Windows has no click monitor: whatever GPUI sees is outside every page.
++                #[cfg(windows)]
++                crate::web::clicked_outside();
++                this.pointer = ev.position;
++            }))
+             .on_mouse_move(cx.listener(|this, ev: &MouseMoveEvent, window, cx| {
+                 this.drag_window(ev, window, cx);
+                 if this.drag.is_none() {
 diff --git a/vendor/gpui-pre-windows/src/directx_renderer.rs b/vendor/gpui-pre-windows/src/directx_renderer.rs
 index ecd645b..e57b56a 100644
 --- a/vendor/gpui-pre-windows/src/directx_renderer.rs

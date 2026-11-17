@@ -25,10 +25,10 @@ index dc97ce9..8c358d1 100644
          }
      }
 diff --git a/src/web/win.rs b/src/web/win.rs
-index 0a1887d..223f231 100644
+index 35c2c30..6922839 100644
 --- a/src/web/win.rs
 +++ b/src/web/win.rs
-@@ -330,6 +330,9 @@ impl Page {
+@@ -337,6 +337,9 @@ impl Page {
                      self.give_back_keys();
                  }
                  let _ = self.web.set_visible(false);

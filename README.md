@@ -68,13 +68,14 @@ listed here (and in the tag's message):
 
 | Tag | Herdr app / core | Checked on macOS | Checked on Windows |
 |---|---|---|---|
+| `for-herdr-v0.1.16-r1` | v0.1.16 / v0.1.21 | 2026-11-17 | not yet |
 | `for-herdr-v0.1.15-r1` | v0.1.15 / v0.1.20 | 2026-11-12 | not yet |
 | `for-herdr-v0.1.13` (old, no `-r`) | v0.1.13 | yes | no Windows support |
 
 `for-herdr-v0.1.15-r1` was tagged before the folders got Herdr's names: it has `mods/` and `patches/<repo>/<tag>/`;
 checked out, follow the docs inside it. On Windows use `main` until a tag's Windows column has a date.
 
-tag 一旦打上就不移動；同一版 Herdr 有修正就加 `-r`。`-r1` 還是舊的資料夾（`mods/`、`patches/`），切過去要照它裡面的文件。每個 tag 在哪些系統驗過看上表：`for-herdr-v0.1.15-r1` 目前只驗過 Mac，Windows 實測通過後會在這裡寫上（要修的話會是 `-r2`）。
+tag 一旦打上就不移動；同一版 Herdr 有修正就加 `-r`。`-r1` 還是舊的資料夾（`mods/`、`patches/`），切過去要照它裡面的文件。每個 tag 在哪些系統驗過看上表：`for-herdr-v0.1.16-r1`、`for-herdr-v0.1.15-r1` 目前只驗過 Mac，Windows 實測通過後會在這裡寫上（要修的話會是 `-r2`）。
 
 Never run plain `hc update`, and don't press Install / Update on Herdr's core screen or run "Update herdr-core":
 they install the official core over yours.

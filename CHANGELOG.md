@@ -9,6 +9,13 @@ says which) · **kit** = update kit itself on every machine where agents run (`k
 **snap hook** = a line in Claude Code's `settings.json` on each machine where you added the hook (the entry says
 which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/keys.md).
 
+## 2026-11-17, tag for Herdr app v0.1.16 / core v0.1.21
+
+`for-herdr-v0.1.16-r1`: herdr-jay for Herdr app v0.1.16 with the 30 patches in `herdr-app/patches/v0.1.16/` (up to
+0030, files dropped on a terminal) and core v0.1.21 with the one in `herdr-core/patches/v0.1.21/`. Checked on macOS;
+Windows not yet (see the README tag table). 新標記：app v0.1.16＋30 個補丁、core v0.1.21＋1 個補丁；只驗過 Mac。
+Needs: nothing new if you follow `main`; to pin this state, check out the tag.
+
 ## 2026-11-17, 熱門 syncs with a site of yours
 
 Optional: 熱門's topics, stars, progress, plays, the trend agent's notes and the player's settings kept on a site of

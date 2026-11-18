@@ -2,7 +2,7 @@
 // (macOS, Linux; needs Node 18+, Neovim 0.11+ and git on PATH). The Lua runs in a headless nvim with HOME in a temp
 // folder and a fake hc (a /bin/sh script answering ls / get from files), so nothing of yours is read or changed.
 // Not on Windows yet: the fake hc is a shell script.
-import { existsSync, mkdtempSync, mkdirSync, writeFileSync, chmodSync, realpathSync, rmSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, writeFileSync, chmodSync, realpathSync, rmSync, readFileSync, readdirSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -50,6 +50,60 @@ const here = dirname(fileURLToPath(import.meta.url));
   if (!ok) process.exitCode = 1;
 }
 if (process.platform === "win32") { console.log("skipped: the fake hc is a shell script (macOS / Linux only)"); process.exit(0); }
+// the kit plugin (herdr-app/kit-plugins/nvim-jay) runs a hook file only if it is yours: its sh command (macOS, Linux),
+// its PowerShell commandWindows (run with pwsh when there is one) and its omp module, with a fake nvim on PATH that
+// says what it was given. Owned by another account can't be made without root: a folder outside the home stands in.
+{
+  const plugin = join(here, "..", "..", "herdr-app", "kit-plugins", "nvim-jay");
+  const hook = JSON.parse(readFileSync(join(plugin, "hooks", "hooks.json"), "utf8")).hooks.Stop[0].hooks[0];
+  const t = realpathSync(mkdtempSync(join(tmpdir(), "nvim-jay-plugin-")));
+  const bin = join(t, "bin"); mkdirSync(bin);
+  writeFileSync(join(bin, "nvim"), "#!/bin/sh\nprintf 'ran %s' \"$3\"\n", { mode: 0o755 });
+  const pwsh = spawnSync("sh", ["-c", "command -v pwsh"], { encoding: "utf8" }).stdout.trim();
+  let n = 0;
+  // a fresh home with ~/.config/nvim-jay (0755) holding reply_hook.lua and omp_hook.js (0644); how() changes it
+  const cases = {
+    "yours (0644 in a 0755 folder)": [() => {}, true],
+    "group-writable file (g+w)": [(d) => chmodSync(join(d, "reply_hook.lua"), 0o664), false],
+    "world-writable file (o+w)": [(d) => chmodSync(join(d, "reply_hook.lua"), 0o646), false],
+    "group-writable folder": [(d) => chmodSync(d, 0o775), false],
+    "folder linked to one outside your home": [(d, h) => {
+      const o = join(t, `other${n}`, "nvim-jay"); mkdirSync(o, { recursive: true, mode: 0o755 });
+      for (const f of ["reply_hook.lua", "omp_hook.js"]) writeFileSync(join(o, f), readFileSync(join(d, f)), { mode: 0o644 });
+      rmSync(d, { recursive: true }); symlinkSync(o, join(h, ".config", "nvim-jay"));
+    }, false],
+    "file linked to one outside your home": [(d) => {
+      const o = join(t, `other${n}.lua`); writeFileSync(o, "", { mode: 0o644 });
+      rmSync(join(d, "reply_hook.lua")); symlinkSync(o, join(d, "reply_hook.lua"));
+    }, false],
+  };
+  for (const [name, [how, runs]] of Object.entries(cases)) {
+    n++;
+    const h = join(t, `home${n}`), d = join(h, ".config", "nvim-jay");
+    mkdirSync(d, { recursive: true, mode: 0o755 }); chmodSync(d, 0o755);
+    writeFileSync(join(d, "reply_hook.lua"), "", { mode: 0o644 }); chmodSync(join(d, "reply_hook.lua"), 0o644);
+    writeFileSync(join(d, "omp_hook.js"), "export default (pi) => { pi.ran = true; };\n", { mode: 0o644 }); chmodSync(join(d, "omp_hook.js"), 0o644);
+    how(d, h);
+    const env = { HOME: h, PATH: `${bin}:/usr/bin:/bin` };
+    const want = runs ? `ran ${join(d, "reply_hook.lua")}` : "";
+    const r = spawnSync("sh", ["-c", hook.command], { env, input: "{}", encoding: "utf8" });
+    let ok = r.status === 0 && r.stdout === want && r.stderr === "";
+    let said = `sh: exit ${r.status} ${JSON.stringify(r.stdout + r.stderr)}`;
+    const o = spawnSync(process.execPath, ["--input-type=module", "-e",
+      `const pi = {}; await (await import(${JSON.stringify(pathToFileURL(join(plugin, "hooks", "pre", "nvim-jay.js")).href)})).default(pi); process.stdout.write(String(pi.ran === true));`],
+      { env, encoding: "utf8" });
+    ok = ok && o.status === 0 && o.stdout === String(runs);
+    said += `; omp: ${JSON.stringify(o.stdout + o.stderr)}`;
+    if (pwsh && !/writable/.test(name)) { // Windows has no group / world bits: the PowerShell check is links only
+      const p = spawnSync(pwsh, ["-NoProfile", "-Command", hook.commandWindows], { env: { ...env, USERPROFILE: h }, input: "{}", encoding: "utf8" });
+      ok = ok && p.status === 0 && p.stdout === want;
+      said += `; pwsh: exit ${p.status} ${JSON.stringify(p.stdout + p.stderr)}`;
+    }
+    console.log(`${ok ? "ok  " : "FAIL"}  kit plugin: ${name} → ${runs ? "runs" : "skipped, exit 0"}${pwsh || /writable/.test(name) ? "" : " (no pwsh: PowerShell not run)"}${ok ? "" : `: ${said}`}`);
+    if (!ok) process.exitCode = 1;
+  }
+  rmSync(t, { recursive: true, force: true });
+}
 const { NVIM_INIT } = await import(pathToFileURL(join(here, "..", "..", "herdr-app", "mods", "nvim-jay", "nvim.js")));
 const nvim = spawnSync("sh", ["-c", "command -v nvim"], { encoding: "utf8" }).stdout.trim();
 const git = spawnSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).stdout.trim();

@@ -244,6 +244,13 @@ you can open it. Without the file, a root agent gets the one-line note 「root �
 有 root 端的複本（root 讀過／改過的檔複製一份給你看）時，在 `~/.config/nvim-jay/root_view` 寫它的資料夾，nvim-jay
 就跟著開那份複本（唯讀）；沒有就只提示一行，不會停在「Press ENTER」。
 
+**The kit plugin's hooks for root** (§7): an agent run as root runs them as root, so they run only files root itself
+owns, in `.config/nvim-jay` under root's own home (not yours), not group- or
+world-writable. Never link that folder (or a file in it) to a normal user's: the hooks then do nothing, as code that
+account can write would run as root. nvim-jay runs as you, so it never writes root's copy: on root the plugin does
+nothing unless root has its own copy. root 跑的 agent，kit 外掛的 hook 只跑 root 自己的檔（root 家目錄下的 `.config/nvim-jay`，
+不能讓別人寫）；不要把它連到一般帳號的資料夾。nvim-jay 是用你的帳號跑，不會寫 root 那份，所以 root 沒有自己那份就什麼都不做。
+
 ## 7. Snapshots for Bash edits (optional) / Bash 改檔的快照（選用）
 
 A file changed by a Bash command outside a git repo has no "before" to diff against. The **snap hook** keeps one:
@@ -277,6 +284,11 @@ Codex asks once per plugin version to trust its hooks (`/hooks`; kit reminds you
 signed version itself); on Windows it runs them in PowerShell. omp loads nvim-jay's module, `omp_hook.js` (7b).
 kit 裝：每台跑 agent 的機器 `kit add plugin nvim-jay` 一次（Claude Code、Codex、omp 的 snap hook 和回覆檢查一起裝），
 nvim-jay 在那台開過一次就生效；nvim 它自己找，不用改路徑。Codex 要在 `/hooks` 信任一次。
+
+Only files that are yours run: each hook follows links to the real file and runs it only if it and its folder are
+owned by you, under your home and not group- or world-writable (Windows: under `%USERPROFILE%` with no link or
+junction on the way); otherwise it does nothing, exit 0. For an agent run as root, see [§6](#6-agent-running-as-root--agent-用-root-跑).
+只跑你自己的檔：連到別處、或別人寫得到的（group／world 可寫）都不跑；root 的情況看 §6。
 
 **Added them by hand before?** After `kit add plugin nvim-jay`, take these out, or each hook runs twice (two copies
 per command, the same reminder twice); keep everything else there, e.g. kit's own `sync --hook`, `handoff-hook`,

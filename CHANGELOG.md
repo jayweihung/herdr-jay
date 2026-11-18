@@ -12,6 +12,18 @@ which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/key
 Each mod also keeps its own `CHANGES.md` (shown in the mod as its version and 改動紀錄): when a change to a mod is
 user-visible, add a bullet under a new or current version at the top of that mod's `CHANGES.md`.
 
+## 2026-11-18, nvim-jay's kit plugin runs only files that are yours
+
+An agent run as root ran the plugin's hooks as root, on whatever `~/.config/nvim-jay` held: a folder linked to a
+normal user's, or a file another account could write, ran that account's code as root. Now each of the plugin's
+launchers (Claude Code's and Codex's `sh` command, Codex's PowerShell `commandWindows`, omp's module) follows links to
+the real file and runs it only if it and its folder are owned by you, under your home and not group- or
+world-writable; Windows: under `%USERPROFILE%`, no link or junction on the way. Otherwise it does nothing (exit 0).
+On root the plugin does nothing unless root has its own copy (docs/nvim-jay.md §6). `tests/nvim-jay/run.js` checks
+it. kit 外掛的 hook 只跑你自己的檔；root 不要把 `~/.config/nvim-jay` 連到一般帳號的資料夾。
+Needs: nothing on your own machines (nvim-jay writes its files 0644 in a 0755 folder); agentkit-library collects the
+plugin again (`kit collect nvim-jay`), then `kit sync` on each machine; Codex asks to trust the changed hooks once.
+
 ## 2026-11-18, mods show their version and 改動紀錄
 
 kit (倉庫 and Agents), Gerrit, 熱門, agent page and agent files show a small `v1.x` in their title row; a click opens

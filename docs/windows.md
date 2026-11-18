@@ -267,11 +267,13 @@ it creates its home (`%USERPROFILE%\.config\herdr-app`, or `HERDR_APP_HOME` if y
 Windows 10 (it comes with Edge). Check: `Get-ItemProperty "HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}" -ErrorAction SilentlyContinue | Select-Object pv`
 shows a version (or the same path under `HKCU:\SOFTWARE\Microsoft\EdgeUpdate\Clients\…` for a per-user install).
 Missing: install the Evergreen Runtime from Microsoft, or ask the company software center. Without it a mod's web
-element shows "cannot open a web view" and the rest of Herdr works. **The Windows side is written and type-checked on a
-Mac (2026-11-18: `cargo check --target x86_64-pc-windows-msvc`), not yet run on Windows**: if a page is invisible,
-misplaced or keys get lost, photo + note which, and tell jay.
-網頁格（patch 0015–0030）要 WebView2 Runtime（Windows 11 內建，新的 Windows 10 也隨 Edge 有）。Windows 這部分只在 Mac 上做過型別檢查，還沒實機跑過，
-有問題拍照告訴 jay。
+element shows "cannot open a web view" and the rest of Herdr works. **Run on Windows** (2026-11-18, GitHub's Windows
+Server 2025, these steps as written): the app builds and installs, a mod's page shows while terminals print, Herdr
+stays up, the page's data goes to `%LOCALAPPDATA%\herdr-app\WebView2`. Not yet tried by a person: typing in a page,
+clicking out of it, a second screen with another scale. If a page is invisible, misplaced or keys get lost, photo +
+note which, and tell jay.
+網頁格（patch 0015–0030）要 WebView2 Runtime（Windows 11 內建，新的 Windows 10 也隨 Edge 有）。已在 GitHub 的 Windows 主機照這份步驟
+裝好跑過：網頁顯示得出來、終端機一直輸出時也不會當。還沒有人實際打字、點進點出、換螢幕縮放試過；有問題拍照告訴 jay。
 
 ---
 

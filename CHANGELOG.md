@@ -9,6 +9,17 @@ says which) · **kit** = update kit itself on every machine where agents run (`k
 **snap hook** = a line in Claude Code's `settings.json` on each machine where you added the hook (the entry says
 which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/keys.md).
 
+## 2026-11-18, Windows: run on Windows, not only type-checked
+
+On GitHub's Windows Server 2025 (Windows PowerShell 5.1, Defender on), docs/windows.md as written: core v0.1.21 with
+its patch builds and installs, `hc server restart --fresh` works, app v0.1.16 with the 30 patches builds (about 17
+minutes) and installs, the five mods pass `herdr-app check`, and a mod's web page shows (example.com) while three
+terminals print, Herdr stays up, its data in `%LOCALAPPDATA%\herdr-app\WebView2`. kit with agentkit-library (installed
+by its README, `kit init`, skills added): 15 `kit sync --force` in a row and 6 at once with 6 `kit status`, no
+failure and no temp file left. Not tried by a person yet: typing in a page, clicking out of it, another screen's scale.
+在 GitHub 的 Windows 主機照 windows.md 實際裝好跑過：core、app、mod 檢查、網頁格都正常；kit 接 agentkit-library 連續 sync 沒出錯。
+Needs: nothing.
+
 ## 2026-11-18, nvim-jay's hooks as a kit plugin
 
 The snap hook and the reply hook (docs/nvim-jay.md §7, §7a, §7b) are now a kit plugin,

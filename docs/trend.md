@@ -2,12 +2,12 @@
 
 A tab-bar button **熱門** and a panel, like Gerrit's (macOS and Windows):
 
-- **The list costs no tokens.** Every 30 minutes launchd (macOS) or Task Scheduler (Windows) runs
+- **The list costs no tokens.** Every 10 minutes launchd (macOS) or Task Scheduler (Windows) runs
   [`fetch.js`](../herdr-app/mods/trend/fetch.js) with node:
   [last30days](https://github.com/mvanhorn/last30days-skill) `--discover` (global: Hacker News, Digg when `digg-pp-cli`
   is on PATH; Reddit left out with `EXCLUDE_SOURCES=reddit`, its search only gets 403) without any model, into
   `~/.config/herdr-app/trend/trends.json`. The panel only reads it.
-  清單不花 token：launchd 每 30 分鐘跑 last30days 的 discover（不叫模型），面板只讀結果。
+  清單不花 token：launchd 每 10 分鐘跑 last30days 的 discover（不叫模型），面板只讀結果。
 - **The button**: how many topics you haven't seen (opening the panel counts them as seen), a ring while fetching, a
   red `!` when the last run failed. 按鈕：沒看過的主題數、抓的時候轉圈、上次失敗是紅色 `!`。
 - **The panel**: the list and the 報告 tab are web pages the mod writes to `<Herdr home>/mods/trend/.view/` (in
@@ -65,7 +65,7 @@ A tab-bar button **熱門** and a panel, like Gerrit's (macOS and Windows):
    `kit push`. The Agents panel lists it.
 3. **The mod** and the layout blocks `{ "mod": "trend", "props": { "role": "toggle" } }` (id `trend-toggle`, beside
    Gerrit's) and a column `trend-panel` holding `{ "mod": "trend" }` (`"hidden": true`); jay's layouts have them.
-4. **The job every 30 minutes**, below.
+4. **The job every 10 minutes**, below.
 
 **macOS** (the mod as a link; one linked while Herdr runs: link it once more (`ln -sfn …`) after editing, or restart
 Herdr, to load the new code):
@@ -89,21 +89,21 @@ herdr-app check ~/.config/herdr-app/mods/trend
     <string>/Users/YOU/src/YOUR-SOURCE/skills/last30days/scripts/last30days.py</string>
   </array>
   <key>EnvironmentVariables</key><dict><key>PATH</key><string>/opt/homebrew/bin:/Users/YOU/.local/bin:/usr/bin:/bin</string></dict>
-  <key>StartInterval</key><integer>1800</integer>
+  <key>StartInterval</key><integer>600</integer>
   <key>RunAtLoad</key><true/>
 </dict>
 </plist>
 ```
 
 ```sh
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.herdr-jay.trend.plist   # runs once now, then every 30 minutes
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.herdr-jay.trend.plist   # runs once now, then every 10 minutes
 cat ~/.config/herdr-app/trend/status.json                                           # "ok": true after a few minutes
 ```
 
 Remove: `launchctl bootout gui/$(id -u)/com.herdr-jay.trend` and delete the plist.
 
 **Windows** (PowerShell; copy the mod again after each herdr-jay update whose CHANGELOG says **mods**; `conhost
---headless` keeps a console window from flashing every 30 minutes):
+--headless` keeps a console window from flashing every 10 minutes):
 
 ```powershell
 $j = "$env:USERPROFILE\src\herdr-jay"
@@ -114,7 +114,7 @@ herdr-app check "$h\mods\trend" | Out-Host                                      
 $l30 = "$env:USERPROFILE\src\YOUR-SOURCE\skills\last30days\scripts\last30days.py"
 $node = (Get-Command node).Source
 $run = New-ScheduledTaskAction -Execute "$env:WINDIR\System32\conhost.exe" -Argument "--headless `"$node`" `"$h\mods\trend\fetch.js`" `"$l30`""
-$every = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes 30)
+$every = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes 10)
 Register-ScheduledTask -TaskName herdr-jay-trend -Action $run -Trigger $every -Force `
   -Settings (New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries) | Out-Null
 Start-ScheduledTask herdr-jay-trend
@@ -123,7 +123,7 @@ Get-Content "$h\trend\status.json"                                              
 
 Remove: `Unregister-ScheduledTask herdr-jay-trend -Confirm:$false`. The panel's ↻ runs the task (`schtasks /Run`).
 On a company PC: getting last30days from GitHub and its network use (Reddit, HN, Digg, X) may need IT's OK first.
-Windows 一樣：複製 mod，用工作排程器每 30 分鐘跑；公司電腦先問過 IT。
+Windows 一樣：複製 mod，用工作排程器每 10 分鐘跑；公司電腦先問過 IT。
 
 ## More sites / 更多來源
 

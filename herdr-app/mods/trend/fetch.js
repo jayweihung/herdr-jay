@@ -1,4 +1,4 @@
-// What's trending now (last30days --discover, global): no model is called, so no tokens. Run every 30 minutes as
+// What's trending now (last30days --discover, global): no model is called, so no tokens. Run every 10 minutes as
 // `node fetch.js <last30days.py>` by launchd (macOS) or Task Scheduler (Windows) (docs/trend.md); the trend panel
 // reads what it writes to <Herdr home>/trend/:
 //   trends.json   last30days' discovery JSON (schema 1.x), replaced only by a run that succeeded
@@ -14,7 +14,7 @@
 // takes no password.
 // PYTHON: the Python to run it with (default python3; on Windows python). CHROME: the Chrome or Edge for the pages
 // read in a browser (Reddit, Dcard, Threads).
-// 每 30 分鐘抓一次全網熱門（不叫模型、不花 token）。代理寫在 trend/proxy 一行：last30days 和這支程式自己的請求走它。
+// 每 10 分鐘抓一次全網熱門（不叫模型、不花 token）。代理寫在 trend/proxy 一行：last30days 和這支程式自己的請求走它。
 const { spawn, spawnSync } = require("child_process");
 const fs = require("fs");
 const path = require("path");

@@ -16,9 +16,12 @@ its patch builds and installs, `hc server restart --fresh` works, app v0.1.16 wi
 minutes) and installs, the five mods pass `herdr-app check`, and a mod's web page shows (example.com) while three
 terminals print, Herdr stays up, its data in `%LOCALAPPDATA%\herdr-app\WebView2`. kit with agentkit-library (installed
 by its README, `kit init`, skills added): 15 `kit sync --force` in a row and 6 at once with 6 `kit status`, no
-failure and no temp file left. Not tried by a person yet: typing in a page, clicking out of it, another screen's scale.
-在 GitHub 的 Windows 主機照 windows.md 實際裝好跑過：core、app、mod 檢查、網頁格都正常；kit 接 agentkit-library 連續 sync 沒出錯。
-Needs: nothing.
+failure and no temp file left. kit's own Windows tests (`tests\run.ps1` under Windows PowerShell 5.1, Git's default
+`core.autocrlf=true`): kit 0.7.0 failed 12 there (signed approvals never verified on Windows, among them); kit 0.7.1
+passes all 513. Not tried by a person yet: typing in a page, clicking out of it, another screen's scale.
+在 GitHub 的 Windows 主機照 windows.md 實際裝好跑過：core、app、mod 檢查、網頁格都正常；kit 接 agentkit-library 連續 sync 沒出錯；
+kit 自己的 Windows 測試 0.7.0 有 12 個沒過（簽過的核准紀錄在 Windows 上一直驗不過等），0.7.1 全過。
+Needs: **kit** (Windows: `kit self-update`, then `kit sync`, for 0.7.1).
 
 ## 2026-11-18, nvim-jay's hooks as a kit plugin
 

@@ -259,10 +259,41 @@ repo 外的檔被 Bash 指令改掉時，沒有「改之前」可比；snap hook
 
 The hook is a Lua file nvim-jay writes itself, on every machine where it runs (macOS, Windows, a Linux server):
 `~/.config/nvim-jay/snap_hook.lua` (Windows: under `vim.uv.os_homedir()`, usually `%USERPROFILE%`), refreshed when
-nvim-jay updates. It runs with `nvim -l`, so it needs nothing but Neovim. To turn it on, open nvim-jay once on that
-machine, then add this to Claude Code's `~/.claude/settings.json` there (back it up first; keep its other settings;
+nvim-jay updates. It runs with `nvim -l`, so it needs nothing but Neovim.
+
+**Turn it on with kit** (together with the reply hook of 7a, for Claude Code, Codex and omp): on each machine where
+agents run, once agentkit-library has the plugin,
+
+    kit add plugin nvim-jay
+
+and open nvim-jay once on that machine (until it has written its hook files, the hooks do nothing). Restart the
+agents. The plugin is [herdr-app/kit-plugins/nvim-jay](../herdr-app/kit-plugins/nvim-jay) (agentkit-library takes it
+with `kit collect https://github.com/jayweihung/herdr-jay --path herdr-app/kit-plugins/nvim-jay`). Nothing to edit per
+machine: its hook finds `nvim` on PATH, else in `/opt/homebrew/bin`, `/usr/local/bin`, `~/.local/bin` (Windows: the
+zip's `%LOCALAPPDATA%\Programs\nvim-win64\bin`, winget's `C:\Program Files\Neovim\bin`, scoop's shims), and does
+nothing (exit 0, no output) when nvim or the hook file is missing. Claude Code runs it before `Bash` and `PowerShell`
+(Windows: in Git Bash, so Git for Windows is needed there; without it Claude Code shows a hook error and goes on).
+Codex asks once per plugin version to trust its hooks (`/hooks`; kit reminds you with `kit pending`, and trusts a
+signed version itself); on Windows it runs them in PowerShell. omp loads nvim-jay's module, `omp_hook.js` (7b).
+kit 裝：每台跑 agent 的機器 `kit add plugin nvim-jay` 一次（Claude Code、Codex、omp 的 snap hook 和回覆檢查一起裝），
+nvim-jay 在那台開過一次就生效；nvim 它自己找，不用改路徑。Codex 要在 `/hooks` 信任一次。
+
+**Added them by hand before?** After `kit add plugin nvim-jay`, take these out, or each hook runs twice (two copies
+per command, the same reminder twice); keep everything else there, e.g. kit's own `sync --hook`, `handoff-hook`,
+`codex-guard`:
+
+- `~/.claude/settings.json`, under `"hooks"`: the `PreToolUse` entry whose command is `… -l …/.config/nvim-jay/snap_hook.lua`,
+  and the `Stop`, `SubagentStart` and `SubagentStop` entries whose command is `… -l …/.config/nvim-jay/reply_hook.lua`
+  (a list left empty goes too)
+- `~/.codex/hooks.json`: the same four entries
+- the file `~/.omp/agent/hooks/pre/nvim-jay.js`
+
+以前手動加過的：加了外掛之後把上面這些拿掉，不然每個 hook 都跑兩次。
+
+**Without kit** (only for a machine that doesn't use kit): open nvim-jay once on that machine, then add this to
+Claude Code's `~/.claude/settings.json` there (back it up first; keep its other settings;
 if `"PreToolUse"` already exists, add this entry to its list; no settings.json yet → wrap the snippet in `{ }`):
-nvim-jay 會自己把 hook 寫到每台機器上；在那台機器的 Claude Code 設定加這段就啟用：
+沒有 kit 的機器才手動加：nvim-jay 會自己把 hook 寫到每台機器上；在那台機器的 Claude Code 設定加這段就啟用：
 
 ```json
 "hooks": {
@@ -310,9 +341,11 @@ format in the reminder. With an unanswered message too, both are in one reminder
 同一次也看說明頁的「進度」：這一輪做了事（3 次以上工具）卻沒更新 `status.json`，就提醒它一次去寫；
 跟回覆檢查合成一則。Claude、Codex、omp 都適用，已經開著的 agent 也馬上生效。
 
-nvim-jay writes it next to the snap hook, `~/.config/nvim-jay/reply_hook.lua`, on every machine where it runs. To
-turn it on, add a Stop entry to that machine's `~/.claude/settings.json` (same rules as above: back it up, keep the
-rest, add to `"Stop"` if it is there; full `nvim` path if needed; Windows: under `%USERPROFILE%`):
+nvim-jay writes it next to the snap hook, `~/.config/nvim-jay/reply_hook.lua`, on every machine where it runs. The
+kit plugin turns it on with the snap hook (`kit add plugin nvim-jay`, [§7](#7-snapshots-for-bash-edits-optional--bash-改檔的快照選用)),
+`SubagentStart` / `SubagentStop` included. Without kit, add a Stop entry to that machine's `~/.claude/settings.json`
+(same rules as above: back it up, keep the rest, add to `"Stop"` if it is there; full `nvim` path if needed;
+Windows: under `%USERPROFILE%`):
 
 ```json
 "hooks": {
@@ -342,14 +375,16 @@ neither the hook nor the 關係 tab waits for one.
 ### 7b. Codex and omp / Codex 和 omp
 
 Follow and `space o` need nothing: nvim-jay reads Codex's and omp's logs itself ([4](#4-macos-vs-windows--兩個系統的差別)).
-The two hooks above work for them too, each turned on in that agent's own settings. 跟著開檔不用設定；
-snap hook 和回覆檢查要在 Codex、omp 各自的設定加上去。
+The two hooks above work for them too: the kit plugin (§7) turns them on for Codex (its `hooks/hooks.json`) and omp
+(its `hooks/pre/nvim-jay.js`, which loads nvim-jay's `omp_hook.js` below). Without kit, turn each on in that agent's
+own settings, as below. 跟著開檔不用設定；snap hook 和回覆檢查 kit 外掛一起裝好，沒有 kit 才在 Codex、omp 各自的設定加。
 
 **Codex** (0.167+; hooks are on by default) reads `~/.codex/hooks.json` (`CODEX_HOME` if set), in Claude Code's
 format: its shell tool calls itself `Bash` there, and its `tool_use_id` (`exec-<id>`) is the id its log gives the
 command, so the snapshot of a command is found. Stop's `{ decision: "block" }` keeps it going once, as for Claude
-Code; SubagentStart / SubagentStop give its spawned agents (no meta files: the type is Codex's `agent_type`). Add (keep
-other entries, e.g. kit's; full `nvim` path; Windows `C:/Users/<you>/...` and `nvim` from PATH, not yet tested there):
+Code; SubagentStart / SubagentStop give its spawned agents (no meta files: the type is Codex's `agent_type`). Without
+kit, add (keep other entries, e.g. kit's; full `nvim` path; Windows `C:/Users/<you>/...` and `nvim` from PATH, not yet
+tested there):
 
 ```json
 {
@@ -374,9 +409,9 @@ Codex asks once, at its next start, to review new or changed hooks: choose to tr
 `config.toml`). A Linux server: `~/.local/bin/nvim` and `/home/<you>/...`.
 Codex 下次啟動會問要不要信任新的 hook，選信任就好。
 
-**omp** (18.18+) has no hooks.json; it loads JavaScript hook modules from `~/.omp/agent/hooks/pre/`. nvim-jay writes
-one next to the Lua hooks, `~/.config/nvim-jay/omp_hook.js` (kept current like them); load it with a file of one line,
-`~/.omp/agent/hooks/pre/nvim-jay.js`:
+**omp** (18.18+) has no hooks.json; it loads JavaScript hook modules from `~/.omp/agent/hooks/pre/` (and a plugin's
+`hooks/pre/`). nvim-jay writes one next to the Lua hooks, `~/.config/nvim-jay/omp_hook.js` (kept current like them);
+the kit plugin loads it, and without kit you load it with a file of one line, `~/.omp/agent/hooks/pre/nvim-jay.js`:
 
 ```js
 export { default } from "/Users/<you>/.config/nvim-jay/omp_hook.js";

@@ -9,6 +9,21 @@ says which) · **kit** = update kit itself on every machine where agents run (`k
 **snap hook** = a line in Claude Code's `settings.json` on each machine where you added the hook (the entry says
 which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/keys.md).
 
+## 2026-11-18, nvim-jay's hooks as a kit plugin
+
+The snap hook and the reply hook (docs/nvim-jay.md §7, §7a, §7b) are now a kit plugin,
+`herdr-app/kit-plugins/nvim-jay`, for Claude Code, Codex and omp at once: `kit add plugin nvim-jay` on each machine
+where agents run, once agentkit-library has collected it. Nothing to edit per machine: it finds `nvim` on PATH, else in
+`/opt/homebrew/bin`, `/usr/local/bin`, `~/.local/bin` (Windows: where docs/windows.md installs it), and does nothing
+while nvim or nvim-jay's hook files are missing. Claude Code's matcher is `Bash|PowerShell`; Codex runs it in
+PowerShell on Windows, Claude Code in Git Bash; omp loads nvim-jay's `omp_hook.js` through it. Checked on macOS with
+kit 0.7.0 (Claude Code, Codex, omp); not run on Windows yet. Adding them by hand stays, for machines without kit.
+snap hook 和回覆檢查改成 kit 外掛：`kit add plugin nvim-jay`，Claude Code、Codex、omp 一起裝，不用改路徑。
+Needs: **snap hook**: after `kit add plugin nvim-jay`, take out the entries you added by hand, or each hook runs twice:
+in `~/.claude/settings.json` and `~/.codex/hooks.json` the `PreToolUse` entry running `…/nvim-jay/snap_hook.lua` and
+the `Stop`, `SubagentStart`, `SubagentStop` entries running `…/nvim-jay/reply_hook.lua`, and the file
+`~/.omp/agent/hooks/pre/nvim-jay.js`. 加了外掛後，把以前手動加的拿掉。
+
 ## 2026-11-18, Windows: the app builds with web pages; PATH and updates without stopping
 
 From the first Windows build at the office. `0022` (web pages on Windows) left `wry` out of the Windows dependencies, so

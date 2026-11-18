@@ -319,10 +319,12 @@ Agents on the Windows PC and on the server can sit in different tabs of the same
 nvim-jay follows the agent **in the same tab and on the same machine** as the nvim pane.
 
 **Snap hook** (so nvim marks Bash edits outside a repo, [nvim-jay.md §7](nvim-jay.md#7-snapshots-for-bash-edits-optional--bash-改檔的快照選用)):
-after nvim-jay has opened on the server once (§5 step 2 writes `~/.config/nvim-jay/snap_hook.lua`), back up the
+with kit on the server, `kit add plugin nvim-jay` there turns it on with the reply hook, for Claude Code, Codex and
+omp (it finds `~/.local/bin/nvim` itself; entries added by hand before go out, nvim-jay.md §7 lists them). Without
+kit: after nvim-jay has opened on the server once (§5 step 2 writes `~/.config/nvim-jay/snap_hook.lua`), back up the
 server's `~/.claude/settings.json` and merge in (keep its other settings; if `"PreToolUse"` already exists, add this
 entry to its list; no settings.json yet → wrap the snippet in `{ }`):
-server 上的 Claude Code 也要加一次 hook（nvim-jay 在 server 開過一次之後）：
+server 上有 kit 就 `kit add plugin nvim-jay`；沒有 kit 才手動加（nvim-jay 在 server 開過一次之後）：
 
 ```json
 "hooks": {

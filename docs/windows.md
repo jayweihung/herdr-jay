@@ -388,6 +388,12 @@ the **first** folder §6 step 3 prints (`vim.uv.os_homedir()`): usually `C:\User
 another drive (e.g. `H:\`); use that one below.
 nvim-jay 開過一次後，在 Claude Code 設定加這個 hook（一次就好，之後 nvim-jay 會自己更新 hook 檔）。
 
+**With kit**: `kit add plugin nvim-jay` instead of the steps below turns on this hook, the reply hook (step 4) and
+Codex's and omp's (step 5), with nothing to edit (it finds `nvim.exe` itself; Claude Code runs it in Git Bash, from
+Git for Windows of step 0): [nvim-jay.md §7](nvim-jay.md#7-snapshots-for-bash-edits-optional--bash-改檔的快照選用). Entries
+you added by hand before: take them out (that section lists them). The steps below are for a PC without kit.
+有 kit 就 `kit add plugin nvim-jay`，下面的步驟不用做；以前手動加的要拿掉（清單在 nvim-jay.md §7）。
+
 1. Back up `%USERPROFILE%\.claude\settings.json` (if it exists).
 2. Merge into it (keep everything else; if `"hooks"` already has `"PreToolUse"`, add this entry to that list).
    Write `<home>` in full with forward slashes (no `~`, no `%…%`). The matcher also names `PowerShell` because

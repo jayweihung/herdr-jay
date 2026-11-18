@@ -1,0 +1,54 @@
+{
+  "description": "nvim-jay (docs/nvim-jay.md §7): the snap hook before each shell command, the reply hook when the agent stops and when a sub-agent starts or ends. Each runs the Lua hook nvim-jay writes on this machine (~/.config/nvim-jay; Windows: under %USERPROFILE%) with nvim -l, found on PATH or where Homebrew, Linux and docs/windows.md put it; no hook file or no nvim: nothing, exit 0. command: macOS, Linux, Claude Code on Windows (Git Bash); commandWindows: Codex on Windows (PowerShell).",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "timeout": 15,
+            "command": "f=\"${USERPROFILE:-$HOME}/.config/nvim-jay/snap_hook.lua\"; [ -f \"$f\" ] || exit 0; for n in \"$(command -v nvim)\" /opt/homebrew/bin/nvim /usr/local/bin/nvim \"$HOME/.local/bin/nvim\" \"$LOCALAPPDATA/Programs/nvim-win64/bin/nvim.exe\" \"${ProgramFiles:-C:/Program Files}/Neovim/bin/nvim.exe\" \"$USERPROFILE/scoop/shims/nvim.exe\"; do [ -x \"$n\" ] && { \"$n\" --clean -l \"$f\"; exit 0; }; done; exit 0",
+            "commandWindows": "$f = $env:USERPROFILE + '/.config/nvim-jay/snap_hook.lua'; if (Test-Path -LiteralPath $f) { $n = @((Get-Command nvim -CommandType Application -ErrorAction Ignore).Source) + @(($env:LOCALAPPDATA + '/Programs/nvim-win64/bin/nvim.exe'), ($env:ProgramFiles + '/Neovim/bin/nvim.exe'), ($env:USERPROFILE + '/scoop/shims/nvim.exe')) | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -First 1; if ($n) { try { [Console]::OutputEncoding = New-Object Text.UTF8Encoding $false } catch {}; & $n --clean -l $f } }; exit 0"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "timeout": 15,
+            "command": "f=\"${USERPROFILE:-$HOME}/.config/nvim-jay/reply_hook.lua\"; [ -f \"$f\" ] || exit 0; for n in \"$(command -v nvim)\" /opt/homebrew/bin/nvim /usr/local/bin/nvim \"$HOME/.local/bin/nvim\" \"$LOCALAPPDATA/Programs/nvim-win64/bin/nvim.exe\" \"${ProgramFiles:-C:/Program Files}/Neovim/bin/nvim.exe\" \"$USERPROFILE/scoop/shims/nvim.exe\"; do [ -x \"$n\" ] && { \"$n\" --clean -l \"$f\"; exit 0; }; done; exit 0",
+            "commandWindows": "$f = $env:USERPROFILE + '/.config/nvim-jay/reply_hook.lua'; if (Test-Path -LiteralPath $f) { $n = @((Get-Command nvim -CommandType Application -ErrorAction Ignore).Source) + @(($env:LOCALAPPDATA + '/Programs/nvim-win64/bin/nvim.exe'), ($env:ProgramFiles + '/Neovim/bin/nvim.exe'), ($env:USERPROFILE + '/scoop/shims/nvim.exe')) | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -First 1; if ($n) { try { [Console]::OutputEncoding = New-Object Text.UTF8Encoding $false } catch {}; & $n --clean -l $f } }; exit 0"
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "timeout": 15,
+            "command": "f=\"${USERPROFILE:-$HOME}/.config/nvim-jay/reply_hook.lua\"; [ -f \"$f\" ] || exit 0; for n in \"$(command -v nvim)\" /opt/homebrew/bin/nvim /usr/local/bin/nvim \"$HOME/.local/bin/nvim\" \"$LOCALAPPDATA/Programs/nvim-win64/bin/nvim.exe\" \"${ProgramFiles:-C:/Program Files}/Neovim/bin/nvim.exe\" \"$USERPROFILE/scoop/shims/nvim.exe\"; do [ -x \"$n\" ] && { \"$n\" --clean -l \"$f\"; exit 0; }; done; exit 0",
+            "commandWindows": "$f = $env:USERPROFILE + '/.config/nvim-jay/reply_hook.lua'; if (Test-Path -LiteralPath $f) { $n = @((Get-Command nvim -CommandType Application -ErrorAction Ignore).Source) + @(($env:LOCALAPPDATA + '/Programs/nvim-win64/bin/nvim.exe'), ($env:ProgramFiles + '/Neovim/bin/nvim.exe'), ($env:USERPROFILE + '/scoop/shims/nvim.exe')) | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -First 1; if ($n) { try { [Console]::OutputEncoding = New-Object Text.UTF8Encoding $false } catch {}; & $n --clean -l $f } }; exit 0"
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "timeout": 15,
+            "command": "f=\"${USERPROFILE:-$HOME}/.config/nvim-jay/reply_hook.lua\"; [ -f \"$f\" ] || exit 0; for n in \"$(command -v nvim)\" /opt/homebrew/bin/nvim /usr/local/bin/nvim \"$HOME/.local/bin/nvim\" \"$LOCALAPPDATA/Programs/nvim-win64/bin/nvim.exe\" \"${ProgramFiles:-C:/Program Files}/Neovim/bin/nvim.exe\" \"$USERPROFILE/scoop/shims/nvim.exe\"; do [ -x \"$n\" ] && { \"$n\" --clean -l \"$f\"; exit 0; }; done; exit 0",
+            "commandWindows": "$f = $env:USERPROFILE + '/.config/nvim-jay/reply_hook.lua'; if (Test-Path -LiteralPath $f) { $n = @((Get-Command nvim -CommandType Application -ErrorAction Ignore).Source) + @(($env:LOCALAPPDATA + '/Programs/nvim-win64/bin/nvim.exe'), ($env:ProgramFiles + '/Neovim/bin/nvim.exe'), ($env:USERPROFILE + '/scoop/shims/nvim.exe')) | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -First 1; if ($n) { try { [Console]::OutputEncoding = New-Object Text.UTF8Encoding $false } catch {}; & $n --clean -l $f } }; exit 0"
+          }
+        ]
+      }
+    ]
+  }
+}

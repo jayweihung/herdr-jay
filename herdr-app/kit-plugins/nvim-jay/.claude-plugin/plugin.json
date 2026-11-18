@@ -1,0 +1,6 @@
+{
+  "name": "nvim-jay",
+  "description": "nvim-jay's agent hooks for Claude Code, Codex and omp: before a shell command, a copy of the files it names (so nvim-jay can mark what it changed); before an agent stops, a reminder to answer the agents that asked it, and its sub-agents for Herdr's Agents panel. They run the Lua hooks nvim-jay writes on each machine (~/.config/nvim-jay) with nvim; nothing until nvim-jay has run there.",
+  "repository": "https://github.com/jayweihung/herdr-jay",
+  "license": "Apache-2.0"
+}

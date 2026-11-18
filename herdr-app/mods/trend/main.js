@@ -290,7 +290,7 @@ export default class Trend extends View {
   get dir() { return `${appHome().replace(/\\/g, "/")}/trend`; }
   async load(cx) {
     const [t, s, f, v, p, tj, lj] = await Promise.all(["trends.json", "status.json", "feeds.json", "videos.json", "player", "topics.json", "list.json"].map((n) => readTextFile(`${this.dir}/${n}`).catch(() => null)));
-    if (lj !== this.listText) try { this.list = lj ? JSON.parse(lj) : null; this.listText = lj; } catch { this.list = null; }
+    if (lj !== this.listText) try { this.listData = lj ? JSON.parse(lj) : null; this.listText = lj; } catch { this.listData = null; }
     this.player = (p ?? "").split("\n")[0].trim();
     // how far you got in each video (progress.json): read once, then saved here when it changed
     const pf = `${this.dir}/progress.json`;
@@ -454,12 +454,12 @@ export default class Trend extends View {
   }
   get results() { return Array.isArray(this.data?.results) ? this.data.results : []; }
   // What the list shows (fetch.js's list.json, list.js): its cards, each with its subject (cat)
-  get shown() { return this.list?.rows ?? []; }
+  get shown() { return this.listData?.rows ?? []; }
   // My topics (topics.txt, the ＋ above the list), in its order: what fetch.js's searches found for each
   get topicRows() {
-    if (this.topicRowsOf?.l === this.list && this.topicRowsOf.qs === this.hotQueries) return this.topicRowsOf.rows;
-    const rows = new Map((this.hotQueries ?? []).map((q) => [q, this.list?.topics?.[q] ?? []]));
-    this.topicRowsOf = { l: this.list, qs: this.hotQueries, rows };
+    if (this.topicRowsOf?.l === this.listData && this.topicRowsOf.qs === this.hotQueries) return this.topicRowsOf.rows;
+    const rows = new Map((this.hotQueries ?? []).map((q) => [q, this.listData?.topics?.[q] ?? []]));
+    this.topicRowsOf = { l: this.listData, qs: this.hotQueries, rows };
     return rows;
   }
   // a run killed midway (the Mac slept, shut down) never writes finished: after 30 minutes it isn't running
@@ -1031,7 +1031,7 @@ export default class Trend extends View {
   // an 排列 bar, then the cards: starred ones by where they were, each topic's, each subject's
   listHtml() {
     const seen = new Set(Array.isArray(shared(SEEN)) ? shared(SEEN) : []), t = theme();
-    const cats = this.list?.cats ?? [], groups = new Map(cats.map((c) => [c, []]));
+    const cats = this.listData?.cats ?? [], groups = new Map(cats.map((c) => [c, []]));
     for (const r of this.shown) (groups.get(r.cat) ?? groups.set(r.cat ?? "其他", []).get(r.cat ?? "其他")).push(r);
     const used = [...groups].filter(([, rows]) => rows.length), tops = [...this.topicRows];
     const every = [...this.shown, ...tops.flatMap(([, rows]) => rows)];

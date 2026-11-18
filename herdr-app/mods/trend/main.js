@@ -137,109 +137,9 @@ const PRESETS = [
     : `用繁體中文三句話說明「${r.topic}」最近發生什麼事、為什麼大家在討論。這一題的來源在 ~/.config/herdr-app/trend/trends.json（topic 是 ${JSON.stringify(r.topic)}），先看那些連結，不夠再查。` },
 ];
 const MOMENTUM = { "new-this-week": "本週新", building: "升溫中" };
-const DIGG_TOPIC = { ai: "AI", tech: "科技", "world-business": "國際商業", sports: "體育", science: "科學", gaming: "遊戲", entertainment: "娛樂" };
-// The list by subject (no model, no tokens): AI and stock words in the title first, then what the site says (Digg's
-// topic, Reddit's subreddit), then the other words, then the site's usual (HN: 科技, Reddit's front page: 趣聞).
-// 依主題分類：先看標題的 AI、股票關鍵字，再看 Digg 的分類、Reddit 的看板，再看其他關鍵字，最後照網站慣例。
-// shortcut: keyword lists misfile some titles; a cheap model call per row if that starts to matter.
-const CATS = ["AI", "科技", "股票", "財經", "政治", "國際", "科學", "娛樂", "遊戲", "體育", "趣聞", "其他"];
-const WORDS = [
-  ["AI", /\b(AI|A\.I\.|AGI|LLMs?|GPTs?|ChatGPT|OpenAI|Anthropic|Claude|Gemini|Copilot|Qwen\w*|DeepSeek|Llama|Mistral|Grok|xAI|machine learning|neural)\b|人工智慧/i],
-  ["股票", /\b(stocks?|stock market|earnings|IPO|Nasdaq|S&P ?500|Dow Jones|Wall Street|shareholders?|market cap|short sellers?|buyback|NYSE)\b|\$[A-Z]{1,5}\b|股票|股價|股市|台股|美股/i],
-  ["財經", /\b(Fed|interest rates?|inflation|economy|economic|recession|tariffs?|bitcoin|crypto\w*|layoffs?|GDP|jobs report|mortgage|banks?)\b|經濟|通膨|利率/i],
-  ["政治", /\b(Trump|Biden|Harris|Vance|Obama|election|Congress|Senate|House Republicans|Democrats?|Republicans?|GOP|White House|Supreme Court|governor|impeach\w*|Epstein|RFK)\b|政府|選舉|立法院|總統|國民黨|民進黨|民眾黨|藍營|綠營|藍白|民調|立委|議員|市長|罷免|造勢|候選人|政黑|賴清德|柯文哲|黃國昌/i],
-  ["國際", /\b(war|Ukraine|Russia|Putin|Israel|Gaza|Iran|NATO|China|Beijing|Taiwan|sanctions?|UN|EU|Europe|ceasefire|missiles?)\b|中國|戰爭/i],
-  ["科學", /\b(NASA|SpaceX|Starship|rocket|space|physics|biology|scientists?|study finds|climate|El Niño|species|fossil|quantum)\b|科學/i],
-  ["體育", /\b(NBA|NFL|MLB|NHL|FIFA|World Cup|Olympics?|Premier League|Formula 1|F1|tennis|golf|touchdown)\b/i],
-  ["科技", /\b(Nvidia|Jensen Huang|Apple|Microsoft|Google|Amazon|Meta|Tesla|Musk|Altman|Zuckerberg|Intel|AMD|TSMC|iPhone|Android|Linux|Windows|software|chips?|GPUs?|open source|outage|hack(ed|ers?)?|browser)\b|台積電/i],
-];
-const DIGG_CAT = { ai: "AI", tech: "科技", "world-business": "國際", sports: "體育", science: "科學", gaming: "遊戲", entertainment: "娛樂" };
-const SUB_CAT = [
-  ["政治", /^r\/(politics|PoliticalHumor|Conservative|democrats|Republican|law)$/i],
-  ["國際", /^r\/(worldnews|europe|ukraine|geopolitics|UkrainianConflict|anime_titties)$/i],
-  ["股票", /^r\/(wallstreetbets|stocks|investing|StockMarket|options|ValueInvesting|taiwanstock)$/i],
-  ["財經", /^r\/(economics|economy|personalfinance|CryptoCurrency|Bitcoin|finance)$/i],
-  ["科技", /^r\/(technology|gadgets|programming|apple|android|pcmasterrace|hardware)$/i],
-  ["科學", /^r\/(science|space|askscience|EarthPorn)$/i],
-  ["娛樂", /^r\/(movies|television|music|entertainment|shittymoviedetails|popculturechat|anime|Marvel)$/i],
-  ["遊戲", /^r\/(gaming|pcgaming|Games|nintendo|PS5|xbox|GTA\w*|leagueoflegends|Minecraft)$/i],
-  ["體育", /^r\/(sports|nba|nfl|soccer|baseball|hockey|formula1|tennis|MMA|CFB)$/i],
-  ["其他", /^r\/news$/i],
-];
-// PTT's boards: the ones that are one subject (Gossiping isn't: its posts go by their words)
-const PTT_CAT = [
-  ["政治", /^(HatePolitics|Election|PublicIssue)$/i],
-  ["股票", /^(Stock|Option|Fund|Foreign_Inv|DayTrade)$/i],
-  ["財經", /^(Lifeismoney|home-sale|Finance|Bank_Service|Insurance|Salary)$/i],
-  ["科技", /^(Tech_Job|Soft_Job|MobileComm|PC_Shopping|iOS|Android|e-shopping)$/i],
-  ["國際", /^(Military|China-News|WorldNews)$/i],
-  ["娛樂", /^(C_Chat|movie|KoreaStar|Japan_Star|TaiwanDrama|KoreaDrama|China-Drama|ACG|EAseries)$/i],
-  ["遊戲", /^(LoL|PlayStation|NSwitch|Steam|mobile-game|Hearthstone|PCReDive)$/i],
-  ["體育", /^(Baseball|NBA|basketballTW|Tennis|Football|MLB|Elephants|Lions|Guardians|Monkeys)$/i],
-  ["趣聞", /^(joke|WomenTalk|Boy-Girl|marriage|StupidClown|CATCH|pet|cat|dog)$/i],
-];
-// Dcard's forums by alias (Dcard and Threads are mostly everyday life: 趣聞 when nothing else says otherwise)
-const DCARD_CAT = [
-  ["股票", /^(stock|stock_market)$/i],
-  ["財經", /^(money|investment|creditcard|insurance|job)$/i],
-  ["政治", /^(trending|politics|election\w*)$/i],
-  ["科技", /^(3c|tech_job|apple|android|pc|softwareengineer)$/i],
-  ["娛樂", /^(entertainer|movie|tvepisode|drama|kpop|japan_drama|show|youtuber|netflix|music|acg|vtuber|marvel)$/i],
-  ["遊戲", /^(game|lol|mobilegame|steam|switch|ps|genshin)$/i],
-  ["體育", /^(sport|baseball|basketball|nba|fitness|soccer)$/i],
-];
-function categoryOf(r) {
-  const text = `${r.topic} ${r.feed ? "" : why(r)}`;
-  const first = WORDS.slice(0, 2).find(([, re]) => re.test(text))?.[0];
-  const table = r.digg ? null : r.sub ? [SUB_CAT, r.sub] : r.board && r.feed === "PTT" ? [PTT_CAT, r.board] : r.forum ? [DCARD_CAT, r.forum] : null;
-  const site = r.digg ? DIGG_CAT[r.digg] : table ? table[0].find(([, re]) => re.test(table[1]))?.[0] : null;
-  return first || site || WORDS.slice(2).find(([, re]) => re.test(text))?.[0] || (r.feed === "HN" ? "科技" : ["Reddit", "Dcard", "Threads"].includes(r.feed) ? "趣聞" : "其他");
-}
-// The same story on two sites: a title's key is its English words (3 letters or more, common ones left out) and its
-// Chinese character pairs, the [新聞]-like tag in front dropped; two keys are the same story when they share SAME or
-// more of what they have between them (Jaccard). shortcut: words only, a model or embeddings if it merges too little.
-const SAME = 0.4;
-const COMMON = new Set("the and for with that this from have you are was were will what when your about into after over just more than they them their its our has had not but how why who new".split(" "));
-function titleKey(title) {
-  const t = String(title).toLowerCase().replace(/^(\s*(\[[^\]]*\]|【[^】]*】|re:|fw:))+\s*/gi, "").replace(/https?:\S+/g, "");
-  const key = new Set((t.match(/[a-z0-9]{3,}/g) ?? []).filter((w) => !COMMON.has(w)));
-  for (const run of t.match(/\p{Script=Han}+/gu) ?? []) for (let i = 0; i + 1 < run.length; i++) key.add(run.slice(i, i + 2));
-  return key;
-}
-function similar(a, b) {
-  let both = 0;
-  for (const x of a) if (b.has(x)) both++;
-  return both / (a.size + b.size - both || 1);
-}
-// Each site's rows (feeds.json's front pages and topics.json's searches alike) as the list's cards: title, the
-// site's own counters, its link(s); first, rise and body as fetch.js gave them, comments for 留言最多
-const FEEDS = ["hn", "reddit", "ptt", "dcard", "threads", "digg"];
-const moved = (x) => ({ first: x.first, rise: x.rise, body: x.body, comments: x.comments ?? 0, created: x.created });
-const ROW = {
-  hn: (h) => ({ topic: h.title, feed: "HN", line: `HN ${num(h.points)} 分 · ${num(h.comments)} 留言`, ...moved(h),
-    why_spiking: shortLink(h.url).split("/")[0], evidence_urls: [h.url, h.discussion].filter((u, i, a) => u && a.indexOf(u) === i) }),
-  reddit: (p) => ({ topic: p.title, feed: "Reddit", line: `Reddit ${num(p.score)} 分 · ${num(p.comments)} 留言`, sub: p.subreddit, ...moved(p),
-    why_spiking: [p.subreddit, shortLink(p.url).split("/")[0]].filter(Boolean).join(" · "), evidence_urls: [p.url, p.discussion].filter((u, i, a) => u && a.indexOf(u) === i) }),
-  ptt: (p) => ({ topic: p.title, feed: "PTT", line: `PTT ${p.score >= 100 ? "爆" : `${p.score} 推`} · ${p.board}`, board: p.board, ...moved(p),
-    why_spiking: [p.board, p.author].filter(Boolean).join(" · "), evidence_urls: [p.url] }),
-  dcard: (p) => ({ topic: p.title, feed: "Dcard", line: `Dcard ${num(p.score)} 心情 · ${num(p.comments)} 留言 · ${p.board}`, ...moved(p),
-    forum: p.forum, why_spiking: p.board, evidence_urls: [p.url] }),
-  threads: (p) => ({ topic: p.title, feed: "Threads", line: `Threads ${num(p.score)} 讚 · ${num(p.comments)} 回覆`, ...moved(p),
-    why_spiking: `@${p.author}`, evidence_urls: [p.url] }),
-  digg: (d) => ({ topic: d.title, feed: "Digg", ...moved(d), line: `Digg ${num(d.score)} 分 · ${d.sources} 個來源${DIGG_TOPIC[d.topic] ? ` · ${DIGG_TOPIC[d.topic]}` : ""}`,
-    why_spiking: d.description, evidence_urls: [d.url], digg: d.topic }),
-};
-// A story on several sites (or boards) is one card: a row whose title shares enough with an earlier row's joins it
-// (its .also); rank: its place
-function joined(list) {
-  const rows = [];
-  for (const x of list) {
-    const key = x.feed ? titleKey(x.topic) : null;   // last30days' topics stay on their own
-    const into = key && key.size >= 3 && rows.find((r) => r.key && r.key.size >= 3 && similar(r.key, key) >= SAME);
-    if (into) (into.also ??= []).push(x); else rows.push({ ...x, key, rank: rows.length + 1 });
-  }
-  return rows;
-}
+// The list itself (subjects, the same story on several sites as one card, my topics' searches) is worked out by
+// fetch.js where the data is made (list.js → list.json, also sent to the site's backend): this panel only draws it.
+// 清單在抓資料那一端算好（list.js → list.json）；面板只畫。
 const SOURCE = { hackernews: "HN", reddit: "Reddit", digg: "Digg", x: "X", grounding: "網頁", youtube: "YouTube", polymarket: "Polymarket", github: "GitHub" };
 const STATE = { "rate-limited": "被限流", "auth-failed": "登入失效", "payment-required": "額度用完", unreachable: "連不到", timeout: "逾時",
   "schema-drift": "讀不到（常是被擋）", "skipped-unconfigured": "沒設定", error: "出錯", partial: "部分", "no-results": "沒結果" };
@@ -389,7 +289,8 @@ export default class Trend extends View {
 
   get dir() { return `${appHome().replace(/\\/g, "/")}/trend`; }
   async load(cx) {
-    const [t, s, f, v, p, tj] = await Promise.all(["trends.json", "status.json", "feeds.json", "videos.json", "player", "topics.json"].map((n) => readTextFile(`${this.dir}/${n}`).catch(() => null)));
+    const [t, s, f, v, p, tj, lj] = await Promise.all(["trends.json", "status.json", "feeds.json", "videos.json", "player", "topics.json", "list.json"].map((n) => readTextFile(`${this.dir}/${n}`).catch(() => null)));
+    if (lj !== this.listText) try { this.list = lj ? JSON.parse(lj) : null; this.listText = lj; } catch { this.list = null; }
     this.player = (p ?? "").split("\n")[0].trim();
     // how far you got in each video (progress.json): read once, then saved here when it changed
     const pf = `${this.dir}/progress.json`;
@@ -552,35 +453,13 @@ export default class Trend extends View {
     return this.pageCell(t, VIDEOS_CELL, "videos.html");
   }
   get results() { return Array.isArray(this.data?.results) ? this.data.results : []; }
-  // What the list shows: last30days' topics, then everything the sites' own front pages gave (HN, Reddit, PTT, Dcard,
-  // Threads, Digg), taken in turn (each site's rank), skipping a story a topic already cites; the subject chips sort it.
-  // A story on several sites (or boards) is one card: a row whose title shares enough with an earlier row's joins it
-  // (its .also). Worked out again only when the files change.
-  get shown() {
-    if (this.shownOf && this.shownOf.data === this.data && this.shownOf.feeds === this.feeds) return this.shownOf.rows;
-    const topics = this.results, cited = new Set(topics.flatMap((r) => r.evidence_urls ?? []));
-    const out = [...topics], names = new Set(topics.map((r) => r.topic)), feeds = FEEDS.map((k) => (this.feeds?.[k] ?? []).map(ROW[k]));
-    for (let i = 0; feeds.some((f) => i < f.length); i++)
-      for (const x of feeds.map((f) => f[i])) if (x && !names.has(x.topic) && !x.evidence_urls.some((u) => cited.has(u))) {
-        names.add(x.topic);
-        out.push(x);
-      }
-    const rows = joined(out);
-    this.shownOf = { data: this.data, feeds: this.feeds, rows };
-    return rows;
-  }
-  // My topics (topics.txt, the ＋ above the list): what fetch.js's searches found for each, the sites taken in turn as
-  // in the list, each row with q (its topic); worked out again only when topics.json changes
+  // What the list shows (fetch.js's list.json, list.js): its cards, each with its subject (cat)
+  get shown() { return this.list?.rows ?? []; }
+  // My topics (topics.txt, the ＋ above the list), in its order: what fetch.js's searches found for each
   get topicRows() {
-    const d = this.topicsData, qs = (this.hotQueries ?? []).join("\n");
-    if (this.topicRowsOf?.d === d && this.topicRowsOf.qs === qs) return this.topicRowsOf.rows;
-    const rows = new Map((this.hotQueries ?? []).map((q) => {
-      const lists = ["hn", "reddit", "ptt", "dcard"].map((k) => (d?.items?.[q]?.[k] ?? []).map((x) => ({ ...ROW[k](x), q })));
-      const out = [];
-      for (let i = 0; lists.some((l) => i < l.length); i++) for (const l of lists) if (l[i] && !out.some((x) => x.topic === l[i].topic)) out.push(l[i]);
-      return [q, joined(out)];
-    }));
-    this.topicRowsOf = { d, qs, rows };
+    if (this.topicRowsOf?.l === this.list && this.topicRowsOf.qs === this.hotQueries) return this.topicRowsOf.rows;
+    const rows = new Map((this.hotQueries ?? []).map((q) => [q, this.list?.topics?.[q] ?? []]));
+    this.topicRowsOf = { l: this.list, qs: this.hotQueries, rows };
     return rows;
   }
   // a run killed midway (the Mac slept, shut down) never writes finished: after 30 minutes it isn't running
@@ -1084,7 +963,7 @@ export default class Trend extends View {
       const id = h.get("topic") ?? "", x = this.rowOf(id);
       if (!x || !this.hotStars) return;
       if (this.hotStars[id]) delete this.hotStars[id];
-      else { const { key, ...row } = x; this.hotStars[id] = { ...row, under: x.q ?? categoryOf(x), starred: new Date().toISOString() }; }
+      else { const { key, ...row } = x; this.hotStars[id] = { ...row, under: x.q ?? x.cat ?? "其他", starred: new Date().toISOString() }; }
       this.syncPut([{ kind: "fav_card", key: id, data: this.hotStars[id], deleted: !this.hotStars[id] }], cx);
       const stars = JSON.stringify(this.hotStars) + "\n";
       cx.spawn(async (cx) => {
@@ -1152,8 +1031,8 @@ export default class Trend extends View {
   // an 排列 bar, then the cards: starred ones by where they were, each topic's, each subject's
   listHtml() {
     const seen = new Set(Array.isArray(shared(SEEN)) ? shared(SEEN) : []), t = theme();
-    const groups = new Map(CATS.map((c) => [c, []]));
-    for (const r of this.shown) groups.get(categoryOf(r)).push(r);
+    const cats = this.list?.cats ?? [], groups = new Map(cats.map((c) => [c, []]));
+    for (const r of this.shown) (groups.get(r.cat) ?? groups.set(r.cat ?? "其他", []).get(r.cat ?? "其他")).push(r);
     const used = [...groups].filter(([, rows]) => rows.length), tops = [...this.topicRows];
     const every = [...this.shown, ...tops.flatMap(([, rows]) => rows)];
     const since = Date.parse(this.feeds?.since ?? ""), hour = 3600000;
@@ -1197,7 +1076,7 @@ export default class Trend extends View {
     const nUp = every.filter((r) => [r, ...(r.also ?? [])].some(rising)).length, nNew = every.filter((r) => [r, ...(r.also ?? [])].some(fresh)).length;
     // ⭐ 收藏 by where each was (your topics' order, the subjects', then the rest), newest starred first in each
     const starred = Object.values(this.hotStars ?? {}).sort((a, b) => String(b.starred).localeCompare(String(a.starred)));
-    const starUnder = [...new Set([...tops.map(([q]) => q), ...CATS, ...starred.map((x) => x.under ?? "")])]
+    const starUnder = [...new Set([...tops.map(([q]) => q), ...cats, ...starred.map((x) => x.under ?? "")])]
       .map((u) => [u, starred.filter((x) => (x.under ?? "") === u)]).filter(([, xs]) => xs.length);
     const siteCount = (f) => every.filter((r) => [r, ...(r.also ?? [])].some((x) => x.feed === f)).length;
     const d = this.topicsData ?? {}, siteName = { hn: "HN", ptt: "PTT", reddit: "Reddit", dcard: "Dcard" };

@@ -29,9 +29,11 @@ const started = now();
 // at once); `--topics`: only 熱門's topic searches that are due (its ＋); `--player <id>`: prints what the player page
 // needs for a video (playerExtra, below). No status.json, last30days or front pages.
 // 只搜影片／只搜熱門主題／拿一支影片的預覽圖和字幕：面板按「＋」或播放時跑
+// `--list`: only list.json again from the files there; `--push`: only send them to the site's backend (push.js)
 const VIDEOS_ONLY = process.argv[2] === "--videos", TOPICS_ONLY = process.argv[2] === "--topics";
+const LIST_ONLY = process.argv[2] === "--list", PUSH_ONLY = process.argv[2] === "--push";
 const PLAYER = process.argv[2] === "--player" ? String(process.argv[3] ?? "") : null;
-if (!VIDEOS_ONLY && !TOPICS_ONLY && PLAYER === null) put("status.json", JSON.stringify({ started, finished: null, ok: null, error: null }) + "\n");
+if (!VIDEOS_ONLY && !TOPICS_ONLY && !LIST_ONLY && !PUSH_ONLY && PLAYER === null) put("status.json", JSON.stringify({ started, finished: null, ok: null, error: null }) + "\n");
 
 // EXCLUDE_SOURCES=reddit: last30days' own Reddit search only gets 403 (Reddit's rows come from its page, below), and
 // every try is one more hit from the house's IP / last30days 自己的 Reddit 搜尋只會 403，不讓它打
@@ -678,10 +680,20 @@ async function playerExtra(id) {
   put("player-extra.json", JSON.stringify(kept) + "\n");
   process.stdout.write(JSON.stringify(extra));
 }
+// list.json: 熱門's list worked out from trends.json, feeds.json and topics.json (list.js), for the panels to draw
+function writeList() {
+  const read = (n) => { try { return JSON.parse(fs.readFileSync(path.join(out, n), "utf8")); } catch { return null; } };
+  put("list.json", JSON.stringify(require("./list.js").buildList(read("trends.json"), read("feeds.json"), read("topics.json"))) + "\n");
+}
+// sent to the site's backend (push.js; nothing without its key file), said in last.log (this run's stdout)
+const pushed = (names) => require("./push.js").push(out, names).then((line) => console.log(line), (e) => console.log(`送後端：${e.message ?? e}`));
 if (PLAYER !== null) playerExtra(PLAYER).catch(() => process.stdout.write("{}")).finally(() => process.exit(0));
-else if (VIDEOS_ONLY) videos().catch(() => {}).finally(() => process.exit(0));
-else if (TOPICS_ONLY) topics().catch(() => {}).finally(() => process.exit(0));
-else feeds().catch(() => {}).then(topics).catch(() => {}).then(videos).catch(() => {}).finally(() => {
+else if (VIDEOS_ONLY) videos().catch(() => {}).then(() => pushed(["videos"])).finally(() => process.exit(0));
+else if (TOPICS_ONLY) topics().catch(() => {}).then(writeList).then(() => pushed(["topics", "list"])).catch(() => {}).finally(() => process.exit(0));
+else if (LIST_ONLY) { writeList(); process.exit(0); }
+else if (PUSH_ONLY) pushed().finally(() => process.exit(0));
+else feeds().catch(() => {}).then(topics).catch(() => {}).then(videos).catch(() => {}).then(writeList).catch(() => {}).finally(async () => {
   put("status.json", JSON.stringify({ started, finished: now(), ok: !error, error }) + "\n");
+  await pushed();
   process.exit(error ? 1 : 0);
 });

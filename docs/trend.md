@@ -312,9 +312,23 @@ comments; a line you add or take out there by hand is synced too. The status lin
 or `待送 n 筆`; signed out or offline, the page keeps the changes and sends them later.
 搬家只做一次：後台沒有的種類才從本機檔搬上去，舊檔留著當備份；之後面板從同步狀態重寫本機檔給 fetch.js 讀。
 
+## Backend / 後端
+
+熱門's data lives in your site's backend too (`<origin>/api/v1/trend`, the origin in `trend/sync-origin` as for the
+sync), so the desktop panel and the phone read it from there instead of a panel working it out. At the end of each run
+[`fetch.js`](../herdr-app/mods/trend/fetch.js) works out the list ([`list.js`](../herdr-app/mods/trend/list.js):
+subjects, the same story on several sites as one card, my topics' searches, moved out of the panel) into `list.json`,
+then [`push.js`](../herdr-app/mods/trend/push.js) sends `feeds`, `topics`, `trends`, `videos`, `status`, `list`
+(`PUT /snapshots/<name>`) and the trend agent's reports (`POST /reports`), each only when its text changed
+(`pushed.json`); `--topics` sends `topics` and `list`, `--videos` `videos`; `node fetch.js --list` / `--push` do only
+that. The write key (`Authorization: Bearer qtk_…`) is a file you make private yourself (folder 700, file 600; never in
+git, a synced folder or the launchd plist), named on the first line of `trend/push-key`; no `push-key`, no origin or
+no key: nothing is sent. `last.log` says what was sent, the key shown only as `qtk_…`. Tests: `node tests/trend/run.js`.
+每輪抓完算好清單（list.json），有 push-key 就把有變的送到網站後端。
+
 ## Files / 檔案
 
-`~/.config/herdr-app/trend/`: `trends.json` (last30days' discovery JSON, replaced only by a run that worked),
+`~/.config/herdr-app/trend/`: `trends.json` (last30days' discovery JSON, replaced only by a run that worked), `list.json` (the list as the panels draw it, list.js), `pushed.json` (what was sent to the backend: a hash each), `push-key` (yours, optional: the path of the write key file),
 `status.json` (`started`, `finished`, `ok`, `error`), `last.log` (the last run's output), `proxy` (yours, optional),
 `feeds.json` (HN's front page, Reddit's r/all top of today, PTT's popular posts, Dcard's popular list, Threads' pick of
 the last day and Digg's top stories of the last 24 h: `{ at, since, hn, reddit, ptt, dcard, threads, digg, errors }`,

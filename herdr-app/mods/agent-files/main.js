@@ -18,6 +18,7 @@
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
 import { agents, appHome, closeOverlay, exec, focused, hc, home, notify, panes, props, readTextFile, run, settings, spaces, terminals, theme, window } from "herdr";
+import * as fsp from "fs/promises";
 
 // nvim-jay's argv marker: keep it identical to nvim-jay/mark.js (mods can't import from each other; tests/nvim-jay
 // checks the two agree)
@@ -167,6 +168,45 @@ function turnTitle(tn, newest) {
   return [`第 ${tn.n} 輪${newest ? "（最新）" : ""}`, when(tn.at), String(tn.text ?? "")].filter(Boolean).join(" · ");
 }
 
+const stop = (_e, cx) => cx.stop_propagation();
+// ---------- the mod's version and 改動紀錄: CHANGES.md beside main.js, newest first ("## 1.2（2026-11-18）", then "- " lines) ----------
+// [{ v, date, items }], read once in init (render has 50 ms); the version is the first one's
+async function readChanges(mod) {
+  let s = "";
+  try { s = await fsp.readFile(`${appHome().replace(/\\/g, "/").replace(/\/+$/, "")}/mods/${mod}/CHANGES.md`, "utf8"); } catch {}
+  const out = [];
+  for (const l of s.split(/\r?\n/)) {
+    const h = l.match(/^##\s+([^\s（(]+)\s*(?:[（(]([^）)]*)[）)])?/);
+    if (h) out.push({ v: h[1], date: h[2] ?? "", items: [] });
+    else if (out.length && /^\s*-\s+/.test(l)) out[out.length - 1].items.push(l.replace(/^\s*-\s+/, ""));
+  }
+  return out;
+}
+// localStorage <mod>.changes: "1" = 改動紀錄 open; <mod>.changes.<version>: that version's list ("1" / "0", the newest open by default)
+const lsGet = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
+const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
+const changesOpen = (mod, list) => list?.length > 0 && lsGet(`${mod}.changes`) === "1";
+// v1.2 in the title row; a click opens or closes 改動紀錄 (changesBox)
+const versionLabel = (t, z, mod, list) => (list?.length
+  ? div().id(`${mod}-version`).flex_none().text_size(z - 2).text_color(t.dim).cursor_pointer().hover((s) => s.text_color(t.foreground)).on_mouse_down("left", stop)
+    .on_click((_e, cx) => { cx.stop_propagation(); lsSet(`${mod}.changes`, changesOpen(mod, list) ? "0" : "1"); cx.notify(); })
+    .child(`v${list[0].v}`)
+  : div());
+function changesBox(t, z, mod, list) {
+  return v_flex().flex_none().mx(10).my(6).p(8).gap(4).rounded(6).bg(t.raised).text_size(z - 1.5).text_color(t.foreground)
+    .child(div().font_semibold().child("改動紀錄"))
+    .children(list.map((c, i) => {
+      const key = `${mod}.changes.${c.v}`, open = (lsGet(key) ?? (i === 0 ? "1" : "0")) === "1";
+      return v_flex().gap(2)
+        .child(h_flex().id(`${mod}-changes-${i}`).gap(6).items_center().cursor_pointer().hover((s) => s.opacity(0.85)).on_mouse_down("left", stop)
+          .on_click((_e, cx) => { cx.stop_propagation(); lsSet(key, open ? "0" : "1"); cx.notify(); })
+          .child(div().w(10).text_color(t.muted).child(open ? "▾" : "▸"))
+          .child(div().font_semibold().child(`v${c.v}`))
+          .child(div().text_color(t.muted).child(c.date)))
+        .when(open, (el) => el.children(c.items.map((s) => div().pl(16).whitespace_normal().child(`• ${s}`))));
+    }));
+}
+
 export default class AgentFiles extends View {
   init(_props, cx) {
     this.filter = "";
@@ -174,6 +214,7 @@ export default class AgentFiles extends View {
     this.scroll = 0;
     this.input = InputState.new({ placeholder: "篩選檔名…" });
     this.input.on("change", (_e, cx) => { this.filter = this.input.value(); this.at = 0; cx.notify(); });
+    cx.spawn(async (cx) => { this.changes = await readChanges("agent-files"); cx.notify(); });
     this.input.on("submit", (_e, cx) => this.pick(this.picks()[this.at], cx));
     this.input.focus();
     cx.timer.after(600, () => this.input.focus());
@@ -365,9 +406,11 @@ export default class AgentFiles extends View {
       })
       .child(h_flex().items_center().gap(10)
         .child(div().flex_none().text_size(15).font_semibold().text_color(t.foreground).child("agent 讀過／改過的檔"))
+        .child(versionLabel(t, 13, "agent-files", this.changes))
         .child(div().flex_1().truncate().text_size(11).text_color(t.dim).child(who))
         .child(div().id("af-esc").px(6).py(2).rounded(5).text_size(11).text_color(t.dim).cursor_pointer()
           .hover((s) => s.bg(t.hover).text_color(t.foreground)).on_click(() => this.dismiss()).child("Esc")))
+      .when(changesOpen("agent-files", this.changes), (el) => el.child(changesBox(t, 13, "agent-files", this.changes)))
       .child(h_flex().h(36).flex_none().px(10).items_center().rounded(9).border_1().border_color(t.accent).bg(t.background)
         .child(Input.new(this.input).flex_1().h_full().text_size(12.8).text_color(t.foreground)))
       .child(body);

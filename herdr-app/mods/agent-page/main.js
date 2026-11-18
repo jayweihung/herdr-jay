@@ -67,6 +67,44 @@ const ago = (iso, now) => {
   return m < 1 ? "剛剛" : m < 60 ? `${m} 分鐘前` : m < 1440 ? `${Math.round(m / 60)} 小時前` : `${Math.round(m / 1440)} 天前`;
 };
 
+// ---------- the mod's version and 改動紀錄: CHANGES.md beside main.js, newest first ("## 1.2（2026-11-18）", then "- " lines) ----------
+// [{ v, date, items }], read once in init (render has 50 ms); the version is the first one's
+async function readChanges(mod) {
+  let s = "";
+  try { s = await fs.readFile(`${appHome().replace(/\\/g, "/").replace(/\/+$/, "")}/mods/${mod}/CHANGES.md`, "utf8"); } catch {}
+  const out = [];
+  for (const l of s.split(/\r?\n/)) {
+    const h = l.match(/^##\s+([^\s（(]+)\s*(?:[（(]([^）)]*)[）)])?/);
+    if (h) out.push({ v: h[1], date: h[2] ?? "", items: [] });
+    else if (out.length && /^\s*-\s+/.test(l)) out[out.length - 1].items.push(l.replace(/^\s*-\s+/, ""));
+  }
+  return out;
+}
+// localStorage <mod>.changes: "1" = 改動紀錄 open; <mod>.changes.<version>: that version's list ("1" / "0", the newest open by default)
+const lsGet = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
+const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
+const changesOpen = (mod, list) => list?.length > 0 && lsGet(`${mod}.changes`) === "1";
+// v1.2 in the title row; a click opens or closes 改動紀錄 (changesBox)
+const versionLabel = (t, z, mod, list) => (list?.length
+  ? div().id(`${mod}-version`).flex_none().text_size(z - 2).text_color(t.dim).cursor_pointer().hover((s) => s.text_color(t.foreground)).on_mouse_down("left", stop)
+    .on_click((_e, cx) => { cx.stop_propagation(); lsSet(`${mod}.changes`, changesOpen(mod, list) ? "0" : "1"); cx.notify(); })
+    .child(`v${list[0].v}`)
+  : div());
+function changesBox(t, z, mod, list) {
+  return v_flex().flex_none().mx(10).my(6).p(8).gap(4).rounded(6).bg(t.raised).text_size(z - 1.5).text_color(t.foreground)
+    .child(div().font_semibold().child("改動紀錄"))
+    .children(list.map((c, i) => {
+      const key = `${mod}.changes.${c.v}`, open = (lsGet(key) ?? (i === 0 ? "1" : "0")) === "1";
+      return v_flex().gap(2)
+        .child(h_flex().id(`${mod}-changes-${i}`).gap(6).items_center().cursor_pointer().hover((s) => s.opacity(0.85)).on_mouse_down("left", stop)
+          .on_click((_e, cx) => { cx.stop_propagation(); lsSet(key, open ? "0" : "1"); cx.notify(); })
+          .child(div().w(10).text_color(t.muted).child(open ? "▾" : "▸"))
+          .child(div().font_semibold().child(`v${c.v}`))
+          .child(div().text_color(t.muted).child(c.date)))
+        .when(open, (el) => el.children(c.items.map((s) => div().pl(16).whitespace_normal().child(`• ${s}`))));
+    }));
+}
+
 export default class AgentPage extends View {
   init(_p, cx) {
     const p = props() ?? {};
@@ -78,6 +116,7 @@ export default class AgentPage extends View {
     // Windows includes everything under it.
     this.root = `${appHome()}/mods/agent-page`;
     this.folder = `${this.root}/.pages/${this.dir}`;
+    cx.spawn(async (cx) => { this.changes = await readChanges("agent-page"); cx.notify(); });
     this.names = [];
     // The tab last shown for this dir (shared: a reopened pane is a new copy); read() checks its page is still there.
     const kept = shared(`agent-page/${this.dir}/tab`);
@@ -251,10 +290,12 @@ export default class AgentPage extends View {
     const page = this.tab !== "status";
     const bar = h_flex().h(30).px(6).gap(4).flex_none().items_center().bg(t.chrome).border_b(1).border_color(t.border).text_size(z - 1)
       .child(tabs)
-      .when(page, (el) => el.child(this.tool(t, "ap-reload", "⟳", () => webCall(CELL, "reload"))));
+      .when(page, (el) => el.child(this.tool(t, "ap-reload", "⟳", () => webCall(CELL, "reload"))))
+      .child(versionLabel(t, z, "agent-page", this.changes));
     const body = page ? web.new(CELL, { src: fileUrl(`${this.folder}/${this.tab}`), persist: true }) : this.renderStatus(t, z);
     return v_flex().id("agent-page").size_full().bg(t.surface).text_size(z).text_color(t.foreground)
       .child(bar)
+      .when(changesOpen("agent-page", this.changes), (el) => el.child(changesBox(t, z, "agent-page", this.changes)))
       .when(Boolean(this.note && page), (el) => el.child(div().px(8).py(4).text_size(z - 1).text_color(t.muted).child(this.note)))
       .child(div().flex_1().min_h(0).child(body));
   }

@@ -9,6 +9,17 @@ says which) · **kit** = update kit itself on every machine where agents run (`k
 **snap hook** = a line in Claude Code's `settings.json` on each machine where you added the hook (the entry says
 which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/keys.md).
 
+Each mod also keeps its own `CHANGES.md` (shown in the mod as its version and 改動紀錄): when a change to a mod is
+user-visible, add a bullet under a new or current version at the top of that mod's `CHANGES.md`.
+
+## 2026-11-18, mods show their version and 改動紀錄
+
+kit (倉庫 and Agents), Gerrit, 熱門, agent page and agent files show a small `v1.x` in their title row; a click opens
+改動紀錄, one row per version (the newest open, the others open on a click), remembered per mod. Each mod's
+`CHANGES.md` is where it comes from. nvim-jay has a `CHANGES.md` too but no title row of its own to show it in.
+
+Needs: **mods**.
+
 ## 2026-11-18, Windows: run on Windows, not only type-checked
 
 On GitHub's Windows Server 2025 (Windows PowerShell 5.1, Defender on), docs/windows.md as written: core v0.1.21 with

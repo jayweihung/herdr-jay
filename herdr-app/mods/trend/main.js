@@ -303,10 +303,49 @@ function find(node, id) {
   return null;
 }
 
+// ---------- the mod's version and 改動紀錄: CHANGES.md beside main.js, newest first ("## 1.2（2026-11-18）", then "- " lines) ----------
+// [{ v, date, items }], read once in init (render has 50 ms); the version is the first one's
+async function readChanges(mod) {
+  let s = "";
+  try { s = await fsp.readFile(`${appHome().replace(/\\/g, "/").replace(/\/+$/, "")}/mods/${mod}/CHANGES.md`, "utf8"); } catch {}
+  const out = [];
+  for (const l of s.split(/\r?\n/)) {
+    const h = l.match(/^##\s+([^\s（(]+)\s*(?:[（(]([^）)]*)[）)])?/);
+    if (h) out.push({ v: h[1], date: h[2] ?? "", items: [] });
+    else if (out.length && /^\s*-\s+/.test(l)) out[out.length - 1].items.push(l.replace(/^\s*-\s+/, ""));
+  }
+  return out;
+}
+// localStorage <mod>.changes: "1" = 改動紀錄 open; <mod>.changes.<version>: that version's list ("1" / "0", the newest open by default)
+const lsGet = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
+const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
+const changesOpen = (mod, list) => list?.length > 0 && lsGet(`${mod}.changes`) === "1";
+// v1.2 in the title row; a click opens or closes 改動紀錄 (changesBox)
+const versionLabel = (t, z, mod, list) => (list?.length
+  ? div().id(`${mod}-version`).flex_none().text_size(z - 2).text_color(t.dim).cursor_pointer().hover((s) => s.text_color(t.foreground)).on_mouse_down("left", stop)
+    .on_click((_e, cx) => { cx.stop_propagation(); lsSet(`${mod}.changes`, changesOpen(mod, list) ? "0" : "1"); cx.notify(); })
+    .child(`v${list[0].v}`)
+  : div());
+function changesBox(t, z, mod, list) {
+  return v_flex().flex_none().mx(10).my(6).p(8).gap(4).rounded(6).bg(t.raised).text_size(z - 1.5).text_color(t.foreground)
+    .child(div().font_semibold().child("改動紀錄"))
+    .children(list.map((c, i) => {
+      const key = `${mod}.changes.${c.v}`, open = (lsGet(key) ?? (i === 0 ? "1" : "0")) === "1";
+      return v_flex().gap(2)
+        .child(h_flex().id(`${mod}-changes-${i}`).gap(6).items_center().cursor_pointer().hover((s) => s.opacity(0.85)).on_mouse_down("left", stop)
+          .on_click((_e, cx) => { cx.stop_propagation(); lsSet(key, open ? "0" : "1"); cx.notify(); })
+          .child(div().w(10).text_color(t.muted).child(open ? "▾" : "▸"))
+          .child(div().font_semibold().child(`v${c.v}`))
+          .child(div().text_color(t.muted).child(c.date)))
+        .when(open, (el) => el.children(c.items.map((s) => div().pl(16).whitespace_normal().child(`• ${s}`))));
+    }));
+}
+
 export default class Trend extends View {
   init(_p, cx) {
     this.role = blockProps()?.role ?? "panel";
     if (this.role !== "toggle") {
+      cx.spawn(async (cx) => { this.changes = await readChanges("trend"); cx.notify(); });
       this.box = InputState.new({ placeholder: "問 trend agent，例如：這週 AI 圈最大的事是什麼？" });
       this.box.on("submit", (_e, cx) => cx.spawn(async (cx) => this.askFree(cx))); // Enter
       // while a video plays the box asks about it (askFree adds which video)
@@ -951,7 +990,9 @@ export default class Trend extends View {
         .when(this.running, (el) => el.child(spin(z - 3, t.muted)))
         .child(div().id("status").flex_1().min_w(0).text_size(z - 1.5).truncate().text_color(red ? t.ansi1 : t.muted)
           .on_mouse_down("right", copyOn(line)).child(line))
-        .when(Boolean(this.syncLine), (el) => el.child(div().id("sync").flex_none().text_size(z - 1.5).text_color(this.syncErr ? t.ansi1 : t.dim).child(this.syncLine))))
+        .when(Boolean(this.syncLine), (el) => el.child(div().id("sync").flex_none().text_size(z - 1.5).text_color(this.syncErr ? t.ansi1 : t.dim).child(this.syncLine)))
+        .child(versionLabel(t, z, "trend", this.changes)))
+      .when(changesOpen("trend", this.changes), (el) => el.child(changesBox(t, z, "trend", this.changes)))
       .when(Boolean(this.msg), (el) => el.child(div().id("msg").px(12).pb(4).text_size(z - 1.5).text_color(t.ansi1).whitespace_normal()
         .on_mouse_down("right", copyOn(this.msg)).child(this.msg)))
       .when(Boolean(this.data || this.feeds), (el) => el.child(h_flex().px(12).pb(6).gap(10).flex_wrap().items_center().text_size(z - 2)

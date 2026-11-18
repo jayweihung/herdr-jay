@@ -175,6 +175,14 @@ const CMDS = {
   codex: { compact: "/compact", with_text: false, clear: "/new" },
   omp: { compact: "/compact", with_text: true, clear: "/new" },
 };
+test("CHANGES.md: versions newest first with date and bullets; every mod's own file reads (the other mods carry the same parser)", ({ common: C }) => {
+  assert.deepEqual(C.parseChanges("# 改動紀錄\n\n## 1.2（2026-11-18）\n- 新的\n- 第二條\n## 1.1 (2026-11-10)\n- 舊的\n## 1.0\n"),
+    [{ v: "1.2", date: "2026-11-18", items: ["新的", "第二條"] }, { v: "1.1", date: "2026-11-10", items: ["舊的"] }, { v: "1.0", date: "", items: [] }]);
+  for (const m of ["kit", "gerrit", "trend", "agent-page", "agent-files", "nvim-jay"]) {
+    const list = C.parseChanges(readFileSync(join(MODS, m, "CHANGES.md"), "utf8"));
+    assert.ok(list.length && list.every((c) => /^\d+\.\d+$/.test(c.v) && /^\d{4}-\d\d-\d\d$/.test(c.date) && c.items.length), m);
+  }
+});
 test("context window: what is typed in for each tool (Claude /compact <keep>, /clear; Codex /compact alone, /new; omp /compact <keep>, /new)", ({ context: X }) => {
   const C = CMDS.claude;
   assert.deepEqual([X.sendText(C, "compact", "  keep the\n plan "), X.sendText(C, "compact", ""), X.sendText(C, "clear")], ["/compact keep the plan", "/compact", "/clear"]);

@@ -24,7 +24,7 @@ import { v_flex, h_flex, Editor } from "gpui-base";
 import { theme, run, shared, setShared, readTextFile, writeTextFile, closeOverlay, openOverlay, props, spaces, focused, layout, agents, terminals, settings, panes, hc } from "herdr";
 import { AGENTS_DATA, AGENTS_LOAD, AGENTS_MSG, CTX, NOTE, NODES, fs, stop, isWindows, shortDir, spin, waiting, find, textBlock, copyOnRight, btn,
   busyNow, dropStaleBusy, giveBusy, markRepoStale, kit, kitJson, localKit, apiState, apiKnown, checkApi, apiCard, messageBox, problemCard, newEditor,
-  localGet, localSet, kitAction, loadNewest, loadingNow, LIMIT_SENT, DATA, PUSH_CHECK, KIT_TAB, checkLine, OUTDATED, outdatedLine } from "./common.js";
+  localGet, localSet, kitAction, loadNewest, loadingNow, LIMIT_SENT, DATA, PUSH_CHECK, KIT_TAB, checkLine, OUTDATED, outdatedLine, loadChanges, versionLabel, changesOpen, changesBox } from "./common.js";
 import { ANIMALS, COLORS } from "./bot-models.js";
 import { readBot, withBot, pickBot, botIcon, botProblem, LiveBot } from "./bots.js";
 import { canDrag, draggable, dropLoop, requestPlace, takeAsks, placeClosed, placeDir, liveNow } from "./place.js";
@@ -174,6 +174,7 @@ export class Agents {
       });
       return;
     }
+    loadChanges(cx);
     this.open = localGet("kit.agents.open") || null;   // the agent shown in detail (its name), kept for a reload or restart
     this.placing = null;   // the agent whose 放到 space… list of spaces is open (its name)
     this.adding = {};      // kind -> the "加上…" list is unfolded
@@ -352,6 +353,7 @@ export class Agents {
     const root = v_flex().id("kit-agents-root").size_full().bg(t.surface).text_size(z).text_color(t.foreground);
     const a = this.open && (d?.agents ?? []).find((x) => x.name === this.open);
     root.child(this.header(t, z, d, a));
+    if (!a && changesOpen()) root.child(changesBox(t, z, "kit-agents-changes").mt(8));
     if (!a && !this.edit) root.child(this.tabs(t, z));
     if (!a && !this.edit && this.tab === "rel") {   // 關係 says its own news too (提醒它回 went out or didn't)
       if (msg && msg.label === "提醒") root.child(this.message(t, z, msg));
@@ -375,7 +377,7 @@ export class Agents {
       .when(Boolean(a) && !this.edit, (el) => el.child(btn(t, z, "back", "← 回去", { small: true, on: (cx) => { this.open = null; localSet("kit.agents.open", ""); this.adding = {}; cx.notify(); } })))
       .when(!a, (el) => el.child(div().size(32).flex_none().rounded(8).bg(t.raised).flex().items_center().justify_center().font_semibold().text_size(z - 4).child("agent")))
       .child(v_flex().flex_1().min_w(0)
-        .child(a ? copyOnRight(div().truncate().font_semibold().child(a.name), a.name) : div().truncate().font_semibold().child("Agents"))
+        .child(a ? copyOnRight(div().truncate().font_semibold().child(a.name), a.name) : h_flex().gap(6).items_center().min_w(0).child(div().truncate().font_semibold().child("Agents")).child(versionLabel(t, z, "kit-agents-version")))
         .child(a ? copyOnRight(div().truncate().text_size(z - 1.5).text_color(t.muted).child(sub), a.path) : div().truncate().text_size(z - 1.5).text_color(t.muted).child(sub)))
       .when(Boolean(busy), (el) => el.child(h_flex().flex_none().gap(5).items_center().text_size(z - 1.5).text_color(t.muted).child(spin(z - 2, t.muted)).child(`${busy}…`)))
       .child(btn(t, z, "reload", this.loading ? spin(z - 2, t.dim) : "⟳", { small: true, off: Boolean(this.loading), on: (cx) => this.refresh(cx) }))

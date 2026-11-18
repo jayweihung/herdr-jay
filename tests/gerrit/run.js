@@ -54,7 +54,7 @@ globalThis.__stubs = {
   // theme colors as Herdr gives them: #rrggbb
   theme: () => new Proxy({}, { get: (_t, k) => (k === "then" ? undefined : "#334455") }),
   settings: () => ({}), window: () => H.window ?? { platform: "macos" },
-  notify: (n) => H.notes.push(n), home: () => H.home,
+  notify: (n) => H.notes.push(n), home: () => H.home, appHome: () => `${H.home}/.config/herdr-app`,
   readTextFile: async (p) => readFileSync(p, "utf8"),
   // writeTextFile as Herdr's: only if the file still holds expected (null: a new file)
   writeTextFile: async (p, text, expected) => {
@@ -1143,7 +1143,7 @@ test("the panel comes back where it was (search, change, compared patch sets, fi
   mem.set("gerrit.view", "{{{not json");
   const k = new G(); const none = [];
   k.init({}, { timer: { every() {} }, spawn: (f) => none.push(f) });
-  assert.equal(none.length, 0, "nothing kept: the list");
+  assert.equal(none.length, 1, "nothing kept: the list (the one task reads CHANGES.md)");
 });
 
 // ---------- run ----------

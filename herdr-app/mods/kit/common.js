@@ -3,7 +3,8 @@
 // editors). See main.js for the parts.
 import { div, svg, image } from "gpui-kit";
 import { h_flex, v_flex, TextView, EditorState } from "gpui-base";
-import { exec, home, notify, settings, shared, setShared, theme, window, readTextFile } from "herdr";
+import { exec, home, notify, settings, shared, setShared, theme, window, readTextFile, appHome } from "herdr";
+import { readFile } from "fs/promises";
 
 // ---------- shared state (every copy sees it; it survives a restart, so nothing in it may stay "busy" forever) ----------
 export const DATA = "kit.data.v2";             // the repository's data ({ at: 0 } = out of date: the panel loads it again)
@@ -117,6 +118,47 @@ export const kShort = (n) => {
 // ---------- this copy's own settings (localStorage: each copy, each window has its own) ----------
 export function localGet(key) { try { return localStorage.getItem(key); } catch { return null; } }
 export function localSet(key, value) { try { localStorage.setItem(key, value); } catch {} }
+
+// ---------- kit's own version and 改動紀錄: CHANGES.md beside main.js, newest first ("## 1.2（2026-11-18）", then "- " lines) ----------
+// [{ v, date, items }]; the version is the first one's
+export function parseChanges(text) {
+  const out = [];
+  for (const l of String(text ?? "").split(/\r?\n/)) {
+    const h = l.match(/^##\s+([^\s（(]+)\s*(?:[（(]([^）)]*)[）)])?/);
+    if (h) out.push({ v: h[1], date: h[2] ?? "", items: [] });
+    else if (out.length && /^\s*-\s+/.test(l)) out[out.length - 1].items.push(l.replace(/^\s*-\s+/, ""));
+  }
+  return out;
+}
+let changes = [], changesRead = null;
+// read once per load of the mod (every part shares it), in init: render has 50 ms
+export function loadChanges(cx) {
+  // Herdr's readFile throws at the call for a path outside its read roots (herdr-app check's copy): caught here too
+  changesRead ??= (async () => { try { changes = parseChanges(await readFile(`${slash(appHome()).replace(/\/+$/, "")}/mods/kit/CHANGES.md`, "utf8")); } catch {} })();
+  cx.spawn(async (cx) => { await changesRead; cx.notify(); });
+}
+const CHANGES_OPEN = "kit.changes";   // "1": 改動紀錄 open; kit.changes.<version>: that version's list ("1" / "0"; the newest open by default)
+// v1.2 beside a panel's title; a click opens or closes 改動紀錄 (changesBox)
+export const versionLabel = (t, z, id) => (changes.length
+  ? div().id(id).flex_none().text_size(z - 2).text_color(t.dim).cursor_pointer().hover((s) => s.text_color(t.foreground)).on_mouse_down("left", stop)
+    .on_click((_e, cx) => { cx.stop_propagation(); localSet(CHANGES_OPEN, localGet(CHANGES_OPEN) === "1" ? "0" : "1"); cx.notify(); })
+    .child(`v${changes[0].v}`)
+  : div());
+export const changesOpen = () => changes.length > 0 && localGet(CHANGES_OPEN) === "1";
+export function changesBox(t, z, id) {
+  return v_flex().flex_none().mx(10).mb(8).p(8).gap(4).rounded(6).bg(t.raised).text_size(z - 1.5)
+    .child(div().font_semibold().child("改動紀錄"))
+    .children(changes.map((c, i) => {
+      const key = `${CHANGES_OPEN}.${c.v}`, open = (localGet(key) ?? (i === 0 ? "1" : "0")) === "1";
+      return v_flex().gap(2)
+        .child(h_flex().id(`${id}-${i}`).gap(6).items_center().cursor_pointer().hover((s) => s.opacity(0.85)).on_mouse_down("left", stop)
+          .on_click((_e, cx) => { cx.stop_propagation(); localSet(key, open ? "0" : "1"); cx.notify(); })
+          .child(div().w(10).text_color(t.muted).child(open ? "▾" : "▸"))
+          .child(div().font_semibold().child(`v${c.v}`))
+          .child(div().text_color(t.muted).child(c.date)))
+        .when(open, (el) => el.children(c.items.map((s) => div().pl(16).whitespace_normal().text_color(t.foreground).child(`• ${s}`))));
+    }));
+}
 
 // Copying (the same in every part, and the same as the gerrit mod's): blocks of text (kit's messages, errors,
 // descriptions, prompts) are selectable — drag over them, then Cmd/Ctrl+C; a right-click on a single value (a name,

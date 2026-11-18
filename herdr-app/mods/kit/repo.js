@@ -11,7 +11,7 @@
 import { div } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input, Editor, TextareaState, Textarea } from "gpui-base";
 import { theme, exec, run, layout, shared, setShared, window, readTextFile, writeTextFile, closeOverlay, openOverlay, appHome, notify, props as blockProps } from "herdr";
-import { DATA, LOAD, EDITORS, NODES, MSG, KIT_TAB, fs, mono, stop, slash, shortDir, clean, spin, waiting, find, textBlock, copyOnRight, btn,
+import { DATA, LOAD, EDITORS, NODES, MSG, KIT_TAB, fs, mono, stop, slash, shortDir, clean, spin, waiting, find, textBlock, copyOnRight, btn, loadChanges, versionLabel, changesOpen, changesBox,
   busyNow, dropStaleBusy, takeBusy, giveBusy, markChanged, kit, kitJson, apiState, apiKnown, apiAtLeast, checkApi, apiCard, messageBox, problemCard, versionCard,
   squeeze, newEditor, liveEditors, BUILD, PUSH_CHECK, checkProblems, checkLine, localGet, localSet, kitAction, loadNewest, loadingNow, isWindows, lockFrom, urlId, groupRows, collectedFrom,
   OUTDATED, OUTDATED_TTL, outdatedFrom, outdatedOf, outdatedDone, outdatedLater, outdatedRemind, ALLOW_ASK, devFile, asksFrom, allowAdd, askDrop, partsLine } from "./common.js";
@@ -192,6 +192,7 @@ export class Repo {
     }
     this.where = "repo";
     if (this.role === "repo-toggle") return;   // it only shows what the panel loaded (and kit api's answer)
+    loadChanges(cx);
     // a paste left in its file by a task that never finished (Herdr quit while kit read it): blank it, unless a paste
     // is under way in another copy
     if (!PASTE_LABELS.includes(this.busy)) cx.spawn(async (cx) => { await this.blankPasteFile(pastePath()); cx.notify(); });
@@ -445,13 +446,13 @@ export class Repo {
     const head = h_flex().px(10).py(8).gap(6).items_center()
       .child(div().size(32).flex_none().rounded(8).bg(t.raised).flex().items_center().justify_center().font_semibold().text_size(z - 1).child("Kit"))
       .child(v_flex().flex_1().min_w(0)
-        .child(div().truncate().font_semibold().child("倉庫"))
+        .child(h_flex().gap(6).items_center().min_w(0).child(div().truncate().font_semibold().child("倉庫")).child(versionLabel(t, z, "kit-version")))
         .child(h_flex().gap(5).items_center().min_w(0).when(this.loading, (el) => el.child(spin(z - 3, t.muted)))
           .child(div().truncate().text_size(z - 1.5).text_color(stuck ? t.ansi1 : what ? t.working : t.muted).child(this.loading ? `${sub} · 讀取中…` : sub))))
       .child(btn(t, z, "sync", busy === "同步" ? "同步中…" : "同步", { small: true, off: Boolean(busy), on: (cx) => this.act("同步", ["sync"], cx, LONG) }))
       .child(btn(t, z, "reload", this.loading ? spin(z - 2, t.dim) : "⟳", { small: true, off: this.loading, on: (cx) => { setShared(PUSH_CHECK, {}); this.refresh(cx); } }))
       .when(inBar, (el) => el.child(btn(t, z, "hide", "✕", { small: true, on: () => run("layout.hide", { id: NODES.repo }) })));
-    const v = v_flex().flex_none().border_b(1).border_color(t.border).child(head);
+    const v = v_flex().flex_none().border_b(1).border_color(t.border).child(head).when(changesOpen(), (el) => el.child(changesBox(t, z, "kit-changes")));
     // each source and what 送出 does with it
     const srcs = d?.sources ?? [];
     if (srcs.length) v.child(h_flex().px(10).pb(8).gap(4).flex_wrap().items_center().text_size(z - 2)

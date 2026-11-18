@@ -404,14 +404,15 @@ export class Repo {
     const n = g.files.length, busy = Boolean(this.busy);
     return v_flex().flex_none().mx(10).mt(8).p(8).gap(5).rounded(6).bg(t.raised).border_1().border_color(t.ansi1)
       .child(div().font_semibold().child(`等你放行：${g.name} 送出被擋，${n} 個檔案`))
+      // buttons above the list: a long list (a collected skill's data files) pushed them out of the panel, which this card can't scroll
+      .child(h_flex().gap(6)
+        .child(btn(t, z, `allow-yes-${g.name}`, "放行並送出", { small: true, kind: "primary", off: busy, on: (cx) => this.allowFiles(g, true, cx) }))
+        .child(btn(t, z, `allow-no-${g.name}`, "不要", { small: true, off: busy, on: (cx) => this.allowFiles(g, false, cx) })))
+      .child(div().text_size(z - 2).text_color(t.muted).child("點檔名打開看。放行的是現在這份內容：之後檔案改了會再擋一次。只有你在這裡按才算，agent 不能自己放行。"))
       .children(g.files.map((f, i) => v_flex().gap(1)
         .child(div().id(`allow-file-${g.name}-${i}`).font_family(mono()).text_size(z - 2).cursor_pointer().text_color(t.accent).hover((s) => s.underline())
           .on_mouse_down("left", stop).on_click(() => openOutside(`${g.repo}/${f.path}`)).child(f.path))
-        .child(div().text_size(z - 2.5).text_color(t.muted).child(f.why.join("；")))))
-      .child(div().text_size(z - 2).text_color(t.muted).child("點檔名打開看。放行的是現在這份內容：之後檔案改了會再擋一次。只有你在這裡按才算，agent 不能自己放行。"))
-      .child(h_flex().gap(6)
-        .child(btn(t, z, `allow-yes-${g.name}`, "放行並送出", { small: true, kind: "primary", off: busy, on: (cx) => this.allowFiles(g, true, cx) }))
-        .child(btn(t, z, `allow-no-${g.name}`, "不要", { small: true, off: busy, on: (cx) => this.allowFiles(g, false, cx) })));
+        .child(div().text_size(z - 2.5).text_color(t.muted).child(f.why.join("；")))));
   }
   allowFiles(g, yes, cx) {
     if (!this.startBusy(yes ? "放行" : "不放行", LONG)) return;

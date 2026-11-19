@@ -99,13 +99,14 @@ An item can be a plain string. `project` is a small label; `date` (YYYY-MM-DD) p
      ```html
      <script>
      // Herdr's look (agent-page puts it in the hash); outside Herdr nothing changes. 跟著 Herdr 的外觀。
-     (function(){function a(){var p=new URLSearchParams(location.hash.slice(1)),r=document.documentElement,m=p.get("mode");if(m!=="light"&&m!=="dark")return;r.dataset.theme=m;r.style.colorScheme=m;["bg","panel","fg","muted","line","accent"].forEach(function(k){var v=p.get(k);if(/^#[0-9a-f]{3,8}$/i.test(v||""))r.style.setProperty("--"+k,v)});var c=function(k){return(p.get(k)||"").replace(/[^\p{L}\p{N} ._-]/gu,"")},f=c("font"),o=c("mono"),s=document.getElementById("herdr-font")||document.head.appendChild(Object.assign(document.createElement("style"),{id:"herdr-font"}));s.textContent=(f?'body{font-family:"'+f+'",system-ui,sans-serif!important}':"")+(o?'code,pre,kbd,samp{font-family:"'+o+'",ui-monospace,monospace!important}':"")}a();addEventListener("hashchange",a)})();
+     (function(){var own;function a(){var p=new URLSearchParams(location.hash.slice(1)),r=document.documentElement,m=p.get("mode");if(m!=="light"&&m!=="dark")return;if(own===undefined)own=!!getComputedStyle(r).getPropertyValue("--bg").trim();r.dataset.theme=m;r.style.colorScheme=m;["bg","panel","fg","muted","line","accent"].forEach(function(k){var v=p.get(k);if(/^#[0-9a-f]{3,8}$/i.test(v||""))r.style.setProperty("--"+k,v)});var c=function(k){return(p.get(k)||"").replace(/[^\p{L}\p{N} ._-]/gu,"")},f=c("font"),o=c("mono"),s=document.getElementById("herdr-font")||document.head.appendChild(Object.assign(document.createElement("style"),{id:"herdr-font"}));s.textContent=(own?"":"html,body{background:var(--bg)!important;color:var(--fg)!important}a{color:var(--accent)}")+(f?'body{font-family:"'+f+'",system-ui,sans-serif!important}':"")+(o?'code,pre,kbd,samp{font-family:"'+o+'",ui-monospace,monospace!important}':"")}a();addEventListener("hashchange",a)})();
      </script>
      ```
 
      Opened outside Herdr (no hash) the page keeps its own colors (e.g. `prefers-color-scheme`). Herdr's theme
      changed: the page gets the new hash and repaints. The script also sets the body's font to Herdr's interface font
-     and `code pre kbd samp` to its terminal font. 說明頁跟 Herdr 的外觀和字型走：顏色用這 6 個名字、其他顏色照
+     and `code pre kbd samp` to its terminal font. A page without its own `--bg` (colors written in place) gets Herdr's background
+     and text color on `html, body` instead. 說明頁跟 Herdr 的外觀和字型走：顏色用這 6 個名字、其他顏色照
      `data-theme` 分深淺，`<head>` 貼上面這段。
 2. **Open the pane** if it isn't (it stays open and shows each new page by itself; the person may have closed it):
 

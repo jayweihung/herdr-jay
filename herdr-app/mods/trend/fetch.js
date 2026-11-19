@@ -672,6 +672,8 @@ async function askPlayer(id) {
   const r = await fetch("https://www.youtube.com/youtubei/v1/player?prettyPrint=false", { method: "POST", signal: AbortSignal.timeout(15000),
     headers: { "content-type": "application/json", "user-agent": ANDROID_UA }, body: JSON.stringify({ context: { client: ANDROID }, videoId: id }) });
   const j = await r.json();
+  // turned away (429, or "sign in to confirm you're not a bot"): an error, not "no subtitles"
+  if (!r.ok || (j.playabilityStatus?.status && j.playabilityStatus.status !== "OK")) throw new Error(`YouTube ${r.status} ${j.playabilityStatus?.status ?? ""}`);
   const tracks = j.captions?.playerCaptionsTracklistRenderer?.captionTracks ?? [];
   const sub = async (t, tlang) => {
     const c = await fetch(`${t.baseUrl.replace(/&fmt=[^&]*/, "")}&fmt=json3${tlang ? `&tlang=${tlang}` : ""}`, { headers: { "user-agent": ANDROID_UA }, signal: AbortSignal.timeout(15000) });
@@ -682,7 +684,7 @@ async function askPlayer(id) {
   const hant = tracks.find((t) => /^zh-(TW|Hant|HK)/i.test(t.languageCode)), any = tracks.find((t) => /^zh/i.test(t.languageCode)) ?? tracks.find((t) => t.languageCode === "en") ?? tracks[0];
   let cap = null;
   try { cap = hant ? await sub(hant) : any ? (await sub(any, "zh-Hant")) ?? (await sub(any)) : null; } catch {}
-  return { at: now(), sb: j.storyboards?.playerStoryboardSpecRenderer?.spec ?? "", cap: cap ?? [] };
+  return { at: now(), sb: j.storyboards?.playerStoryboardSpecRenderer?.spec ?? "", cap: cap ?? [], tracks: tracks.length };
 }
 // captions.json: the subtitles of the videos you starred (stars.json), {id: [[start ms, duration ms, text]…]}, sent to
 // the site (push.js) for the phone's 聽歌, which can't ask YouTube itself the way this does. A video's are asked once
@@ -699,7 +701,8 @@ async function captions() {
     const k = kept[id];
     if (k && (k.cap.length || t - Date.parse(k.at) < 7 * 24 * HOUR_MS)) continue;
     if (asked++ >= 6) break;
-    try { const e = await askPlayer(id); kept[id] = { at: e.at, cap: e.cap }; } catch {}
+    // none only when it has no subtitles at all; tracks it couldn't read (YouTube said 429) are asked next run
+    try { const e = await askPlayer(id); if (e.cap.length || !e.tracks) kept[id] = { at: e.at, cap: e.cap }; } catch {}
     await new Promise((ok) => setTimeout(ok, 1500));
   }
   kept = Object.fromEntries(ids.filter((id) => kept[id]).map((id) => [id, kept[id]]));   // unstarred ones go

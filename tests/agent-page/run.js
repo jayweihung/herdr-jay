@@ -26,8 +26,8 @@ const el = new Proxy(function () {}, {
 });
 globalThis.__stubs = {
   View: class {}, div: () => el, v_flex: () => el, h_flex: () => el, TextView: { html: (_id, h) => { H.strings.push(h.replace(/<[^>]*>/g, "").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&")); return el; } },
-  theme: () => new Proxy({}, { get: (_t, k) => (k === "then" ? undefined : "#334455") }),
-  settings: () => ({ ui_font_size: 13 }), appHome: () => H.home,
+  theme: () => H.theme ?? new Proxy({}, { get: (_t, k) => (k === "then" ? undefined : "#334455") }),
+  settings: () => H.settings ?? { ui_font_size: 13 }, appHome: () => H.home,
   props: () => H.props, panes: () => H.panes, run: (name, args) => { H.runs.push([name, args]); },
   shared: (k) => H.shared[k], setShared: (k, v) => { H.shared[k] = v; },
   nextWebEvent: () => new Promise((resolve) => { H.event = resolve; }),
@@ -182,7 +182,17 @@ test("tabs: 進度 first, then pages newest first, titled without the time; a pa
   render(v);
   assert.equal(H.web[0][0], "page");
   assert.equal(H.web[0][2], true, "the page keeps its localStorage (persist): our own local file");
-  assert.ok(H.web[0][1].startsWith("file://") && H.web[0][1].endsWith("/mods/agent-page/.pages/t63/2026-11-16-0430-%E6%AF%94%E8%BC%83.html"), H.web[0][1]);
+  const [url, hash] = H.web[0][1].split("#");
+  assert.ok(url.startsWith("file://") && url.endsWith("/mods/agent-page/.pages/t63/2026-11-16-0430-%E6%AF%94%E8%BC%83.html"), url);
+  assert.equal(hash, "mode=dark&bg=%23334455&panel=%23334455&fg=%23334455&muted=%23334455&line=%23334455&accent=%23334455",
+    "Herdr's look goes to the page in its hash");
+  // A light theme: mode from the surface's brightness, whatever the theme's name.
+  H.theme = { surface: "#faf4ed", raised: "#fffaf3", foreground: "#575279", muted: "#797593", border: "#dfdad9", accent: "#286983" };
+  H.settings = { ui_font_size: 13, ui_font_family: "Inter", font_family: "JetBrains Mono" };
+  render(v);
+  H.theme = null;
+  H.settings = null;
+  assert.ok(H.web[0][1].endsWith("#mode=light&bg=%23faf4ed&panel=%23fffaf3&fg=%23575279&muted=%23797593&line=%23dfdad9&accent=%23286983&font=Inter&mono=JetBrains%20Mono"), H.web[0][1]);
 });
 
 test("a page written while open opens in its tab; one rewritten in place reloads; one deleted goes back to 進度", async (V) => {
@@ -314,7 +324,7 @@ test("Windows paths become file:///C:/…", async (V) => {
   v.names = ["a b#1.html"];
   v.tab = "a b#1.html";
   render(v);
-  assert.equal(H.web[0][1], "file:///C:/Users/amy/.config/herdr-app/mods/agent-page/pages/t63/a%20b%231.html");
+  assert.equal(H.web[0][1].split("#")[0], "file:///C:/Users/amy/.config/herdr-app/mods/agent-page/pages/t63/a%20b%231.html");
 });
 
 // ---------- run ----------

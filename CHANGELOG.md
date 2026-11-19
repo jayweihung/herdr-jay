@@ -12,6 +12,14 @@ which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/key
 Each mod also keeps its own `CHANGES.md` (shown in the mod as its version and 改動紀錄): when a change to a mod is
 user-visible, add a bullet under a new or current version at the top of that mod's `CHANGES.md`.
 
+## 2026-11-20, agent pages follow Herdr's Appearance
+
+A page opened in agent-page followed the system's light/dark (WebKit's), not Herdr's. The pane now opens it with
+Herdr's look in its hash (mode, six theme colors, the interface and terminal fonts); a page with the short script in docs/agent-page.md (For the
+agent, step 1) takes them, and repaints when the theme changes. Pages without it look as before.
+`tests/agent-page/run.js` checks the hash. 說明頁跟著 Herdr 的外觀和字型走；頁面要貼文件裡那段程式。
+Needs: mods (macOS links: nothing); agents add the script to their pages.
+
 ## 2026-11-18, nvim-jay's kit plugin runs only files that are yours
 
 An agent run as root ran the plugin's hooks as root, on whatever `~/.config/nvim-jay` held: a folder linked to a

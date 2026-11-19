@@ -38,6 +38,15 @@ const fileUrl = (p) => {
   const s = p.replace(/\\/g, "/");
   return "file://" + (/^[A-Za-z]:/.test(s) ? "/" : "") + encodeURI(s).replace(/#/g, "%23").replace(/\?/g, "%3F");
 };
+// Herdr's look for the page, in its hash (#mode=dark&bg=…&font=…): a page that reads it (docs/agent-page.md) follows Herdr's
+// Appearance instead of the system's light/dark. mode from the surface's brightness, so any theme works.
+const pageTheme = (t, s) => {
+  const m = /^#?([0-9a-f]{6})/i.exec(String(t.surface ?? "")), n = m ? parseInt(m[1], 16) : 0;
+  const light = 0.299 * (n >> 16) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255) > 140;
+  const p = { mode: light ? "light" : "dark", bg: t.surface, panel: t.raised, fg: t.foreground, muted: t.muted, line: t.border, accent: t.accent,
+    font: s.ui_font_family, mono: s.font_family };
+  return "#" + Object.entries(p).filter(([, v]) => v).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join("&");
+};
 const day = (d) => {
   const x = new Date(d);
   return isNaN(x) ? null : new Date(x.getFullYear(), x.getMonth(), x.getDate());
@@ -297,7 +306,7 @@ export default class AgentPage extends View {
       .child(tabs)
       .when(page, (el) => el.child(this.tool(t, "ap-reload", "⟳", () => webCall(CELL, "reload"))))
       .child(versionLabel(t, z, "agent-page", this.changes));
-    const body = page ? web.new(CELL, { src: fileUrl(`${this.folder}/${this.tab}`), persist: true }) : this.renderStatus(t, z);
+    const body = page ? web.new(CELL, { src: fileUrl(`${this.folder}/${this.tab}`) + pageTheme(t, settings()), persist: true }) : this.renderStatus(t, z);
     return v_flex().id("agent-page").size_full().bg(t.surface).text_size(z).text_color(t.foreground)
       .child(bar)
       .when(changesOpen("agent-page", this.changes), (el) => el.child(changesBox(t, z, "agent-page", this.changes)))

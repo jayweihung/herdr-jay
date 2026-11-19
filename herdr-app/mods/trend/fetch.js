@@ -29,11 +29,12 @@ const started = now();
 // at once); `--topics`: only 熱門's topic searches that are due (its ＋); `--player <id>`: prints what the player page
 // needs for a video (playerExtra, below). No status.json, last30days or front pages.
 // 只搜影片／只搜熱門主題／拿一支影片的預覽圖和字幕：面板按「＋」或播放時跑
-// `--list`: only list.json again from the files there; `--push`: only send them to the site's backend (push.js)
+// `--list`: only list.json again from the files there; `--push`: only send them to the site's backend (push.js);
+// `--captions`: only the starred videos' subtitles (captions.json), then sent
 const VIDEOS_ONLY = process.argv[2] === "--videos", TOPICS_ONLY = process.argv[2] === "--topics";
-const LIST_ONLY = process.argv[2] === "--list", PUSH_ONLY = process.argv[2] === "--push";
+const LIST_ONLY = process.argv[2] === "--list", PUSH_ONLY = process.argv[2] === "--push", CAPTIONS_ONLY = process.argv[2] === "--captions";
 const PLAYER = process.argv[2] === "--player" ? String(process.argv[3] ?? "") : null;
-if (!VIDEOS_ONLY && !TOPICS_ONLY && !LIST_ONLY && !PUSH_ONLY && PLAYER === null) put("status.json", JSON.stringify({ started, finished: null, ok: null, error: null }) + "\n");
+if (!VIDEOS_ONLY && !TOPICS_ONLY && !LIST_ONLY && !PUSH_ONLY && !CAPTIONS_ONLY && PLAYER === null) put("status.json", JSON.stringify({ started, finished: null, ok: null, error: null }) + "\n");
 
 // EXCLUDE_SOURCES=reddit: last30days' own Reddit search only gets 403 (Reddit's rows come from its page, below), and
 // every try is one more hit from the house's IP / last30days 自己的 Reddit 搜尋只會 403，不讓它打
@@ -660,6 +661,14 @@ async function playerExtra(id) {
   let kept = {};
   try { kept = JSON.parse(fs.readFileSync(path.join(out, "player-extra.json"), "utf8")); } catch {}
   if (kept[id] && Date.now() - Date.parse(kept[id].at) < 24 * HOUR_MS) return void process.stdout.write(JSON.stringify(kept[id]));
+  const extra = await askPlayer(id);
+  const t = Date.now();
+  kept = Object.fromEntries(Object.entries(kept).filter(([, v]) => t - Date.parse(v.at) < 24 * HOUR_MS));
+  kept[id] = extra;
+  put("player-extra.json", JSON.stringify(kept) + "\n");
+  process.stdout.write(JSON.stringify(extra));
+}
+async function askPlayer(id) {
   const r = await fetch("https://www.youtube.com/youtubei/v1/player?prettyPrint=false", { method: "POST", signal: AbortSignal.timeout(15000),
     headers: { "content-type": "application/json", "user-agent": ANDROID_UA }, body: JSON.stringify({ context: { client: ANDROID }, videoId: id }) });
   const j = await r.json();
@@ -673,12 +682,32 @@ async function playerExtra(id) {
   const hant = tracks.find((t) => /^zh-(TW|Hant|HK)/i.test(t.languageCode)), any = tracks.find((t) => /^zh/i.test(t.languageCode)) ?? tracks.find((t) => t.languageCode === "en") ?? tracks[0];
   let cap = null;
   try { cap = hant ? await sub(hant) : any ? (await sub(any, "zh-Hant")) ?? (await sub(any)) : null; } catch {}
-  const extra = { at: now(), sb: j.storyboards?.playerStoryboardSpecRenderer?.spec ?? "", cap: cap ?? [] };
-  const t = Date.now();
-  kept = Object.fromEntries(Object.entries(kept).filter(([, v]) => t - Date.parse(v.at) < 24 * HOUR_MS));
-  kept[id] = extra;
-  put("player-extra.json", JSON.stringify(kept) + "\n");
-  process.stdout.write(JSON.stringify(extra));
+  return { at: now(), sb: j.storyboards?.playerStoryboardSpecRenderer?.spec ?? "", cap: cap ?? [] };
+}
+// captions.json: the subtitles of the videos you starred (stars.json), {id: [[start ms, duration ms, text]…]}, sent to
+// the site (push.js) for the phone's 聽歌, which can't ask YouTube itself the way this does. A video's are asked once
+// (a few new ones a run, apart, as YouTube counts the house's requests); one with none is asked again after a week.
+// Under the site's 5 MB: the longest are left out.
+// 收藏影片的字幕，送到網站給手機聽歌用；每次只抓幾支新的，沒字幕的一週後再試
+async function captions() {
+  let stars = {}, kept = {};
+  try { stars = JSON.parse(fs.readFileSync(path.join(out, "stars.json"), "utf8")) ?? {}; } catch { return; }
+  try { kept = JSON.parse(fs.readFileSync(path.join(out, "captions-kept.json"), "utf8")) ?? {}; } catch {}
+  const ids = Object.keys(stars).filter((id) => /^[\w-]{11}$/.test(id)), t = Date.now();
+  let asked = 0;
+  for (const id of ids) {
+    const k = kept[id];
+    if (k && (k.cap.length || t - Date.parse(k.at) < 7 * 24 * HOUR_MS)) continue;
+    if (asked++ >= 6) break;
+    try { const e = await askPlayer(id); kept[id] = { at: e.at, cap: e.cap }; } catch {}
+    await new Promise((ok) => setTimeout(ok, 1500));
+  }
+  kept = Object.fromEntries(ids.filter((id) => kept[id]).map((id) => [id, kept[id]]));   // unstarred ones go
+  put("captions-kept.json", JSON.stringify(kept) + "\n");
+  const send = Object.entries(kept).filter(([, v]) => v.cap.length).map(([id, v]) => [id, v.cap]);
+  const size = (e) => Buffer.byteLength(JSON.stringify(Object.fromEntries(e)));
+  while (send.length && size(send) > 4.8 * 1024 * 1024) send.splice(send.indexOf(send.reduce((a, b) => (size([b]) > size([a]) ? b : a))), 1);
+  put("captions.json", JSON.stringify(Object.fromEntries(send)) + "\n");
 }
 // list.json: 熱門's list worked out from trends.json, feeds.json and topics.json (list.js), for the panels to draw
 function writeList() {
@@ -692,7 +721,8 @@ else if (VIDEOS_ONLY) videos().catch(() => {}).then(() => pushed(["videos"])).fi
 else if (TOPICS_ONLY) topics().catch(() => {}).then(writeList).then(() => pushed(["topics", "list"])).catch(() => {}).finally(() => process.exit(0));
 else if (LIST_ONLY) { writeList(); process.exit(0); }
 else if (PUSH_ONLY) pushed().finally(() => process.exit(0));
-else feeds().catch(() => {}).then(topics).catch(() => {}).then(videos).catch(() => {}).then(writeList).catch(() => {}).finally(async () => {
+else if (CAPTIONS_ONLY) captions().catch(() => {}).then(() => pushed(["captions"])).finally(() => process.exit(0));
+else feeds().catch(() => {}).then(topics).catch(() => {}).then(videos).catch(() => {}).then(writeList).catch(() => {}).then(captions).catch(() => {}).finally(async () => {
   put("status.json", JSON.stringify({ started, finished: now(), ok: !error, error }) + "\n");
   await pushed();
   process.exit(error ? 1 : 0);

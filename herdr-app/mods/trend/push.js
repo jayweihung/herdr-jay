@@ -8,7 +8,7 @@
 "use strict";
 const fs = require("fs"), path = require("path"), os = require("os"), crypto = require("crypto");
 const line = (file) => { try { return fs.readFileSync(file, "utf8").split("\n")[0].trim(); } catch { return ""; } };
-const SNAPSHOTS = ["feeds", "topics", "trends", "videos", "status", "list"];
+const SNAPSHOTS = ["feeds", "topics", "trends", "videos", "status", "list", "captions"];
 const sha = (s) => crypto.createHash("sha1").update(s).digest("hex");
 const reportAt = (name, file) => { const m = /^(\d{4})-(\d{2})-(\d{2})-(\d{2})(\d{2})/.exec(name); return m ? Date.parse(`${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:00`) : fs.statSync(file).mtimeMs; };
 const metaTopic = (html) => /<meta\s+name=["']trend-topic["']\s+content=["']([^"']*)["']/i.exec(html)?.[1]?.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&").trim() ?? "";

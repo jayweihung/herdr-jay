@@ -121,6 +121,8 @@ export default class AgentPage extends View {
     // The tab last shown for this dir (shared: a reopened pane is a new copy); read() checks its page is still there.
     const kept = shared(`agent-page/${this.dir}/tab`);
     this.tab = typeof kept === "string" ? kept : "status";
+    // the kit mod's ⎙ may have set it to a page not seen yet: on another machine it is here only after the first copy
+    this.want = this.tab !== "status" ? this.tab : null;
     this.status = null;
     this.alive = true;
     cx.spawn(async (cx) => {
@@ -152,6 +154,7 @@ export default class AgentPage extends View {
         }
       });
       await this.read(null);
+      if (!this.remote) this.want = null;
       cx.notify();
       while (this.alive) {
         let changed;
@@ -203,6 +206,7 @@ export default class AgentPage extends View {
           const pages = changed.filter(isPage).sort();
           await this.read(this.listed ? pages[pages.length - 1] ?? null : null);
         }
+        this.want = null;
         this.listed = now;
         this.syncNote = null;
       } catch (e) {
@@ -271,7 +275,8 @@ export default class AgentPage extends View {
       if (!this.statusError) this.status = null;
     }
     const before = this.tab;
-    if (written && this.names.includes(written)) this.tab = written;
+    if (this.want && this.names.includes(this.want)) this.tab = this.want;
+    else if (written && this.names.includes(written)) this.tab = written;
     else if (this.tab !== "status" && !this.names.includes(this.tab)) this.tab = "status";
     // The same src never loads again: a page rewritten in place needs a reload.
     if (written && written === before) webCall(CELL, "reload");
@@ -376,7 +381,10 @@ export default class AgentPage extends View {
 
   tabButton(t, id, label) {
     const on = this.tab === id;
-    return div().id(`ap-tab-${id}`).h(22).px(8).flex_none().max_w(180).truncate().flex().items_center().rounded(5)
+    // a red dot: a page this computer hasn't shown yet (the kit mod's header keeps which)
+    const fresh = !on && (shared(`agent-page/${this.dir}/unseen`) ?? []).includes(id);
+    return div().id(`ap-tab-${id}`).relative().h(22).px(8).flex_none().max_w(180).truncate().flex().items_center().rounded(5)
+      .when(fresh, (el) => el.child(div().absolute().top(2).right(2).size(5).rounded(3).bg(t.blocked)))
       .bg(on ? t.selected : t.chrome).text_color(on ? t.foreground : t.muted)
       .cursor_pointer().hover((s) => s.bg(t.hover).text_color(t.foreground))
       .on_mouse_down("left", stop)

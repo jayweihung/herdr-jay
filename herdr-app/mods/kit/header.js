@@ -24,7 +24,8 @@
 // What it computes (the bar, the numbers, the tips) is in context.js.
 import { div, svg } from "gpui-kit";
 import { h_flex, v_flex, InputState, Input } from "gpui-base";
-import { panes, spaces, agents, props, run, theme, hc, shared, setShared, openOverlay, closeOverlay, notify, appHome, readTextFile } from "herdr";
+import { panes, spaces, agents, props, run, theme, hc, shared, setShared, openOverlay, closeOverlay, notify, appHome, readTextFile, exec } from "herdr";
+import * as files from "fs/promises";
 import { collectedFrom, AGENT_CACHE, AGENT_DATA, AGENT_WANT, CTX, NOTE, LIMIT_SENT, EDITORS, localGet, localSet, fs, stop, slash, shortDir, clean, spin, waiting, icon, textBlock,
   copyOnRight, btn, busyNow, takeBusy, giveBusy, markChanged, kit, kitJson, apiState, apiKnown, apiAtLeast, checkApi, apiCard, num, kfmt } from "./common.js";
 import { toolOf, ctxArgs, askZero, zeroNumbers, sendText, sendArgs, removal, ctxTips, summaryText, chipNumbers, level, howCounted, ago, catColorKey, barSegments,
@@ -141,10 +142,62 @@ const pageOpen = (p) => {
   return open && panes().some((x) => x.pane === open && x.mod === "agent-page") ? open : null;
 };
 const pageFor = (p) => pageMod && p.terminal && p.program?.agent;
+// Pages not seen on this computer: the red dot on ⎙ (the phone app has its own). Each agent's pages and a signature of
+// each (a hash of the file here; cksum on another machine, where agent-page only copies them while open), looked at
+// every PAGES_AGAIN; what this computer has seen is kept in localStorage per folder. The first look counts what is
+// there as seen. A page shown in an open agent-page (its tab, shared "agent-page/<dir>/tab") is seen. The list not
+// seen is shared ("agent-page/<dir>/unseen") for agent-page's tabs.
+const PAGES_AGAIN = 15000;
+const PAGE_ROOT = ".config/herdr-app/mods/agent-page/pages";
+const PAGE_LIST = 'cd "$HOME/$1" 2>/dev/null || exit 0; for f in *.html *.htm; do [ -f "$f" ] && printf "%s %s\\n" "$(cksum < "$f" | tr " " _)" "$f"; done; exit 0';
+const isPage = (n) => /\.html?$/i.test(n) && !n.startsWith(".");
+const pageSigs = new Map(); // dir -> { at, busy, sigs: Map(name -> signature) }
+const seenOf = (dir) => { try { return JSON.parse(localGet(`kit.pages.seen.${dir}`) ?? "null"); } catch { return null; } };
+const setSeen = (dir, v) => localSet(`kit.pages.seen.${dir}`, JSON.stringify(v));
+const hash = (s) => { let h = 0x811c9dc5; for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 0x01000193); return `${(h >>> 0).toString(36)}_${s.length}`; };
+function unseenPages(dir) {
+  const e = pageSigs.get(dir), seen = seenOf(dir) ?? {};
+  return e?.sigs ? [...e.sigs].filter(([n, sig]) => seen[n] !== sig).map(([n]) => n).sort() : [];
+}
+function markShown(p) {
+  const dir = pageDir(p.terminal), tab = shared(`agent-page/${dir}/tab`), sig = pageSigs.get(dir)?.sigs?.get(tab);
+  if (!pageOpen(p) || !sig) return;
+  const seen = seenOf(dir) ?? {};
+  if (seen[tab] !== sig) { seen[tab] = sig; setSeen(dir, seen); setShared(`agent-page/${dir}/unseen`, unseenPages(dir)); }
+}
+function checkPages(p, cx) {
+  const dir = pageDir(p.terminal), e = pageSigs.get(dir) ?? { at: 0 };
+  pageSigs.set(dir, e);
+  markShown(p);
+  if (e.busy || Date.now() - e.at < PAGES_AGAIN) return;
+  e.busy = true;
+  const machine = placeOf(p).machine;
+  cx.spawn(async (cx) => {
+    try {
+      let sigs;
+      if (machine) {
+        const r = await exec("sh", ["-c", PAGE_LIST, "sh", `${PAGE_ROOT}/${pageDir(String(p.terminal).split("/").pop())}`], { on: machine, timeout: PAGES_AGAIN });
+        if (r.code !== 0) return;
+        sigs = new Map(String(r.stdout).split("\n").filter(Boolean).map((l) => { const i = l.indexOf(" "); return [l.slice(i + 1), l.slice(0, i)]; }));
+      } else {
+        const folder = `${appHome()}/mods/agent-page/.pages/${dir}`;
+        const names = (await files.readdir(folder).catch(() => [])).filter(isPage);
+        sigs = new Map(await Promise.all(names.map(async (n) => [n, hash((await readTextFile(`${folder}/${n}`).catch(() => "")) ?? "")])));
+      }
+      e.sigs = sigs;
+      if (seenOf(dir) === null) setSeen(dir, Object.fromEntries(sigs));
+      markShown(p);
+      setShared(`agent-page/${dir}/unseen`, unseenPages(dir));
+    } catch {} finally { e.at = Date.now(); e.busy = false; cx.notify(); }
+  });
+}
 function togglePage(p) {
   const open = pageOpen(p);
   if (open) run("pane.close", { pane: open });
   else {
+    // like the phone: the first page not seen here, else the tab it had
+    const first = unseenPages(pageDir(p.terminal))[0];
+    if (first) setShared(`agent-page/${pageDir(p.terminal)}/tab`, first);
     const machine = placeOf(p).machine, props = { dir: pageDir(p.terminal), beside: p.pane };
     if (machine) Object.assign(props, { machine, term: String(p.terminal).split("/").pop() });
     run("pane.split", { direction: "right", pane: p.pane, mod: "agent-page", props, share: 0.35 });
@@ -193,6 +246,7 @@ export class Header {
     const p = this.me();
     if (!p?.terminal || !p.program?.agent) return;
     checkPage(cx);
+    if (pageFor(p)) checkPages(p, cx);
     offerMenu(cx);
     const w = placeOf(p), api = apiKnown(w.machine);
     if (!api) { checkApi(w.machine, cx); return; }
@@ -314,15 +368,17 @@ export class Header {
       .on_click((_e, cx) => { cx.stop_propagation(); run(command, args); });
   }
 
-  // agent-page beside this agent: shown while it's open (in the accent color), else on hover like the others
+  // agent-page beside this agent: shown while it's open (in the accent color) or while it has a page not seen here (a red
+  // dot), else on hover like the others
   pageButton(t, p, live) {
-    const on = Boolean(pageOpen(p));
+    const on = Boolean(pageOpen(p)), fresh = unseenPages(pageDir(p.terminal)).length;
     // the id changes with the state: Herdr keeps a tooltip while the pointer stays, so after a click (open / close) the
     // old text ("關掉說明頁") would stay; a new id starts a new one with the right words
-    const b = div().id(`kit-head-p-${p.pane}-${on ? "on" : "off"}`).flex_none().p(3).rounded(4).text_color(on ? t.accent : t.dim)
-      .child(svg("mods/agent-page/icon.svg").size(14));
-    if (!live && !on) return b.invisible();
-    return b.tooltip(on ? "關掉說明頁" : "說明頁：進度和它寫的頁面").hover((s) => s.bg(t.hover).text_color(t.foreground))
+    const b = div().id(`kit-head-p-${p.pane}-${on ? "on" : "off"}`).relative().flex_none().p(3).rounded(4).text_color(on ? t.accent : t.dim)
+      .child(svg("mods/agent-page/icon.svg").size(14))
+      .when(fresh > 0 && !on, (el) => el.child(div().absolute().top(1).right(1).size(6).rounded(3).bg(t.blocked)));
+    if (!live && !on && !fresh) return b.invisible();
+    return b.tooltip(on ? "關掉說明頁" : fresh ? `說明頁：${fresh} 頁還沒看` : "說明頁：進度和它寫的頁面").hover((s) => s.bg(t.hover).text_color(t.foreground))
       .on_click((_e, cx) => { cx.stop_propagation(); togglePage(p); });
   }
 

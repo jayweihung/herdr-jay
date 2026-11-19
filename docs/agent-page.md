@@ -11,9 +11,13 @@ A pane right of an agent with tabs:
 
 Open it with the page button in an agent pane's header (beside split / zoom / close; it stays lit while the pane is
 open, and closes it again), or **說明頁** in the Agents list's right-click menu (both from the kit mod), or by the agent.
+A **red dot** on the button (shown even without hover) means the agent wrote a page, or wrote one again, that this
+computer hasn't shown yet; the button then opens on that page (the oldest such one), and its tab has a dot too. What
+was seen is kept per computer (the phone app keeps its own); the first look at an agent counts its pages as seen.
 agent 右邊一格：第一個分頁「進度」是等你、正在做、還沒做、最近 3 天做完的；後面每個分頁是 agent 寫給你的一頁。
 關掉再開、或重開 Herdr，會回到你上次看的那個分頁。
 用 agent 那格標題列的說明頁按鈕（再按一下關掉）、Agents 清單右鍵的「說明頁」，或 agent 自己開。
+按鈕上有**紅點**：agent 寫了新頁或改過一頁，這台電腦還沒看過；按下去直接開那頁，分頁上也有紅點。看過的記錄每台各自分開（手機 App 也一樣）。
 
 - **Only local files** the agent wrote into this mod's folder. No web sites: a link to one opens in the system
   browser. 只開 agent 寫在這個 mod 資料夾裡的檔，不開網站；頁面裡的網址連結用系統瀏覽器開。

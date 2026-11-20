@@ -143,6 +143,9 @@ document.querySelector("main").onclick=(e)=>{const b=e.target.closest("[data-do]
 location.hash="do="+b.dataset.do+(k.topic?"&topic="+encodeURIComponent(k.topic):"")+(k.name?"&name="+encodeURIComponent(k.name):"")+"&n="+Date.now();
 setTimeout(()=>history.replaceState(null,"",location.pathname),500)};
 const y=Number(get("y"));if(y)scrollTo(0,y);addEventListener("scroll",()=>set("y",String(scrollY)),{passive:true});
+// <span class="ago" data-t=ms data-w=word>: how long ago, written here and again each minute (the page itself isn't rewritten)
+const ago=()=>{for(const e of document.querySelectorAll(".ago[data-t]")){const t=+e.dataset.t,m=Math.round((Date.now()-t)/60000),d=new Date(t);
+e.textContent=(e.dataset.w||"")+(m<1?"剛剛":m<60?m+" 分鐘前":m<1440?Math.round(m/60)+" 小時前":m<10080?Math.round(m/1440)+" 天前":(d.getMonth()+1)+"/"+d.getDate());e.title=d.toLocaleString()}};ago();setInterval(ago,60000);
 </script></body></html>
 `;
 }
@@ -1079,6 +1082,8 @@ export default class Trend extends View {
       // the same story elsewhere: each with its own numbers and link
       const also = r.also?.length ? `<div class="also">${r.also.map((a) => `<a href="${esc(a.evidence_urls[0])}"><b>${esc(a.feed)}</b> ${esc(a.topic)}<span>${esc(a.line ?? "")}</span></a>`).join("")}</div>` : "";
       const first = Math.max(...all.map((x) => Date.parse(x.first ?? x.created ?? "") || 0));
+      const posted = Date.parse(r.created ?? ""), listed = Date.parse(r.first ?? "");
+      const when = posted ? `<span class="ago" data-t="${posted}"></span>` : listed ? `<span class="ago" data-t="${listed}" data-w="上榜 "></span>` : "";
       return `<div class="card" data-topic="${esc(r.topic)}" data-feed="${esc(r.feed ?? "")}" data-feeds="${esc([...new Set(all.map((x) => x.feed).filter(Boolean))].join(","))}"`
         + ` data-rank="${r.rank ?? 0}" data-first="${first}" data-up="${up?.rise.by ?? 0}" data-c="${all.reduce((n, x) => n + (x.comments ?? 0), 0)}"`
         + `${up ? " data-rising" : ""}${all.some(fresh) ? " data-new" : ""}>`
@@ -1091,7 +1096,8 @@ export default class Trend extends View {
         + `${this.reportFor(r.topic) ? '<button class="ib rep" data-do="report" title="看報告">📄</button>' : ""}`
         + `<button class="star${starred ? " on" : ""}" data-do="hstar" title="${starred ? "取消收藏" : "收藏：一直留著"}">${starred ? "⭐" : "☆"}</button></div>`
         // a headline or excerpt that only says the title again isn't shown
-        + `${line ? `<div class="meta">${esc(line)}</div>` : ""}${why(r) && !same(why(r), r.topic) ? `<div class="why">${esc(why(r))}</div>` : ""}`
+        // when it was posted (HN, Reddit, PTT, Dcard, Threads, Digg say), else when it showed up here
+        + `${line || when ? `<div class="meta">${esc(line ?? "")}${line && when ? " · " : ""}${when}</div>` : ""}${why(r) && !same(why(r), r.topic) ? `<div class="why">${esc(why(r))}</div>` : ""}`
         + `${longer && r.feed !== "Threads" && !same(body, r.topic) ? `<div class="excerpt">${esc(body)}</div>` : ""}${also}`
         + `${more ? `<details><summary>更多</summary>${more}</details>` : ""}</div>`;
     };

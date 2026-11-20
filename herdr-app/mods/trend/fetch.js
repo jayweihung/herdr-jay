@@ -135,6 +135,7 @@ function redditPosts(html) {
       const text = a.inner.split(/slot="text-body"[^>]*>/)[1]?.split(/<[^>]+slot="|<\/shreddit-post/)[0] ?? "";
       return { title: a["post-title"], url: a["content-href"] || discussion, discussion, subreddit: a["subreddit-prefixed-name"] ?? "",
         score: Number(a.score) || 0, comments: Number(a["comment-count"]) || 0,
+        created: Date.parse(a["created-timestamp"] ?? "") ? new Date(Date.parse(a["created-timestamp"])).toISOString() : undefined,
         body: unescapeHtml(text.replace(/<\/p>|<br\s*\/?>/gi, "\n").replace(/<[^>]+>/g, "")).replace(/\n{3,}/g, "\n\n").trim().slice(0, 2000) };
     });
 }
@@ -604,7 +605,7 @@ async function feeds() {
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     f.hn = ((await r.json()).hits ?? []).sort((a, b) => (b.points ?? 0) - (a.points ?? 0)).map((h) => ({
       title: h.title, url: h.url || `https://news.ycombinator.com/item?id=${h.objectID}`,
-      discussion: `https://news.ycombinator.com/item?id=${h.objectID}`, points: h.points ?? 0, comments: h.num_comments ?? 0,
+      discussion: `https://news.ycombinator.com/item?id=${h.objectID}`, points: h.points ?? 0, comments: h.num_comments ?? 0, created: h.created_at,
     }));
   } catch (e) { f.errors.hn = String(e.message ?? e).slice(0, 200); }
   for (const [key, read, hours] of [["reddit", readReddit], ["ptt", readPtt], ["dcard", readDcard, 3], ["threads", () => readThreads(before)]])
@@ -621,6 +622,7 @@ async function feeds() {
     if (d.status !== 0) throw new Error(d.error?.message || (d.stderr ?? "").trim().split("\n").pop() || `exit ${d.status}`);
     f.digg = (JSON.parse(d.stdout).results ?? []).map((s) => ({
       title: s.title, url: s.url, description: s.description ?? "", score: s.diggScore ?? 0, sources: s.postCount ?? 0, topic: s.topic ?? "",
+      created: s.publishedAt ? new Date(s.publishedAt).toISOString() : undefined,
     }));
   } catch (e) { f.errors.digg = String(e.message ?? e).slice(0, 200); }
   f.since = track(["hn", "reddit", "ptt", "dcard", "threads", "digg"].flatMap((s) => f[s] ?? []));

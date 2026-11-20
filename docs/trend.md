@@ -17,12 +17,14 @@ A tab-bar button **熱門** and a panel, like Gerrit's (macOS and Windows):
   **🔎 深入查** / **三句話說明** / **📄 看報告**. The line under the title says when
   it last ran and when it runs next, and a 來源 line names each site once: ✓ when it answered (Reddit, PTT: how long
   ago its page was read), else why not (`讀不到` is not "nothing happened there"; right-click copies it). **↻ 現在更新**
-  runs it now; **⤢** shows the panel alone in its row (again: back). 面板：每個主題的數字和原因；點開看熱門留言、來源連結、深入查／三句話說明。標題下面寫上次和下次更新、哪些網站有回應；⤢ 放大。
+  runs it now; **⤢** shows the panel alone in its row (again: back). 面板：每個主題的數字和原因；點開看熱門留言、來源連結；卡片右上的 🔎 深入查、💬 三句話說明、☆ 收藏。標題下面寫上次和下次更新、哪些網站有回應；⤢ 放大。
   last30days names 5 to 10 topics (it checks each across sites, marked 跨站), then the list has everything each site's
   own front page gave, HN's, Reddit's (r/all, today), PTT's, Dcard's, Threads' and Digg's in turn (marked by site; a
-  story a topic already cites is left out), about 200 rows, grouped by subject (AI, 科技, 股票, 財經, 政治, 國際, 科學, 娛樂,
-  遊戲, 體育, 趣聞, 其他) from words in the title, Digg's topic, Reddit's subreddit, PTT's board or Dcard's forum: no
-  model, so some land in the wrong group. Reddit's page is opened by your installed Chrome or Edge, headless, with a
+  story a topic already cites is left out), about 200 rows, grouped by subject (AI, 軟體, 硬體, 3C, 科技, 科學, 股票,
+  財經, 政治, 社會, 國際, 娛樂, 遊戲, 體育, 生活, 搞笑, 美食, 旅遊, 汽車, 其他; busiest first) from words in the title
+  (Chinese and English), Reddit's subreddit, PTT's board, Dcard's forum, then Digg's topic and the site's usual (HN:
+  軟體; PTT 八卦's [新聞] and [爆卦]: 社會; Dcard and Threads: 生活; Reddit's front page: 搞笑): no
+  model, so some land in the wrong group (`list.js`: add a word or a board there). Reddit's page is opened by your installed Chrome or Edge, headless, with a
   profile of its own (Reddit blocks scripts with 403). PTT's is plain HTTP: its 8 most popular boards (hotboards,
   adult ones left out) and on each the posts with 50 推 or more (`over18=1` is the site's own age check, not a sign-in).
   Dcard's popular list is what https://www.dcard.tw/f fetches itself, in the same headless Chrome (its API gives
@@ -138,11 +140,14 @@ Windows 一樣：複製 mod，用工作排程器每 10 分鐘跑；公司電腦�
 
 ## My topics, stars, 排列 and sites in 熱門 / 熱門的主題、收藏、排列、來源
 
-The chips on top of the list, row by row: **全部**, **⭐ 收藏**, **🔥 升溫**, **🆕 新進榜**; your topics (**🔍 …**, **✕**
-takes one out, it asks first) and **＋ 加主題**; the subjects; the sites (**HN**, **Reddit**, **PTT**, **Dcard**,
-**Threads**, **Digg**: one shows only that site's cards, a story on several sites under each). Each site has its
-color, from Herdr's theme: its chip, the card's left edge, the chip on the card.
-上面一排排：全部、收藏、升溫、新進榜；你的主題和「＋ 加主題」；分類；各站（點一個只看那站）。每站一個顏色（Herdr 主題的顏色）。
+The chips on top are one row that scrolls sideways: **全部**, **⭐ 收藏**, **🔥 升溫**, **🆕 新進榜** (each only when it
+has cards), your topics (**🔍 …**, **✕** takes one out, it asks first), **＋ 加主題**, then the subjects with 3 cards or
+more, busiest first. **篩選** at its right opens the rest: the sites (**HN**, **Reddit**, **PTT**, **Dcard**,
+**Threads**, **Digg**: one shows only that site's cards, a story on several sites under each), **排列**, and the
+subjects with 1 or 2 cards; one picked there shows on the button (篩選・PTT). Each site has its color, from Herdr's
+theme: its chip, the card's left edge, the chip on the card. A card's own line (its headline, its excerpt) isn't
+shown when it only says the title again.
+上面一排可以左右滑：全部、收藏、升溫、新進榜、你的主題、「＋ 加主題」、分類（3 則以上，多的在前）；右邊「篩選」打開各站、排列、少的分類。
 
 **＋ 加主題**: type words (台積電, 子瑜), searched at once (`node fetch.js --topics`: a minute or two, Reddit and Dcard
 open Chrome) and then about every hour, on four sites, each its own way: HN's Algolia search (the last 7 days); PTT's
@@ -154,9 +159,11 @@ topics live in `trend/topics.txt`, one per line (`#` a comment); what was found 
 加主題：打關鍵字，馬上去 HN、PTT、Reddit、Dcard 搜，之後約每小時一次；標題要有主題一半的字、30 天內的才留，每站 15 則。被擋那站連熱門一起停。
 
 **☆** on a card keeps it under **⭐ 收藏** for good (`trend/hot-stars.json`), split by the topic or subject it was
-under. **排列**: 最熱 (each site's own order, in turn), 最新進榜 (when it showed up), 升溫最快 (its rise), 留言最多;
-⭐ 收藏 keeps newest starred first. The chip and the 排列 you picked are remembered, Herdr restarts too.
-☆ 收藏一直留著，照主題或分類分開放；排列：最熱、最新進榜、升溫最快、留言最多；選的都會記住。
+under; with ⭐ 收藏 picked, a second row has a chip for each of those groups (**全部收藏**, then one each). **排列**:
+最熱 (each site's own order, in turn), 最新進榜 (when it showed up), 升溫最快 (its rise), 留言最多; ⭐ 收藏 keeps newest
+starred first. The chip, the group and the 排列 you picked are remembered, Herdr restarts too. The 影片 tab's ⭐ 收藏
+has the same second row, by the topic that found each video.
+☆ 收藏一直留著，照主題或分類分開放；選「⭐ 收藏」會多一排分組可以點；排列：最熱、最新進榜、升溫最快、留言最多；選的都會記住。影片的收藏也一樣。
 
 ## My videos / 我的影片
 

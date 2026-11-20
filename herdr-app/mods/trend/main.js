@@ -62,7 +62,14 @@ const SYNC_CELL = "trend-sync", SYNC_KEY = "sync.key", SYNC_MOVED = "sync.migrat
 const SYNC_EVERY = 5 * 60000, SYNC_BATCH = 50, SYNC_URL = 1000000;
 const hash = (s) => { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return h; };
 const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
-// a page in Herdr's colors and font size: <nav> chips filter the <section data-cat>s; [data-do] clicks set the #hash
+// two texts saying the same (letters and digits only): a line that is the title again isn't shown
+const flat = (s) => String(s ?? "").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
+const same = (a, b) => { const x = flat(a); return !x || flat(b).includes(x); };
+// under ⭐ 收藏: a chip per group it is split by (a topic, a subject), shown only while ⭐ 收藏 is
+const starSubs = (groups) => (groups.length > 1 ? `<div class="row subs" hidden><button data-sub="*">全部收藏</button>`
+  + groups.map(([u, n]) => `<button data-sub="${esc(u)}">${esc(u || "其他")} ${n}</button>`).join("") + "</div>" : "");
+// a page in Herdr's colors and font size: <nav> chips filter the <section data-cat>s; [data-do] clicks set the #hash.
+// The chips are one row that scrolls sideways (the chosen one scrolled into view); 篩選 opens the less used ones.
 function pageHtml(body) {
   const t = theme(), z = fs();
   return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><style>
@@ -70,7 +77,13 @@ function pageHtml(body) {
 --accent-fg:${t.accent_foreground ?? t.background};--solid:${t.solid};--solid-fg:${t.solid_foreground};--green:${t.ansi2};--yellow:${t.ansi3};
 --c1:${t.ansi1};--c2:${t.ansi2};--c3:${t.ansi3};--c4:${t.ansi4};--c5:${t.ansi5};--c6:${t.ansi6}}
 html,body{margin:0;background:var(--bg);color:var(--fg);font:${z}px/1.45 -apple-system,"PingFang TC","Microsoft JhengHei",system-ui,sans-serif}
-nav{position:sticky;top:0;z-index:1;display:flex;flex-wrap:wrap;gap:6px;padding:8px 10px;background:var(--bg);border-bottom:1px solid var(--border)}
+nav{position:sticky;top:0;z-index:1;display:flex;flex-direction:column;gap:6px;padding:8px 10px;background:var(--bg);border-bottom:1px solid var(--border)}
+nav .row{display:flex;gap:6px;align-items:center;overflow-x:auto;scrollbar-width:none}nav .row::-webkit-scrollbar{display:none}nav .row>button{flex:none;white-space:nowrap}
+nav .row[hidden],nav .panel[hidden]{display:none}nav .subs button{font-size:.82em}
+nav .panel{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding-top:6px;border-top:1px dashed var(--border)}
+nav .panel .br{flex-basis:100%;height:0}nav .lbl{font-size:.82em;color:var(--muted);display:inline-flex;flex-wrap:wrap;gap:6px;align-items:center}
+nav button.pt{margin-left:auto;position:sticky;right:0;box-shadow:-8px 0 8px var(--bg)}
+.ib{flex:none;border:0;background:none;padding:0 2px;font-size:1em;line-height:1.3;cursor:pointer;opacity:.55}.ib:hover{opacity:1}.ib.rep{opacity:.9}
 nav button{font:inherit;font-size:.88em;padding:2px 10px;border-radius:999px;border:1px solid var(--border);background:var(--raised);color:var(--muted);cursor:pointer}
 nav button.on{background:var(--accent);color:var(--accent-fg);border-color:var(--accent)}nav button:disabled{opacity:.4;cursor:default}
 nav button:not(.on):not(:disabled):hover{color:var(--fg);border-color:var(--accent)}
@@ -113,11 +126,19 @@ blockquote{margin:6px 0;padding-left:8px;border-left:2px solid var(--border);col
 </style></head><body>${body}
 <script>
 const K=location.pathname.split("/").pop()+":",get=(k)=>{try{return localStorage.getItem(K+k)}catch{return null}},set=(k,v)=>{try{localStorage.setItem(K+k,v)}catch{}};
-const nav=document.querySelector("nav");
 // a chip shows its subject's sections (a section with data-show even with no cards: its 正在搜); 升溫 and 新進榜 show
 // those cards wherever they are, a site (site:PTT) its cards
-const show=(c)=>{for(const b of document.querySelectorAll("nav button"))b.classList.toggle("on",b.dataset.cat===c);for(const s of document.querySelectorAll("section")){let any=false;for(const k of s.querySelectorAll(".card")){const ok=c==="all"||s.dataset.cat===c||(c==="rising"&&"rising" in k.dataset)||(c==="new"&&"new" in k.dataset)||(String(c).startsWith("site:")&&(k.dataset.feeds||"").split(",").includes(c.slice(5)));k.hidden=!ok;any||=ok}s.hidden=!any&&!(s.hasAttribute("data-show")&&(c==="all"||s.dataset.cat===c))}set("cat",c)};
-if(nav){nav.onclick=(e)=>{const b=e.target.closest("button");if(b){show(b.dataset.cat);scrollTo(0,0)}};const c=get("cat");show([...nav.querySelectorAll("button")].some((b)=>b.dataset.cat===c)?c:"all")}
+const nav=document.querySelector("nav"),subs=document.querySelector("nav .subs"),panel=document.querySelector("nav .panel"),pt=document.querySelector("nav [data-panel]");
+// ⭐ 收藏's groups: one group, or all of them (*)
+const showSub=(u)=>{if(!subs)return;if(![...subs.querySelectorAll("button")].some((b)=>b.dataset.sub===u))u="*";for(const b of subs.querySelectorAll("button"))b.classList.toggle("on",b.dataset.sub===u);for(const s of document.querySelectorAll('section[data-cat="⭐ 收藏"]'))s.hidden=u!=="*"&&s.dataset.under!==u;set("sub",u)};
+const openPanel=(on)=>{if(!panel)return;panel.hidden=!on;set("panel",on?"1":"")};
+const show=(c)=>{for(const b of document.querySelectorAll("nav button[data-cat]"))b.classList.toggle("on",b.dataset.cat===c);for(const s of document.querySelectorAll("section")){let any=false;for(const k of s.querySelectorAll(".card")){const ok=c==="all"||s.dataset.cat===c||(c==="rising"&&"rising" in k.dataset)||(c==="new"&&"new" in k.dataset)||(String(c).startsWith("site:")&&(k.dataset.feeds||"").split(",").includes(c.slice(5)));k.hidden=!ok;any||=ok}s.hidden=!any&&!(s.hasAttribute("data-show")&&(c==="all"||s.dataset.cat===c))}set("cat",c);
+if(subs){subs.hidden=c!=="⭐ 收藏";if(c==="⭐ 收藏")showSub(get("sub")||"*")}
+// a chip chosen in 篩選 says so on its button, so the row tells what is shown
+if(pt){const p=panel&&[...panel.querySelectorAll("button[data-cat]")].find((b)=>b.dataset.cat===c);pt.classList.toggle("on",Boolean(p));pt.textContent=p?"篩選・"+p.textContent.replace(/\\s*\\d+$/,""):"篩選 ▾"}
+nav.querySelector(".row button.on")?.scrollIntoView({block:"nearest",inline:"center"})};
+if(nav){nav.onclick=(e)=>{const b=e.target.closest("button");if(!b)return;if("panel" in b.dataset){openPanel(panel.hidden);return}if(b.dataset.sub){showSub(b.dataset.sub);scrollTo(0,0);return}if(b.dataset.cat){show(b.dataset.cat);scrollTo(0,0)}};
+const c=get("cat");show([...nav.querySelectorAll("button[data-cat]")].some((b)=>b.dataset.cat===c)?c:"all");openPanel(get("panel")==="1")}
 document.querySelector("main").onclick=(e)=>{const b=e.target.closest("[data-do]");if(!b||e.target.closest("a"))return;const k=b.closest(".card").dataset;
 location.hash="do="+b.dataset.do+(k.topic?"&topic="+encodeURIComponent(k.topic):"")+(k.name?"&name="+encodeURIComponent(k.name):"")+"&n="+Date.now();
 setTimeout(()=>history.replaceState(null,"",location.pathname),500)};
@@ -1066,18 +1087,23 @@ export default class Trend extends View {
         + `${MOMENTUM[r.momentum] ? `<span class="chip ${r.momentum === "new-this-week" ? "new" : "up"}">${MOMENTUM[r.momentum]}</span>` : ""}`
         + `${r.also?.length ? `<span class="chip x">${sites > 1 ? `${sites} 站` : `${all.length} 篇`}</span>` : ""}`
         + `<span class="chip site${r.feed ? ` s-${esc(r.feed)}` : " x"}">${esc(r.feed ?? "跨站")}</span>`
+        + `<button class="ib" data-do="deep" title="深入查：trend agent 查完寫一份報告">🔎</button><button class="ib" data-do="three" title="三句話說明">💬</button>`
+        + `${this.reportFor(r.topic) ? '<button class="ib rep" data-do="report" title="看報告">📄</button>' : ""}`
         + `<button class="star${starred ? " on" : ""}" data-do="hstar" title="${starred ? "取消收藏" : "收藏：一直留著"}">${starred ? "⭐" : "☆"}</button></div>`
-        + `${line ? `<div class="meta">${esc(line)}</div>` : ""}${why(r) ? `<div class="why">${esc(why(r))}</div>` : ""}`
-        + `${longer && r.feed !== "Threads" ? `<div class="excerpt">${esc(body)}</div>` : ""}${also}`
-        + `${more ? `<details><summary>更多</summary>${more}</details>` : ""}`
-        + `<div class="acts"><button class="main" data-do="deep">🔎 深入查</button><button data-do="three">三句話說明</button>`
-        + `${this.reportFor(r.topic) ? '<button class="rep" data-do="report">📄 看報告</button>' : ""}</div></div>`;
+        // a headline or excerpt that only says the title again isn't shown
+        + `${line ? `<div class="meta">${esc(line)}</div>` : ""}${why(r) && !same(why(r), r.topic) ? `<div class="why">${esc(why(r))}</div>` : ""}`
+        + `${longer && r.feed !== "Threads" && !same(body, r.topic) ? `<div class="excerpt">${esc(body)}</div>` : ""}${also}`
+        + `${more ? `<details><summary>更多</summary>${more}</details>` : ""}</div>`;
     };
     const nUp = every.filter((r) => [r, ...(r.also ?? [])].some(rising)).length, nNew = every.filter((r) => [r, ...(r.also ?? [])].some(fresh)).length;
     // ⭐ 收藏 by where each was (your topics' order, the subjects', then the rest), newest starred first in each
-    const starred = Object.values(this.hotStars ?? {}).sort((a, b) => String(b.starred).localeCompare(String(a.starred)));
+    // (趣聞 was 生活's name before 2026-11-20)
+    const starred = Object.values(this.hotStars ?? {}).map((x) => (x.under === "趣聞" ? { ...x, under: "生活" } : x))
+      .sort((a, b) => String(b.starred).localeCompare(String(a.starred)));
     const starUnder = [...new Set([...tops.map(([q]) => q), ...cats, ...starred.map((x) => x.under ?? "")])]
       .map((u) => [u, starred.filter((x) => (x.under ?? "") === u)]).filter(([, xs]) => xs.length);
+    // the busy subjects get a chip in the row; the ones with 1 or 2 cards wait in 篩選 (none: no chip)
+    const big = used.filter(([c, rows]) => rows.length >= 3 && c !== "其他"), small = used.filter((g) => !big.includes(g));
     const siteCount = (f) => every.filter((r) => [r, ...(r.also ?? [])].some((x) => x.feed === f)).length;
     const d = this.topicsData ?? {}, siteName = { hn: "HN", ptt: "PTT", reddit: "Reddit", dcard: "Dcard" };
     // a topic's state: 正在搜, or what its sites said (a block, a page it couldn't read)
@@ -1086,27 +1112,29 @@ export default class Trend extends View {
       const errs = Object.keys(siteName).map((s) => d.errors?.[`${s} ${q}`] ?? d.errors?.[s] ? `${siteName[s]}：${d.errors[`${s} ${q}`] ?? d.errors[s]}` : "").filter(Boolean);
       return `${n ? "" : '<p class="empty">還沒有結果：下一輪搜（約一小時一次）</p>'}${errs.map((e) => `<p class="err">${esc(e)}</p>`).join("")}`;
     };
-    return pageHtml(`<style>nav .br{flex-basis:100%;height:0}nav .x{margin-left:7px;opacity:.55}nav .x:hover{opacity:1;color:${t.ansi1}}`
+    return pageHtml(`<style>nav .x{margin-left:7px;opacity:.55}nav .x:hover{opacity:1;color:${t.ansi1}}`
       + `nav button.addt{color:var(--accent);border-style:dashed}nav button.s{border-style:dotted}.err{margin:2px 12px;font-size:.85em;color:${t.ansi1}}`
       + `.empty{margin:4px 12px 8px;font-size:.88em;color:var(--muted)}#addbox{margin:10px 10px 4px;padding:10px;border:1px dashed var(--border);border-radius:9px}`
       + `#addbox .hd{font-size:.85em;color:var(--muted);margin-bottom:8px}#addform{display:flex;gap:6px}`
       + `#addq{flex:1;min-width:0;font:inherit;padding:4px 8px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--fg)}`
       + `#addform button{font:inherit;font-size:.88em;padding:3px 10px;border-radius:6px;border:1px solid var(--solid);background:var(--solid);color:var(--solid-fg);cursor:pointer}`
-      + `#addform button:hover{box-shadow:0 0 0 2px var(--accent)}.sortbar{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:10px 12px 0;font-size:.85em;color:var(--muted)}`
-      + `.sortbar button{font:inherit;padding:1px 9px;border-radius:999px;border:1px solid var(--border);background:var(--bg);color:var(--muted);cursor:pointer}`
-      + `.sortbar button:not(.on):hover{color:var(--fg);border-color:var(--accent)}.sortbar button.on{background:var(--raised);color:var(--fg);border-color:var(--accent)}`
+      + `#addform button:hover{box-shadow:0 0 0 2px var(--accent)}`
       + `.star{flex:none;border:0;background:none;padding:0 2px;font-size:1.1em;line-height:1.2;color:var(--muted);cursor:pointer}.star:hover,.star.on{color:var(--yellow)}</style>`
-      + `<nav><button data-cat="all">全部 ${every.length}</button>${starred.length ? `<button data-cat="⭐ 收藏">⭐ 收藏 ${starred.length}</button>` : ""}`
-      + `<button data-cat="rising"${nUp ? "" : " disabled"}>🔥 升溫 ${nUp}</button><button data-cat="new"${nNew ? "" : " disabled"}>🆕 新進榜 ${nNew}</button><i class="br"></i>`
+      + `<nav><div class="row"><button data-cat="all">全部 ${every.length}</button>${starred.length ? `<button data-cat="⭐ 收藏">⭐ 收藏 ${starred.length}</button>` : ""}`
+      + `${nUp ? `<button data-cat="rising">🔥 升溫 ${nUp}</button>` : ""}${nNew ? `<button data-cat="new">🆕 新進榜 ${nNew}</button>` : ""}`
       + tops.map(([q, rows]) => `<button data-cat="🔍 ${esc(q)}">🔍 ${esc(q)} ${this.hotSearching?.has(q) ? '<span class="spin"></span>' : rows.length}<span class="x" data-act="tdrop" data-q="${esc(q)}" title="拿掉這個主題">✕</span></button>`).join("")
-      + `<button class="addt" data-act="toggle">＋ 加主題</button><i class="br"></i>`
-      // every subject and site has its chip (one with nothing now: greyed), so the set stays the same from hour to hour
-      + [...groups].map(([c, rows]) => `<button data-cat="${esc(c)}"${rows.length ? "" : " disabled"}>${esc(c)} ${rows.length}</button>`).join("") + '<i class="br"></i>'
-      + ["HN", "Reddit", "PTT", "Dcard", "Threads", "Digg"].map((f) => `<button class="s s-${f}" data-cat="site:${f}"${siteCount(f) ? "" : " disabled"}>${f} ${siteCount(f)}</button>`).join("")
+      + `<button class="addt" data-act="toggle">＋ 加主題</button>`
+      + big.map(([c, rows]) => `<button data-cat="${esc(c)}">${esc(c)} ${rows.length}</button>`).join("")
+      + `<button class="pt" data-panel>篩選 ▾</button></div>`
+      + starSubs(starUnder.map(([u, xs]) => [u, xs.length]))
+      // 篩選: the sites, the 排列, the small subjects
+      + `<div class="panel" hidden><span class="lbl">來源</span>${["HN", "Reddit", "PTT", "Dcard", "Threads", "Digg"].filter(siteCount)
+        .map((f) => `<button class="s s-${f}" data-cat="site:${f}">${f} ${siteCount(f)}</button>`).join("")}`
+      + `<i class="br"></i><span class="lbl sortbar">排列 ${[["hot", "最熱"], ["new", "最新進榜"], ["up", "升溫最快"], ["c", "留言最多"]].map(([k, l]) => `<button data-act="sort" data-k="${k}">${l}</button>`).join("")}</span>`
+      + `${small.length ? `<i class="br"></i><span class="lbl">其他分類</span>${small.map(([c, rows]) => `<button data-cat="${esc(c)}">${esc(c)} ${rows.length}</button>`).join("")}` : ""}</div>`
       + `</nav><main><div id="addbox" hidden><div class="hd">加主題：打一個關鍵字（例：台積電、子瑜），馬上去 HN、PTT、Reddit、Dcard 搜，之後約每小時一次</div>`
       + `<form id="addform"><input id="addq" placeholder="例如：台積電" autocomplete="off"><button>加</button></form></div>`
-      + `<div class="sortbar">排列：${[["hot", "最熱"], ["new", "最新進榜"], ["up", "升溫最快"], ["c", "留言最多"]].map(([k, l]) => `<button data-act="sort" data-k="${k}">${l}</button>`).join("")}</div>`
-      + starUnder.map(([u, xs]) => `<section data-cat="⭐ 收藏" data-keep><h2>⭐ 收藏${u ? ` · ${esc(u)}` : ""}</h2>${xs.map(card).join("")}</section>`).join("")
+      + starUnder.map(([u, xs]) => `<section data-cat="⭐ 收藏" data-under="${esc(u)}" data-keep><h2>⭐ 收藏${u ? ` · ${esc(u)}` : ""}</h2>${xs.map(card).join("")}</section>`).join("")
       + tops.map(([q, rows]) => `<section data-cat="🔍 ${esc(q)}" data-show><h2>🔍 ${esc(q)}</h2>${status(q, rows.length)}${rows.map(card).join("")}</section>`).join("")
       + used.map(([c, rows]) => `<section data-cat="${esc(c)}"><h2>${esc(c)}</h2>${rows.map(card).join("")}</section>`).join("") + "</main>"
       // this page's own clicks, before pageHtml's: ＋ 加主題 opens the box (remembered), 加 adds, ✕ drops (asks first),
@@ -1176,16 +1204,16 @@ export default class Trend extends View {
       + `.sortbar{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:10px 12px 0;font-size:.85em;color:var(--muted)}`
       + `.sortbar button{font:inherit;padding:1px 9px;border-radius:999px;border:1px solid var(--border);background:var(--bg);color:var(--muted);cursor:pointer}.sortbar button:not(.on):hover{color:var(--fg);border-color:var(--accent)}`
       + `.sortbar button.on{background:var(--raised);color:var(--fg);border-color:var(--accent)}</style>`
-      + `<nav><button data-cat="all">全部 ${items.length}</button>${starred.length ? `<button data-cat="⭐ 收藏">⭐ 收藏 ${starred.length}</button>` : ""}`
+      + `<nav><div class="row"><button data-cat="all">全部 ${items.length}</button>${starred.length ? `<button data-cat="⭐ 收藏">⭐ 收藏 ${starred.length}</button>` : ""}`
       + `${groups.map(([q, xs]) => `<button data-cat="${esc(q)}">${esc(q)} ${this.searching?.has(q) ? '<span class="spin"></span>' : xs.length}<span class="x" data-act="drop" data-q="${esc(q)}" title="拿掉這個主題和它的影片">✕</span></button>`).join("")}`
-      + `<button class="addt" data-act="toggle">＋ 加主題</button></nav>`
+      + `<button class="addt" data-act="toggle">＋ 加主題</button></div>${starSubs(starTopics.map(([q, xs]) => [q, xs.length]))}</nav>`
       + `<main><div id="addbox" hidden><div class="hd">加主題：打一個 YouTube 搜尋，或點一個建議，馬上搜；影片會出現在它自己的分類</div>`
       + `<form id="addform"><input id="addq" placeholder="例如：TWICE 子瑜 直拍" autocomplete="off"><button>加</button></form>`
       + `${sug.length ? `<div class="sugs">${sug.map((s) => `<button data-act="add" data-q="${esc(s.q)}" title="${esc(s.why)}">＋ ${esc(s.q)}</button>`).join("")}</div>` : ""}</div>`
       + `<div class="sortbar">看：${[["rel", "最相關"], ["views", "最多人看"], ["new", "最新上傳"]]
         .map(([k, l]) => `<button data-act="sort" data-q="${k}">${l}</button>`).join("")}</div>`
       + `${errs}${queries.length ? "" : '<p class="empty">還沒有主題：按上面的「＋ 加主題」</p>'}`
-      + starTopics.map(([q, xs]) => `<section data-cat="⭐ 收藏" data-keep><h2>⭐ 收藏${q ? ` · ${esc(q)}` : ""}</h2>${xs.map(card).join("")}</section>`).join("")
+      + starTopics.map(([q, xs]) => `<section data-cat="⭐ 收藏" data-under="${esc(q)}" data-keep><h2>⭐ 收藏${q ? ` · ${esc(q)}` : ""}</h2>${xs.map(card).join("")}</section>`).join("")
       + `${groups.map(([q, xs]) => `<section data-cat="${esc(q)}" data-show><h2>🔍 ${esc(q)}</h2>${status(q, xs.length)}`
         + `<p class="empty none" hidden>這份清單還沒有影片</p>${xs.map(card).join("")}</section>`).join("")}</main>`
       // this page's own clicks, before pageHtml's: ＋ 加主題 opens the box (remembered), a suggestion or 加 adds, ✕ drops

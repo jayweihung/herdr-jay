@@ -31,6 +31,7 @@ A tab-bar button **熱門** and a panel, like Gerrit's (macOS and Windows):
   scripts Cloudflare's 403). Threads has no trending list for a visitor: its front page shows its own pick (about 10
   posts a load), so each run's pick joins the last day's, most 讚 first, 30 kept. Each is read every 2 to 3 hours
   (Dcard 3 to 4); blocked, it waits 6, then 12, then 24 hours before one more try, and the 來源 line turns red.
+  On that line a healthy site is quiet; a failed one is red, and one whose page is over 12 hours old is yellow.
   last30days 只挑 5 到 10 題（每題跨站比對過，標「跨站」），後面放 HN、Reddit、PTT、Dcard、Threads、Digg 自己熱門的全部（約 200
   條），依主題分組（看標題關鍵字、Digg 分類、Reddit／PTT／Dcard 看板；不叫模型，偶爾會分錯）。Reddit、Dcard、Threads 用本機
   的 Chrome／Edge 無頭開（各自的設定檔，不讀你的登入）；PTT 用純 HTTP 抓熱門看板前 8 個的「推文 ≥ 50」；Threads 沒有訪客看得到的

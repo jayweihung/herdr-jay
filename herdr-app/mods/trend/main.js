@@ -16,6 +16,7 @@ const TOGGLE = "trend-toggle", PANEL = "trend-panel";
 const JOB = "com.herdr-jay.trend";   // the launchd job that runs fetch.js (docs/trend.md)
 const TASK = "herdr-jay-trend";      // the same on Windows: a Task Scheduler task
 const EVERY = 10 * 60000;            // its StartInterval: every 10 minutes
+const STALE = 12 * 3600000;          // a front page not read for 3 times its slowest interval (fetch.js gently: 4 hours)
 const SEEN = "trend.seen.v1";        // the topics shown when the panel was last opened: the button counts the others
 // The Kit panel's (mods/kit): the agents its sources have, and the places it is asked to make. A kit trend agent
 // placed in a space is a folder whose .agentkit says agent:trend (kit place).
@@ -272,7 +273,7 @@ export default class Trend extends View {
     this.role = blockProps()?.role ?? "panel";
     if (this.role !== "toggle") {
       cx.spawn(async (cx) => { this.changes = await readChanges("trend"); cx.notify(); });
-      this.box = InputState.new({ placeholder: "問 trend agent，例如：這週 AI 圈最大的事是什麼？" });
+      this.box = InputState.new({ placeholder: "問 trend agent" });
       this.box.on("submit", (_e, cx) => cx.spawn(async (cx) => this.askFree(cx))); // Enter
       // while a video plays the box asks about it (askFree adds which video)
       this.videoBox = InputState.new({ placeholder: "問這支影片，例如：這段在講什麼？" });
@@ -872,12 +873,14 @@ export default class Trend extends View {
     const red = Boolean(this.bad || (this.failed && !this.running));
     // One row, each site once: ✓ when it answered (last30days' search and the site's own front page), else why not.
     // Reddit, PTT, Dcard and Threads are only their front pages, read every 2 to 4 hours (how long ago, red when blocked).
+    // Quiet while healthy: red when it failed, yellow when its page is older than STALE.
     // Right-click copies the reason.
     const st = this.data?.source_status ?? {}, fe = this.feeds ?? {};
     const site = (key, name, l30, feed) => {
       const why = (l30 && st[l30] && st[l30] !== "ok" ? STATE[st[l30]] ?? st[l30] : null) ?? (feed ? fe.errors?.[feed] ?? null : null);
       const ok = !why && (!feed || (fe[feed]?.length ?? 0) > 0);
-      return { key, name, why, ok, when: ok && fe[`${feed}At`] ? ` ${ago(Date.parse(fe[`${feed}At`]))}` : "", red: Boolean(fe[`${feed}BlockedAt`]) };
+      const at = Date.parse(fe[`${feed}At`] ?? "");
+      return { key, name, why, ok, when: ok && at ? ` ${ago(at)}` : "", red: Boolean(why || fe[`${feed}BlockedAt`]), stale: ok && Date.now() - at > STALE };
     };
     const sites = [site("hn", "HN", "hackernews", "hn"), site("reddit", "Reddit", null, "reddit"), site("ptt", "PTT", null, "ptt"),
       site("dcard", "Dcard", null, "dcard"), site("threads", "Threads", null, "threads"), site("digg", "Digg", "digg", "digg"),
@@ -902,7 +905,7 @@ export default class Trend extends View {
         .on_mouse_down("right", copyOn(this.msg)).child(this.msg)))
       .when(Boolean(this.data || this.feeds), (el) => el.child(h_flex().px(12).pb(6).gap(10).flex_wrap().items_center().text_size(z - 2)
         .child(div().text_color(t.dim).child("來源"))
-        .children(sites.map((s) => div().id(`site-${s.key}`).text_color(s.ok ? t.ansi2 : s.red ? t.ansi1 : t.dim).on_mouse_down("right", copyOn(s.why ?? ""))
+        .children(sites.map((s) => div().id(`site-${s.key}`).text_color(s.red ? t.ansi1 : s.stale ? t.ansi3 : s.ok ? t.muted : t.dim).on_mouse_down("right", copyOn(s.why ?? ""))
           .child(s.ok ? `${s.name} ✓${s.when}` : `${s.name} ${s.why ?? "—"}`)))));
   }
 

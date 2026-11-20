@@ -315,7 +315,11 @@ export default class Trend extends View {
   }
 
   get dir() { return `${appHome().replace(/\\/g, "/")}/trend`; }
+  // a load that fails says so where its pages would be (it was 「載入中」 for good, with no way to tell why)
   async load(cx) {
+    try { await this.loadOnce(cx); this.loadErr = null; } catch (e) { this.loadErr = String(e?.stack ?? e).slice(0, 600); cx.notify(); }
+  }
+  async loadOnce(cx) {
     const [t, s, f, v, p, tj, lj] = await Promise.all(["trends.json", "status.json", "feeds.json", "videos.json", "player", "topics.json", "list.json"].map((n) => readTextFile(`${this.dir}/${n}`).catch(() => null)));
     if (lj !== this.listText) try { this.listData = lj ? JSON.parse(lj) : null; this.listText = lj; } catch { this.listData = null; }
     this.player = (p ?? "").split("\n")[0].trim();
@@ -855,8 +859,10 @@ export default class Trend extends View {
         .text_size(12).bg(on ? t.selected : t.chrome).text_color(on ? t.foreground : t.muted)
         .hover((st) => st.bg(t.hover)).on_mouse_down("left", stop)
         .on_click((_e, cx) => {
-          if (!on) setShared(SEEN, this.shown.map((r) => r.topic)); // opening it: what it shows now counts as seen
+          // the toggle first: a setShared before it re-renders every mod and the layout change was lost (the button
+          // could hide the panel but never show it)
           run("layout.toggle", { id: PANEL });
+          if (!on) setShared(SEEN, this.shown.map((r) => r.topic)); // opening it: what it shows now counts as seen
           cx.notify();
         })
         .child("熱門")
@@ -921,7 +927,10 @@ export default class Trend extends View {
   // new write loads it again, wherever the element went since (the same src never reloads). persist: the page's
   // localStorage (the chip, 看, the ＋ box) outlives the panel and Herdr restarts
   pageCell(t, cell, file) {
-    if (this.written?.[file] === undefined) return div().flex_1().p(14).text_color(t.muted).child("載入中…");
+    if (this.written?.[file] === undefined) {
+      const err = this.writeErr?.[file] ? `寫不出頁面：${this.writeErr[file]}` : this.loadErr ? `載入失敗：${this.loadErr}` : null;
+      return div().flex_1().p(14).text_color(err ? t.ansi1 : t.muted).child(err ?? "載入中…");
+    }
     return div().flex_1().min_h(0).child(web.new(cell, { src: `${fileUrl(`${this.viewDir}/${file}`)}?v=${this.written[file].at}`, persist: true }));
   }
   get viewDir() { return `${appHome().replace(/\\/g, "/")}/mods/trend/.view`; }
@@ -938,8 +947,11 @@ export default class Trend extends View {
     const path = `${this.viewDir}/${file}`;
     try {
       await fsp.mkdir(this.viewDir, { recursive: true });
+      // half an emoji (a text cut short before fetch.js cut whole characters) can't be written: dropped
+      html = html.replace(/[\ud800-\udbff](?![\udc00-\udfff])|(^|[^\ud800-\udbff])[\udc00-\udfff]/g, "$1");
       await writeTextFile(path, html, await readTextFile(path).catch(() => null));
-    } catch { return; }   // tried again on the next load (15 s)
+    } catch (e) { (this.writeErr ??= {})[file] = `${String(e?.message ?? e)}（${Math.round(html.length / 1024)}K 字）`; return; }   // tried again on the next load (15 s)
+    if (this.writeErr) delete this.writeErr[file];
     this.written[file] = { html, at: Date.now() };
   }
   // A click in a page: #do=deep|three|report&topic=… or do=open&name=…, &n=<the click's time>; each click once (a

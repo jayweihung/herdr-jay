@@ -122,6 +122,8 @@ function chromeMajor(exe) {
   try { const v = fs.readdirSync(path.dirname(exe)).find((n) => /^\d+\.\d+\./.test(n)); if (v) return v.split(".")[0]; } catch {}
   return /(\d+)\.\d+\./.exec(spawnSync(exe, ["--version"], { encoding: "utf8", timeout: 20000 }).stdout ?? "")?.[1] ?? "150";
 }
+// a text cut short: never in the middle of an emoji (half of one can't be written as UTF-8: the panel's page was refused)
+const cut = (s, n) => s.slice(0, n).replace(/[\ud800-\udbff]$/, "");
 const unescapeHtml = (s) => s.replace(/&quot;/g, '"').replace(/&#39;|&#x27;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
 // the <shreddit-post> elements of the page (each says its title, subreddit, score, comments; a text post holds its
 // words in slot="text-body"), NSFW ones left out
@@ -136,7 +138,7 @@ function redditPosts(html) {
       return { title: a["post-title"], url: a["content-href"] || discussion, discussion, subreddit: a["subreddit-prefixed-name"] ?? "",
         score: Number(a.score) || 0, comments: Number(a["comment-count"]) || 0,
         created: Date.parse(a["created-timestamp"] ?? "") ? new Date(Date.parse(a["created-timestamp"])).toISOString() : undefined,
-        body: unescapeHtml(text.replace(/<\/p>|<br\s*\/?>/gi, "\n").replace(/<[^>]+>/g, "")).replace(/\n{3,}/g, "\n\n").trim().slice(0, 2000) };
+        body: cut(unescapeHtml(text.replace(/<\/p>|<br\s*\/?>/gi, "\n").replace(/<[^>]+>/g, "")).replace(/\n{3,}/g, "\n\n").trim(), 2000) };
     });
 }
 // a plain Chrome's user agent, its version the installed one's (150 when there's none); worked out once a run
@@ -222,8 +224,8 @@ async function pttTexts(f) {
 // a post's own words: what's between the header lines and 「※ 發信站」 (no signature, no 推文), 2000 characters at most
 function pttText(html) {
   const main = /<div id="main-content"[^>]*>([\s\S]*)/.exec(html)?.[1] ?? "";
-  return unescapeHtml(main.replace(/<div class="article-metaline(-right)?">[\s\S]*?<\/div>/g, "").split(/※ 發信站|<span class="f2">※/)[0]
-    .replace(/<br\s*\/?>/gi, "\n").replace(/<[^>]+>/g, "")).replace(/\n--\s*$/m, "").replace(/\n{3,}/g, "\n\n").trim().slice(0, 2000);
+  return cut(unescapeHtml(main.replace(/<div class="article-metaline(-right)?">[\s\S]*?<\/div>/g, "").split(/※ 發信站|<span class="f2">※/)[0]
+    .replace(/<br\s*\/?>/gi, "\n").replace(/<[^>]+>/g, "")).replace(/\n--\s*$/m, "").replace(/\n{3,}/g, "\n\n").trim(), 2000);
 }
 
 // A page opened by the installed Chrome or Edge, headless but saying it is a plain Chrome, driven over DevTools
@@ -318,8 +320,8 @@ async function readThreads(before) {
   };
   for (const m of p.html.matchAll(/<script type="application\/json"[^>]*>([\s\S]*?)<\/script>/g)) if (m[1].includes("thread_items")) try { walk(JSON.parse(m[1])); } catch {}
   for (const b of p.bodies) for (const line of b.body.split("\n")) if (line.includes("thread_items")) try { walk(JSON.parse(line)); } catch {}
-  const fresh = found.map((x) => { const text = (x.caption?.text ?? "").trim(); return { title: text.replace(/\s+/g, " ").slice(0, 120) || "(無文字)",
-    url: `https://www.threads.com/@${x.user?.username}/post/${x.code}`, score: x.like_and_view_counts_disabled ? 0 : x.like_count ?? 0, body: text.slice(0, 2000),
+  const fresh = found.map((x) => { const text = (x.caption?.text ?? "").trim(); return { title: cut(text.replace(/\s+/g, " "), 120) || "(無文字)",
+    url: `https://www.threads.com/@${x.user?.username}/post/${x.code}`, score: x.like_and_view_counts_disabled ? 0 : x.like_count ?? 0, body: cut(text, 2000),
     comments: x.text_post_app_info?.direct_reply_count ?? 0, author: x.user?.username ?? "", created: new Date(x.taken_at * 1000).toISOString(), seen: now() }; });
   if (!fresh.length) throw new Error("首頁沒有貼文（要登入了，或版面改了）");
   const all = new Map([...(before?.threads ?? []).filter((x) => Date.now() - Date.parse(x.seen ?? "") < 24 * HOUR_MS), ...fresh].map((x) => [x.url, x]));

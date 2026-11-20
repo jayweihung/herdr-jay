@@ -151,7 +151,7 @@ export class AgentPopup {
     const f0 = this.filter, hit = (i) => !f0 || [i.name, i.description, i.description_zh, i.source, i.from, i.path].some((x) => String(x ?? "").toLowerCase().includes(f0));
     const body = v_flex().id("kit-agent-body").flex_1().min_h(0).overflow_y_scrollbar().px(10).py(8).gap(8);
     body.child(Input.new(this.input).flex_none().h(28).px(8).rounded(6).border_1().border_color(t.border).bg(t.background).text_size(z - 1).text_color(t.foreground));
-    const kindName = { rule: "規則", skill: "Skills", mcp: "MCP", plugin: "外掛" };
+    const kindName = { rule: "規則", skill: "技能", mcp: "MCP", plugin: "外掛" };
     // 1. what kit run started it with: only this agent has it, for this run
     if (ag) {
       body.child(div().font_semibold().child(`這次啟動帶的（agent ${ag.name}）`));
@@ -276,7 +276,7 @@ export class AgentPopup {
     const note = (text, color) => div().text_size(z - 1.5).text_color(color ?? t.muted).child(text);
     const form = v_flex().gap(4).pl(2)
       .child(note(b.kind === "plugin" ? "外掛要原本的網址（kit collect 連同 LICENSE 收）。可以貼它資料夾的網頁網址。"
-        : "知道原本的網址：kit collect 連同 LICENSE 收（可以貼 skill 資料夾的網頁網址）。不知道：kit new 照這台的這份收。"))
+        : "知道原本的網址：kit collect 連同 LICENSE 收（可以貼技能資料夾的網頁網址）。不知道：kit new 照這台的這份收。"))
       .child(Input.new(this.takeUrl).flex_none().h(28).px(8).rounded(6).border_1().border_color(t.border).bg(t.background).text_size(z - 1).text_color(t.foreground));
     if (!own.length) return row.child(form.child(note("沒有自己的來源（push: direct）可以收：只收進自己的，不收進團隊的。", t.ansi1)));
     form.child(h_flex().gap(4).items_center().flex_wrap().child(note("收進："))
@@ -383,7 +383,7 @@ export class AgentPopup {
       }
       missing.push({
         key: `${i.name}-${pk.kind}`, install: pk.bad ? "" : pk.install, label: pk.had ? "更新" : "安裝", title: `${i.name} 的 ${lang} 套件`,
-        what: pk.had ? `它的 ${lang} 套件要更新（skill 改過了）` : `需要先裝它自己的 ${lang} 套件`,
+        what: pk.had ? `它的 ${lang} 套件要更新（技能改過了）` : `需要先裝它自己的 ${lang} 套件`,
         note: py ? "裝在 kit 自己的 venv，只裝現成的 wheel，不跑套件自己的安裝程式" : "裝在 kit 自己的資料夾，只裝 npm registry 上的版本，不跑套件自己的安裝程式",
         none: !pk.bad ? (py ? "要先有 Python 才能裝" : "要先有 Node.js（npm）才能裝")
           : py ? `kit 不裝：requirements.txt 第 ${pk.bad}（只能寫套件名和版本）`

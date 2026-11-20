@@ -415,7 +415,7 @@ export function readApi(r, machine = null) {
 export function partsLine(p) {
   if (!p) return "";
   const many = (what, names) => (names?.length ? `${names.length} 個 ${what}（${names.join("、")}）` : "");
-  const bits = [many("skill", p.skills), many("指令", p.commands), many("agent", p.agents), many("MCP", p.mcp), p.hooks ? "hook" : ""].filter(Boolean);
+  const bits = [many("技能", p.skills), many("指令", p.commands), many("agent", p.agents), many("MCP", p.mcp), p.hooks ? "hook" : ""].filter(Boolean);
   return bits.length ? `裡面有：${bits.join("、")}` : "";
 }
 export function apiState(machine = null) { return (shared(API) ?? {})[machine ?? ""] ?? null; }
@@ -516,7 +516,7 @@ export function outdatedLine(o) {
   const few = (xs) => xs.slice(0, 3).join("、") + (xs.length > 3 ? ` 等 ${xs.length} 個` : "");
   const nw = names("new"), gone = names("unreachable");
   const parts = [nw.length ? `原作者有新版：${few(nw)}` : "", gone.length ? `連不到原作者：${few(gone)}` : ""].filter(Boolean);
-  return parts.length ? { kind: "kit", what: `Kit：收來的 skill ${parts.join("；")}。到 Kit 面板 Skills 看`, where: "這台", since: o.at ?? null, panel: "skill" } : null;
+  return parts.length ? { kind: "kit", what: `Kit：收來的技能，${parts.join("；")}。到 Kit 面板「技能」看`, where: "這台", since: o.at ?? null, panel: "skill" } : null;
 }
 
 // 等你放行: the commit hook (agentkit-check) blocks a file for what it is (its mode, its type, a binary) unless the owner

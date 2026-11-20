@@ -352,12 +352,12 @@ test("這次用了: kit used's arguments, a row's count (a plugin: its skills to
   assert.deepEqual(X.usedOf(u, "mcp", "kit-ping"), { count: 4, recent: false });
   for (const a of [[u, "skill", "nope"], [u, "rule", "brainstorming"], [null, "skill", "pt"], [{ turn: 0, skills: [] }, "skill", "x"]]) assert.equal(X.usedOf(...a), null);
   assert.deepEqual(X.usedOf({ turn: 0, skills: [{ name: "a", count: 1, turn: 0 }] }, "skill", "a"), { count: 1, recent: false });
-  assert.equal(X.usedLine(u), "這次對話用了：skill pt-review（2 次・剛剛）、skill brainstorming（1 次）、skill pt（1 次）、MCP kit-ping（4 次）");
-  assert.equal(X.usedLine({ turn: 2, skills: [], mcp: [] }), "這次對話還沒用到 skill 或 MCP");
+  assert.equal(X.usedLine(u), "這次對話用了：技能 pt-review（2 次・剛剛）、技能 brainstorming（1 次）、技能 pt（1 次）、MCP kit-ping（4 次）");
+  assert.equal(X.usedLine({ turn: 2, skills: [], mcp: [] }), "這次對話還沒用到技能或 MCP");
   assert.equal(X.usedLine(null), "");
 });
 test("a plugin's parts: one line, empty without them", ({ common: X }) => {
-  assert.equal(X.partsLine({ skills: ["pt", "pt-review"], commands: [], agents: [], mcp: [], hooks: true }), "裡面有：2 個 skill（pt、pt-review）、hook");
+  assert.equal(X.partsLine({ skills: ["pt", "pt-review"], commands: [], agents: [], mcp: [], hooks: true }), "裡面有：2 個 技能（pt、pt-review）、hook");
   assert.equal(X.partsLine({ skills: [], commands: ["go"], agents: [], mcp: ["db"], hooks: false }), "裡面有：1 個 指令（go）、1 個 MCP（db）");
   assert.equal(X.partsLine({ skills: [], commands: [], agents: [], mcp: [], hooks: false }), "");
   assert.equal(X.partsLine(undefined), "");
@@ -1567,7 +1567,7 @@ test("header: an agent pane asks kit api, then kit list --dir --pid and kit cont
   assert.ok(list, "kit list asked");
   assert.deepEqual(list.argv.slice(1), ["list", "--json", "--dir", "/Users/amy/x", "--pid", "4242"]);
   assert.equal(kitCalls("context").length, 1);
-  assert.match(render(v), /skill/);
+  assert.match(render(v), /技能/);
   fresh(); fakeKit({ api: null });
   H.spaces = [{ id: "s1", tabs: [{ id: "tab1" }] }];
   H.panes = [{ pane: "p1", terminal: "t1", tab: "tab1", cwd: "/x", status: "idle", program: { agent: true, name: "Claude Code" } }];
@@ -1978,7 +1978,7 @@ test("收進來（N 個）: several skills ticked (every one that can be, at fir
   v.part.newUrl.set_value("https://github.com/a/r");
   render(v); H.clicks.look({}, cx); await settle();
   let shown = render(v);
-  assert.match(shown, /這個 repo 有 4 個 skill，勾了 2 個/, "no LICENSE and a name of your own: not ticked");
+  assert.match(shown, /這個 repo 有 4 個技能，勾了 2 個/, "no LICENSE and a name of your own: not ticked");
   assert.match(shown, /✓ tdd/); assert.match(shown, /✕ nolic/); assert.match(shown, /✕ calm/);
   assert.match(shown, /其中 1 個有會執行的程式/); assert.match(shown, /其中 1 個是 GPL/); assert.match(shown, /會一起加進 mine 的允許清單/);
   assert.match(shown, /加進清單並收進來（2 個）/);
@@ -2023,7 +2023,7 @@ test("收進來, your own source (push: direct): sent right after, added to the 
   assert.deepEqual(args("push"), [["push", "--to", "mine", "--json"]], "sent once, no dry run (looked at in 下載看看)");
   assert.deepEqual(args("add"), [["add", "skill", "tdd", "grill"]], "added in one go (kit api 1.8)");
   shown = render(v);
-  assert.match(shown, /收了 2 個/); assert.match(shown, /已送出：mine 推上去了/); assert.match(shown, /已加到整個帳號/);
+  assert.match(shown, /收了 2 個/); assert.match(shown, /mine 已推上去/); assert.match(shown, /已加到整個帳號/);
   assert.match(shown, /請簽 mine/); assert.match(shown, /kit approve \/s\/mine --push/);
   render(v); H.clicks["sign-copy"]({}, cx); assert.deepEqual(H.clipboard, ["kit approve /s/mine --push"], "copied, nothing run");
   assert.equal(kitCalls("approve").length, 0);
@@ -2093,13 +2093,13 @@ test("收來的: kit outdated --json once a day (kit api 1.8): 有新版 / 連�
   const C = M.common;
   const o = C.outdatedFrom({ skills: [{ source: "mine", name: "tdd", state: "new", now: "b" }, { source: "mine", name: "archify", state: "unreachable" }, { source: "mine", name: "triage", state: "latest" }] }, 5);
   assert.equal(C.outdatedOf(o, { src: "mine", name: "tdd" }), "new"); assert.equal(C.outdatedOf(o, { source: "x", name: "tdd" }), null);
-  assert.deepEqual(C.outdatedLine(o), { kind: "kit", what: "Kit：收來的 skill 原作者有新版：tdd；連不到原作者：archify。到 Kit 面板 Skills 看", where: "這台", since: 5, panel: "skill" });
+  assert.deepEqual(C.outdatedLine(o), { kind: "kit", what: "Kit：收來的技能，原作者有新版：tdd；連不到原作者：archify。到 Kit 面板「技能」看", where: "這台", since: 5, panel: "skill" });
   assert.equal(C.outdatedLine(C.outdatedDone(C.outdatedDone(o, "mine", ["tdd"]), "mine", ["archify"])), null, "collected again: nothing to tell");
   assert.equal(C.outdatedLine(null), null);
   // 先不收: no reminder for that version, 有新版先不收 instead; the author's next one reminds again; 再提醒 undoes it
   const l = C.outdatedLater(o);
   assert.equal(C.outdatedOf(l, { src: "mine", name: "tdd" }), "later");
-  assert.deepEqual(C.outdatedLine(l)?.what, "Kit：收來的 skill 連不到原作者：archify。到 Kit 面板 Skills 看");
+  assert.deepEqual(C.outdatedLine(l)?.what, "Kit：收來的技能，連不到原作者：archify。到 Kit 面板「技能」看");
   const l2 = C.outdatedFrom({ skills: [{ source: "mine", name: "tdd", state: "new", now: "b" }] }, 6, l.later);
   assert.equal(C.outdatedLine(l2), null, "checked again, the same newer one: still later");
   const l3 = C.outdatedFrom({ skills: [{ source: "mine", name: "tdd", state: "new", now: "c" }] }, 7, l.later);
@@ -2121,11 +2121,11 @@ test("收來的: kit outdated --json once a day (kit api 1.8): 有新版 / 連�
   const v = view(M, { role: "repo" }); await settle(); await tick(); await settle(); await tick(); await settle();
   assert.deepEqual(args("outdated"), [["outdated", "--json"]]);
   let shown = render(v);
-  assert.match(shown, /收來的（照網址分）[\s\S]*1 個有新版、1 個連不到原作者（剛剛查的）/);
+  assert.match(shown, /收來的（照網址分）[\s\S]*1 個有新版、1 個連不到原作者/);
   assert.match(shown, /收新版（1）/);
   assert.match(shown, /archify[\s\S]*連不到[\s\S]*收自 tt\/archify/, "a single row: its badge");
-  assert.match(shown, /a\/r[\s\S]*2 個[\s\S]*1 個有新版/, "the group says how many");
-  H.clicks["group-a/r"]({}, cx); assert.match(render(v), /tdd[\s\S]*有新版[\s\S]*tdd desc/);
+  assert.match(shown, /a\/r[\s\S]*2 個[\s\S]*1 個新版/, "the group says how many");
+  H.clicks["group-a/r"]({}, cx); assert.match(render(v), /tdd[\s\S]*新版[\s\S]*tdd desc/);
   await tick(); await settle(); assert.equal(args("outdated").length, 1, "once a day");
   assert.equal(JSON.parse(localStorage.getItem("kit.outdated")).skills["mine|tdd"].state, "new", "kept on this computer");
   H.clicks["outdated-collect"]({}, cx); await settle(); await settle();
@@ -2136,7 +2136,7 @@ test("收來的: kit outdated --json once a day (kit api 1.8): 有新版 / 連�
   assert.match(shown, /收了 1 個（原作者的新版）：tdd/); assert.doesNotMatch(shown, /收新版（/); assert.match(shown, /1 個連不到原作者/);
   out = { ...out, skills: [row("tdd", "latest"), row("triage", "latest"), row("archify", "latest")] };
   H.clicks["outdated-check"]({}, cx); await settle();
-  assert.equal(args("outdated").length, 2, "⟳ asks now"); assert.match(render(v), /都是原作者最新的（剛剛查的）/);
+  assert.equal(args("outdated").length, 2, "⟳ asks now"); assert.match(render(v), /都是原作者最新的/);
   // an older kit: never asked
   fresh(); fakeKit({ api: "1.7", list: { ...TEAM_LIST, sources: [{ name: "mine", source: "/x", dir: "/x", push: "direct", changed: [] }], items: [skill("tdd")] } });
   H.files = { "/x/third_party.lock": "tdd\thttps://github.com/a/r\tskills/tdd\n" };
@@ -2169,11 +2169,11 @@ test("等你放行: what the commit hook blocked (ask.txt) is a card; 放行並�
   assert.equal(H.files["/Users/amy/.config/agentkit-dev/ask.txt"], `/s/other\t${b1}\ty\tz\nbad line\n`, "the other repo still asks");
   assert.deepEqual(args("pending"), [["pending", "done", "allow-mine"]]);
   assert.deepEqual(args("push"), [["push", "--to", "mine", "--json"]]);
-  let shown = render(v); assert.match(shown, /已放行並送出：mine 推上去了/); assert.doesNotMatch(shown, /等你放行：mine/); assert.match(shown, /等你放行：other/);
+  let shown = render(v); assert.match(shown, /已放行，mine 已推上去/); assert.doesNotMatch(shown, /等你放行：mine/); assert.match(shown, /等你放行：other/);
   v = await run("no");
   assert.equal(H.files["/Users/amy/.config/agentkit-dev/allow.txt"], undefined, "nothing allowed");
   assert.deepEqual([args("pending"), args("push")], [[["pending", "done", "allow-mine"]], []]);
-  assert.match(render(v), /沒放行：mine 的改動還在這台，沒有送出/);
+  assert.match(render(v), /沒放行，mine 的改動還在這台，沒有送出/);
 });
 
 // ---------- an agent in a space (place.js, agents.js): kit place, then a tab there ----------

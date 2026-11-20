@@ -37,9 +37,9 @@ export function usedOf(u, kind, name) {
 // the line above the list: everything this conversation used (also what is not kit's), the last used first
 export function usedLine(u) {
   if (!u) return "";
-  const all = [...(u.skills ?? []).map((x) => ({ ...x, k: "skill" })), ...(u.mcp ?? []).map((x) => ({ ...x, k: "MCP" }))]
+  const all = [...(u.skills ?? []).map((x) => ({ ...x, k: "技能" })), ...(u.mcp ?? []).map((x) => ({ ...x, k: "MCP" }))]
     .sort((a, b) => (Number(b.turn) || 0) - (Number(a.turn) || 0));
-  if (!all.length) return "這次對話還沒用到 skill 或 MCP";
+  if (!all.length) return "這次對話還沒用到技能或 MCP";
   return `這次對話用了：${all.map((x) => `${x.k} ${x.name}（${x.count} 次${Number(u.turn) > 0 && Number(x.turn) === Number(u.turn) ? "・剛剛" : ""}）`).join("、")}`;
 }
 // the line typed into the agent: its tool's own command (kit context --detail names it); what to keep goes after
@@ -307,7 +307,7 @@ export function ctxTips(d, canRemove = (_group, _name) => false) {
   }
   const mem = [...items("memory"), ...items("instructions")].sort((a, b) => b.tokens - a.tokens)[0];
   if (mem && mem.tokens >= 2000)
-    tips.push(`${mem.name} 有 ${kfmt(mem.tokens)}，每次對話都整份讀進來：不常用的內容可以搬到 skill（用到才讀）。`);
+    tips.push(`${mem.name} 有 ${kfmt(mem.tokens)}，每次對話都整份讀進來：不常用的內容可以搬到技能（用到才讀）。`);
   const other = cat("other");
   if (d.tool === "claude" && other >= 5000 && other >= used * 0.2)
     tips.push(`有 ${kfmt(other)} 這次分不出細項（剛剛才加進來的，或這個 session 之後才連上的 MCP）：等一下按 ⟳ 再看。`);

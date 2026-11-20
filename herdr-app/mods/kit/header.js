@@ -78,7 +78,7 @@ function summary(d) {
   const ag = d.here?.agent;
   if (ag) for (const [k, key] of [["rule", "rules"], ["skill", "skills"], ["mcp", "mcp"]]) for (const n of ag[key] ?? []) names[k].add(n);
   const news = (d.items ?? []).filter((i) => i.new && i.kind !== "agent").length;
-  const counts = [["規則", names.rule.size], ["skill", names.skill.size], ["MCP", names.mcp.size]];
+  const counts = [["規則", names.rule.size], ["技能", names.skill.size], ["MCP", names.mcp.size]];
   return { text: counts.map(([l, n]) => `${l} ${n}`).join(" · "), level: news ? "new" : "ok", news, counts, agent: ag?.name ?? null };
 }
 
@@ -213,7 +213,7 @@ function offerMenu(cx) {
       const files = await hasMod("agent-files");
       pageMod = await hasMod("agent-page");
       const items = [{ id: "context", label: "context 細項" }, ...(files ? [{ id: "files", label: "讀過、改過的檔案" }] : []),
-        ...(pageMod ? [{ id: "page", label: "說明頁：進度和它寫的頁面" }] : []), { id: "kit", label: "Kit：它用的規則、skill、MCP" }];
+        ...(pageMod ? [{ id: "page", label: "說明頁：進度和它寫的頁面" }] : []), { id: "kit", label: "Kit：它用的規則、技能、MCP" }];
       setShared("agents.menu", { ...(shared("agents.menu") ?? {}), kit: { at: Date.now(), items } });
     } finally { offerMenu.busy = false; }
   });

@@ -38,7 +38,7 @@ import { loadMachines, machinesDue, machinesData, pendingRows, pendingDue, refre
 const PANEL = NODES.agents;
 const WHO_TTL = 120000;   // how long a pending's agent (found by its pid) is kept
 const SHORT = 120000, STALE = 50000;
-const KINDS = [["rule", "rules", "規則"], ["skill", "skills", "Skills"], ["mcp", "mcp", "MCP"]];
+const KINDS = [["rule", "rules", "規則"], ["skill", "skills", "技能"], ["mcp", "mcp", "MCP"]];
 const TOOL_NAMES = { claude: "Claude", codex: "Codex", omp: "omp" };
 const GIT = { new: "新的，還沒送出", changed: "改過" };
 
@@ -427,7 +427,7 @@ export class Agents {
       .child(alertsView(t, z, g, now, select, { nudged: this.nudged, onNudge: (w, cx) => this.nudge(g, w, cx), pending,
         // the Kit panel, shown if it was hidden (never hidden by a click here)
         onPanel: (panel) => {
-          if (panel === "machines" || panel === "skill") setShared(KIT_TAB, panel);   // the panel shows that tab (各機器, Skills)
+          if (panel === "machines" || panel === "skill") setShared(KIT_TAB, panel);   // the panel shows that tab (各機器, 技能)
           const n = find(layout(), NODES.repo); if (!n || n.hidden) run("layout.toggle", { id: NODES.repo });
         } }) ?? div());
     if (this.view === "time") {
@@ -492,7 +492,7 @@ export class Agents {
       : "按「放到 space…」：在那個 space 的資料夾裡建 agent 自己的資料夾，開一個分頁跑它。"));
     const tool = this.curTool(), live = liveNow();
     for (const a of ags) {
-      const counts = `規則 ${(a.rules ?? []).length} · skill ${(a.skills ?? []).length} · MCP ${(a.mcp ?? []).length}`;
+      const counts = `規則 ${(a.rules ?? []).length} · 技能 ${(a.skills ?? []).length} · MCP ${(a.mcp ?? []).length}`;
       body.child(draggable(h_flex().id(`ag-${a.name}`).gap(10).items_center().px(8).py(6).rounded(6).cursor_pointer()
         .hover((s) => s.bg(t.hover)).on_mouse_down("left", stop)
         .on_click((_e, cx) => { this.open = a.name; localSet("kit.agents.open", a.name); this.adding = {}; this.picking = false; this.liveBot(cx); setShared(AGENTS_MSG, null); cx.notify(); })
@@ -519,7 +519,7 @@ export class Agents {
   spacePicker(t, z, a) {
     const all = spaces() ?? [], busy = Boolean(this.busy), tool = this.curTool();
     const box = v_flex().gap(2).p(8).rounded(6).border_1().border_color(t.border).text_size(z - 1.5)
-      .child(div().text_color(t.muted).child(`選一個 space：在它的資料夾裡建 ${a.name} 自己的資料夾（它的規則、skill、MCP、prompt、工具限制），開一個新分頁跑 ${TOOL_NAMES[tool] ?? tool}。`));
+      .child(div().text_color(t.muted).child(`選一個 space：在它的資料夾裡建 ${a.name} 自己的資料夾（它的規則、技能、MCP、prompt、工具限制），開一個新分頁跑 ${TOOL_NAMES[tool] ?? tool}。`));
     if (!all.length) box.child(div().text_color(t.dim).child("沒有開著的 space。"));
     for (const s of all) {
       const where = placeDir(s, a.name);

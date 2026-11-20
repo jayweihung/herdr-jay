@@ -346,7 +346,7 @@ export class Repo {
         this.stage = { ...this.stage, step: 3, text: `kit check、commit、推到 ${p.push === "pr" ? "送出的分支、開 PR" : "每個遠端"}（約 1～2 分鐘）` };
         cx.notify();
         const r = await pushJson(p.name, false, LONG);
-        let text = r.text || (r.sent ? "送出了" : "失敗");
+        let text = r.text || (r.sent ? "已推上去" : "失敗");
         if (r.sent && r.push === "pr") text += `\n\n${r.prUrl ? `PR：${r.prUrl}\n` : ""}改的檔案現在在送出的分支上：PR 合併、kit sync 之後才會回到這裡。`;
         this.setMsg({ ok: !r.code, label: `送出 ${p.name}`, text, at: Date.now() });
         this.plan = (this.plan ?? []).filter((x) => x.name !== p.name);
@@ -427,10 +427,10 @@ export class Repo {
         setShared(ALLOW_ASK, ask);
         await kit(["pending", "done", `allow-${g.name}`], SHORT).catch(() => null);
         const src = (this.data?.sources ?? []).find((s) => slash(s.dir ?? "").replace(/\/+$/, "") === g.repo.replace(/\/+$/, ""));
-        if (!yes) { this.setMsg({ ok: true, label: "不放行", text: `沒放行：${g.name} 的改動還在這台，沒有送出。`, at: Date.now() }); return; }
-        if (!src) { this.setMsg({ ok: true, label: "放行", text: `已放行 ${g.files.length} 個檔案。${g.name} 不是 kit 的來源：請再 commit／push 一次。`, at: Date.now() }); return; }
+        if (!yes) { this.setMsg({ ok: true, plain: true, label: "不放行", text: `沒放行，${g.name} 的改動還在這台，沒有送出`, at: Date.now() }); return; }
+        if (!src) { this.setMsg({ ok: true, plain: true, label: "放行", text: `已放行 ${g.files.length} 個檔案。${g.name} 不是 kit 的來源，請再 commit／push 一次`, at: Date.now() }); return; }
         const r = await pushJson(src.name, false, LONG).catch((e) => ({ sent: false, text: String(e?.message ?? e) }));
-        this.setMsg({ ok: r.sent, label: "送出", text: r.sent ? `已放行並送出：${src.name} 推上去了。` : `已放行，但送出 ${src.name} 沒成功：\n${r.text}`, at: Date.now() });
+        this.setMsg({ ok: r.sent, plain: r.sent, label: "送出", text: r.sent ? `已放行，${src.name} 已推上去` : `已放行，但 ${src.name} 沒推上去：\n${r.text}`, at: Date.now() });
         this.changed();
       } finally { this.endBusy(); try { cx.notify(); } catch {} }
     });
@@ -440,9 +440,9 @@ export class Repo {
   repoHeader(t, z) {
     const d = this.data, busy = this.busy, inBar = Boolean(find(layout(), NODES.repoToggle));
     const dirty = d?.dirty ?? [], nItems = dirty.reduce((a, x) => a + x.items, 0), nAgents = dirty.reduce((a, x) => a + x.agents, 0);
-    const what = [nItems ? `規則／skill／MCP ${nItems} 個檔案` : "", nAgents ? `agent ${nAgents} 個` : ""].filter(Boolean).join("、");
+    const what = [nItems ? `規則／技能／MCP ${nItems} 個檔案` : "", nAgents ? `agent ${nAgents} 個` : ""].filter(Boolean).join("、");
     const stuck = dirty.some((x) => checkBad(d, x.name));
-    const sub = what ? `改過${what}，${stuck ? "有問題送不出去" : "還沒送出"}` : d && !d.error ? `${(d.items ?? []).length} 樣` : "規則、skill、MCP 都在這裡";
+    const sub = what ? `改過${what}，${stuck ? "有問題送不出去" : "還沒送出"}` : d && !d.error ? `${(d.items ?? []).length} 樣` : "規則、技能、MCP 都在這裡";
     const head = h_flex().px(10).py(8).gap(6).items_center()
       .child(div().size(32).flex_none().rounded(8).bg(t.raised).flex().items_center().justify_center().font_semibold().text_size(z - 1).child("Kit"))
       .child(v_flex().flex_1().min_w(0)
@@ -481,7 +481,7 @@ export class Repo {
   // tabs per kind, + 新增, a search, the list; a row opens the file in the editor
   repo(t, z, d) {
     const items = d.items ?? [], f = this.filter;
-    const tabs = [["rule", "規則"], ["skill", "Skills"], ["mcp", "MCP"], ["plugin", "外掛"], ["machines", "各機器"]];
+    const tabs = [["rule", "規則"], ["skill", "技能"], ["mcp", "MCP"], ["plugin", "外掛"], ["machines", "各機器"]];
     const kind = tabs.some(([k]) => k === this.kind) ? this.kind : "skill";
     const box = v_flex().flex_1().min_h(0);
     box.child(h_flex().flex_none().px(10).pt(8).gap(4).items_center().children(tabs.map(([k, label]) => {
@@ -561,7 +561,7 @@ export class Repo {
   // Every step says where the file goes and what comes next.
   maker(t, z, d, kind) {
     const srcs = d.sources ?? [], m = this.making, cur = m.source, src = srcs.find((x) => x.name === cur);
-    const what = { rule: "規則", skill: "skill", mcp: "MCP", plugin: "外掛" }[kind];
+    const what = { rule: "規則", skill: "技能", mcp: "MCP", plugin: "外掛" }[kind];
     const mode = kind === "plugin" ? "collect" : kind === "skill" ? (m.mode === "collect" ? "collect" : "write") : kind === "mcp" ? (m.mode === "paste" ? "paste" : "write") : "write";
     const note = (text, color) => div().text_size(z - 1.5).text_color(color ?? t.muted).child(text);
     const chip = (id, label, on, click) => div().id(id).px(8).py(3).rounded(5).text_size(z - 1.5).cursor_pointer()
@@ -577,8 +577,8 @@ export class Repo {
       .child(chip("mode-paste", "貼上設定", mode === "paste", (cx) => { m.mode = "paste"; this.pasteCode(); cx.notify(); })));
     if (mode === "collect") box.child(v_flex().gap(3).child(note("網址（公司內請用自己 Git 伺服器的網址）", t.dim))
       .child(Input.new(this.newUrl).h(30).px(8).rounded(6).border_1().border_color(t.accent).bg(t.background).text_size(z - 1).text_color(t.foreground))
-      .child(note(kind === "plugin" ? "kit 會下載這個 repo，認出外掛（有 .claude-plugin/plugin.json），只收 Claude、Codex、omp 會讀的部分（skill、hook、MCP、指令），連同原作者的 LICENSE 收進你的倉。外掛的 hook 會在 agent 開始、送出訊息時自動跑程式，收之前請看清楚。"
-        : "kit 會下載這個 repo，找出裡面的 skill（有 SKILL.md 的資料夾），連同原作者的 LICENSE 收進你的倉。", t.dim)));
+      .child(note(kind === "plugin" ? "kit 會下載這個 repo，認出外掛（有 .claude-plugin/plugin.json），只收 Claude、Codex、omp 會讀的部分（技能、hook、MCP、指令），連同原作者的 LICENSE 收進你的倉。外掛的 hook 會在 agent 開始、送出訊息時自動跑程式，收之前請看清楚。"
+        : "kit 會下載這個 repo，找出裡面的技能（有 SKILL.md 的資料夾），連同原作者的 LICENSE 收進你的倉。", t.dim)));
     else if (mode === "paste") {
       if (!apiAtLeast(null, 3)) box.child(note("貼上設定要 kit 0.5.0 以上：在終端機打  kit self-update，好了再按上面的 ⟳。", t.ansi1));
       box.child(v_flex().gap(3)
@@ -622,7 +622,7 @@ export class Repo {
       m.sel ??= sk.map((y, j) => (collectBlock(y, lk) ? -1 : j)).filter((j) => j >= 0);
       const all = sk.map((y, j) => (collectBlock(y, lk) ? -1 : j)).filter((j) => j >= 0);
       card.child(h_flex().gap(6).items_center().flex_wrap()
-          .child(div().flex_1().min_w(0).text_size(z - 1.5).text_color(t.foreground).child(`這個 repo 有 ${sk.length} 個 skill，勾了 ${m.sel.length} 個（點一下勾／不勾，下面看它的說明）：`))
+          .child(div().flex_1().min_w(0).text_size(z - 1.5).text_color(t.foreground).child(`這個 repo 有 ${sk.length} 個技能，勾了 ${m.sel.length} 個（點一下勾／不勾，下面看它的說明）：`))
           .child(btn(t, z, "pick-all", "全選", { small: true, off: Boolean(this.busy) || m.sel.length === all.length, on: (cx) => { m.sel = all; cx.notify(); } }))
           .child(btn(t, z, "pick-none", "全不選", { small: true, off: Boolean(this.busy) || !m.sel.length, on: (cx) => { m.sel = []; cx.notify(); } })))
         .child(h_flex().gap(4).flex_wrap().children(sk.map((y, j) => {
@@ -634,7 +634,7 @@ export class Repo {
           });
         })));
     }
-    if (!x) return box.child(card.child(note("找不到 skill。", t.ansi1)));
+    if (!x) return box.child(card.child(note("找不到技能。", t.ansi1)));
     // every line first, then the head with its button: an element can be added to a parent only once
     const scripts = String(x.scripts ?? "").split(" ").filter(Boolean), desc = String(x.description ?? "");
     const lines = [];
@@ -678,7 +678,7 @@ export class Repo {
     if (unk) all.child(note(`其中 ${unk} 個認不出授權種類：收進來後請自己看它的 LICENSE。`, t.foreground));
     if (again) all.child(note(`其中 ${again} 個之前收過：會整份換成這次下載的版本。`, t.working));
     if (allow) all.child(note(`${lk.id} 會一起加進 ${lk.source} 的允許清單。`, t.working));
-    all.child(note("會一個一個收（每個都重新下載一次，大的 repo 要等一下）；不能收的會跳過，最後列出來。收好一個就出現在 Skills 清單「收來的」底下（照網址分一組），不用等全部收完。"));
+    all.child(note("會一個一個收（每個都重新下載一次，大的 repo 要等一下）；不能收的會跳過，最後列出來。收好一個就出現在技能清單「收來的」底下（照網址分一組），不用等全部收完。"));
     all.children(this.afterNotes(t, z, lk));
     all.child(h_flex().gap(6).items_center()
       .child(btn(t, z, "collect-many", this.busy === "收" ? "收進來中…" : `${allow ? "加進清單並收進來" : "收進來"}（${picked.length} 個）`,
@@ -897,12 +897,14 @@ export class Repo {
     const o = shared(OUTDATED), api = apiAtLeast(null, 8), mine = (this.data?.items ?? []).filter((i) => (i.kind === "skill" || i.kind === "plugin") && i.from);
     const nNew = mine.filter((i) => outdatedOf(o, i) === "new").length, nGone = mine.filter((i) => outdatedOf(o, i) === "unreachable").length;
     const nLater = mine.filter((i) => outdatedOf(o, i) === "later").length;
-    const said = !api ? "" : this.outBusy ? "查原作者有沒有新版…" : o?.err ? `沒查成功（${agoText(o.at)}）：${o.err}`
-      : !o?.at ? "" : `${[nNew ? `${nNew} 個有新版` : "", nLater ? `${nLater} 個有新版先不收` : "", nGone ? `${nGone} 個連不到原作者` : ""].filter(Boolean).join("、") || "都是原作者最新的"}（${agoText(o.at)}查的）`;
+    // the counts only, so they fit beside the buttons; when it was asked is in the hover
+    const said = !api ? "" : this.outBusy ? "查原作者有沒有新版…" : o?.err ? `沒查成功：${o.err}`
+      : !o?.at ? "" : [nNew ? `${nNew} 個有新版` : "", nLater ? `${nLater} 個先不收` : "", nGone ? `${nGone} 個連不到原作者` : ""].filter(Boolean).join("、") || "都是原作者最新的";
+    const when = o?.at && !this.outBusy ? `${agoText(o.at)}查的` : "";
     const keep = (o2, cx) => { setShared(OUTDATED, o2); localSet("kit.outdated", JSON.stringify(o2)); cx.notify(); };
     return h_flex().flex_none().px(8).pt(8).pb(2).gap(6).items_center()
       .child(div().flex_none().text_size(z - 2).font_semibold().text_color(t.dim).child("收來的（照網址分）"))
-      .child(div().flex_1().min_w(0).truncate().text_size(z - 2.5).text_color(o?.err || nGone ? t.ansi1 : nNew ? t.accent : t.dim).child(said))
+      .child(div().id("outdated-said").flex_1().min_w(0).truncate().text_size(z - 2.5).text_color(o?.err || nGone ? t.ansi1 : nNew ? t.accent : t.dim).tooltip([said, when].filter(Boolean).join("，")).child(said))
       .when(api, (el) => el.child(btn(t, z, "outdated-check", this.outBusy ? "查…" : "⟳", { tiny: true, off: Boolean(this.outBusy), on: (cx) => this.checkOutdated(cx) })))
       .when(nNew > 0, (el) => el.child(btn(t, z, "outdated-later", "先不收", { tiny: true, on: (cx) => keep(outdatedLater(o), cx) })))
       .when(nLater > 0 && nNew === 0, (el) => el.child(btn(t, z, "outdated-remind", "再提醒", { tiny: true, on: (cx) => keep(outdatedRemind(o), cx) })))
@@ -965,7 +967,7 @@ export class Repo {
       step(`送出 ${j.source}（kit check、commit、推上去）`);
       const r = await pushJson(j.source, false, LONG).catch((e) => ({ sent: false, text: String(e?.message ?? e) }));
       sent = r.sent;
-      lines.push(sent ? `已送出：${j.source} 推上去了。` : `送出 ${j.source} 沒成功（收的檔案還在）：\n${r.text}\n改好再按清單上面黃色那條的「送出」。`);
+      lines.push(sent ? `${j.source} 已推上去` : `送出 ${j.source} 沒成功（收的檔案還在）：\n${r.text}\n改好再按清單上面黃色那條的「送出」。`);
     } else if (j.other) lines.push(`沒有自動送出：${j.source} 還有別的改動沒送。按清單上面黃色那條的「送出」，一起看過再送。`);
     else lines.push("下一步：用 git diff 看收了哪些檔案 → 清單上面黃色那條按「送出」送上去（團隊的倉會開 PR，合併、kit sync 後才回到這裡）。");
     if (j.add) {
@@ -1021,6 +1023,7 @@ export class Repo {
     const ch = g.rows.some((i) => i.changed), o = shared(OUTDATED);
     const nNew = g.rows.filter((i) => outdatedOf(o, i) === "new").length, gone = g.rows.some((i) => outdatedOf(o, i) === "unreachable");
     const badge = (text, color) => div().flex_none().px(5).rounded(4).text_size(z - 2.5).text_color(t.background).bg(color).child(text);
+    const mark = (text, color) => div().flex_none().text_size(z - 2.5).text_color(color).child(text);   // a quiet word, no pill
     return h_flex().id(`group-${g.from}`).gap(6).items_center().px(8).py(6).rounded(6).cursor_pointer()
       .hover((st) => st.bg(t.hover)).on_mouse_down("left", stop)
       .on_click((_e, cx) => {
@@ -1032,7 +1035,7 @@ export class Repo {
       .child(copyOnRight(div().min_w(0).truncate().font_semibold().child(g.from), g.from))
       .child(div().flex_none().text_size(z - 2).text_color(t.dim).child(`${g.rows.length} 個`))
       .when(ch, (el) => el.child(div().size(6).rounded(3).bg(t.working)))
-      .when(nNew > 0, (el) => el.child(badge(nNew === g.rows.length ? "有新版" : `${nNew} 個有新版`, t.accent)))
+      .when(nNew > 0, (el) => el.child(mark(nNew === g.rows.length ? "新版" : `${nNew} 個新版`, t.muted)))
       .when(gone, (el) => el.child(badge("連不到", t.ansi1)))
       .child(div().flex_1());
   }
@@ -1041,6 +1044,7 @@ export class Repo {
   // outside a group); click to open it
   repoRow(t, z, i, from = false) {
     const badge = (text, color) => div().flex_none().px(5).rounded(4).text_size(z - 2.5).text_color(t.background).bg(color).child(text);
+    const mark = (text, color) => div().flex_none().text_size(z - 2.5).text_color(color).child(text);
     return h_flex().id(`repo-${i.kind}-${i.name}`).gap(8).items_center().px(8).py(6).rounded(6).cursor_pointer()
       .hover((s) => s.bg(t.hover)).on_mouse_down("left", stop)
       .on_click((_e, cx) => cx.spawn(async (cx) => { await this.openItem(i, cx); cx.notify(); }))
@@ -1050,8 +1054,8 @@ export class Repo {
           .when(Boolean(i.changed), (el) => el.child(badge("改過", t.working)))
           .when(Boolean(checkBad(this.data, i.src)?.bad?.some((b) => b.kind === i.kind && b.name === i.name)), (el) => el.child(badge("送不出去", t.ansi1)))
           .when(Boolean(i.new), (el) => el.child(badge("新", t.done)))
-          .when(Boolean(i.from) && outdatedOf(shared(OUTDATED), i) === "new", (el) => el.child(badge("有新版", t.accent)))
-          .when(Boolean(i.from) && outdatedOf(shared(OUTDATED), i) === "later", (el) => el.child(badge("有新版・先不收", t.muted)))
+          .when(Boolean(i.from) && outdatedOf(shared(OUTDATED), i) === "new", (el) => el.child(mark("新版", t.muted)))
+          .when(Boolean(i.from) && outdatedOf(shared(OUTDATED), i) === "later", (el) => el.child(mark("新版・先不收", t.dim)))
           .when(Boolean(i.from) && outdatedOf(shared(OUTDATED), i) === "unreachable", (el) => el.child(badge("連不到", t.ansi1)))
           .when(i.status === "required", (el) => el.child(badge("團隊必備", t.accent))))
         .child(copyOnRight(div().min_w(0).truncate().text_size(z - 1.5).text_color(t.muted).child([from && i.from ? `收自 ${i.from}` : "", i.description_zh || i.description, i.src].filter(Boolean).join(" · ") || "（還沒寫說明）"),

@@ -115,7 +115,8 @@ nav button.s::before{display:inline-block;margin-right:6px;vertical-align:.1em}
 .also{margin-top:4px;padding-left:8px;border-left:2px solid var(--border);font-size:.85em}
 .also a{display:block;color:var(--muted);text-decoration:none;overflow-wrap:anywhere}.also a:hover{color:var(--fg)}
 .also b{color:var(--fg);font-weight:500}.also span{margin-left:6px;color:var(--dim)}
-.dot{flex:none;width:6px;height:6px;margin-top:.55em;border-radius:3px;background:var(--accent)}
+/* not seen yet: the title bright; seen: dimmer (the only dot left is the site's) */
+.card.seen .title{color:color-mix(in srgb,var(--fg) 68%,var(--raised))}
 .meta{margin-top:2px;font-size:.85em;color:var(--muted)}
 .why{margin-top:4px;font-size:.9em;color:var(--dim);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .excerpt{margin-top:4px;font-size:.92em;color:var(--fg);opacity:.85;white-space:pre-line;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
@@ -1107,10 +1108,10 @@ export default class Trend extends View {
       const first = Math.max(...all.map((x) => Date.parse(x.first ?? x.created ?? "") || 0));
       const posted = Date.parse(r.created ?? ""), listed = Date.parse(r.first ?? "");
       const when = posted ? `<span class="ago" data-t="${posted}"></span>` : listed ? `<span class="ago" data-t="${listed}" data-w="上榜 "></span>` : "";
-      return `<div class="card" data-topic="${esc(r.topic)}" data-feed="${esc(r.feed ?? "")}" data-feeds="${esc([...new Set(all.map((x) => x.feed).filter(Boolean))].join(","))}"`
+      return `<div class="card${seen.has(r.topic) || r.q ? " seen" : ""}" data-topic="${esc(r.topic)}" data-feed="${esc(r.feed ?? "")}" data-feeds="${esc([...new Set(all.map((x) => x.feed).filter(Boolean))].join(","))}"`
         + ` data-rank="${r.rank ?? 0}" data-first="${first}" data-up="${up?.rise.by ?? 0}" data-c="${all.reduce((n, x) => n + (x.comments ?? 0), 0)}"`
         + `${up ? " data-rising" : ""}${all.some(fresh) ? " data-new" : ""}>`
-        + `<div class="top">${seen.has(r.topic) || r.q ? "" : '<span class="dot"></span>'}${title}`
+        + `<div class="top">${title}`
         + `${up ? `<span class="chip up">↑ +${num(up.rise.by)}・${up.rise.hours} 小時</span>` : ""}${all.some(fresh) ? '<span class="chip new">新進榜</span>' : ""}`
         + `${MOMENTUM[r.momentum] ? `<span class="chip ${r.momentum === "new-this-week" ? "new" : "up"}">${MOMENTUM[r.momentum]}</span>` : ""}`
         + `${r.also?.length ? `<span class="chip x">${sites > 1 ? `${sites} 站` : `${all.length} 篇`}</span>` : ""}`

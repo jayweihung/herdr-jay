@@ -8,6 +8,11 @@ A pane right of an agent with tabs:
 - Then one tab per HTML page the agent wrote for you (a comparison, a design, a diagram), newest first. A new page
   opens in its tab by itself; ⟳ loads it again. Closed and opened again (or after a Herdr restart) it shows the tab
   you left it on, and a page keeps what it saved in its localStorage.
+- **Drag a page's tab** onto another to put it there (onto 進度: first after it); 進度 stays first and doesn't move.
+  The order is kept in the folder (`order.json`, below), on the agent's machine, so the phone app shows the same order
+  and can change it too. A page written after that comes first (right after 進度), newest first, then the ones you put
+  in order. 拖分頁到另一個分頁上就換到那個位置（拖到「進度」上就排第一）；「進度」固定在最前面。順序存在 agent
+  那台的資料夾，手機 App 看到的順序一樣，也能改。之後新寫的頁排在最前面。
 
 Open it with the page button in an agent pane's header (beside split / zoom / close; it stays lit while the pane is
 open, and closes it again), or **說明頁** in the Agents list's right-click menu (both from the kit mod), or by the agent.
@@ -28,6 +33,25 @@ agent 右邊一格：第一個分頁「進度」是等你、正在做、還沒�
   there stay here. 別台機器上的 agent 寫在那台同一個位置（Herdr 連線用的帳號的家目錄），面板每 15 秒去看，有變就用 scp 抄過來。
   An agent running as another user there (e.g. root) writes into that user's folder and makes the files readable
   (`chmod a+r`). 用別的帳號（例如 root）跑的 agent 寫到連線帳號的資料夾，並讓檔案可讀。
+- **`order.json`** in the same folder: the tabs' order after 進度, written when you drag a tab (by Herdr, or the phone
+  app). Agents don't write it.
+
+  ```json
+  { "order": ["2026-11-16-0500-b.html", "2026-11-16-0430-a.html"], "updated": "2026-11-20T10:00:00.000Z" }
+  ```
+
+  Shown: pages it doesn't list first (new ones, newest first), then the listed ones in its order; a listed name whose
+  file is gone is skipped; missing or broken: newest first. A reorder writes the whole list, every page, atomically
+  (a temp file in the folder, renamed), on the agent's machine, with this one command (Herdr and the phone both run
+  it; `<folder>` absolute, or relative to the home, as `.config/herdr-app/mods/agent-page/pages/t3` on another machine):
+
+  ```sh
+  sh -c 'cd && cd "$1" && printf "%s\n" "$2" > .order.json.$$ && mv -f .order.json.$$ order.json' sh '<folder>' '<the JSON>'
+  ```
+
+  For an agent on another machine Herdr writes it there (through its connection) and in its local copy; the next
+  15 s listing copies it back like a page. Needs `sh` (not on Windows yet). 分頁順序存在 `order.json`：沒列到的（新的）
+  排前面，再照它的順序；拖分頁時整個重寫（先寫暫存檔再改名），寫在 agent 那台。
 - Needs the Herdr build with web elements and `props.pane` (app patches 0015–0025, [patches.md](patches.md)): macOS
   14 or later; Windows with the WebView2 Runtime (not run on Windows yet).
   要有網頁格的 Herdr（app patch 0015–0025）。

@@ -1,7 +1,8 @@
 // Tests for herdr-app/mods/agent-page without Herdr: node tests/agent-page/run.js (macOS, Linux, Windows; Node 18+).
 // The mod's imports (gpui-kit, gpui-base, herdr) are replaced by stubs; fs/promises is Node's own, on a temporary
 // Herdr home. watchFolder is a fake the test answers by hand.
-import { readFileSync, writeFileSync, mkdtempSync, mkdirSync, rmSync, statSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdtempSync, mkdirSync, rmSync, statSync, readdirSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -28,20 +29,23 @@ globalThis.__stubs = {
   View: class {}, div: () => el, v_flex: () => el, h_flex: () => el, TextView: { html: (_id, h) => { H.strings.push(h.replace(/<[^>]*>/g, "").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&")); return el; } },
   theme: () => H.theme ?? new Proxy({}, { get: (_t, k) => (k === "then" ? undefined : "#334455") }),
   settings: () => H.settings ?? { ui_font_size: 13 }, appHome: () => H.home,
-  props: () => H.props, panes: () => H.panes, run: (name, args) => { H.runs.push([name, args]); },
+  props: () => H.props, panes: () => H.panes, run: (name, args) => { H.runs.push([name, args]); }, notify: (n) => { H.notes.push(n); },
   shared: (k) => H.shared[k], setShared: (k, v) => { H.shared[k] = v; },
   nextWebEvent: () => new Promise((resolve) => { H.event = resolve; }),
   watchFolder: (dir) => new Promise((resolve, reject) => { H.watching.push(dir); H.wake = resolve; H.fail = reject; }),
   web: { new: (id, p) => { H.web.push([id, p.src, p.persist]); return el; } },
   webCall: (id, action) => { H.calls.push([id, action]); return null; },
   window: () => ({ platform: "macos" }),
-  // exec: the other machine's listing (H.remote: name -> text), scp copies those files into the local folder.
+  // exec: the other machine's listing (H.remote: name -> text), scp copies those files into the local folder; a script
+  // there other than the listing (order.json's write) is only recorded. sh here really runs (order.json's write).
   exec: async (cmd, args, opts) => {
     H.execs.push([cmd, args, opts?.on ?? null]);
     if (cmd === "sh" && opts?.on) {
+      if (!args[1].includes("cksum")) return H.remoteFails ? { code: 1, stdout: "", stderr: "sh: permission denied" } : { code: 0, stdout: "", stderr: "" };
       const lines = Object.entries(H.remote ?? {}).map(([n, t]) => `${t.length}_${[...t].reduce((a, c) => a + c.charCodeAt(0), 0)} ${n}`);
       return { code: 0, stdout: lines.map((l) => l + "\n").join(""), stderr: "" };
     }
+    if (cmd === "sh") { const r = spawnSync(cmd, args, { encoding: "utf8" }); return { code: r.status, stdout: r.stdout, stderr: r.stderr }; }
     if (cmd === "scp") {
       if (H.scpFails) return { code: 1, stdout: "", stderr: "ssh: connect to host box: Connection refused" };
       const dest = args[args.length - 1];
@@ -77,7 +81,7 @@ async function loadMod() {
 function world({ props = { dir: "t63", beside: "pA", pane: "pM" }, panes, shared = {} } = {}) {
   const home = mkdtempSync(join(tmpdir(), "agent-page-home-"));
   Object.assign(H, {
-    home, props, shared, runs: [], calls: [], web: [], tasks: [], strings: [], watching: [], wake: null, execs: [], remote: null, scpFails: false, every: null, mtime: null, statFails: false,
+    home, props, shared, runs: [], calls: [], web: [], tasks: [], strings: [], watching: [], wake: null, execs: [], remote: null, scpFails: false, every: null, mtime: null, statFails: false, notes: [], remoteFails: false,
     panes: panes ?? [{ pane: "pA", terminal: "t63", tab: "tb1" }, { pane: "pM", terminal: null, mod: "agent-page", tab: "tb1" }],
   });
   return join(home, "mods", "agent-page", ".pages", "t63");
@@ -227,6 +231,79 @@ test("the tab shown is kept for the dir: a copy opened again (reload, reopen, re
   const x = await open(V);
   assert.equal(x.tab, "status");
   assert.equal(H.shared["agent-page/t63/tab"], "status");
+});
+
+test("order.json: pages it doesn't list (new) first, newest first, then its order, names gone skipped; a new page still opens; broken: newest first", async (V) => {
+  const folder = world();
+  for (const n of ["2026-11-16-0400-a.html", "2026-11-16-0500-b.html", "2026-11-16-0600-c.html", "2026-11-16-0700-d.html"]) write(folder, n);
+  write(folder, "order.json", JSON.stringify({ order: ["2026-11-16-0400-a.html", "gone.html", "2026-11-16-0500-b.html", "2026-11-16-0400-a.html"], updated: "2026-11-20T10:00:00+08:00" }));
+  const v = await open(V);
+  assert.deepEqual(v.names, ["2026-11-16-0700-d.html", "2026-11-16-0600-c.html", "2026-11-16-0400-a.html", "2026-11-16-0500-b.html"]);
+  assert.deepEqual(render(v).split("\n").slice(0, 5), ["進度", "d", "c", "a", "b"], "進度 stays first");
+  write(folder, "2026-11-16-0800-e.html");
+  await changed(folder, ["2026-11-16-0800-e.html"]);
+  assert.equal(v.tab, "2026-11-16-0800-e.html", "a page just written opens by itself");
+  assert.equal(v.names[0], "2026-11-16-0800-e.html", "right after 進度");
+  write(folder, "order.json", "{");
+  await changed(folder, ["order.json"]);
+  assert.deepEqual(v.names, ["2026-11-16-0800-e.html", "2026-11-16-0700-d.html", "2026-11-16-0600-c.html", "2026-11-16-0500-b.html", "2026-11-16-0400-a.html"]);
+});
+
+test("drag: a tab dropped on another takes its place, on 進度 goes first; order.json gets every page, through a temp file renamed", async (V) => {
+  if (process.platform === "win32") return; // the write needs sh (a shortcut in the mod too)
+  const folder = world();
+  for (const n of ["1-a.html", "2-b.html", "3-比較.html"]) write(folder, n);
+  const v = await open(V);
+  assert.deepEqual(v.names, ["3-比較.html", "2-b.html", "1-a.html"]);
+  v.move("3-比較.html", "1-a.html", cx);
+  assert.deepEqual(v.names, ["2-b.html", "1-a.html", "3-比較.html"], "shown at once");
+  await settle();
+  const o = JSON.parse(readFileSync(join(folder, "order.json"), "utf8"));
+  assert.deepEqual(o.order, ["2-b.html", "1-a.html", "3-比較.html"]);
+  assert.ok(Date.parse(o.updated) > 0, o.updated);
+  assert.deepEqual(readdirSync(folder).filter((n) => n.includes("order")), ["order.json"], "no temp file left");
+  const w = H.execs.find(([c, a]) => c === "sh" && a[1].includes("mv -f"));
+  assert.equal(w[1][3], folder);
+  assert.equal(w[2], null, "here");
+  await changed(folder, ["order.json"]);
+  assert.deepEqual(v.names, ["2-b.html", "1-a.html", "3-比較.html"], "read back the same");
+  v.move("1-a.html", "status", cx);
+  await settle();
+  assert.deepEqual(JSON.parse(readFileSync(join(folder, "order.json"), "utf8")).order, ["1-a.html", "2-b.html", "3-比較.html"]);
+  H.execs = [];
+  v.move("1-a.html", "1-a.html", cx);
+  v.move("gone.html", "status", cx);
+  await settle();
+  assert.deepEqual(H.execs.filter(([c]) => c === "sh"), [], "dropped on itself, or a page gone: nothing written");
+});
+
+test("drag, an agent on another machine: order.json written there (under the home Herdr connects as) and here; failing there: back as it was", async (V) => {
+  if (process.platform === "win32") return;
+  world({ props: { dir: "box_t3", beside: "pA", pane: "pM", machine: "box", term: "t3" } });
+  const [x, y] = ["2026-11-16-0500-x.html", "2026-11-16-0600-y.html"];
+  H.remote = { [x]: "<p>x</p>", [y]: "<p>y</p>" };
+  const v = await open(V);
+  assert.deepEqual(v.names, [y, x]);
+  H.execs = [];
+  v.move(y, x, cx);
+  await settle();
+  const there = H.execs.find(([c, a, on]) => c === "sh" && on === "box" && a[1].includes("mv -f"));
+  assert.equal(there[1][3], ".config/herdr-app/mods/agent-page/pages/t3");
+  assert.deepEqual(JSON.parse(there[1][4]).order, [x, y]);
+  const here = join(H.home, "mods", "agent-page", ".pages", "box_t3", "order.json");
+  assert.deepEqual(JSON.parse(readFileSync(here, "utf8")).order, [x, y]);
+  // the next sync lists order.json there and copies it like a page
+  H.remote["order.json"] = there[1][4];
+  H.every(cx); await settle();
+  assert.ok(H.execs.find(([c]) => c === "scp")[1].some((a) => a.endsWith("/pages/t3/order.json")));
+  assert.deepEqual(v.names, [x, y]);
+  H.remoteFails = true;
+  v.move(x, y, cx);
+  await settle();
+  assert.deepEqual(v.names, [x, y], "back as it was");
+  assert.equal(H.notes.length, 1);
+  assert.match(H.notes[0].body, /permission denied/);
+  assert.deepEqual(JSON.parse(readFileSync(here, "utf8")).order, [x, y], "nothing written here");
 });
 
 test("events naming where a linked mod really is still count; other agents' folders don't", async (V) => {

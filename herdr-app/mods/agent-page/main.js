@@ -3,6 +3,8 @@
 // (.pages/<dir>/<time>-<topic>.html), newest first. The folder is hidden (a dot) because Herdr reloads a mod when a
 // file in its folder changes, except under hidden folders: each page written would reload every copy of this mod.
 // A new page opens in its tab by itself; status.json is re-read.
+// Tabs can be dragged into another order (進度 stays first); the order is .pages/<dir>/order.json, written on the agent's
+// machine with WRITE, which the phone app runs too, so both show the same order (docs/agent-page.md).
 // Opened from the ⎙ button in an agent pane's header (the kit mod), or by the agent:
 //   herdr-app do pane.split '{"direction":"right","pane":"<its pane>","mod":"agent-page","props":{"dir":"t63","beside":"<its pane>"}}'
 // (docs/agent-page.md: steps and status.json for agents.)
@@ -15,17 +17,32 @@
 // shared "agent-page/<dir>" the one that's open). Either way the keyboard goes back to the agent's pane.
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex, TextView } from "gpui-base";
-import { appHome, exec, hc, nextWebEvent, panes, props, run, settings, setShared, shared, theme, watchFolder, web, webCall, window } from "herdr";
+import { appHome, exec, hc, nextWebEvent, notify, panes, props, run, settings, setShared, shared, theme, watchFolder, web, webCall, window } from "herdr";
 import * as fs from "fs/promises";
 
 const CELL = "page";
 const STATUS = "status.json";
+const ORDER = "order.json";
 // Done items shown: the last DAYS days (older ones stay in the file, counted, not listed).
 const DAYS = 3;
 const SYNC = 15000;
 const REMOTE = ".config/herdr-app/mods/agent-page/pages";
-// On the other machine: "<cksum> <name>" per page and status.json, nothing when the folder isn't there.
-const LIST = 'cd "$HOME/$1" 2>/dev/null || exit 0; for f in *.html *.htm status.json; do [ -f "$f" ] && printf "%s %s\\n" "$(cksum < "$f" | tr " " _)" "$f"; done; exit 0';
+// On the other machine: "<cksum> <name>" per page, status.json and order.json, nothing when the folder isn't there.
+const LIST = 'cd "$HOME/$1" 2>/dev/null || exit 0; for f in *.html *.htm status.json order.json; do [ -f "$f" ] && printf "%s %s\\n" "$(cksum < "$f" | tr " " _)" "$f"; done; exit 0';
+// order.json written whole and atomically (a temp file in the folder, renamed): sh -c WRITE sh <folder> <json>, the
+// folder absolute or under $HOME. The phone app writes it with the same command.
+// shortcut: needs sh (macOS, Linux); on Windows a reorder fails with a notice, add a cmd/PowerShell one when run there.
+const WRITE = 'cd && cd "$1" && printf "%s\\n" "$2" > .order.json.$$ && mv -f .order.json.$$ order.json';
+async function writeOrder(dir, json, on = null) {
+  const r = await exec("sh", ["-c", WRITE, "sh", dir, json], { on, timeout: SYNC });
+  if (r.code !== 0) throw new Error(String(r.stderr || `exit ${r.code}`).trim());
+}
+// The tabs after 進度: pages order.json doesn't list (new ones) first, newest first, so one just written is next to
+// 進度; then the listed ones in its order, skipping names whose file is gone.
+const arrange = (names, order) => {
+  const listed = [...new Set(order)].filter((n) => names.includes(n));
+  return [...names.filter((n) => !listed.includes(n)).sort().reverse(), ...listed];
+};
 const stop = (_e, cx) => cx.stop_propagation();
 const size = () => Number(settings().ui_font_size) || 13;
 // A dir is a folder name: a terminal id ("t63"); "/" of a remote terminal's id becomes "_". (kit's header.js has the same.)
@@ -264,7 +281,7 @@ export default class AgentPage extends View {
     if (this.beside && panes().some((x) => x.pane === this.beside)) run("pane.focus", { pane: this.beside });
   }
 
-  // Reads the folder and status.json; opens `written` (a page) if given; a tab whose page is gone goes to 進度.
+  // Reads the folder, order.json and status.json; opens `written` (a page) if given; a tab whose page is gone goes to 進度.
   async read(written) {
     let names = [];
     try {
@@ -272,7 +289,11 @@ export default class AgentPage extends View {
     } catch {
       names = [];
     }
-    this.names = names.sort().reverse();
+    let order = [];
+    try {
+      order = JSON.parse(await fs.readFile(`${this.folder}/${ORDER}`, "utf8")).order;
+    } catch {} // missing or broken: newest first
+    this.names = arrange(names, Array.isArray(order) ? order : []);
     try {
       const s = await fs.readFile(`${this.folder}/${STATUS}`, "utf8");
       this.status = JSON.parse(s);
@@ -294,6 +315,28 @@ export default class AgentPage extends View {
 
   keepTab() {
     setShared(`agent-page/${this.dir}/tab`, this.tab);
+  }
+
+  // A tab dropped on another takes its place (on 進度: the first page); order.json gets every page, written on the
+  // agent's machine (and here, the copy this pane reads, until the next sync copies it back).
+  move(name, onto, cx) {
+    const before = this.names;
+    if (!before.includes(name) || name === onto) return;
+    const names = before.filter((n) => n !== name);
+    names.splice(onto === "status" ? 0 : Math.max(0, before.indexOf(onto)), 0, name);
+    this.names = names;
+    cx.notify();
+    const json = JSON.stringify({ order: names, updated: new Date().toISOString() });
+    cx.spawn(async (cx) => {
+      try {
+        if (this.remote) await writeOrder(`${REMOTE}/${this.remote.term}`, json, this.remote.machine);
+        await writeOrder(this.folder, json);
+      } catch (e) {
+        if (this.names === names) this.names = before;
+        notify({ title: "分頁順序沒存到", body: String(e?.message ?? e), level: "error" });
+        cx.notify();
+      }
+    });
   }
 
   render() {
@@ -398,6 +441,13 @@ export default class AgentPage extends View {
       .cursor_pointer().hover((s) => s.bg(t.hover).text_color(t.foreground))
       .on_mouse_down("left", stop)
       .on_click((_e, cx) => { this.tab = id; this.keepTab(); cx.notify(); })
+      // drag a page's tab onto another to put it there; 進度 isn't dragged, a page dropped on it goes first
+      .when(id !== "status", (el) => el.on_drag(`agent-page/${this.dir}/${id}`, label))
+      .drag_over((s) => s.bg(t.hover).text_color(t.accent))
+      .on_drag_drop((d, cx) => {
+        const mine = `agent-page/${this.dir}/`;
+        if (d.payload.startsWith(mine)) this.move(d.payload.slice(mine.length), id, cx);
+      })
       .child(label);
   }
 

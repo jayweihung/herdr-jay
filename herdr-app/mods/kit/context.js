@@ -59,6 +59,32 @@ export function sendArgs(addr, status, text) {
   if (status === "done") return ["send", addr, text];
   return null;
 }
+// One /compact per agent per cycle, shared with Herdr's Agents list (its main.js has the same, app patch 0031; keep the
+// two the same): shared "compact/<address>" = { state: "queued" | "sent", at, text, sent?, turn? } while one waits or
+// runs, else null. A queued one is typed in once the agent waits (idle, done); a sent one ends when a turn ends after
+// it (the core's turn goes up each time it stops working: /compact works, then stops), when kit context says
+// "compacted" (compactedAfter), or after COMPACT_SENT ms.
+export const COMPACT_SENT = 180000, COMPACT_QUEUED = 1800000;
+export const compactKey = (address) => `compact/${address}`;
+// one of these (null, or another mod's mistake, is none: a press replaces it)
+const isCompact = (e) => (e?.state === "queued" || e?.state === "sent") && Number.isFinite(e.at);
+// what to do about it now: "send", "done", "timeout" (say so), "drop" (left from long ago: clear quietly), or null
+export function compactStep(e, status, turn, now = Date.now()) {
+  if (!isCompact(e)) return null;
+  const sent = e.state === "sent", since = now - (sent ? e.sent ?? e.at : e.at), ttl = sent ? COMPACT_SENT : COMPACT_QUEUED;
+  if (since > ttl + 600000) return "drop";
+  if (since > ttl) return "timeout";
+  const waits = status === "idle" || status === "done";
+  if (!sent) return waits ? "send" : null;
+  return waits && Number.isFinite(turn) && Number.isFinite(e.turn) && turn > e.turn ? "done" : null;
+}
+// one is queued or running: another press only says so
+export const compactLive = (e, now = Date.now()) => isCompact(e) && compactStep(e, null, null, now) === null;
+// kit context (kit 0.7.5) says "compacted" right after a Claude /compact (what is left after it): an ask started after
+// it was sent ends it. An older kit never says it: the turn or the timeout ends it then.
+export const compactedAfter = (e, d, started) => e?.state === "sent" && d?.source === "compacted" && Number(started) > Number(e.sent);
+// what the context window's footer says about it ("" none)
+export const compactWords = (e, now = Date.now()) => (!compactLive(e, now) ? "" : e.state === "sent" ? "壓縮中…" : "已排隊，這輪結束後壓縮");
 // what kit can take off for a line of the window (kit list --json of that agent), the Kit popup's rule: an agent in a
 // folder only changes that folder (kit rm --dir), one in the home folder the account; a required one never.
 // -> { args, kind, name, where, dir } | { required: true, ... } | null

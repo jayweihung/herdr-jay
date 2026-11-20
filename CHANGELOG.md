@@ -12,6 +12,18 @@ which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/key
 Each mod also keeps its own `CHANGES.md` (shown in the mod as its version and 改動紀錄): when a change to a mod is
 user-visible, add a bullet under a new or current version at the top of that mod's `CHANGES.md`.
 
+## 2026-11-20, 壓縮 says it is queued or running, and sends once per agent
+
+Pressing 壓縮 for an agent that was still at work looked like nothing happened (Claude Code held the `/compact` until
+its turn ended), so it got pressed again and the agent got several `/compact`. Now the Agents right-click menu (app
+patch `0031`) and the kit mod's context window share one compact per agent (shared `compact/<address>`): while the agent
+works (or is done while its own work still runs) it is queued, 「已排隊，這輪結束後壓縮」, and typed in once it stops;
+then its row, its menu and the context window say 「壓縮中…」 until it is done (a turn ends after it, or kit 0.7.5's
+`kit context` says compacted; after 3 minutes a note says it stopped waiting). Pressed again meanwhile, in either place,
+it only says 「已經在壓縮了」. `scripts/agents.test.ts` (herdr-app) and `tests/kit/run.js` check it.
+壓縮按了會說在排隊、壓縮中；連按、兩邊都按，都只送一次。
+Needs: app (rebuild with patch 0031), mods (macOS links: nothing).
+
 ## 2026-11-20, agent pages follow Herdr's Appearance
 
 A page opened in agent-page followed the system's light/dark (WebKit's), not Herdr's. The pane now opens it with

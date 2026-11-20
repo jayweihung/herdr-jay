@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: jayweihung <3034830+jayweihung@users.noreply.github.com>
 Date: Mon, 16 Nov 2026 02:55:13 +0800
-Subject: [PATCH 19/30] fix: a zoomed layout node fills its row or column, and
+Subject: [PATCH 19/31] fix: a zoomed layout node fills its row or column, and
  quitting with a web page open no longer aborts
 
 ---

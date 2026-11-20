@@ -196,6 +196,76 @@ test("context window: sent only while the agent waits (idle: --if idle; done), n
   for (const a of [["t7", "working", "/clear"], ["t7", "blocked", "/clear"], ["t7", null, "/clear"], ["", "idle", "/clear"], ["t7", "idle", null]])
     assert.equal(X.sendArgs(...a), null, JSON.stringify(a));
 });
+test("compact (shared compact/<address>, as Herdr's Agents list): queued while it works, typed in once it waits, ended by a turn after it, kit's compacted or a timeout", ({ context: X }) => {
+  const queued = { state: "queued", at: 1000, text: "/compact" };
+  assert.equal(X.compactKey("box/t1p"), "compact/box/t1p");
+  assert.deepEqual(["working", "blocked", null, "idle", "done"].map((s) => X.compactStep(queued, s, 3, 2000)), [null, null, null, "send", "send"]);
+  assert.equal(X.compactStep(queued, "working", 3, 1000 + 1800001), "timeout");
+  const sent = { ...queued, state: "sent", sent: 5000, turn: 3 };
+  assert.deepEqual([X.compactStep(sent, "done", 3, 6000), X.compactStep(sent, "working", 4, 6000), X.compactStep(sent, "done", 4, 6000)], [null, null, "done"]);
+  assert.equal(X.compactStep({ ...sent, turn: null }, "done", 4, 6000), null, "no turn known: only the timeout ends it");
+  assert.equal(X.compactStep(sent, "done", 3, 5000 + 180001), "timeout");
+  assert.equal(X.compactStep(sent, "done", 3, 5000 + 780001), "drop", "left from long ago (a restart): cleared quietly");
+  assert.deepEqual([null, "x", { state: "queued" }, queued, sent].map((e) => X.compactLive(e, 6000)), [false, false, false, true, true]);
+  assert.equal(X.compactedAfter(sent, { source: "compacted" }, 5001), true);
+  assert.equal(X.compactedAfter(sent, { source: "compacted" }, 4999), false, "an ask started before it was sent");
+  assert.equal(X.compactedAfter(sent, { source: "statusline" }, 5001), false);
+  assert.equal(X.compactedAfter(queued, { source: "compacted" }, 5001), false);
+  assert.deepEqual([X.compactWords(queued, 2000), X.compactWords(sent, 6000), X.compactWords(null)], ["已排隊，這輪結束後壓縮", "壓縮中…", ""]);
+});
+test("compact (context window and header): pressed while it works, queued once; the header types it in when it stops; kit's compacted ends it; a turn or a timeout too", async (M) => {
+  fresh(); fakeKit();
+  const plain = H.answer;
+  let source = "statusline";
+  H.answer = (argv, on) => {
+    const a = argv[0] === "sh" ? argv.slice(4) : argv.slice(1);
+    if (a[0] !== "context") return plain(argv, on);
+    const d = { tool: "claude", used: 1000, window: 400000, pct: 1, source, model: "m" };
+    return { code: 0, stdout: JSON.stringify(a.includes("--detail") ? { ...d, categories: [], groups: [], commands: CMDS.claude } : d), stderr: "" };
+  };
+  H.spaces = [{ id: "s1", tabs: [{ id: "tab1" }] }];
+  H.panes = [{ pane: "p1", terminal: "t1", tab: "tab1", cwd: "/x", status: "working", program: { agent: true, name: "Claude Code", key: "claude" }, app: "claude-code" }];
+  H.agents = [{ address: "t1", pane: "p1", status: "working", title: "api", app: "claude-code" }];
+  H.terminals = [{ address: "t1", turn: 5 }];
+  const sends = () => H.calls.filter((c) => c.argv[0] === "hc" && c.argv[1] === "send").map((c) => c.argv.slice(2));
+  const target = { key: "|/x|t1", pane: "p1", term: "t1", machine: null, cwd: "/x", tool: "claude", title: "Claude Code" };
+  const ctx = view(M, { role: "context", target }); await settle(); await tick();
+  view(M, { role: "header", pane: "p1", terminal: "t1" }); await settle();   // the agent's header: it ticks
+  ctx.part.send("compact", cx); await settle();
+  assert.equal(H.store["compact/t1"].state, "queued");
+  assert.match(render(ctx), /已排隊，這輪結束後壓縮/);
+  ctx.part.send("compact", cx); await settle();
+  assert.equal(ctx.part.msg.text, "已經在壓縮了");
+  await tick();
+  assert.deepEqual(sends(), [], "not while it works");
+  // done while its own work still runs (agents.busy): still waits
+  H.agents[0].status = "done"; H.store["agents.busy"] = { t1: "Bash" };
+  await tick();
+  assert.deepEqual(sends(), []);
+  delete H.store["agents.busy"]; H.panes[0].status = "done";
+  skew += 1000; await tick(); await settle();
+  assert.deepEqual(sends(), [["t1", "/compact"]], "typed in once it stops, plainly (the core may still call a seen agent done)");
+  assert.deepEqual([H.store["compact/t1"].state, H.store["compact/t1"].turn], ["sent", 5]);
+  assert.match(render(ctx), /壓縮中…/);
+  skew += 1000; await tick(); await settle();
+  assert.equal(sends().length, 1, "once");
+  // kit 0.7.5 says compacted (an ask after it was sent): done
+  source = "compacted"; H.panes[0].status = "working"; skew += 1000; await tick(); await settle();
+  assert.equal(H.store["compact/t1"], null);
+  assert.ok(H.notes.some((n) => n.title === "壓縮好了"));
+  // waiting: typed in at once; an older kit (statusline only): the turn after it ends it
+  source = "statusline"; H.agents[0].status = "idle";
+  ctx.part.send("compact", cx); await settle();
+  assert.equal(sends().length, 2);
+  H.terminals = [{ address: "t1", turn: 6 }]; skew += 1000; await tick(); await settle();
+  assert.equal(H.store["compact/t1"], null, "a turn ended after it");
+  // no turn and no compacted: 3 minutes, then a note
+  ctx.part.send("compact", cx); await settle();
+  assert.equal(sends().length, 3);
+  skew += 181000; await tick(); await settle();
+  assert.equal(H.store["compact/t1"], null);
+  assert.ok(H.notes.some((n) => n.title === "壓縮沒等到結束"));
+});
 test("context window: kit context's arguments, the tool from what the agent reports", ({ context: X }) => {
   assert.deepEqual(X.ctxArgs(42, "claude", "/x y", true, true), ["context", "--pid", "42", "--tool", "claude", "--dir", "/x y", "--detail", "--fresh"]);
   assert.deepEqual(X.ctxArgs(42, null, "", false, true), ["context", "--pid", "42"]);

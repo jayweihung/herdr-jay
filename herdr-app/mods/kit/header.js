@@ -24,12 +24,13 @@
 // What it computes (the bar, the numbers, the tips) is in context.js.
 import { div, svg } from "gpui-kit";
 import { h_flex, v_flex, InputState, Input } from "gpui-base";
-import { panes, spaces, agents, props, run, theme, hc, shared, setShared, openOverlay, closeOverlay, notify, appHome, readTextFile, exec } from "herdr";
+import { panes, spaces, agents, terminals, props, run, theme, hc, shared, setShared, openOverlay, closeOverlay, notify, appHome, readTextFile, exec } from "herdr";
 import * as files from "fs/promises";
 import { collectedFrom, AGENT_CACHE, AGENT_DATA, AGENT_WANT, CTX, NOTE, LIMIT_SENT, EDITORS, localGet, localSet, fs, stop, slash, shortDir, clean, spin, waiting, icon, textBlock,
   copyOnRight, btn, busyNow, takeBusy, giveBusy, markChanged, kit, kitJson, apiState, apiKnown, apiAtLeast, checkApi, apiCard, num, kfmt } from "./common.js";
 import { toolOf, ctxArgs, askZero, zeroNumbers, sendText, sendArgs, removal, ctxTips, summaryText, chipNumbers, level, howCounted, ago, catColorKey, barSegments,
-  catShare, compactLine, noteArgs, CTX_FULL, NAME_MAX, limitOf, continueDue, CONTINUE_TEXT, usageLines, ompUsage, whenText } from "./context.js";
+  catShare, compactLine, noteArgs, CTX_FULL, NAME_MAX, limitOf, continueDue, CONTINUE_TEXT, usageLines, ompUsage, whenText,
+  compactKey, compactStep, compactLive, compactedAfter, compactWords } from "./context.js";
 
 const CTX_STALE = 15000, CTX_IDLE = 60000;   // how often to ask how full the context is: working / not
 const STALE = 60000, LOAD_TTL = 90000;   // look again after a minute; a load longer than this is taken as lost
@@ -218,6 +219,35 @@ function offerMenu(cx) {
   });
 }
 
+// a pane's agent as agents() lists it (its address is the compact's key), the status Herdr's Agents list shows (done
+// while its own work still runs, agents.busy: working), its core turn, and the name the notices use
+const agentOf = (p) => { try { return (agents() ?? []).find((x) => x.pane === p.pane) ?? null; } catch { return null; } };
+const statusOf = (a) => (a.status === "done" && (shared("agents.busy") ?? {})[a.address] ? "working" : a.status);
+const turnOf = (addr) => { try { return (terminals() ?? []).find((x) => x.address === addr)?.turn; } catch { return undefined; } };
+const nameOf = (a, fallback = "agent") => a?.title || a?.program?.name || a?.address || fallback;
+// a compact's next step (compactStep): typed in (marked sent first, so no other copy and not Herdr's Agents list types
+// it too), ended, or given up. -> for "send": a promise of whether hc typed it in
+function compactNext(addr, e, step, name, turn) {
+  const key = compactKey(addr);
+  if (step === "send") {
+    setShared(key, { ...e, state: "sent", sent: Date.now(), turn: Number.isFinite(turn) ? turn : null });
+    const failed = (r) => {
+      if (shared(key)?.at === e.at) setShared(key, null);
+      notify({ title: "沒有送出壓縮", body: String(r?.stderr || r?.stdout || "hc 沒有回應").trim().slice(0, 300), level: "warning" });
+      return false;
+    };
+    return hc(["send", addr, e.text]).then((r) => {
+      if (r?.code !== 0) return failed(r);
+      notify({ title: "壓縮中…", body: name, level: "info", timeout: 3000 });
+      return true;
+    }, () => failed(null));
+  }
+  setShared(key, null);
+  if (step === "done") notify({ title: "壓縮好了", body: name, level: "success", timeout: 3000 });
+  else if (step === "timeout") notify({ title: e.state === "sent" ? "壓縮沒等到結束" : "排隊的壓縮取消了", level: "warning", timeout: 6000,
+    body: `${name}：${e.state === "sent" ? "3 分鐘還沒看到它壓縮完，不再等（看一下它的畫面）" : "等了 30 分鐘它還沒停下來，沒有送出"}` });
+}
+
 export class Header {
   constructor(role) { this.role = role; }
 
@@ -248,6 +278,7 @@ export class Header {
     checkPage(cx);
     if (pageFor(p)) checkPages(p, cx);
     offerMenu(cx);
+    this.tickCompact(p);
     const w = placeOf(p), api = apiKnown(w.machine);
     if (!api) { checkApi(w.machine, cx); return; }
     if (!api.ok) return;
@@ -268,6 +299,15 @@ export class Header {
     });
   }
 
+  // its compact (shared with Herdr's Agents list): a queued one typed in once it waits, a sent one ended (compactStep);
+  // kit not needed (kit context's "compacted" ends one sooner: tickContext)
+  tickCompact(p) {
+    const a = agentOf(p), e = a && shared(compactKey(a.address));
+    if (!e) return;
+    const turn = turnOf(a.address), step = compactStep(e, statusOf(a), turn);
+    if (step) compactNext(a.address, e, step, nameOf(a), turn);
+  }
+
   // ask how full the context is: every 15 s while the agent works (and once when it stops), else every minute
   tickContext(p, cx) {
     const w = placeOf(p), all = shared(CTX) ?? {}, c = all[w.key];
@@ -284,6 +324,8 @@ export class Header {
       const before = (shared(CTX) ?? {})[w.key] ?? c ?? {};
       const now = d ? { ...d } : { ...before };
       setShared(CTX, { ...pruned(shared(CTX)), [w.key]: { ...now, busy: false, started, at: Date.now(), status: p.status } });
+      const a = agentOf(p), e = a && shared(compactKey(a.address));
+      if (compactedAfter(e, d, started)) compactNext(a.address, e, "done", nameOf(a));
       cx.notify();
     });
   }
@@ -546,6 +588,7 @@ export class Header {
   send(what, cx) {
     if (this.sending) return;
     const text = sendText(this.d?.commands, what, what === "compact" ? this.keep?.value() : "");
+    if (what === "compact") return this.compact(text, cx);
     const args = sendArgs(this.addrNow(), this.statusNow(), text);
     this.ask = null;
     if (!args) { this.msg = { ok: false, text: "沒送出：要等 agent 停下來（閒置或剛做完）才能送。" }; cx.notify(); return; }
@@ -557,14 +600,38 @@ export class Header {
       try { const r = await hc(args); if (r?.code !== 0) err = String(r?.stderr || r?.stdout || `exit ${r?.code}`).trim().slice(0, 300); }
       catch (e) { err = String(e?.message ?? e); }
       this.sending = false;
-      if (err) this.msg = { ok: false, text: `沒送出：${err}` };
-      else {
-        this.msg = { ok: true, text: what === "compact" ? `已送出 ${text}。壓縮要一點時間，好了按 ⟳ 再看。` : `已送出 ${text}：這段對話清掉了，按 ⟳ 再看。` };
-        this.keep?.set_value("");
-      }
+      this.msg = err ? { ok: false, text: `沒送出：${err}` } : { ok: true, text: `已送出 ${text}：這段對話清掉了，按 ⟳ 再看。` };
       cx.notify();
     });
   }
+
+  // 壓縮: one per agent per cycle, with Herdr's Agents list (shared "compact/<address>"): typed in now if it waits, else
+  // queued until this turn ends (the agent's header or the Agents list types it in then); pressed again, it only says so
+  compact(text, cx) {
+    const addr = this.addrNow(), st = this.compactStatus(), key = addr && compactKey(addr);
+    this.ask = null;
+    if (key && compactLive(shared(key))) { this.msg = { ok: true, text: "已經在壓縮了" }; cx.notify(); return; }
+    if (!key || !text || !["idle", "done", "working"].includes(st)) {
+      this.msg = { ok: false, text: "沒送出：它在等你回答，或看不到它的狀態。" };
+      cx.notify();
+      return;
+    }
+    const job = { state: "queued", at: Date.now(), text };
+    setShared(key, job);
+    this.keep?.set_value("");
+    this.msg = null;
+    if (st === "working") return cx.notify();
+    this.sending = true;
+    cx.notify();
+    cx.spawn(async (cx) => {
+      const ok = await compactNext(addr, job, "send", nameOf(this.agentNow(), addr), turnOf(addr));
+      this.sending = false;
+      if (!ok) this.msg = { ok: false, text: "沒送出壓縮（原因在通知裡）" };
+      cx.notify();
+    });
+  }
+  // as Herdr's Agents list shows it: done while its own work still runs (agents.busy) is working
+  compactStatus() { const st = this.statusNow(); return st === "done" && (shared("agents.busy") ?? {})[this.addrNow()] ? "working" : st; }
 
   // 拿掉: kit rm (--dir for the folder's), as the Kit popup does; it counts from the agent's next conversation
   remove(rm, cx) {
@@ -787,9 +854,12 @@ export class Header {
     return out;
   }
 
-  // how far to the auto-compaction, and 壓縮 / 清空重來 (each asks first; only while the agent waits for you)
+  // how far to the auto-compaction, and 壓縮 / 清空重來 (each asks first). 壓縮 while it works is queued (once per agent:
+  // compactNext); 清空重來 only while it waits for you
   ctxFooter(t, z, d) {
     const st = this.statusNow(), ready = (st === "idle" || st === "done") && !this.sending, c = d.commands ?? {};
+    const cst = this.compactStatus(), cReady = ["idle", "done", "working"].includes(cst) && !this.sending;
+    const now = this.addrNow() ? compactWords(shared(compactKey(this.addrNow()))) : "";
     const { left, line } = compactLine(d);
     const foot = v_flex().flex_none().px(12).py(8).gap(6).border_t(1).border_color(t.border);
     if (line) foot.child(copyOnRight(div().text_size(z - 1).text_color(t.dim).child(line), String(left)));
@@ -800,8 +870,8 @@ export class Header {
       if (c.with_text) foot.child(Input.new(this.keep).h(28).px(8).rounded(6).border_1().border_color(t.accent).bg(t.background).text_size(z - 1).text_color(t.foreground));
       else foot.child(div().text_size(z - 2).text_color(t.dim).child(`${c.compact} 在這裡不能帶文字，會照它自己的方式壓縮。`));
       return foot.child(h_flex().gap(6).items_center()
-        .child(btn(t, z, "compact-yes", "確定壓縮", { tiny: true, kind: "primary", off: !ready, on: (cx) => this.send("compact", cx) }))
-        .child(cancel).child(div().flex_1().text_size(z - 2).text_color(t.dim).child(why)));
+        .child(btn(t, z, "compact-yes", "確定壓縮", { tiny: true, kind: "primary", off: !cReady, on: (cx) => this.send("compact", cx) }))
+        .child(cancel).child(div().flex_1().text_size(z - 2).text_color(t.dim).child(cst === "working" ? "它在工作中：會排隊，這輪結束後壓縮" : why)));
     }
     if (this.ask === "clear" || this.ask === "clear2") {
       const second = this.ask === "clear2";
@@ -814,10 +884,10 @@ export class Header {
         .child(cancel).child(div().flex_1().text_size(z - 2).text_color(t.dim).child(why)));
     }
     return foot.child(h_flex().gap(6).items_center()
-      .child(btn(t, z, "compact", this.sending ? "送出中…" : "壓縮", { tiny: true, off: !ready || !c.compact,
-        on: (cx) => { this.ask = "compact"; if (c.with_text) this.keep?.focus(); cx.notify(); } }))
+      .child(btn(t, z, "compact", now ? (now === "壓縮中…" ? now : "已排隊") : this.sending ? "送出中…" : "壓縮", { tiny: true, off: (!cReady && !now) || !c.compact,
+        on: (cx) => { if (now) this.msg = { ok: true, text: "已經在壓縮了" }; else { this.ask = "compact"; if (c.with_text) this.keep?.focus(); } cx.notify(); } }))
       .child(btn(t, z, "clear", "清空重來", { tiny: true, kind: "danger", off: !ready || !c.clear, on: (cx) => { this.ask = "clear"; cx.notify(); } }))
-      .child(div().flex_1().min_w(0).truncate().text_size(z - 2).text_color(t.dim)
-        .child(why || (c.compact ? `會打 ${c.compact} 或 ${c.clear} 到這個 agent` : ""))));
+      .child(div().flex_1().min_w(0).truncate().text_size(z - 2).text_color(now ? t.working : t.dim)
+        .child(now || why || (c.compact ? `會打 ${c.compact} 或 ${c.clear} 到這個 agent` : ""))));
   }
 }

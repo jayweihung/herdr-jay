@@ -215,6 +215,63 @@ test("compact (shared compact/<address>, as Herdr's Agents list): queued while i
   const quiet = { ...sent, quiet: true };   // omp: its status stays done while it compacts, no turn ends
   assert.deepEqual([X.compactStep(quiet, "done", 3, 5000 + 29999), X.compactStep(quiet, "done", 3, 5000 + 30000), X.compactStep(sent, "done", 3, 5000 + 30000)], [null, "done", null]);
 });
+test("reload after a kit change: the kind from kit add / rm, or a sync's before and after", ({ context: X }) => {
+  assert.deepEqual(X.changeOfArgs(["add", "mcp", "a", "b"]), { kinds: ["mcp"], dir: null });
+  assert.deepEqual(X.changeOfArgs(["rm", "--dir", "/p/x", "rule", "r"]), { kinds: ["rule"], dir: "/p/x" });
+  for (const a of [["sync"], ["agent", "x", "add", "skill", "s"], ["add", "agent", "x"], ["install", "skill"], null]) assert.equal(X.changeOfArgs(a), null, JSON.stringify(a));
+  const it = (kind, name, v = {}) => ({ kind, name, status: "used", ...v });
+  const before = { items: [it("skill", "a"), it("mcp", "m"), it("rule", "r"), it("agent", "g")], blocked: [] };
+  assert.deepEqual(X.syncKinds(before, before), []);
+  assert.deepEqual(X.syncKinds(before, { items: [it("skill", "a", { changed: true }), it("mcp", "m"), it("rule", "r"), it("agent", "g", { status: "unused" })], blocked: [] }), ["skill"], "a version moved; agents are not reloaded");
+  assert.deepEqual(X.syncKinds(before, { items: [it("skill", "a"), it("rule", "r"), it("plugin", "p")], blocked: [] }), ["mcp", "plugin"], "gone and new");
+  assert.deepEqual(X.syncKinds(before, { ...before, blocked: [{ kind: "rule", name: "x", tool: "codex" }] }), ["rule"], "newly blocked");
+});
+test("reload after a kit change: which agents (its machine; the account: all, --dir: that folder and below) and what each tool needs", ({ context: X }) => {
+  const list = [{ address: "t1", machine: null, cwd: "/p/x", tool: "claude" }, { address: "t2", machine: null, cwd: "/p/x/sub/", tool: "omp" },
+    { address: "t3", machine: null, cwd: "/p/xy", tool: "codex" }, { address: "box/t4", machine: "box", cwd: "/p/x", tool: "claude" }, { address: "t5", machine: null, cwd: "/p/x", tool: null }];
+  const at = (m, d) => X.reloadTargets(list, m, d).map((x) => x.address);
+  assert.deepEqual(at(null, null), ["t1", "t2", "t3"], "account: every agent on this computer, not another machine's, not a shell");
+  assert.deepEqual(at(null, "/p/x/"), ["t1", "t2"], "--dir: in it or below, not a sibling with the same start");
+  assert.deepEqual(at("box", null), ["box/t4"]);
+  const need = (tool, kinds) => { const n = X.reloadNeed(tool, kinds); return `${n.send ? "reload" : "-"}/${n.note ?? "-"}`; };
+  assert.deepEqual(["skill", "plugin", "mcp", "rule"].map((k) => need("claude", [k])), ["-/-", "reload/-", "reload/-", "-/new"], "Claude Code");
+  assert.deepEqual(["skill", "plugin", "mcp", "rule"].map((k) => need("omp", [k])), ["reload/-", "reload/-", "reload/-", "-/new"], "omp");
+  assert.deepEqual(["skill", "plugin", "mcp", "rule"].map((k) => need("codex", [k])), ["-/-", "-/restart", "-/restart", "-/restart"], "Codex");
+  assert.equal(need("omp", ["rule", "mcp"]), "reload/new", "several kinds: reload and say what is left");
+  assert.equal(X.reloadLine([{ name: "t63", tool: "claude", done: "sent" }, { name: "t96", tool: "omp", done: "sent" }, { name: "t2", tool: "omp", done: "queued" },
+    { name: "t1p", tool: "codex", done: null, note: "restart" }, { name: "t7z", tool: "claude", done: null, note: "new" }]),
+    "t63、t96 已重新載入；t2 排隊重新載入（它停下來就送）；t1p（Codex）要重開；t7z 要開新對話（規則）");
+  assert.equal(X.reloadLine([{ name: "t1", tool: "claude", done: null, note: null }]), "", "a skill for Claude Code: nothing to say");
+});
+test("reload after a kit change: typed in now while it waits, else queued once per agent; the header sends it when it stops, gives up after 30 minutes", async (M) => {
+  fresh();
+  const { reloadAfter, reloadNext } = M.common, { reloadKey, compactStep } = M.context;
+  H.agents = [{ address: "t1", app: "omp", status: "idle" }, { address: "t2", app: "omp", status: "working" }, { address: "t3", app: "claude-code", status: "done" },
+    { address: "t4", app: "codex", status: "idle" }, { address: "box/t5", app: "omp", status: "idle" }];
+  H.terminals = H.agents.map((a) => ({ address: a.address, cwd: "/p" }));
+  H.store["agents.busy"] = { t3: { at: 1 } };   // done, but its own work still runs: working
+  const line = await reloadAfter(["add", "mcp", "m"], null);
+  assert.equal(line, "t1 已重新載入；t2、t3 排隊重新載入（它停下來就送）；t4（Codex）要重開");
+  assert.deepEqual(H.calls.filter((c) => c.argv[0] === "hc").map((c) => c.argv), [["hc", "send", "t1", "/reload-plugins"]]);
+  const first = H.store[reloadKey("t2")];
+  assert.equal(first.state, "queued"); assert.ok(H.store[reloadKey("t3")]); assert.equal(H.store[reloadKey("t1")] ?? null, null);
+  first.at -= 1000; H.store[reloadKey("t2")] = first;
+  await reloadAfter(["add", "plugin", "p"], null);
+  assert.equal(H.store[reloadKey("t2")].at, first.at, "a second change while queued keeps the one pending");
+  assert.equal(await reloadAfter(["add", "skill", "s"], null), "t1 已重新載入；t2 排隊重新載入（它停下來就送）", "omp reloads skills, Claude Code and Codex see them");
+  H.hcAnswer = () => ({ code: 1, stdout: "", stderr: "no" });
+  assert.equal(await reloadAfter(["add", "mcp", "m"], "box"), "box/t5 沒送出重新載入");
+  H.hcAnswer = null; H.calls = [];
+  const e = H.store[reloadKey("t2")];
+  assert.equal(compactStep(e, "working", null, e.at + 1000), null);
+  assert.equal(compactStep(e, "idle", null, e.at + 1000), "send");
+  reloadNext("t2", e, "send", "t2"); await Promise.resolve();
+  assert.deepEqual(H.calls.map((c) => c.argv), [["hc", "send", "t2", "/reload-plugins"]]); assert.equal(H.store[reloadKey("t2")] ?? null, null);
+  const old = H.store[reloadKey("t3")];
+  assert.equal(compactStep(old, "working", null, old.at + 1800001), "timeout");
+  reloadNext("t3", old, "timeout", "t3");
+  assert.equal(H.store[reloadKey("t3")] ?? null, null); assert.match(JSON.stringify(H.notes.at(-1)), /等了 30 分鐘/);
+});
 test("compact (context window and header): pressed while it works, queued once; the header types it in when it stops; kit's compacted ends it; a turn or a timeout too", async (M) => {
   fresh(); fakeKit();
   const plain = H.answer;

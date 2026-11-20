@@ -86,6 +86,62 @@ export const compactLive = (e, now = Date.now()) => isCompact(e) && compactStep(
 export const compactedAfter = (e, d, started) => e?.state === "sent" && d?.source === "compacted" && Number(started) > Number(e.sent);
 // what the context window's footer says about it ("" none)
 export const compactWords = (e, now = Date.now()) => (!compactLive(e, now) ? "" : e.state === "sent" ? "壓縮中…" : "已排隊，這輪結束後壓縮");
+
+// ---------- after a kit change: the agents already open pick it up ----------
+// What each tool does about a changed kind (kit add / rm / sync): "none" (it sees it by itself), "reload" (type
+// /reload-plugins), "new" (read at a conversation's start: 要開新對話), "restart" (要重開). Claude Code watches its skill
+// folders; omp has no watcher, /reload-plugins reloads its skills, hooks, tools, agents, MCP; Codex 0.169 picks up a new
+// skill on its next turn (tried), and has no reload for the rest.
+export const RELOAD_TEXT = "/reload-plugins";
+export const RELOAD = {
+  claude: { skill: "none", plugin: "reload", mcp: "reload", rule: "new" },
+  omp: { skill: "reload", plugin: "reload", mcp: "reload", rule: "new" },
+  codex: { skill: "none", plugin: "restart", mcp: "restart", rule: "restart" },
+};
+const KINDS = ["rule", "skill", "mcp", "plugin"];
+// one pending reload per agent (shared "reload/<address>" = { state: "queued", at, text }), stepped like a compact
+// (compactStep: "send" once it waits, "timeout" after 30 minutes)
+export const reloadKey = (address) => `reload/${address}`;
+// kit add / rm [--dir D] <kind> <names…> -> { kinds: [kind], dir }; anything else null
+export function changeOfArgs(args) {
+  const a = args ?? [], rest = [];
+  if (a[0] !== "add" && a[0] !== "rm") return null;
+  let dir = null;
+  for (let i = 1; i < a.length; i++) if (a[i] === "--dir") dir = a[++i] ?? null; else rest.push(a[i]);
+  return KINDS.includes(rest[0]) ? { kinds: [rest[0]], dir } : null;
+}
+// kit sync: the kinds whose items (status, version …) or blocked differ between two kit list --json
+export function syncKinds(before, after) {
+  const by = (d) => new Map([...(d?.items ?? []).map((i) => [`i\u0000${i.kind}\u0000${i.name}`, i]),
+    ...(d?.blocked ?? []).map((b) => [`b\u0000${b.kind}\u0000${b.name}\u0000${b.tool}`, b])].map(([k, v]) => [k, JSON.stringify(v)]));
+  const b = by(before), a = by(after), out = new Set();
+  for (const k of new Set([...b.keys(), ...a.keys()])) if (b.get(k) !== a.get(k)) out.add(k.split("\u0000")[1]);
+  return KINDS.filter((k) => out.has(k));
+}
+// the open agents a change reaches: those on its machine (null: this computer), with --dir only those in D or below
+// (list: [{ address, machine, cwd, tool }])
+export function reloadTargets(list, machine, dir) {
+  const n = (p) => String(p ?? "").replace(/\\/g, "/").replace(/\/+$/, "");
+  const d = dir && n(dir);
+  return (list ?? []).filter((x) => x.tool && (x.machine ?? null) === (machine ?? null) && (!d || n(x.cwd) === d || n(x.cwd).startsWith(d + "/")));
+}
+// one agent's need for the changed kinds -> { send, note: "restart" | "new" | null }
+export function reloadNeed(tool, kinds) {
+  const w = new Set((kinds ?? []).map((k) => RELOAD[tool]?.[k] ?? "none"));
+  return { send: w.has("reload"), note: w.has("restart") ? "restart" : w.has("new") ? "new" : null };
+}
+// the line under the action: 「t63、t96 已重新載入；t2 排隊重新載入；t1p（Codex）要重開；t7z 要開新對話（規則）」
+// (rows: [{ name, tool, done: "sent" | "queued" | "failed" | null, note }])
+export function reloadLine(rows) {
+  const TOOL = { claude: "Claude Code", codex: "Codex", omp: "omp" }, of = (d) => rows.filter((r) => r.done === d).map((r) => r.name).join("、");
+  const parts = [];
+  if (of("sent")) parts.push(`${of("sent")} 已重新載入`);
+  if (of("queued")) parts.push(`${of("queued")} 排隊重新載入（它停下來就送）`);
+  if (of("failed")) parts.push(`${of("failed")} 沒送出重新載入`);
+  for (const r of rows.filter((x) => x.note === "restart")) parts.push(`${r.name}（${TOOL[r.tool] ?? r.tool}）要重開`);
+  for (const r of rows.filter((x) => x.note === "new")) parts.push(`${r.name} 要開新對話（規則）`);
+  return parts.join("；");
+}
 // what kit can take off for a line of the window (kit list --json of that agent), the Kit popup's rule: an agent in a
 // folder only changes that folder (kit rm --dir), one in the home folder the account; a required one never.
 // -> { args, kind, name, where, dir } | { required: true, ... } | null

@@ -3,8 +3,9 @@
 // editors). See main.js for the parts.
 import { div, svg, image } from "gpui-kit";
 import { h_flex, v_flex, TextView, EditorState } from "gpui-base";
-import { exec, home, notify, settings, shared, setShared, theme, window, readTextFile, appHome } from "herdr";
+import { exec, home, notify, settings, shared, setShared, theme, window, readTextFile, appHome, agents, terminals, hc } from "herdr";
 import { readFile } from "fs/promises";
+import { toolOf, sendArgs, compactStep, changeOfArgs, syncKinds, reloadTargets, reloadNeed, reloadLine, reloadKey, RELOAD_TEXT } from "./context.js";
 
 // ---------- shared state (every copy sees it; it survives a restart, so nothing in it may stay "busy" forever) ----------
 export const DATA = "kit.data.v2";             // the repository's data ({ at: 0 } = out of date: the panel loads it again)
@@ -228,8 +229,9 @@ export function giveBusy(id) { if (id && shared(BUSY)?.id === id) setShared(BUSY
 
 // A kit action (add / rm / sync / install …): takes the lock (owner.mine holds its id, so the owner's close can give it
 // back), clears the message, runs kit there (machine null: this computer), puts kit's words in the shared key msg,
-// gives the lock back, then after(cx) (what changed is out of date). okText: one plain sentence instead of kit's own
-// lines when it worked (kit's warnings, stderr, still shown under it). false: another action holds the lock.
+// then what it did to the agents already open (reloadAfter), gives the lock back, then after(cx) (what changed is out
+// of date). okText: one plain sentence instead of kit's own lines when it worked (kit's warnings, stderr, still shown
+// under it). false: another action holds the lock.
 export function kitAction(owner, cx, { label, args, msg, ttl = 120000, machine = null, okText = null, after = null }) {
   owner.mine = takeBusy(label, ttl);
   if (!owner.mine) return false;
@@ -237,10 +239,13 @@ export function kitAction(owner, cx, { label, args, msg, ttl = 120000, machine =
   cx.notify();
   cx.spawn(async (cx) => {
     try {
+      const before = args[0] === "sync" ? await listNow(machine) : null;
       const r = await kit(args, ttl, machine);
       const text = clean([r.out, r.err].filter(Boolean).join("\n"));
       if (r.code === 0 && okText) setShared(msg, { ok: true, plain: true, label, text: [okText, clean(r.err ?? "")].filter(Boolean).join("\n"), at: Date.now() });
       else setShared(msg, { ok: r.code === 0, label, text: text || (r.code === 0 ? "完成" : `失敗（${r.code}）`), at: Date.now() });
+      const line = r.code === 0 ? await reloadAfter(args, machine, before).catch(() => "") : "";
+      if (line) setShared(msg, { ...shared(msg), text: `${shared(msg)?.text ?? ""}\n${line}` });
     } finally {
       giveBusy(owner.mine);
       owner.mine = null;
@@ -249,6 +254,47 @@ export function kitAction(owner, cx, { label, args, msg, ttl = 120000, machine =
     }
   });
   return true;
+}
+
+// ---------- after a kit change: the agents already open pick it up (what each tool needs: context.js) ----------
+// kit list --json there now (null when it can't be read)
+const listNow = (machine) => kit(["list", "--json"], 60000, machine).then((r) => kitJson(r, "kit list --json").data ?? null, () => null);
+// args: what kit ran there (add / rm; sync with before, kit list --json from before it); machine: where (null: this
+// computer). Each open agent there that reads it gets /reload-plugins now if it waits, else queued (its header sends it
+// once it waits). -> the line to show ("" when no open agent is affected)
+export async function reloadAfter(args, machine, before = null) {
+  let change = changeOfArgs(args);
+  const after = !change && args?.[0] === "sync" && before ? await listNow(machine) : null;
+  if (after) change = { kinds: syncKinds(before, after), dir: null };
+  if (!change?.kinds.length) return "";
+  const terms = new Map((terminals() ?? []).map((x) => [x.address, x])), busy = shared("agents.busy") ?? {};
+  const list = (agents() ?? []).map((a) => ({ address: a.address, tool: toolOf(a.app, a.program?.key), cwd: terms.get(a.address)?.cwd ?? a.cwd,
+    machine: String(a.address).includes("/") ? String(a.address).split("/")[0] : null, status: a.status === "done" && busy[a.address] ? "working" : a.status }));
+  const rows = await Promise.all(reloadTargets(list, machine, change.dir).map(async (x) => {
+    const need = reloadNeed(x.tool, change.kinds);
+    return { name: x.address, tool: x.tool, note: need.note, done: need.send ? await reloadOne(x.address, x.status) : null };
+  }));
+  return reloadLine(rows);
+}
+// typed in now while it waits (idle, done: sendArgs, as the compact), else queued: one per agent, a queued one stays
+async function reloadOne(addr, status) {
+  const key = reloadKey(addr), args = sendArgs(addr, status, RELOAD_TEXT), e = shared(key);
+  if (!args) {
+    if (!(e && compactStep(e, null, null) === null)) setShared(key, { state: "queued", at: Date.now(), text: RELOAD_TEXT });
+    return "queued";
+  }
+  setShared(key, null);
+  const r = await hc(args).catch(() => null);
+  return r?.code === 0 ? "sent" : "failed";
+}
+// a queued reload's next step (compactStep), from the agent's header: typed in once it waits, or given up after 30 minutes
+export function reloadNext(addr, e, step, name) {
+  setShared(reloadKey(addr), null);
+  if (step === "send") hc(["send", addr, e.text]).then((r) => r?.code === 0, () => false).then((ok) => notify(ok
+    ? { title: "已重新載入", body: name, level: "info", timeout: 3000 }
+    : { title: "沒有送出重新載入", body: `${name}：要的話自己打 ${e.text}`, level: "warning" }));
+  else if (step === "timeout") notify({ title: "排隊的重新載入取消了", level: "warning", timeout: 6000,
+    body: `${name}：等了 30 分鐘它還沒停下來，沒有送出（要的話自己打 ${e.text}）` });
 }
 
 // Load into shared state (load: the in-progress key, data: where the answer goes), the newest load wins: a slower,

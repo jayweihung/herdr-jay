@@ -27,10 +27,10 @@ import { h_flex, v_flex, InputState, Input } from "gpui-base";
 import { panes, spaces, agents, terminals, props, run, theme, hc, shared, setShared, openOverlay, closeOverlay, notify, appHome, readTextFile, exec } from "herdr";
 import * as files from "fs/promises";
 import { collectedFrom, AGENT_CACHE, AGENT_DATA, AGENT_WANT, CTX, NOTE, LIMIT_SENT, EDITORS, localGet, localSet, fs, stop, slash, shortDir, clean, spin, waiting, icon, textBlock,
-  copyOnRight, btn, busyNow, takeBusy, giveBusy, markChanged, kit, kitJson, apiState, apiKnown, apiAtLeast, checkApi, apiCard, num, kfmt } from "./common.js";
+  copyOnRight, btn, busyNow, takeBusy, giveBusy, markChanged, kit, kitJson, apiState, apiKnown, apiAtLeast, checkApi, apiCard, num, kfmt, reloadAfter, reloadNext } from "./common.js";
 import { toolOf, ctxArgs, askZero, zeroNumbers, sendText, sendArgs, removal, ctxTips, summaryText, chipNumbers, level, howCounted, ago, catColorKey, barSegments,
   catShare, compactLine, noteArgs, CTX_FULL, NAME_MAX, limitOf, continueDue, CONTINUE_TEXT, usageLines, ompUsage, whenText,
-  compactKey, compactStep, compactLive, compactedAfter, compactWords } from "./context.js";
+  compactKey, compactStep, compactLive, compactedAfter, compactWords, reloadKey } from "./context.js";
 
 const CTX_STALE = 15000, CTX_IDLE = 60000;   // how often to ask how full the context is: working / not
 const STALE = 60000, LOAD_TTL = 90000;   // look again after a minute; a load longer than this is taken as lost
@@ -300,9 +300,12 @@ export class Header {
   }
 
   // its compact (shared with Herdr's Agents list): a queued one typed in once it waits, a sent one ended (compactStep);
-  // kit not needed (kit context's "compacted" ends one sooner: tickContext)
+  // kit not needed (kit context's "compacted" ends one sooner: tickContext). Its queued /reload-plugins (after a kit
+  // change: common.js reloadAfter) the same way.
   tickCompact(p) {
-    const a = agentOf(p), e = a && shared(compactKey(a.address));
+    const a = agentOf(p), e = a && shared(compactKey(a.address)), r = a && shared(reloadKey(a.address));
+    const rs = r && compactStep(r, statusOf(a), null);
+    if (rs) reloadNext(a.address, r, rs, nameOf(a));
     if (!e) return;
     const turn = turnOf(a.address), step = compactStep(e, statusOf(a), turn);
     if (step) compactNext(a.address, e, step, nameOf(a), turn);
@@ -498,6 +501,7 @@ export class Header {
       .when(Boolean(pic), (el) => el.child(pic))
       .child(div().flex_none().truncate().max_w(NAME_MAX).font_medium().text_color(t.foreground).child(name))
       .child(div().flex_1().min_w(0).truncate().text_color(t.dim).child(shortDir(p.cwd)))
+      .when(agent && Boolean(shared(reloadKey(p.terminal))), (el) => el.child(div().flex_none().text_color(t.dim).child("排隊重新載入")))
       .when(agent, (el) => el.child(this.kitButton(t, p)).when(ctxOn, (el) => el.child(this.contextChip(t, p))))
       .child(status)
       .child(buttons);
@@ -649,6 +653,8 @@ export class Header {
         this.msg = r.code === 0
           ? { ok: true, text: [`已從${where}拿掉 ${rm.name}。這個 agent 要清空重來（${clear}）或重開才不會再讀它。`, clean(r.err)].filter(Boolean).join("\n") }
           : { ok: false, text: `沒拿掉 ${rm.name}：${clean(r.err || r.out) || `失敗（${r.code}）`}` };
+        const line = r.code === 0 ? await reloadAfter(rm.args, tg.machine ?? null).catch(() => "") : "";
+        if (line) this.msg = { ...this.msg, text: `${this.msg.text}\n${line}` };
       } catch (e) {
         this.msg = { ok: false, text: `沒拿掉 ${rm.name}：${e?.message ?? e}` };
       } finally {

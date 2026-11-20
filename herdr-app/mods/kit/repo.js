@@ -13,7 +13,7 @@ import { v_flex, h_flex, InputState, Input, Editor, TextareaState, Textarea } fr
 import { theme, exec, run, layout, shared, setShared, window, readTextFile, writeTextFile, closeOverlay, openOverlay, appHome, notify, props as blockProps } from "herdr";
 import { DATA, LOAD, EDITORS, NODES, MSG, KIT_TAB, fs, mono, stop, slash, shortDir, clean, spin, waiting, find, textBlock, copyOnRight, btn, loadChanges, versionLabel, changesOpen, changesBox,
   busyNow, dropStaleBusy, takeBusy, giveBusy, markChanged, kit, kitJson, apiState, apiKnown, apiAtLeast, checkApi, apiCard, messageBox, problemCard, versionCard,
-  squeeze, newEditor, liveEditors, BUILD, PUSH_CHECK, checkProblems, checkLine, localGet, localSet, kitAction, loadNewest, loadingNow, isWindows, lockFrom, urlId, groupRows, collectedFrom,
+  squeeze, newEditor, liveEditors, BUILD, PUSH_CHECK, checkProblems, checkLine, localGet, localSet, kitAction, loadNewest, loadingNow, isWindows, lockFrom, urlId, groupRows, collectedFrom, reloadAfter,
   OUTDATED, OUTDATED_TTL, outdatedFrom, outdatedOf, outdatedDone, outdatedLater, outdatedRemind, ALLOW_ASK, devFile, asksFrom, allowAdd, askDrop, partsLine } from "./common.js";
 export { lockFrom, urlId, groupRows };
 import { layoutNeeds, moveIntoBar } from "./layout.js";
@@ -975,6 +975,8 @@ export class Repo {
       if (apiAtLeast(null, 8)) { const r = await kit(["add", k, ...j.ok], LONG); if (r.code !== 0) bad.push(clean(r.err || r.out).trim()); }
       else for (const n of j.ok) { const r = await kit(["add", k, n], SHORT); if (r.code !== 0) bad.push(`${n}：${clean(r.err || r.out).trim().split("\n").pop()}`); }
       lines.push(bad.length ? `加到整個帳號沒有全部成功：\n${bad.join("\n")}` : "已加到整個帳號：agent 下次開（或 kit sync 之後）就讀得到。");
+      const reloaded = j.ok.length > bad.length ? await reloadAfter(["add", k], null).catch(() => "") : "";
+      if (reloaded) lines.push(reloaded);
     }
     if (sent) {
       const d = await loadNewest(LOAD, DATA, loadRepo).catch(() => null), cmd = signHint(d ?? this.data, j.source);

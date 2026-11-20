@@ -251,6 +251,18 @@ Kit 按鈕右邊的 `[context 35% 139k/400k]` 是這個 agent 的 context 用了
 - `⟳` 重新問（不用 kit 留的那一分鐘）；「複製」把細項整理成文字放到剪貼簿。
 - Claude 的細項要問 Claude Code 本身，最多 30 秒（不花錢、不叫模型、不跑 hook、不寫對話紀錄）；問不到時會寫原因，改顯示估算的。細節看 kit 的說明（「context 細項」）。
 
+### 加上、拿掉、同步之後：開著的 agent 重新載入
+
+Kit 面板（或 context 細項的「拿掉」）改了什麼，同一台電腦上有讀到它的 agent 不用重開：整個帳號的改動是那個工具的每個 agent，`--dir` 的改動是在那個資料夾或底下的。哪些種類改了：加上、拿掉看指令；同步看同步前後的 `kit list --json`（項目、版本、被擋下的）。
+
+| 工具 | skill | plugin、MCP | 規則 |
+|---|---|---|---|
+| Claude Code | 不用（它自己看 skill 資料夾） | 送 `/reload-plugins` | 要開新對話（CLAUDE.md 只在開頭讀） |
+| omp | 送 `/reload-plugins` | 送 `/reload-plugins` | 要開新對話 |
+| Codex | 不用（新的 skill 下一輪就看得到，試過 0.169） | 要重開 | 要重開 |
+
+送的方式跟「壓縮」一樣：它閒置或做完才用 `hc send` 送；工作中或在等你回答就排隊（標題列寫「排隊重新載入」，共用 `reload/<位址>`），停下來才送；一個 agent 只排一個，30 分鐘沒停就取消並通知。做完後訊息多一行，例如「t63、t96 已重新載入；t1p（Codex）要重開；t7z 要開新對話（規則）」。
+
 ## 2. 倉庫：看、改、新增
 
 上排的 `Kit` 按鈕開關右邊的倉庫。這裡列出來源裡所有的規則、skill、MCP，可以直接改內容。
@@ -703,7 +715,8 @@ Agents 面板上方有兩個分頁：「定義」是上面那些做好的 agent�
 | 關係圖的進度（窗格上方跟 context 一起問） | `kit note --pid <pid> --json` |
 | 細項的「壓縮」／「清空重來」 | 在那個 agent 打 `/compact [要保留什麼]` ／ `/clear`（Codex、omp：`/new`），用 `hc send` |
 | 細項的「拿掉」 | `kit rm <種類> <名字>` ／ `kit rm --dir <資料夾> <種類> <名字>` |
-| 同步 | `kit sync` |
+| 同步 | `kit sync`（前後各一次 `kit list --json`，比出哪些種類改了） |
+| 加上、拿掉、同步之後 | 在讀到它的 agent 打 `/reload-plugins`，用 `hc send` |
 | ⟳ | 只重新讀取畫面 |
 | 倉庫的清單（含哪些改過、還沒送出） | `kit list --json`（`sources[].changed`、`items[].changed`） |
 | 各機器（每台、每個帳號；打開那個分頁、或按它的 ⟳ 時） | `kit status --json`（舊版 kit：`kit api`、`kit --version`）；自己回報的帳號：讀它的回報檔 |

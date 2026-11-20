@@ -180,8 +180,11 @@ the topics shows one (a video may be in more than one; remembered):
 
 No API key, no browser, no tokens; its videos and its Shorts shelves (a Short says `Shorts` for its length). Each card
 has YouTube's thumbnail, the title, channel, length, when it was posted and the views; a video stays under the topic
-that found it first, never two, and only if its title has at least half the topic's words (YouTube fills a thin
-search with unrelated videos). Click plays it in the panel (**← 影片** goes back). The list keeps the newest 600.
+that found it first, never two, and only if its title has more than half the topic's words (`JISOO earthquake`: both;
+`tzuyu run away`: 2 of 3; YouTube fills a thin search with unrelated videos). A word may list other names after `/`
+(`TWICE 子瑜/tzuyu/쯔위`): any of them counts, and YouTube is searched with the first. 主題的字要超過一半在標題裡；
+一個字可以用 / 寫別名，標題有其中一個就算。
+Click plays it in the panel (**← 影片** goes back). The list keeps the newest 600.
 影片分頁：上面一排就是主題（點一個只看它的影片、✕ 連影片一起拿掉、「＋ 加主題」打字或點建議，馬上搜）；點影片在面板裡播（⤢ 放大面板）。
 
 **📝 整理重點** above a playing video asks the trend agent (as the list's buttons do: tokens, only when you press

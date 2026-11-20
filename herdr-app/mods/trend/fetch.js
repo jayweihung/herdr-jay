@@ -373,12 +373,16 @@ async function ytSearch(q, ua, cookies, sp) {
       channel: "", length: "Shorts", views, published };
   }).filter((x) => x.id)];
 }
-// A video is about a topic when its title has at least half the topic's words ("tzuyu run away": 2 of 3), since
-// YouTube fills a thin week with whatever it likes (another member's vlog, a drama trailer)
-// 影片標題至少要有主題一半的字，YouTube 這週沒東西時會塞不相干的影片
+// A video is about a topic when its title has more than half the topic's words ("JISOO earthquake": both; "tzuyu
+// run away": 2 of 3), since YouTube fills a thin week with whatever it likes (another member's vlog, a drama
+// trailer). A word may list other names after "/" (TWICE 子瑜/tzuyu/쯔위): any of them counts; YouTube is
+// searched with the first.
+// 影片標題要有主題超過一半的字；一個字可用 / 寫別名（子瑜/tzuyu/쯔위），標題有其中一個就算，搜尋用第一個
+const topicWords = (q) => q.toLowerCase().split(/\s+/).filter(Boolean).map((w) => w.split("/").filter(Boolean));
+const searchText = (q) => q.split(/\s+/).filter(Boolean).map((w) => w.split("/")[0]).join(" ");
 const about = (q, title) => {
-  const ws = q.toLowerCase().split(/\s+/).filter(Boolean), t = String(title).toLowerCase();
-  return ws.filter((w) => t.includes(w)).length >= Math.ceil(ws.length / 2);
+  const ws = topicWords(q), t = String(title).toLowerCase();
+  return ws.filter((alts) => alts.some((a) => t.includes(a))).length > ws.length / 2;
 };
 // YouTube's 「6 小時前」/「3 週前」/「2 年前」 as days (Infinity when it says nothing)
 const daysAgo = (s) => {
@@ -406,7 +410,7 @@ async function videos() {
     asked = true;
     try {
       // 最新上傳 takes only what says it's from the last 5 weeks (the Shorts shelves, no date shown, ignore the filter)
-      const got = (await ytSearch(q, ua, v.cookies, sp)).filter((x) => about(q, x.title) && (l !== "new" || daysAgo(x.published) <= 35)), at = now();
+      const got = (await ytSearch(searchText(q), ua, v.cookies, sp)).filter((x) => about(q, x.title) && (l !== "new" || daysAgo(x.published) <= 35)), at = now();
       // rel and views start over in YouTube's order (its rank kept); new gathers. A video under another topic stays
       // there, never two
       if (l !== "new") for (const x of v.items) if (x.query === q && x.lists?.[l] !== undefined) { x.lists = { ...x.lists }; delete x.lists[l]; }

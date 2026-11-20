@@ -12,6 +12,13 @@ which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/key
 Each mod also keeps its own `CHANGES.md` (shown in the mod as its version and 改動紀錄): when a change to a mod is
 user-visible, add a bullet under a new or current version at the top of that mod's `CHANGES.md`.
 
+## 2026-11-20, trend: a video topic needs more than half its words; a word may have other names
+
+Needs: **mods**.
+
+- A video is kept under a topic only when its title has more than half the topic's words (`JISOO earthquake` needs both; before, `JISOO` alone let every JISOO video in). A word may list other names after `/` (`TWICE 子瑜/tzuyu/쯔위`); YouTube is searched with the first.
+- 影片主題比對變嚴：標題要有主題超過一半的字；一個字可以用 / 寫別名，搜尋用第一個。
+
 ## 2026-11-20, 清空重來 and 繼續 reach an agent you looked at; omp's 壓縮 ends
 
 The Kit context window's 清空重來 and the 繼續 typed after a usage limit reset used `hc send --if idle` for an agent

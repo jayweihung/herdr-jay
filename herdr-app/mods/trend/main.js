@@ -143,9 +143,11 @@ document.querySelector("main").onclick=(e)=>{const b=e.target.closest("[data-do]
 location.hash="do="+b.dataset.do+(k.topic?"&topic="+encodeURIComponent(k.topic):"")+(k.name?"&name="+encodeURIComponent(k.name):"")+"&n="+Date.now();
 setTimeout(()=>history.replaceState(null,"",location.pathname),500)};
 const y=Number(get("y"));if(y)scrollTo(0,y);addEventListener("scroll",()=>set("y",String(scrollY)),{passive:true});
-// <span class="ago" data-t=ms data-w=word>: how long ago, written here and again each minute (the page itself isn't rewritten)
-const ago=()=>{for(const e of document.querySelectorAll(".ago[data-t]")){const t=+e.dataset.t,m=Math.round((Date.now()-t)/60000),d=new Date(t);
-e.textContent=(e.dataset.w||"")+(m<1?"剛剛":m<60?m+" 分鐘前":m<1440?Math.round(m/60)+" 小時前":m<10080?Math.round(m/1440)+" 天前":(d.getMonth()+1)+"/"+d.getDate());e.title=d.toLocaleString()}};ago();setInterval(ago,60000);
+// <span class="ago" data-t=ms data-w=word>: the date and time ("11/20 14:05"; another year adds it), then how long ago
+// while under a week, written here and again each minute (the page itself isn't rewritten)
+const ago=()=>{for(const e of document.querySelectorAll(".ago[data-t]")){const t=+e.dataset.t,m=Math.round((Date.now()-t)/60000),d=new Date(t),p=(n)=>String(n).padStart(2,"0");
+const at=(d.getFullYear()!==new Date().getFullYear()?d.getFullYear()+"/":"")+(d.getMonth()+1)+"/"+d.getDate()+" "+p(d.getHours())+":"+p(d.getMinutes());
+e.textContent=(e.dataset.w||"")+at+(m<1?"（剛剛）":m<60?"（"+m+" 分鐘前）":m<1440?"（"+Math.round(m/60)+" 小時前）":m<10080?"（"+Math.round(m/1440)+" 天前）":"")}};ago();setInterval(ago,60000);
 </script></body></html>
 `;
 }

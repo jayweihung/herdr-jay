@@ -146,8 +146,9 @@ more, busiest first. **篩選** at its right opens the rest: the sites (**HN**, 
 **Threads**, **Digg**: one shows only that site's cards, a story on several sites under each), **排列**, and the
 subjects with 1 or 2 cards; one picked there shows on the button (篩選・PTT). Each site has its color, from Herdr's
 theme: its chip, the card's left edge, the chip on the card. A card's own line (its headline, its excerpt) isn't
-shown when it only says the title again. Each card says when it was posted (3 小時前, 2 天前, then the date; every site
-gives it: HN's and Digg's from their lists, Reddit's from its page), or 上榜 … when only its first sighting here is known.
+shown when it only says the title again. Each card says when it was posted, date and time (11/20 14:26（3 小時前）, how long ago only within a week;
+every site gives it: HN's and Digg's from their lists, Reddit's from its page), or 上榜 … when only its first sighting
+here is known.
 上面一排可以左右滑：全部、收藏、升溫、新進榜、你的主題、「＋ 加主題」、分類（3 則以上，多的在前）；右邊「篩選」打開各站、排列、少的分類。
 
 **＋ 加主題**: type words (台積電, 子瑜), searched at once (`node fetch.js --topics`: a minute or two, Reddit and Dcard

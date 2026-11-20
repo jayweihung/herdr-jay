@@ -243,7 +243,7 @@ function compactNext(addr, e, step, name, turn) {
     }, () => failed(null));
   }
   setShared(key, null);
-  if (step === "done") notify({ title: "壓縮好了", body: name, level: "success", timeout: 3000 });
+  if (step === "done") notify({ title: "壓縮好了", body: e.quiet ? `${name}（它不說何時壓縮完：送出 30 秒後當作好了）` : name, level: "success", timeout: 3000 });
   else if (step === "timeout") notify({ title: e.state === "sent" ? "壓縮沒等到結束" : "排隊的壓縮取消了", level: "warning", timeout: 6000,
     body: `${name}：${e.state === "sent" ? "3 分鐘還沒看到它壓縮完，不再等（看一下它的畫面）" : "等了 30 分鐘它還沒停下來，沒有送出"}` });
 }
@@ -616,7 +616,7 @@ export class Header {
       cx.notify();
       return;
     }
-    const job = { state: "queued", at: Date.now(), text };
+    const job = { state: "queued", at: Date.now(), text, quiet: this.target.tool === "omp" };
     setShared(key, job);
     this.keep?.set_value("");
     this.msg = null;

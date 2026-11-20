@@ -51,20 +51,20 @@ export function sendText(cmds, what, keep) {
   const k = String(keep ?? "").replace(/\s+/g, " ").trim();
   return k && c.with_text ? `${c.compact} ${k}` : String(c.compact);
 }
-// hc send, only to an agent that waits for you: idle (--if idle: hc refuses if it started working meanwhile) or done
-// (it finished while nobody looked; hc's --if knows only idle and working). Never while it works or needs you.
+// hc send, only to an agent that waits for you (idle or done), plainly: never --if idle, which hc refuses when the core
+// still says done for an agent Herdr shows idle (someone looked at it after it finished; hc's --if knows only idle and
+// working). Never while it works or needs you: Codex refuses a command typed in while it works, omp's /compact stops
+// the work, Claude Code holds it until the turn ends.
 export function sendArgs(addr, status, text) {
-  if (!addr || !text) return null;
-  if (status === "idle") return ["send", "--if", "idle", addr, text];
-  if (status === "done") return ["send", addr, text];
-  return null;
+  return addr && text && (status === "idle" || status === "done") ? ["send", addr, text] : null;
 }
-// One /compact per agent per cycle, shared with Herdr's Agents list (its main.js has the same, app patch 0031; keep the
-// two the same): shared "compact/<address>" = { state: "queued" | "sent", at, text, sent?, turn? } while one waits or
-// runs, else null. A queued one is typed in once the agent waits (idle, done); a sent one ends when a turn ends after
-// it (the core's turn goes up each time it stops working: /compact works, then stops), when kit context says
-// "compacted" (compactedAfter), or after COMPACT_SENT ms.
-export const COMPACT_SENT = 180000, COMPACT_QUEUED = 1800000;
+// One /compact per agent per cycle, shared with Herdr's Agents list (its main.js has the same, app patch 0031/0032;
+// keep the two the same): shared "compact/<address>" = { state: "queued" | "sent", at, text, quiet?, sent?, turn? }
+// while one waits or runs, else null. A queued one is typed in once the agent waits (idle, done); a sent one ends when
+// a turn ends after it (the core's turn goes up each time it stops working: Claude Code's and Codex's /compact work,
+// then stop), when kit context says "compacted" (compactedAfter), or after COMPACT_SENT ms. quiet: an agent whose
+// status doesn't move while it compacts (omp: it stays done), so no turn ends: done COMPACT_QUIET ms after the send.
+export const COMPACT_SENT = 180000, COMPACT_QUEUED = 1800000, COMPACT_QUIET = 30000;
 export const compactKey = (address) => `compact/${address}`;
 // one of these (null, or another mod's mistake, is none: a press replaces it)
 const isCompact = (e) => (e?.state === "queued" || e?.state === "sent") && Number.isFinite(e.at);
@@ -76,7 +76,8 @@ export function compactStep(e, status, turn, now = Date.now()) {
   if (since > ttl) return "timeout";
   const waits = status === "idle" || status === "done";
   if (!sent) return waits ? "send" : null;
-  return waits && Number.isFinite(turn) && Number.isFinite(e.turn) && turn > e.turn ? "done" : null;
+  const turned = Number.isFinite(turn) && Number.isFinite(e.turn) && turn > e.turn;
+  return waits && (turned || (e.quiet && since >= COMPACT_QUIET)) ? "done" : null;
 }
 // one is queued or running: another press only says so
 export const compactLive = (e, now = Date.now()) => isCompact(e) && compactStep(e, null, null, now) === null;

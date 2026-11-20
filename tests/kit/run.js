@@ -190,8 +190,8 @@ test("context window: what is typed in for each tool (Claude /compact <keep>, /c
   assert.deepEqual([X.sendText(CMDS.omp, "compact", "keep it"), X.sendText(CMDS.omp, "clear")], ["/compact keep it", "/new"]);
   assert.equal(X.sendText(C, "other"), null); assert.equal(X.sendText({}, "clear"), null); assert.equal(X.sendText(null, "compact"), null);
 });
-test("context window: sent only while the agent waits (idle: --if idle; done), never while it works or needs you", ({ context: X }) => {
-  assert.deepEqual(X.sendArgs("t7", "idle", "/clear"), ["send", "--if", "idle", "t7", "/clear"]);
+test("context window: sent plainly, only while the agent waits (idle or done: no --if idle, which hc refuses while the core still says done), never while it works or needs you", ({ context: X }) => {
+  assert.deepEqual(X.sendArgs("t7", "idle", "/clear"), ["send", "t7", "/clear"]);
   assert.deepEqual(X.sendArgs("m1/t7", "done", "/compact x"), ["send", "m1/t7", "/compact x"]);
   for (const a of [["t7", "working", "/clear"], ["t7", "blocked", "/clear"], ["t7", null, "/clear"], ["", "idle", "/clear"], ["t7", "idle", null]])
     assert.equal(X.sendArgs(...a), null, JSON.stringify(a));
@@ -212,6 +212,8 @@ test("compact (shared compact/<address>, as Herdr's Agents list): queued while i
   assert.equal(X.compactedAfter(sent, { source: "statusline" }, 5001), false);
   assert.equal(X.compactedAfter(queued, { source: "compacted" }, 5001), false);
   assert.deepEqual([X.compactWords(queued, 2000), X.compactWords(sent, 6000), X.compactWords(null)], ["已排隊，這輪結束後壓縮", "壓縮中…", ""]);
+  const quiet = { ...sent, quiet: true };   // omp: its status stays done while it compacts, no turn ends
+  assert.deepEqual([X.compactStep(quiet, "done", 3, 5000 + 29999), X.compactStep(quiet, "done", 3, 5000 + 30000), X.compactStep(sent, "done", 3, 5000 + 30000)], [null, "done", null]);
 });
 test("compact (context window and header): pressed while it works, queued once; the header types it in when it stops; kit's compacted ends it; a turn or a timeout too", async (M) => {
   fresh(); fakeKit();
@@ -265,6 +267,17 @@ test("compact (context window and header): pressed while it works, queued once; 
   skew += 181000; await tick(); await settle();
   assert.equal(H.store["compact/t1"], null);
   assert.ok(H.notes.some((n) => n.title === "壓縮沒等到結束"));
+  // omp: its status stays done while it compacts (no turn ends): quiet, done 30 s after the send
+  const omp = view(M, { role: "context", target: { ...target, tool: "omp" } }); await settle(); await tick();
+  H.props = { role: "header", pane: "p1", terminal: "t1" };   // view() set the stubs' props to the popup's: the header's again
+  omp.part.send("compact", cx); await settle();
+  assert.equal(sends().length, 4);
+  assert.equal(H.store["compact/t1"].quiet, true);
+  skew += 29000; await tick(); await settle();
+  assert.equal(H.store["compact/t1"].state, "sent", "not before 30 s");
+  skew += 2000; await tick(); await settle();
+  assert.equal(H.store["compact/t1"], null);
+  assert.match(H.notes.at(-1).body, /30 秒/);
 });
 test("context window: kit context's arguments, the tool from what the agent reports", ({ context: X }) => {
   assert.deepEqual(X.ctxArgs(42, "claude", "/x y", true, true), ["context", "--pid", "42", "--tool", "claude", "--dir", "/x y", "--detail", "--fresh"]);
@@ -1545,6 +1558,9 @@ test("usage limit (header): the chip says until when; once it reset, 繼續 is t
   assert.deepEqual(sends(), [], "not before the reset");
   until = Date.now() - 120000;
   setup(); try { localStorage.removeItem("kit.autoContinue"); } catch {}
+  // Herdr shows it idle (someone looked at it), the core still says done: hc would refuse --if idle
+  H.agents = [{ address: "t1", pane: "p1", status: "idle", app: "claude-code" }];
+  H.hcAnswer = (args) => (args.includes("--if") ? { code: 1, stdout: "", stderr: "status_mismatch: t1 is done" } : undefined);
   v = view(M, { role: "header", pane: "p1", terminal: "t1" }); await settle(); await tick(); await settle(); await tick(); await settle();
   assert.deepEqual(sends(), [["send", "t1", "繼續"]]);
   await tick(); await settle(); await tick(); await settle();

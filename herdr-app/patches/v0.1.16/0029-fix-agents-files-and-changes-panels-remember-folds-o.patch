@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: jayweihung <3034830+jayweihung@users.noreply.github.com>
 Date: Mon, 16 Nov 2026 18:16:10 +0800
-Subject: [PATCH 29/31] fix: agents, files and changes panels remember folds,
+Subject: [PATCH 29/32] fix: agents, files and changes panels remember folds,
  open folders, the picked file and the unsent message across reloads and
  restarts
 

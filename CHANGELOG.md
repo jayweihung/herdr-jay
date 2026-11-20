@@ -12,6 +12,19 @@ which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/key
 Each mod also keeps its own `CHANGES.md` (shown in the mod as its version and 改動紀錄): when a change to a mod is
 user-visible, add a bullet under a new or current version at the top of that mod's `CHANGES.md`.
 
+## 2026-11-20, 清空重來 and 繼續 reach an agent you looked at; omp's 壓縮 ends
+
+The Kit context window's 清空重來 and the 繼續 typed after a usage limit reset used `hc send --if idle` for an agent
+Herdr shows idle. Once you have looked at a finished agent Herdr shows it idle while the core still says done, so hc
+refused: 清空重來 said 沒送出, and 繼續 was tried again every second and a half. Both are sent plainly now, as the
+Agents menu does (patch 0014), still only while the agent waits (Codex refuses a command typed in while it works).
+omp doesn't report anything while it compacts (its status stays done, no turn ends), so its 「壓縮中…」 waited the
+full 3 minutes and then said it had stopped waiting: now it counts as done 30 seconds after the send (app patch
+`0032`, kit mod 1.8). Checked with throwaway Claude Code 2.1.329, Codex 0.169.0 and omp 18.18.6 agents: Claude Code and
+Codex go working, then done while they compact (a turn ends it); only Claude gets kit's "compacted".
+清空重來、自動「繼續」對看過的 agent 也送得出去；omp 的壓縮 30 秒後當作好了。
+Needs: mods (macOS links: nothing), app (rebuild with patch 0032).
+
 ## 2026-11-20, 壓縮 says it is queued or running, and sends once per agent
 
 Pressing 壓縮 for an agent that was still at work looked like nothing happened (Claude Code held the `/compact` until

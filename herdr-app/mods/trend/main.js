@@ -69,6 +69,15 @@ const same = (a, b) => { const x = flat(a); return !x || flat(b).includes(x); };
 // under ⭐ 收藏: a chip per group it is split by (a topic, a subject), shown only while ⭐ 收藏 is
 const starSubs = (groups) => (groups.length > 1 ? `<div class="row subs" hidden><button data-sub="*">全部收藏</button>`
   + groups.map(([u, n]) => `<button data-sub="${esc(u)}">${esc(u || "其他")} ${n}</button>`).join("") + "</div>" : "");
+// line icons (lucide, 1.5 stroke) where the pages had emoji; they take their text's color
+const ico = (d, fill = "none") => `<svg width="15" height="15" viewBox="0 0 24 24" fill="${fill}" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+const ICON = {
+  deep: ico('<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>'),
+  three: ico('<path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/>'),
+  report: ico('<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8M16 13H8M16 17H8"/>'),
+};
+const STAR = '<path d="M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z"/>';
+const starIcon = (on) => ico(STAR, on ? "currentColor" : "none");
 // a page in Herdr's colors and font size: <nav> chips filter the <section data-cat>s; [data-do] clicks set the #hash.
 // The chips are one row that scrolls sideways (the chosen one scrolled into view); 篩選 opens the less used ones.
 function pageHtml(body) {
@@ -78,50 +87,47 @@ function pageHtml(body) {
 --accent-fg:${t.accent_foreground ?? t.background};--solid:${t.solid};--solid-fg:${t.solid_foreground};--green:${t.ansi2};--yellow:${t.ansi3};
 --c1:${t.ansi1};--c2:${t.ansi2};--c3:${t.ansi3};--c4:${t.ansi4};--c5:${t.ansi5};--c6:${t.ansi6}}
 html,body{margin:0;background:var(--bg);color:var(--fg);font:${z}px/1.45 -apple-system,"PingFang TC","Microsoft JhengHei",system-ui,sans-serif}
-nav{position:sticky;top:0;z-index:1;display:flex;flex-direction:column;gap:6px;padding:8px 10px;background:var(--bg);border-bottom:1px solid var(--border)}
-nav .row{display:flex;gap:6px;align-items:center;overflow-x:auto;scrollbar-width:none}nav .row::-webkit-scrollbar{display:none}nav .row>button{flex:none;white-space:nowrap}
+nav{position:sticky;top:0;z-index:1;display:flex;flex-direction:column;gap:8px;padding:8px 12px;background:var(--bg);border-bottom:1px solid var(--border)}
+nav .row{display:flex;gap:8px;align-items:center;overflow-x:auto;scrollbar-width:none}nav .row::-webkit-scrollbar{display:none}nav .row>button{flex:none;white-space:nowrap}
 nav .row[hidden],nav .panel[hidden]{display:none}nav .subs button{font-size:.82em}
-nav .panel{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding-top:6px;border-top:1px dashed var(--border)}
-nav .panel .br{flex-basis:100%;height:0}nav .lbl{font-size:.82em;color:var(--muted);display:inline-flex;flex-wrap:wrap;gap:6px;align-items:center}
+nav .panel{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding-top:8px;border-top:1px dashed var(--border)}
+nav .panel .br{flex-basis:100%;height:0}nav .lbl{font-size:.82em;color:var(--muted);display:inline-flex;flex-wrap:wrap;gap:8px;align-items:center}
 nav button.pt{margin-left:auto;position:sticky;right:0;box-shadow:-8px 0 8px var(--bg)}
-.ib{flex:none;border:0;background:none;padding:0 2px;font-size:1em;line-height:1.3;cursor:pointer;opacity:.55}.ib:hover{opacity:1}.ib.rep{opacity:.9}
-nav button{font:inherit;font-size:.88em;padding:2px 10px;border-radius:999px;border:1px solid var(--border);background:var(--raised);color:var(--muted);cursor:pointer}
+.ib{flex:none;display:inline-flex;border:0;background:none;padding:2px;border-radius:4px;color:var(--muted);cursor:pointer}.ib:hover{color:var(--fg);background:var(--bg)}.ib.rep{color:var(--accent)}
+nav button{font:inherit;font-size:.88em;padding:2px 8px;border-radius:8px;border:1px solid var(--border);background:var(--raised);color:var(--muted);cursor:pointer}
 nav button.on{background:var(--accent);color:var(--accent-fg);border-color:var(--accent)}nav button:disabled{opacity:.4;cursor:default}
-nav button:not(.on):not(:disabled):hover{color:var(--fg);border-color:var(--accent)}
-h2{margin:16px 12px 7px;font-size:.9em;font-weight:700;color:var(--fg);display:flex;align-items:center;gap:7px}
-h2::before{content:"";width:3px;height:1em;border-radius:2px;background:var(--accent)}
-.card{margin:0 10px 8px;padding:9px 11px;border:1px solid var(--border);border-radius:9px;background:var(--raised);transition:border-color .15s,box-shadow .15s}
-.card:hover{box-shadow:0 3px 14px color-mix(in srgb,var(--accent) 14%,transparent)}
+nav button:not(.on):not(:disabled):hover{color:var(--fg);border-color:var(--muted)}
+h2{margin:20px 12px 8px;font-size:.9em;font-weight:600;color:var(--fg)}
+.card{margin:0 12px 8px;padding:12px;border:1px solid var(--border);border-radius:12px;background:var(--raised);transition:border-color .15s}
+.card:hover{border-color:color-mix(in srgb,var(--fg) 20%,var(--border))}
 .card[data-do]{cursor:pointer}.card[data-do]:hover{border-color:var(--accent)}
-.top{display:flex;gap:6px;align-items:flex-start}
+.top{display:flex;gap:8px;align-items:flex-start}
 .title{flex:1;min-width:0;font-weight:600;color:var(--fg);text-decoration:none;overflow-wrap:anywhere}
 a.title:hover{color:var(--accent)}
 .chip{flex:none;margin-top:.15em;padding:1px 6px;border-radius:4px;font-size:.75em;background:var(--bg);color:var(--muted)}
-.chip.x{color:var(--accent);background:color-mix(in srgb,var(--accent) 15%,transparent)}
+.chip.x{color:var(--muted)}
 .chip.new{color:var(--green);background:color-mix(in srgb,var(--green) 15%,transparent)}.chip.up{color:var(--yellow);background:color-mix(in srgb,var(--yellow) 15%,transparent)}
-/* each site its own color (the theme's own ANSI ones): the card's left edge, its chip, its chip on top */
-.s-HN,.card[data-feed=HN]{--s:var(--c3)}.s-Reddit,.card[data-feed=Reddit]{--s:var(--c1)}.s-PTT,.card[data-feed=PTT]{--s:var(--c4)}
-.s-Dcard,.card[data-feed=Dcard]{--s:var(--c6)}.s-Threads,.card[data-feed=Threads]{--s:var(--c5)}.s-Digg,.card[data-feed=Digg]{--s:var(--c2)}
-.card[data-feed]:not([data-feed=""]){border-left:3px solid var(--s)}
-.chip.site[class*=" s-"]{font-weight:600;color:var(--s);background:color-mix(in srgb,var(--s) 15%,transparent)}
-nav button.s:not(:disabled){color:var(--s);border-color:color-mix(in srgb,var(--s) 45%,var(--border))}
-nav button.s.on{background:var(--s);color:var(--bg);border-color:var(--s)}
-.also{margin-top:5px;padding-left:8px;border-left:2px solid var(--border);font-size:.85em}
+/* each site its own color (the theme's own ANSI ones), only as a small dot: beside its name on a card and on its 篩選 button */
+.s-HN{--s:var(--c3)}.s-Reddit{--s:var(--c1)}.s-PTT{--s:var(--c4)}.s-Dcard{--s:var(--c6)}.s-Threads{--s:var(--c5)}.s-Digg{--s:var(--c2)}
+.site{flex:none;margin-top:.15em;display:inline-flex;align-items:center;gap:4px;font-size:.75em;color:var(--muted);white-space:nowrap}
+.site::before,nav button.s::before{content:"";flex:none;width:6px;height:6px;border-radius:3px;background:var(--s,var(--dim))}
+nav button.s::before{display:inline-block;margin-right:6px;vertical-align:.1em}
+.also{margin-top:4px;padding-left:8px;border-left:2px solid var(--border);font-size:.85em}
 .also a{display:block;color:var(--muted);text-decoration:none;overflow-wrap:anywhere}.also a:hover{color:var(--fg)}
-.also b{color:var(--accent);font-weight:600}.also span{margin-left:6px;color:var(--dim)}
+.also b{color:var(--fg);font-weight:500}.also span{margin-left:6px;color:var(--dim)}
 .dot{flex:none;width:6px;height:6px;margin-top:.55em;border-radius:3px;background:var(--accent)}
 .meta{margin-top:2px;font-size:.85em;color:var(--muted)}
-.why{margin-top:3px;font-size:.9em;color:var(--dim);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
-.excerpt{margin-top:5px;font-size:.92em;color:var(--fg);opacity:.85;white-space:pre-line;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.why{margin-top:4px;font-size:.9em;color:var(--dim);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.excerpt{margin-top:4px;font-size:.92em;color:var(--fg);opacity:.85;white-space:pre-line;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
 .card:has(details[open]) .excerpt{display:none}
-.body{margin:6px 0;white-space:pre-line;overflow-wrap:anywhere;color:var(--fg)}
+.body{margin:8px 0;white-space:pre-line;overflow-wrap:anywhere;color:var(--fg)}
 details{margin-top:4px;font-size:.88em}summary{color:var(--muted);cursor:pointer}summary:hover{color:var(--fg)}
-blockquote{margin:6px 0;padding-left:8px;border-left:2px solid var(--border);color:var(--muted)}
+blockquote{margin:8px 0;padding-left:8px;border-left:2px solid var(--border);color:var(--muted)}
 .links a{display:block;color:var(--accent);text-decoration:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.links a:hover{text-decoration:underline}
-.acts{display:flex;flex-wrap:wrap;gap:6px;margin-top:7px}
-.acts button{font:inherit;font-size:.85em;padding:3px 10px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--fg);cursor:pointer}
+.acts{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+.acts button{font:inherit;font-size:.85em;padding:4px 12px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--fg);cursor:pointer}
 .acts button.main{background:var(--solid);color:var(--solid-fg);border-color:var(--solid)}.acts button.rep{color:var(--accent);border-color:var(--accent)}
-.acts button:hover{box-shadow:0 0 0 2px var(--accent)}.acts button:active{transform:translateY(1px)}
+.acts button:hover{border-color:var(--muted)}.acts button:active{transform:translateY(1px)}
 .spin{display:inline-block;width:.75em;height:.75em;margin:0 5px 0 2px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:spin .8s linear infinite;vertical-align:-.1em}
 @keyframes spin{to{transform:rotate(360deg)}}.busy{color:var(--accent)!important;font-weight:600}
 </style></head><body>${body}
@@ -158,7 +164,7 @@ const metaTopic = (html) => unescape(/<meta\s+name=["']trend-topic["']\s+content
 const htmlTitle = (html) => unescape(/<title[^>]*>([^<]*)<\/title>/i.exec(html)?.[1]) || null;
 const reportWhen = (name) => { const m = /^(\d{4})-(\d{2})-(\d{2})-(\d{2})(\d{2})/.exec(name); return m ? `${Number(m[2])}/${Number(m[3])} ${m[4]}:${m[5]}` : ""; };
 const PRESETS = [
-  { label: "🔎 深入查", text: (r) => `/last30days ${r.topic}` },
+  { label: "深入查", text: (r) => `/last30days ${r.topic}` },
   { label: "三句話說明", text: (r) => r.feed
     ? `用繁體中文三句話說明「${r.topic}」（${r.evidence_urls[0]}）最近發生什麼事、為什麼大家在討論。先看那個連結，不夠再查。`
     : `用繁體中文三句話說明「${r.topic}」最近發生什麼事、為什麼大家在討論。這一題的來源在 ~/.config/herdr-app/trend/trends.json（topic 是 ${JSON.stringify(r.topic)}），先看那些連結，不夠再查。` },
@@ -414,7 +420,7 @@ export default class Trend extends View {
   // the reports: a web page like the list's (writePages), newest first; a card opens its report
   reportList(t, z) {
     if (!this.reports?.length) return div().flex_1().p(14).text_color(t.muted).whitespace_normal()
-      .child("還沒有報告：在熱門按「🔎 深入查」，trend agent 查完會把報告寫在這裡。");
+      .child("還沒有報告：在熱門卡片右上角按放大鏡（深入查），trend agent 查完會把報告寫在這裡。");
     return this.pageCell(t, REPORTS_CELL, "reports.html");
   }
   // a report as a web page (the system's WebKit / WebView2); links in it open in the browser
@@ -448,19 +454,19 @@ export default class Trend extends View {
   // video plays). Under the player: a bar (its first line) that opens them, at most 240 px, so the player page keeps
   // its height (the panel's video is as wide as the panel allows; the room below it is what the notes take)
   videoPlayer(t, z) {
-    const x = this.playing, notes = this.notes?.trim(), label = `📝 整理重點：${x.title}`;
+    const x = this.playing, notes = this.notes?.trim(), label = `整理重點：${x.title}`;
     const asked = this.asked?.sent === label || this.asked?.opening === label || this.asked?.sending === label;
     return v_flex().flex_1().min_h(0)
       .child(h_flex().h(34).px(8).gap(6).flex_none().items_center().border_b(1).border_color(t.border)
         .child(smallBtn(t, z, "vid-back", "← 影片", (_e, cx) => { this.playing = null; this.notes = null; cx.notify(); }))
         .child(div().flex_1().min_w(0).truncate().text_size(z - 1).text_color(t.muted).child(x.title))
-        .child(smallBtn(t, z, "vid-glow", localStorage.getItem("glow") === "0" ? "✨ 背光：關" : "✨ 背光：開", (_e, cx) => {
+        .child(smallBtn(t, z, "vid-glow", localStorage.getItem("glow") === "0" ? "背光：關" : "背光：開", (_e, cx) => {
           localStorage.setItem("glow", localStorage.getItem("glow") === "0" ? "1" : "0");
           this.syncSettings(cx);
           if (this.progress?.[x.id] > 5) this.playFrom = this.progress[x.id];   // the page reloads: on from where it was
           cx.notify();
         }))
-        .child(smallBtn(t, z, "vid-notes", notes ? "📝 重新整理" : "📝 整理重點",
+        .child(smallBtn(t, z, "vid-notes", notes ? "重新整理" : "整理重點",
           (_e, cx) => cx.spawn(async (cx) => this.ask(label, notesAsk(x, `${this.dir}/notes/${x.id}.txt`, `${this.dir}/player-extra.json`), cx)))))
       .child(div().flex_1().min_h(0).child(web.new(VIDEO_CELL, { src: this.playSrc(x) })))
       .when(Boolean(notes), (el) => {
@@ -468,7 +474,7 @@ export default class Trend extends View {
         return el.child(h_flex().id("vid-notes-bar").flex_none().h(30).px(12).gap(8).items_center().border_t(1).border_color(t.border).cursor_pointer()
           .text_size(z - 1).text_color(t.muted).hover((s) => s.bg(t.hover)).on_mouse_down("left", stop)
           .on_click((_e, cx) => { localStorage.setItem("notesOpen", open ? "0" : "1"); this.syncSettings(cx); cx.notify(); })
-          .child(div().flex_none().text_color(t.foreground).child(open ? "▾ 📝 重點" : "▸ 📝 重點"))
+          .child(div().flex_none().text_color(t.foreground).child(open ? "▾ 重點" : "▸ 重點"))
           .child(div().flex_1().min_w(0).truncate().child(open ? "收起" : notes.split("\n").find((l) => l.trim()) ?? "")))
           .when(open, (el) => el.child(div().id("vid-notes-text").flex_none().max_h(240).overflow_y_scrollbar().px(12).py(8)
             .whitespace_normal().on_mouse_down("right", copyOn(notes)).child(notes)));
@@ -1108,10 +1114,10 @@ export default class Trend extends View {
         + `${up ? `<span class="chip up">↑ +${num(up.rise.by)}・${up.rise.hours} 小時</span>` : ""}${all.some(fresh) ? '<span class="chip new">新進榜</span>' : ""}`
         + `${MOMENTUM[r.momentum] ? `<span class="chip ${r.momentum === "new-this-week" ? "new" : "up"}">${MOMENTUM[r.momentum]}</span>` : ""}`
         + `${r.also?.length ? `<span class="chip x">${sites > 1 ? `${sites} 站` : `${all.length} 篇`}</span>` : ""}`
-        + `<span class="chip site${r.feed ? ` s-${esc(r.feed)}` : " x"}">${esc(r.feed ?? "跨站")}</span>`
-        + `<button class="ib" data-do="deep" title="深入查：trend agent 查完寫一份報告">🔎</button><button class="ib" data-do="three" title="三句話說明">💬</button>`
-        + `${this.reportFor(r.topic) ? '<button class="ib rep" data-do="report" title="看報告">📄</button>' : ""}`
-        + `<button class="star${starred ? " on" : ""}" data-do="hstar" title="${starred ? "取消收藏" : "收藏：一直留著"}">${starred ? "⭐" : "☆"}</button></div>`
+        + `<span class="site${r.feed ? ` s-${esc(r.feed)}` : ""}">${esc(r.feed ?? "跨站")}</span>`
+        + `<button class="ib" data-do="deep" title="深入查：trend agent 查完寫一份報告">${ICON.deep}</button><button class="ib" data-do="three" title="三句話說明">${ICON.three}</button>`
+        + `${this.reportFor(r.topic) ? `<button class="ib rep" data-do="report" title="看報告">${ICON.report}</button>` : ""}`
+        + `<button class="star${starred ? " on" : ""}" data-do="hstar" title="${starred ? "取消收藏" : "收藏：一直留著"}">${starIcon(starred)}</button></div>`
         // a headline or excerpt that only says the title again isn't shown
         // when it was posted (HN, Reddit, PTT, Dcard, Threads, Digg say), else when it showed up here
         + `${line || when ? `<div class="meta">${esc(line ?? "")}${line && when ? " · " : ""}${when}</div>` : ""}${why(r) && !same(why(r), r.topic) ? `<div class="why">${esc(why(r))}</div>` : ""}`
@@ -1135,17 +1141,17 @@ export default class Trend extends View {
       const errs = Object.keys(siteName).map((s) => d.errors?.[`${s} ${q}`] ?? d.errors?.[s] ? `${siteName[s]}：${d.errors[`${s} ${q}`] ?? d.errors[s]}` : "").filter(Boolean);
       return `${n ? "" : '<p class="empty">還沒有結果：下一輪搜（約一小時一次）</p>'}${errs.map((e) => `<p class="err">${esc(e)}</p>`).join("")}`;
     };
-    return pageHtml(`<style>nav .x{margin-left:7px;opacity:.55}nav .x:hover{opacity:1;color:${t.ansi1}}`
-      + `nav button.addt{color:var(--accent);border-style:dashed}nav button.s{border-style:dotted}.err{margin:2px 12px;font-size:.85em;color:${t.ansi1}}`
-      + `.empty{margin:4px 12px 8px;font-size:.88em;color:var(--muted)}#addbox{margin:10px 10px 4px;padding:10px;border:1px dashed var(--border);border-radius:9px}`
-      + `#addbox .hd{font-size:.85em;color:var(--muted);margin-bottom:8px}#addform{display:flex;gap:6px}`
+    return pageHtml(`<style>nav .x{margin-left:8px;opacity:.55}nav .x:hover{opacity:1;color:${t.ansi1}}`
+      + `nav button.addt{color:var(--accent);border-style:dashed}.err{margin:2px 12px;font-size:.85em;color:${t.ansi1}}`
+      + `.empty{margin:4px 12px 8px;font-size:.88em;color:var(--muted)}#addbox{margin:12px 12px 4px;padding:12px;border:1px dashed var(--border);border-radius:12px}`
+      + `#addbox .hd{font-size:.85em;color:var(--muted);margin-bottom:8px}#addform{display:flex;gap:8px}`
       + `#addq{flex:1;min-width:0;font:inherit;padding:4px 8px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--fg)}`
       + `#addform button{font:inherit;font-size:.88em;padding:3px 10px;border-radius:6px;border:1px solid var(--solid);background:var(--solid);color:var(--solid-fg);cursor:pointer}`
-      + `#addform button:hover{box-shadow:0 0 0 2px var(--accent)}`
-      + `.star{flex:none;border:0;background:none;padding:0 2px;font-size:1.1em;line-height:1.2;color:var(--muted);cursor:pointer}.star:hover,.star.on{color:var(--yellow)}</style>`
-      + `<nav><div class="row"><button data-cat="all">全部 ${every.length}</button>${starred.length ? `<button data-cat="⭐ 收藏">⭐ 收藏 ${starred.length}</button>` : ""}`
-      + `${nUp ? `<button data-cat="rising">🔥 升溫 ${nUp}</button>` : ""}${nNew ? `<button data-cat="new">🆕 新進榜 ${nNew}</button>` : ""}`
-      + tops.map(([q, rows]) => `<button data-cat="🔍 ${esc(q)}">🔍 ${esc(q)} ${this.hotSearching?.has(q) ? '<span class="spin"></span>' : rows.length}<span class="x" data-act="tdrop" data-q="${esc(q)}" title="拿掉這個主題">✕</span></button>`).join("")
+      + `#addform button:hover{opacity:.9}`
+      + `.star{flex:none;display:inline-flex;border:0;background:none;padding:2px;color:var(--muted);cursor:pointer}.star:hover,.star.on{color:var(--yellow)}</style>`
+      + `<nav><div class="row"><button data-cat="all">全部 ${every.length}</button>${starred.length ? `<button data-cat="⭐ 收藏">收藏 ${starred.length}</button>` : ""}`
+      + `${nUp ? `<button data-cat="rising">升溫 ${nUp}</button>` : ""}${nNew ? `<button data-cat="new">新進榜 ${nNew}</button>` : ""}`
+      + tops.map(([q, rows]) => `<button data-cat="🔍 ${esc(q)}">${esc(q)} ${this.hotSearching?.has(q) ? '<span class="spin"></span>' : rows.length}<span class="x" data-act="tdrop" data-q="${esc(q)}" title="拿掉這個主題">✕</span></button>`).join("")
       + `<button class="addt" data-act="toggle">＋ 加主題</button>`
       + big.map(([c, rows]) => `<button data-cat="${esc(c)}">${esc(c)} ${rows.length}</button>`).join("")
       + `<button class="pt" data-panel>篩選 ▾</button></div>`
@@ -1157,8 +1163,8 @@ export default class Trend extends View {
       + `${small.length ? `<i class="br"></i><span class="lbl">其他分類</span>${small.map(([c, rows]) => `<button data-cat="${esc(c)}">${esc(c)} ${rows.length}</button>`).join("")}` : ""}</div>`
       + `</nav><main><div id="addbox" hidden><div class="hd">加主題：打一個關鍵字（例：台積電、子瑜），馬上去 HN、PTT、Reddit、Dcard 搜，之後約每小時一次</div>`
       + `<form id="addform"><input id="addq" placeholder="例如：台積電" autocomplete="off"><button>加</button></form></div>`
-      + starUnder.map(([u, xs]) => `<section data-cat="⭐ 收藏" data-under="${esc(u)}" data-keep><h2>⭐ 收藏${u ? ` · ${esc(u)}` : ""}</h2>${xs.map(card).join("")}</section>`).join("")
-      + tops.map(([q, rows]) => `<section data-cat="🔍 ${esc(q)}" data-show><h2>🔍 ${esc(q)}</h2>${status(q, rows.length)}${rows.map(card).join("")}</section>`).join("")
+      + starUnder.map(([u, xs]) => `<section data-cat="⭐ 收藏" data-under="${esc(u)}" data-keep><h2>收藏${u ? ` · ${esc(u)}` : ""}</h2>${xs.map(card).join("")}</section>`).join("")
+      + tops.map(([q, rows]) => `<section data-cat="🔍 ${esc(q)}" data-show><h2>${esc(q)}</h2>${status(q, rows.length)}${rows.map(card).join("")}</section>`).join("")
       + used.map(([c, rows]) => `<section data-cat="${esc(c)}"><h2>${esc(c)}</h2>${rows.map(card).join("")}</section>`).join("") + "</main>"
       // this page's own clicks, before pageHtml's: ＋ 加主題 opens the box (remembered), 加 adds, ✕ drops (asks first),
       // 排列 reorders each section's cards (remembered; ⭐ 收藏 keeps its order)
@@ -1205,7 +1211,7 @@ export default class Trend extends View {
       + `<div class="title">${esc(x.title)}</div>`
       + `<div class="meta">${esc([x.channel, x.length, x.published, x.views].filter(Boolean).join(" · "))}</div>`
       + `<div class="meta">${esc([when(x.found), this.progress?.[x.id] > 5 ? `▶ 上次看到 ${mmss(this.progress[x.id])}` : ""].filter(Boolean).join(" · "))}</div></div>`
-      + `<button class="star${this.stars?.[x.id] ? " on" : ""}" data-do="star" title="${this.stars?.[x.id] ? "取消收藏" : "收藏：一直留著"}">${this.stars?.[x.id] ? "⭐" : "☆"}</button></div>`;
+      + `<button class="star${this.stars?.[x.id] ? " on" : ""}" data-do="star" title="${this.stars?.[x.id] ? "取消收藏" : "收藏：一直留著"}">${starIcon(this.stars?.[x.id])}</button></div>`;
     // ⭐ 收藏 by the topic that found each (your topics' order, then gone ones), newest starred first in each
     const starred = Object.values(this.stars ?? {}).sort((a, b) => String(b.starred).localeCompare(String(a.starred)));
     const starTopics = [...new Set([...queries, ...starred.map((x) => x.query ?? "")])].map((q) => [q, starred.filter((x) => (x.query ?? "") === q)]).filter(([, xs]) => xs.length);
@@ -1216,18 +1222,18 @@ export default class Trend extends View {
       : n ? "" : Object.keys(v.done ?? {}).some((k) => k.endsWith(` ${q}`))
         ? `<p class="empty">搜過了，沒有標題含「${esc(q)}」的影片：YouTube 上常用別的寫法，試試中英並列（例如「中文名 英文名」）</p>`
         : '<p class="empty">還沒搜：馬上會搜</p>';
-    return pageHtml(`<style>.vid{display:flex;gap:10px;align-items:flex-start}.vid[hidden]{display:none}.vid img{flex:none;width:136px;aspect-ratio:16/9;object-fit:cover;border-radius:6px;background:var(--bg)}`
+    return pageHtml(`<style>.vid{display:flex;gap:12px;align-items:flex-start}.vid[hidden]{display:none}.vid img{flex:none;width:136px;aspect-ratio:16/9;object-fit:cover;border-radius:6px;background:var(--bg)}`
       + `.vb{flex:1;min-width:0}.err{margin:8px 12px;font-size:.88em;color:${t.ansi1}}.empty{margin:4px 12px 10px;font-size:.88em;color:var(--muted)}`
-      + `.star{flex:none;border:0;background:none;padding:0 2px;font-size:1.2em;line-height:1;color:var(--muted);cursor:pointer}.star:hover,.star.on{color:var(--yellow)}`
-      + `nav .x{margin-left:7px;opacity:.55}nav .x:hover{opacity:1;color:${t.ansi1}}nav button.addt{color:var(--accent);border-style:dashed}`
-      + `#addbox{margin:10px 10px 4px;padding:10px;border:1px dashed var(--border);border-radius:9px}#addbox .hd{font-size:.85em;color:var(--muted);margin-bottom:8px}`
-      + `#addform{display:flex;gap:6px;margin-bottom:8px}#addq{flex:1;min-width:0;font:inherit;padding:4px 8px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--fg)}`
+      + `.star{flex:none;display:inline-flex;border:0;background:none;padding:2px;color:var(--muted);cursor:pointer}.star:hover,.star.on{color:var(--yellow)}`
+      + `nav .x{margin-left:8px;opacity:.55}nav .x:hover{opacity:1;color:${t.ansi1}}nav button.addt{color:var(--accent);border-style:dashed}`
+      + `#addbox{margin:12px 12px 4px;padding:12px;border:1px dashed var(--border);border-radius:12px}#addbox .hd{font-size:.85em;color:var(--muted);margin-bottom:8px}`
+      + `#addform{display:flex;gap:8px;margin-bottom:8px}#addq{flex:1;min-width:0;font:inherit;padding:4px 8px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--fg)}`
       + `#addbox button{font:inherit;font-size:.88em;padding:3px 10px;border-radius:6px;border:1px solid var(--border);background:var(--raised);color:var(--fg);cursor:pointer}#addbox button:hover{border-color:var(--accent)}`
-      + `#addform button{background:var(--solid);color:var(--solid-fg);border-color:var(--solid)}.sugs{display:flex;flex-wrap:wrap;gap:6px}`
-      + `.sortbar{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:10px 12px 0;font-size:.85em;color:var(--muted)}`
-      + `.sortbar button{font:inherit;padding:1px 9px;border-radius:999px;border:1px solid var(--border);background:var(--bg);color:var(--muted);cursor:pointer}.sortbar button:not(.on):hover{color:var(--fg);border-color:var(--accent)}`
+      + `#addform button{background:var(--solid);color:var(--solid-fg);border-color:var(--solid)}.sugs{display:flex;flex-wrap:wrap;gap:8px}`
+      + `.sortbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:12px 12px 0;font-size:.85em;color:var(--muted)}`
+      + `.sortbar button{font:inherit;padding:2px 8px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--muted);cursor:pointer}.sortbar button:not(.on):hover{color:var(--fg);border-color:var(--muted)}`
       + `.sortbar button.on{background:var(--raised);color:var(--fg);border-color:var(--accent)}</style>`
-      + `<nav><div class="row"><button data-cat="all">全部 ${items.length}</button>${starred.length ? `<button data-cat="⭐ 收藏">⭐ 收藏 ${starred.length}</button>` : ""}`
+      + `<nav><div class="row"><button data-cat="all">全部 ${items.length}</button>${starred.length ? `<button data-cat="⭐ 收藏">收藏 ${starred.length}</button>` : ""}`
       + `${groups.map(([q, xs]) => `<button data-cat="${esc(q)}">${esc(q)} ${this.searching?.has(q) ? '<span class="spin"></span>' : xs.length}<span class="x" data-act="drop" data-q="${esc(q)}" title="拿掉這個主題和它的影片">✕</span></button>`).join("")}`
       + `<button class="addt" data-act="toggle">＋ 加主題</button></div>${starSubs(starTopics.map(([q, xs]) => [q, xs.length]))}</nav>`
       + `<main><div id="addbox" hidden><div class="hd">加主題：打一個 YouTube 搜尋，或點一個建議，馬上搜；影片會出現在它自己的分類</div>`
@@ -1236,8 +1242,8 @@ export default class Trend extends View {
       + `<div class="sortbar">看：${[["rel", "最相關"], ["views", "最多人看"], ["new", "最新上傳"]]
         .map(([k, l]) => `<button data-act="sort" data-q="${k}">${l}</button>`).join("")}</div>`
       + `${errs}${queries.length ? "" : '<p class="empty">還沒有主題：按上面的「＋ 加主題」</p>'}`
-      + starTopics.map(([q, xs]) => `<section data-cat="⭐ 收藏" data-under="${esc(q)}" data-keep><h2>⭐ 收藏${q ? ` · ${esc(q)}` : ""}</h2>${xs.map(card).join("")}</section>`).join("")
-      + `${groups.map(([q, xs]) => `<section data-cat="${esc(q)}" data-show><h2>🔍 ${esc(q)}</h2>${status(q, xs.length)}`
+      + starTopics.map(([q, xs]) => `<section data-cat="⭐ 收藏" data-under="${esc(q)}" data-keep><h2>收藏${q ? ` · ${esc(q)}` : ""}</h2>${xs.map(card).join("")}</section>`).join("")
+      + `${groups.map(([q, xs]) => `<section data-cat="${esc(q)}" data-show><h2>${esc(q)}</h2>${status(q, xs.length)}`
         + `<p class="empty none" hidden>這份清單還沒有影片</p>${xs.map(card).join("")}</section>`).join("")}</main>`
       // this page's own clicks, before pageHtml's: ＋ 加主題 opens the box (remembered), a suggestion or 加 adds, ✕ drops
       + `<script>(()=>{const K="videos.html:add",box=document.getElementById("addbox"),inp=document.getElementById("addq");`

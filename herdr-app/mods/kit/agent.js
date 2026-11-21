@@ -140,15 +140,12 @@ export class AgentPopup {
 
   paneHeader(t, z) {
     const d = this.data, busy = this.busy, tg = this.target ?? {};
-    const where = [tg.machine ?? "這台電腦", tg.tab, shortDir(d?.here?.dir ?? tg.cwd)].filter(Boolean).join(" · ");
     const pic = icon(tg.program, 18, t.foreground), canSync = d && !d.error && !d.here?.user;
     return h_flex().flex_none().px(10).py(8).gap(6).items_center().border_b(1).border_color(t.border)
       .child(div().size(32).flex_none().rounded(16).bg(t.raised).flex().items_center().justify_center().child(pic ?? div().text_color(t.muted).child("•")))
       .child(v_flex().flex_1().min_w(0)
-        .child(copyOnRight(div().truncate().font_semibold().child(tg.title || "agent"), tg.title || "agent"))
-        .child(h_flex().gap(5).items_center().min_w(0).when(this.loading, (el) => el.child(spin(z - 3, t.muted)))
-          .child(copyOnRight(div().truncate().text_size(z - 1.5).text_color(t.muted).child(this.loading ? `${where} · 讀取中…` : where),
-            d?.here?.dir ?? tg.cwd ?? where))))
+        // only the name: where it runs is in its own pane already (jay); ⟳ turns while reading
+        .child(copyOnRight(div().truncate().font_semibold().child(tg.title || "agent"), tg.title || "agent")))
       .when(Boolean(canSync), (el) => el.child(btn(t, z, "sync", busy === "同步" ? "同步中…" : "同步", { small: true, off: Boolean(busy), on: (cx) => this.act("同步", ["sync"], cx, LONG) })))
       .child(btn(t, z, "reload", this.loading ? spin(z - 2, t.dim) : "⟳", { small: true, off: this.loading, on: (cx) => { this.want(); this.loadUsed(cx); } }))
       .child(btn(t, z, "close", "✕", { small: true, on: () => closeOverlay(props()?.overlay) }));

@@ -373,6 +373,7 @@ export function loadingNow(load, ttl = 90000) { const l = shared(load); return B
 // are out of date
 export function markRepoStale() { const d = shared(DATA); if (d) setShared(DATA, { ...d, at: 0 }); }
 export function markChanged(machine) {
+  changedOn(machine);
   if (!machine) markRepoStale();
   const m = machine ?? "", now = Date.now(), want = { ...(shared(AGENT_WANT) ?? {}) };
   for (const k of Object.keys(shared(AGENT_CACHE) ?? {})) if (k.split("|")[0] === m) want[k] = now;
@@ -396,7 +397,20 @@ const SH_NOT_FOUND = 127, CMD_NOT_FOUND = 9009;   // sh found no kit; cmd found 
 const TIMED_OUT = /took longer than/;
 // -> { code, out, err, via, missing, timedOut } (via: "cmd" when it was kit.cmd (Windows), else "sh"; missing: no kit
 // to run there, or the machine can't be reached; timedOut: kit started but didn't answer within timeout)
-export async function kit(args, timeout = 60000, machine = null) {
+// Identical read-only asks under way (same machine, args and timeout) share one run: popups opened again, ⟳, a header
+// per window and a busy machine stacked them up (kit list / used for one agent 3-4 times at once). A run started before
+// a change there (markChanged, or any other kit command finished) isn't shared after it: the change generation moved.
+// Module state: one per version, shared by every copy. Actions (add, rm, sync, push, collect …) are never shared.
+const READS = new Set(["list", "used", "status", "statusline", "agents", "api", "context", "usage", "outdated", "--version"]);
+const UNDER_WAY = new Map(), CHANGES = new Map();   // key -> its run; machine -> change generation
+const changedOn = (machine) => CHANGES.set(machine ?? "", (CHANGES.get(machine ?? "") ?? 0) + 1);
+export function kit(args, timeout = 60000, machine = null) {
+  if (!READS.has(args[0])) return runKit(args, timeout, machine).finally(() => changedOn(machine));
+  const key = JSON.stringify([machine ?? "", CHANGES.get(machine ?? "") ?? 0, timeout, args]);
+  if (!UNDER_WAY.has(key)) UNDER_WAY.set(key, runKit(args, timeout, machine).finally(() => UNDER_WAY.delete(key)));
+  return UNDER_WAY.get(key);
+}
+async function runKit(args, timeout, machine) {
   const ways = machine ? [REMOTE_SH, ["kit.cmd"]] : localWays();
   let last = "";
   for (const argv of ways) {

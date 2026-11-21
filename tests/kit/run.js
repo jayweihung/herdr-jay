@@ -2122,6 +2122,57 @@ test("agent popup: after its own 從資料夾拿掉 the list is read again at on
   inDir = true; hold(); await settle();
   assert.deepEqual(here(), [], "the older read's answer, from before the change, is dropped");
 });
+test("kit(): identical reads under way share one run; a read after a change (markChanged, a kit rm done) runs anew and the older answer doesn't replace the newer; actions never shared", async (M) => {
+  fresh();
+  const C = M.common, held = [];
+  H.answer = (argv) => new Promise((ok) => held.push((out) => ok({ code: 0, stdout: out, stderr: "" })));
+  const wait = async () => { for (let i = 0; i < 10; i++) await new Promise((r) => setImmediate(r)); };
+  const args = ["used", "--pid", "45", "--tool", "claude", "--json"];
+  const three = [C.kit(args), C.kit(args), C.kit(args)]; await wait();
+  assert.equal(kitCalls("used").length, 1, "one kit run for three identical asks");
+  held.shift()("u1");
+  assert.deepEqual((await Promise.all(three)).map((r) => r.out), ["u1", "u1", "u1"]);
+  assert.equal(kitCalls("used").length, 1);
+  C.kit(args); await wait(); held.shift()(""); await wait();
+  assert.equal(kitCalls("used").length, 2, "one that finished isn't kept: asked again later, it runs again");
+  // a change while an older read is under way: the read after it runs anew, and only the newest answer is kept
+  const L = "test.load", D = "test.data", list = () => C.kit(["list", "--json"]).then((r) => ({ out: r.out }));
+  const old = C.loadNewest(L, D, list); await wait();
+  C.markChanged(null);
+  const now = C.loadNewest(L, D, list); await wait();
+  assert.equal(kitCalls("list").length, 2, "not given the run from before the change");
+  held.pop()("new"); await now; held.pop()("old"); await old;
+  assert.equal(H.store[D].out, "new", "the older answer doesn't replace the newer");
+  const before = C.kit(["list", "--json"]); await wait();
+  const rm = C.kit(["rm", "mcp", "m"]); await wait(); held.pop()(""); await rm;
+  const after = C.kit(["list", "--json"]); await wait();
+  assert.equal(kitCalls("list").length, 4, "a kit rm that finished is a change too");
+  held.splice(0).forEach((f) => f("")); await Promise.all([before, after]);
+  // actions: never shared
+  const two = [C.kit(["sync"]), C.kit(["sync"])]; await wait();
+  assert.equal(kitCalls("sync").length, 2);
+  held.splice(0).forEach((f) => f("")); await Promise.all(two);
+});
+test("agent header: a tick doesn't start an agent's kit list / kit context again while its last one still runs (a busy machine, past LOAD_TTL)", async (M) => {
+  fresh(); fakeKit();
+  const plain = H.answer, held = [];
+  H.answer = (argv, on) => {
+    const a = argv.slice(1);
+    return a[0] === "list" || a[0] === "context" ? new Promise((ok) => held.push(() => ok(plain(argv, on)))) : plain(argv, on);
+  };
+  H.spaces = [{ id: "s1", tabs: [{ id: "tab1" }] }];
+  H.panes = [{ pane: "p1", terminal: "t1", tab: "tab1", cwd: "/x", status: "idle", program: { agent: true, name: "Claude Code" }, app: "claude-code" }];
+  const head = view(M, { role: "header", pane: "p1", terminal: "t1" });
+  const wait = async () => { for (let i = 0; i < 30; i++) await new Promise((r) => setImmediate(r)); };
+  const asks = () => [kitCalls("list").length, kitCalls("context").length, H.calls.filter((c) => c.argv[0] === "hc" && c.argv[1] === "get").length];
+  await wait(); head.part.tick(cx); await wait();
+  const first = asks();
+  assert.deepEqual(first.slice(0, 2), [1, 1]);
+  skew += 100000; head.part.tick(cx); await wait();
+  assert.deepEqual(asks(), first, "still running: no new load beside it (not even its hc get)");
+  held.splice(0).forEach((f) => f()); await settle();
+  assert.ok(H.store["kit.agent.data.v1"]?.["|/x|t1"], "its answer kept");
+});
 test("agent popup: the 要重開才讀得到 window its own change opened isn't left under it (Herdr keeps windows under popups): the popup closes itself", async (M) => {
   fresh();
   const t = fakeTerm("claude", `ok\nsession {"sessionId":"${SID}","status":"idle"}\ntranscript\n`);

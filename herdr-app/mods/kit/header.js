@@ -36,6 +36,11 @@ import { relaunchTick, relaunchRetry } from "./relaunch.js";
 
 const CTX_STALE = 15000, CTX_IDLE = 60000;   // how often to ask how full the context is: working / not
 const STALE = 60000, LOAD_TTL = 90000;   // look again after a minute; a load longer than this is taken as lost
+// loads this version of the mod still runs ("list|key" / "ctx|key" -> started): a slow one (a busy machine) isn't taken
+// as lost while it runs, so a tick doesn't start the same asks again beside it
+const RUNNING = new Map();
+const underWay = (k, c) => Boolean(c?.busy && (Date.now() - (c.started ?? 0) < LOAD_TTL || RUNNING.get(k) === c.started));
+const running = (k, started, work) => { RUNNING.set(k, started); return work.finally(() => { if (RUNNING.get(k) === started) RUNNING.delete(k); }); };
 const SHORT = 120000;
 const CTX_W = 480, CTX_H = 640;   // the context popup
 export const POPUP_W = 440, POPUP_H = 560;    // the "agent" popup (agent.js draws it this tall)
@@ -325,13 +330,13 @@ export class Header {
     const c = (shared(AGENT_CACHE) ?? {})[w.key], want = (shared(AGENT_WANT) ?? {})[w.key] ?? 0;
     // a load under way that started before a change (the popup's own add / rm, ⟳, the popup opened again) is out of date:
     // a new one starts at once and only the newest is kept (else a slow or lost one held the popup's list and spinner)
-    if (c?.busy && Date.now() - (c.started ?? 0) < LOAD_TTL && (c.started ?? 0) > want) return;
+    if (underWay(`list|${w.key}`, c) && (c.started ?? 0) > want) return;
     if (c && !c.busy && Date.now() - c.at < STALE && (c.started ?? 0) > want) return;
     const started = Date.now();
     setShared(AGENT_CACHE, { ...pruned(shared(AGENT_CACHE)), [w.key]: { ...summary(null), ...(c ?? {}), busy: true, started } });
     cx.spawn(async (cx) => {
       let d;
-      try { d = await loadAgent(w.machine, p.cwd, p.terminal, toolOf(p.app, p.program?.key)); }
+      try { d = await running(`list|${w.key}`, started, loadAgent(w.machine, p.cwd, p.terminal, toolOf(p.app, p.program?.key))); }
       catch (e) { d = { error: String(e?.message ?? e), machine: w.machine, at: Date.now() }; }
       if ((shared(AGENT_CACHE) ?? {})[w.key]?.started !== started) return;   // a newer load took over
       setShared(AGENT_DATA, { ...pruned(shared(AGENT_DATA)), [w.key]: d });
@@ -352,14 +357,14 @@ export class Header {
   // ask how full the context is: every 15 s while the agent works (and once when it stops), else every minute
   tickContext(p, cx) {
     const w = placeOf(p), all = shared(CTX) ?? {}, c = all[w.key];
-    if (c?.busy && Date.now() - (c.started ?? 0) < LOAD_TTL) return;
+    if (underWay(`ctx|${w.key}`, c)) return;
     const age = Date.now() - (c?.at ?? 0), moved = c && c.status !== p.status;
     if (c && !moved && age < (p.status === "working" ? CTX_STALE : CTX_IDLE)) return;
     const started = Date.now();
     setShared(CTX, { ...pruned(all), [w.key]: { ...(c ?? {}), busy: true, started, status: p.status } });
     cx.spawn(async (cx) => {
       let d = null, note;
-      try { ({ ctx: d, note } = await loadContext(w.machine, p.cwd, p.terminal, toolOf(p.app, p.program?.key), apiAtLeast(w.machine, 4), c)); } catch {}
+      try { ({ ctx: d, note } = await running(`ctx|${w.key}`, started, loadContext(w.machine, p.cwd, p.terminal, toolOf(p.app, p.program?.key), apiAtLeast(w.machine, 4), c))); } catch {}
       if (note !== undefined) setShared(NOTE, { ...pruned(shared(NOTE)), [w.key]: note });
       // a failed ask (no answer, kit busy, the machine away) keeps the numbers it had: only when it asked changes
       const before = (shared(CTX) ?? {})[w.key] ?? c ?? {};

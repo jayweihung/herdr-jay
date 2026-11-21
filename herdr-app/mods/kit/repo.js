@@ -81,6 +81,39 @@ async function loadRepo() {
     .filter((x) => x.items + x.agents > 0);
   return { ...d, key: "repo", at, items, sources, dirty };
 }
+// 有改動 30 分鐘還沒送出: a reminder from any pane header's timer (header.js), so the panel needn't be open. kit is
+// asked at most every 5 minutes, this computer only (the panel's own load counts). Herdr's toast carries one click, no
+// buttons: it opens this panel (送出 is the yellow strip's) and the reminder comes again 2 hours later while unsent.
+// shortcut: first seen / remind-again are shared state, which an app restart may clear (the 30 minutes start over); keep them in kit if that matters
+export const UNSENT = "kit.unsent.v1";   // { at: last look, src: { source: { since, until } } }
+const UNSENT_EVERY = 300000, UNSENT_AFTER = 1800000, UNSENT_AGAIN = 7200000;
+// -> { state, tell: the sources to remind of now }; a source no longer dirty (sent) is forgotten
+export function unsentStep(old, dirty, now = Date.now()) {
+  const src = {}, tell = [];
+  for (const x of dirty ?? []) {
+    const s = { since: old?.src?.[x.name]?.since ?? now, until: old?.src?.[x.name]?.until ?? 0 };
+    if (now - s.since >= UNSENT_AFTER && now >= s.until) { tell.push(x.name); s.until = now + UNSENT_AGAIN; }
+    src[x.name] = s;
+  }
+  return { state: { ...(old ?? {}), src }, tell };
+}
+function unsentTell(d) {
+  if (!d || d.error) return;
+  const { state, tell } = unsentStep(shared(UNSENT), d.dirty);
+  setShared(UNSENT, state);
+  for (const name of tell) notify({ title: `${name} 有改動 30 分鐘還沒送出：其他機器拿不到`, body: "點這裡打開 Kit 面板，按黃色那條的「送出」（沒送的話 2 小時後再提醒）",
+    level: "warning", timeout: 20000, action: { name: "layout.show", args: { id: NODES.repo } } });
+}
+export function unsentTick(cx, now = Date.now()) {
+  if (now - (shared(UNSENT)?.at ?? 0) < UNSENT_EVERY || busyNow() || loadingNow(LOAD, LOAD_TTL)) return;
+  const a = apiKnown(null);
+  if (!a) return checkApi(null, cx);
+  if (!a.ok) return;
+  setShared(UNSENT, { ...(shared(UNSENT) ?? {}), at: now });
+  const d = shared(DATA);
+  if (d && !d.error && d.at > 0 && now - d.at < UNSENT_EVERY) return unsentTell(d);
+  cx.spawn(async () => unsentTell(await loadNewest(LOAD, DATA, loadRepo)));
+}
 // a skill kit collect --look found: why it can't be collected (null: it can), as the card says it
 export function collectBlock(x, lk) {
   if (!x?.license) return "沒有 LICENSE";

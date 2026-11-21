@@ -1614,7 +1614,7 @@ test("header: an agent pane asks kit api, then kit list --dir --pid and kit cont
   H.spaces = [{ id: "s1", tabs: [{ id: "tab1" }] }];
   H.panes = [{ pane: "p1", terminal: "t1", tab: "tab1", cwd: "/Users/amy/x", status: "idle", program: { agent: true, name: "Claude Code", key: "claude" }, app: "claude-code" }];
   let v = view(M, { role: "header", pane: "p1", terminal: "t1" }); await settle(); await tick();
-  const list = kitCalls("list")[0];
+  const list = kitCalls("list").find((c) => c.argv.includes("--dir"));   // (any header also looks at the repository: 有改動還沒送出)
   assert.ok(list, "kit list asked");
   assert.deepEqual(list.argv.slice(1), ["list", "--json", "--dir", "/Users/amy/x", "--pid", "4242"]);
   assert.equal(kitCalls("context").length, 1);
@@ -1632,7 +1632,7 @@ test("header: kit api 1.14 also gets --tool (which agent), so kit list fills loa
   H.spaces = [{ id: "s1", tabs: [{ id: "tab1" }] }];
   H.panes = [{ pane: "p1", terminal: "t1", tab: "tab1", cwd: "/x", status: "idle", program: { agent: true, name: "omp", key: "omp" }, app: "omp" }];
   view(M, { role: "header", pane: "p1", terminal: "t1" }); await settle(); await tick();
-  assert.deepEqual(kitCalls("list")[0].argv.slice(1), ["list", "--json", "--dir", "/x", "--pid", "5151", "--tool", "omp"]);
+  assert.deepEqual(kitCalls("list").find((c) => c.argv.includes("--dir")).argv.slice(1), ["list", "--json", "--dir", "/x", "--pid", "5151", "--tool", "omp"]);
 });
 test("versions.js: an item's version in words, 舊版 and why (not synced here, or read before it changed), the popup's one line", ({ versions: X }) => {
   const v = (o = {}) => ({ id: "a1b2c3d4", date: "2026-11-21", n: 1, commit: "c".repeat(40), message: "fix wording", dirty: false, ...o });
@@ -1942,6 +1942,32 @@ test("repository: what is unsent comes from kit list --json (sources[].changed, 
     const src = readFileSync(join(MOD, f), "utf8");
     assert.doesNotMatch(src, /exec\("git"|ITEM_FILE|sendList|沒有要送的\/|\/PR\||\/kit init\//, f);
   }
+});
+test("有改動 30 分鐘還沒送出: nothing before 30 minutes, told once at 30 (opens the Kit panel), again only 2 hours later, forgotten once sent; kit asked at most every 5 minutes", async (M) => {
+  fresh(); fakeKit({ list: TEAM_LIST });
+  const MIN = 60000, look = async () => { for (let i = 0; i < 2; i++) { M.repo.unsentTick(cx); await settle(); } };   // twice: the first may only ask kit api
+  await look();
+  assert.equal(kitCalls("list").length, 1); assert.ok(H.store["kit.unsent.v1"].src.team, "first seen"); assert.equal(H.notes.length, 0);
+  skew += 2 * MIN; await look();
+  assert.equal(kitCalls("list").length, 1, "not asked again within 5 minutes");
+  skew += 27 * MIN; await look();
+  assert.equal(kitCalls("list").length, 2); assert.equal(H.notes.length, 0, "29 minutes: not yet");
+  skew += 6 * MIN; await look();
+  assert.equal(H.notes.length, 1, "35 minutes: told");
+  assert.equal(H.notes[0].title, "team 有改動 30 分鐘還沒送出：其他機器拿不到");
+  assert.deepEqual(H.notes[0].action, { name: "layout.show", args: { id: "kit-panel" } });
+  for (let i = 0; i < 4; i++) { skew += 25 * MIN; await look(); }
+  assert.equal(H.notes.length, 1, "not again within 2 hours");
+  skew += 25 * MIN; await look();
+  assert.equal(H.notes.length, 2, "again after 2 hours");
+  fakeKit({ list: { ...TEAM_LIST, sources: TEAM_LIST.sources.map((s) => ({ ...s, changed: [] })) } });
+  skew += 6 * MIN; await look();
+  assert.deepEqual(H.store["kit.unsent.v1"].src, {}, "sent: forgotten");
+  fakeKit({ list: TEAM_LIST });
+  skew += 6 * MIN; await look(); skew += 25 * MIN; await look();
+  assert.equal(H.notes.length, 2, "changed again: its 30 minutes start over");
+  skew += 6 * MIN; await look();
+  assert.equal(H.notes.length, 3);
 });
 test("repository: kit's errors by code: not_init says kit init; another code shows kit's words", async (M) => {
   fresh(); fakeKit({ list: kitError("not_init", "還沒設定：先打  kit init <網址或資料夾>") });

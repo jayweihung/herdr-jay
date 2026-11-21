@@ -31,6 +31,7 @@ import { collectedFrom, AGENT_CACHE, AGENT_DATA, AGENT_WANT, CTX, NOTE, LIMIT_SE
 import { toolOf, ctxArgs, askZero, zeroNumbers, sendText, sendArgs, removal, ctxTips, summaryText, chipNumbers, level, howCounted, ago, catColorKey, barSegments,
   catShare, compactLine, noteArgs, CTX_FULL, NAME_MAX, limitOf, continueDue, CONTINUE_TEXT, usageLines, ompUsage, whenText,
   compactKey, compactStep, compactLive, compactedAfter, compactWords, reloadKey } from "./context.js";
+import { unsentTick } from "./repo.js";
 
 const CTX_STALE = 15000, CTX_IDLE = 60000;   // how often to ask how full the context is: working / not
 const STALE = 60000, LOAD_TTL = 90000;   // look again after a minute; a load longer than this is taken as lost
@@ -291,6 +292,7 @@ export class Header {
     for (const k of ["kit.data.v1", "kit.target"]) if (shared(k) != null) setShared(k, null);
     cx.timer.every(1500, (cx) => this.tick(cx));
     this.tick(cx);
+    cx.timer.every(60000, (cx) => unsentTick(cx));   // 有改動還沒送出 (repo.js): asks kit at most every 5 minutes
   }
 
   async close(_cx) {

@@ -71,7 +71,7 @@ export async function loadAgent(machine, cwd, term) {
 function summary(d) {
   if (!d) return { text: "…", level: "dim" };
   if (d.error) return { text: "出錯了", level: "bad", why: d.error };
-  if (d.here?.user) return { text: `${d.here.user} 唯讀`, level: "dim" };
+  if (d.here?.user) return { text: `${d.here.user} · 這裡看不到`, level: "dim" };
   const names = { rule: new Set(), skill: new Set(), mcp: new Set() };
   for (const i of d.items ?? []) if ((i.status === "used" || i.status === "required") && names[i.kind]) names[i.kind].add(i.name);
   for (const i of d.here?.items ?? []) names[i.kind]?.add(`${i.scope}:${i.path ?? i.name}`);

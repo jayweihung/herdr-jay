@@ -117,10 +117,10 @@ export class AgentPopup {
     if (!d) return root.child(div().p(14).child(waiting(t, z, "讀取中…")));
     if (d.error) return root.child(problemCard(t, z, this.where, d.error, d.code));
     if (d.here?.user) return root.child(v_flex().p(14).gap(6)
-      .child(div().font_semibold().child(`這個 agent 用 ${d.here.user} 帳號跑`))
+      .child(div().font_semibold().child(`這個 agent 用 ${d.here.user} 帳號跑，kit 照常能用`))
       .child(div().text_size(z - 1).text_color(t.muted).child(d.here.user === "root"
-        ? "root 只用簽過的版本（kit approve），這裡看不到也不能改。要換版本：簽一個新的 kit approve，再請它 kit sync。"
-        : "這裡只看得到你自己帳號的 kit，看不到也不能改它的。")));
+        ? "這個視窗用你的帳號跑，看不到也不能改 root 的 kit。root 只用簽過的版本（kit approve）；要換版本：簽一個新的 kit approve，再請它 kit sync。"
+        : `這個視窗用你的帳號跑，看不到也不能改 ${d.here.user} 的 kit。`)));
     if (d.kit_version_wanted) root.child(versionCard(t, z, this.where, d));
     return root.child(this.agentList(t, z, d));
   }

@@ -91,12 +91,13 @@ export const compactWords = (e, now = Date.now()) => (!compactLive(e, now) ? "" 
 // What each tool does about a changed kind (kit add / rm / sync): "none" (it sees it by itself), "reload" (type
 // /reload-plugins), "new" (read at a conversation's start: 要開新對話), "restart" (要重開). Claude Code watches its skill
 // folders; omp has no watcher, /reload-plugins reloads its skills, hooks, tools, agents, MCP; Codex 0.169 picks up a new
-// skill on its next turn (tried), and has no reload for the rest.
+// skill on its next turn (tried), reads ~/.codex/AGENTS.md again every turn (AgentsMdManager::refresh, from its source,
+// not tried) and reads config.toml (MCP, plugins) again on /new; its TUI has no reload for them.
 export const RELOAD_TEXT = "/reload-plugins";
 export const RELOAD = {
   claude: { skill: "none", plugin: "reload", mcp: "reload", rule: "new" },
   omp: { skill: "reload", plugin: "reload", mcp: "reload", rule: "new" },
-  codex: { skill: "none", plugin: "restart", mcp: "restart", rule: "restart" },
+  codex: { skill: "none", plugin: "new", mcp: "new", rule: "none" },
 };
 const KINDS = ["rule", "skill", "mcp", "plugin"];
 // one pending reload per agent (shared "reload/<address>" = { state: "queued", at, text }), stepped like a compact
@@ -151,7 +152,7 @@ export function reloadLine(rows) {
   if (rule("queued")) parts.push(`${rule("queued")} 排隊送規則（它停下來就送）`);
   if (rule("failed")) parts.push(`${rule("failed")} 沒送出規則`);
   for (const r of rows.filter((x) => x.note === "restart")) parts.push(`${r.name}（${TOOL[r.tool] ?? r.tool}）要重開`);
-  for (const r of rows.filter((x) => x.note === "new")) parts.push(`${r.name} 要開新對話（規則）`);
+  for (const r of rows.filter((x) => x.note === "new")) parts.push(`${r.name} 要開新對話${r.tool === "codex" ? "（打 /new，不用重開）" : "（規則）"}`);
   return parts.join("；");
 }
 // what kit can take off for a line of the window (kit list --json of that agent), the Kit popup's rule: an agent in a

@@ -278,6 +278,7 @@ export async function reloadAfter(args, machine, before = null) {
     text = ruleText(change.verb, change.names.map((n) => ({ name: n, path: path(n) })), change.dir);
   }
   const rows = await Promise.all(reloadTargets(list, machine, change.dir).map(async (x) => {
+    if (text && x.tool === "codex") return { name: x.address, tool: x.tool, note: null, done: null };   // reads AGENTS.md every turn
     if (text) return { name: x.address, tool: x.tool, note: null, done: null, rule: await reloadOne(x.address, x.status, text) };
     const need = reloadNeed(x.tool, change.kinds);
     return { name: x.address, tool: x.tool, note: need.note, done: need.send ? await reloadOne(x.address, x.status) : null };

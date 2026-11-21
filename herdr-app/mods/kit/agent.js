@@ -10,7 +10,7 @@ import { v_flex, h_flex, InputState, Input } from "gpui-base";
 import { theme, shared, setShared, closeOverlay, props } from "herdr";
 import { AGENT_CACHE, AGENT_DATA, AGENT_WANT, MSG, fs, mono, stop, shortDir, spin, waiting, icon, textBlock, copyOnRight, btn,
   busyNow, dropStaleBusy, giveBusy, apiState, checkApi, apiCard, messageBox, problemCard, versionCard, localGet, localSet,
-  kitAction, markChanged, squeeze, groupRows, kit, apiAtLeast, partsLine, RELAUNCH_AUTO } from "./common.js";
+  kitAction, markChanged, squeeze, groupRows, kit, apiAtLeast, partsLine, RELAUNCH_AUTO, RELAUNCH_ASK } from "./common.js";
 import { POPUP_H, agentPid } from "./header.js";
 import { toolOf, usedArgs, usedOf, usedLine } from "./context.js";
 import { versionText, oldReason, oldSummary } from "./versions.js";
@@ -104,6 +104,9 @@ export class AgentPopup {
   }
 
   render(_cx) {
+    // the 要重開才讀得到 window opened after this popup (its own add / rm did it, once that is over): Herdr keeps windows
+    // under popups, and a popup's first click outside only closes it, so this popup steps aside (kit's words stay in MSG)
+    if (!this.mine && (shared(RELAUNCH_ASK)?.at ?? 0) > this.openedAt) closeOverlay(props()?.overlay);
     const t = theme(), z = fs(), msg = this.msg;
     // a popup is as tall as its content, and the list (flex_1) has none of its own: give the popup a height
     const root = v_flex().id("kit-agent-root").size_full().h(POPUP_H).rounded(8).bg(t.surface).text_size(z).text_color(t.foreground)
@@ -148,7 +151,8 @@ export class AgentPopup {
         // only the name: where it runs is in its own pane already (jay); ⟳ turns while reading
         .child(copyOnRight(div().truncate().font_semibold().child(tg.title || "agent"), tg.title || "agent")))
       .when(Boolean(canSync), (el) => el.child(btn(t, z, "sync", busy === "同步" ? "同步中…" : "同步", { small: true, off: Boolean(busy), on: (cx) => this.act("同步", ["sync"], cx, LONG) })))
-      .child(btn(t, z, "reload", this.loading ? spin(z - 2, t.dim) : "⟳", { small: true, off: this.loading, on: (cx) => { this.want(); this.loadUsed(cx); } }))
+      // pressable while it reads too: a newer read takes over one that hangs
+      .child(btn(t, z, "reload", this.loading ? spin(z - 2, t.dim) : "⟳", { small: true, on: (cx) => { this.want(); this.loadUsed(cx); } }))
       .child(btn(t, z, "close", "✕", { small: true, on: () => closeOverlay(props()?.overlay) }));
   }
 

@@ -15,7 +15,7 @@ import { h_flex, v_flex } from "gpui-base";
 import { agents, exec, hc, notify, shared, setShared, openOverlay, closeOverlay, props, theme, window } from "herdr";
 import { RELAUNCH, RELAUNCH_AUTO, RELAUNCH_ASK, BUILD, fs, btn, isWindows } from "./common.js";
 import { TOOL_NAME, QUIT_TEXT, probeOf, relaunchWhy, parseResume, statusId, resumeTyped, resumeByHand, shellBack, shellStays, helpersWork,
-  resumeFailed, updateMenu, relaunchStep, compactKey, compactLive, reloadKey } from "./context.js";
+  resumeFailed, updateMenu, questionOn, relaunchStep, compactKey, compactLive, reloadKey } from "./context.js";
 
 // run there with the agent's process id and tool: "ok", then "kitrun" (kit run started it: its temporary files go when
 // it ends), Claude's "session <sessions/<pid>.json>" and "transcript" (its conversation file is there and not empty),
@@ -105,6 +105,13 @@ function failed(addr, e, why, cmd) {
     body: `${e.name}：${why}。對話紀錄在磁碟上；${cmd ? `在那一格打 ${cmd}（標題列「接不回」按一下重試，右鍵複製）` : "在那一格自己接回"}` });
   return { state: "failed", at: Date.now(), tool: e.tool, name: e.name, what: e.what, id: e.id ?? null, why, cmd: cmd ?? null };
 }
+// it came back and asks something before its prompt: said once (never answered for you); done once the question is gone
+function asking(addr, e, q) {
+  if (e.state === "asking") return { ...e, lock: 0 };
+  notify({ title: "接回了，在問你", level: "warning", action: { name: "pane.focus", args: { terminal: addr } },
+    body: `${e.name} 接回了，但它在問你：${q || "（看那一格）"}。請到那一格回答` });
+  return { ...e, state: "asking", question: q, lock: 0 };
+}
 const STEPS = {
   timeout: (_a, e) => skip(e, "等了 30 分鐘它還沒停下來"),
   clear: () => null,
@@ -138,14 +145,21 @@ const STEPS = {
     if (updateMenu(await screen(addr))) { await keys(addr, "esc"); return { ...e, esc: true, lock: 0 }; }
     return { ...e, esc: Date.now() - e.sent > 8000, lock: 0 };
   },
+  async look(addr, e) {   // not waiting yet: a question in front of its prompt?
+    const q = questionOn(await screen(addr));
+    return q == null ? { ...e, lock: 0 } : asking(addr, e, q);
+  },
   async check(addr, e) {
-    if (resumeFailed(await screen(addr))) return failed(addr, e, "它說找不到這個對話", e.cmd);
+    const text = await screen(addr), q = questionOn(text);
+    if (resumeFailed(text)) return failed(addr, e, "它說找不到這個對話", e.cmd);
+    if (q != null) return asking(addr, e, q);
     notify({ title: "已接回", level: "success", timeout: 5000, body: `${e.name} 已接回同一個對話，新的${e.what}已經可以用` });
     return { state: "done", at: Date.now(), tool: e.tool, name: e.name, what: e.what };
   },
   fail(addr, e) {
     if (e.state === "status") return skip(e, "找不到 Codex 的對話 id");
     if (e.state === "quitting") return skip(e, `打了 ${QUIT_TEXT[e.tool]}，30 秒還沒關掉，不再動它（看一下那一格）`);
+    if (e.state === "asking") return failed(addr, e, "回答它的問題後它關掉了", e.cmd);
     return failed(addr, e, "接回的程式沒有起來", e.cmd);
   },
 };

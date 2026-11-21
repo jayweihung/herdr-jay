@@ -276,7 +276,9 @@ Kit 面板（或 context 細項的「拿掉」）改了什麼，同一台電腦�
 - 先問一次（每次 kit 改動問一次，不是每個 agent 問）：跳出一個小視窗「好／以後都直接做／這次不要」。Herdr 的通知沒有按鈕，所以用視窗。「以後都直接做」記在 Herdr 的共用狀態（`kit.relaunch.auto`，Herdr 重開還在，換電腦不跟著走）；要改回先問，到那個 agent 的 Kit 視窗按「改回先問」。
 - 什麼時候做：狀態是閒置或做完、沒有背景工作（`agents.busy`、`hc get` 的子 agent、Claude 的 `sessions/<pid>.json` 不是 busy）、沒有排隊或進行中的壓縮、你沒在那一格（那格是 focused 而且 Herdr 在前面就等）。30 分鐘還沒等到就取消並通知。
 - 怎麼做：打它自己的結束指令（Claude `/exit` 再按 Enter 選單、Codex `/quit`、omp `/exit`），等那一格回到 shell，讀畫面上它印的接回指令（`claude <原本的旗標> --resume <id>`、`codex resume <id>`、`omp --resume <id>`），跟關之前找到的對話 id 對過（Claude：`sessions/<pid>.json`；omp：它開著的對話檔；Codex：先打 `/status` 看 Session 那行）才打進去。Claude 前面加 `env -u CLAUDE_CODE_CHILD_SESSION`。Codex 開起來跳「有新版」選單就按 Esc。
-- 你看到的：標題列寫「等它停下來就重開接回」→「套用 kit 的改動中… 關掉 → 接回同一個對話」→「已接回」幾秒，加一則通知「<agent> 已接回同一個對話，新的 MCP 已經可以用」。Herdr 不能在一格上面蓋一層提示，所以寫在標題列。
+- 你看到的：標題列寫「等它停下來就重開接回」→「套用 kit 的改動中… 關掉 → 接回同一個對話」→「已接回」幾秒，加一則通知「<agent> 已接回同一個對話，新的 MCP 已經可以用」。Herdr 不能在一格上面蓋一層提示，所以寫在標題列。它停下來了、但你在那一格時寫「你在這格：切到別格就重開接回」（Herdr 讀不到最後一次按鍵的時間，所以等你切走）。
+- 接回後程式先問問題（Claude 的「Allow external CLAUDE.md file imports?」、信任資料夾）：不替你回答，標題列寫「接回了，在等你回答它的問題」，通知寫它問什麼；你回答、出現平常的輸入框後就算接回。
+- 問要不要重開的小視窗跳出來時，Kit 視窗和用量視窗會自己關掉：Herdr 的小視窗一定在彈出視窗下面，不關會被擋住一半。
 - 接不回：標題列紅字「接不回」，通知寫原因和接回指令；按「接不回」在這格再打一次，右鍵複製。**不會自己重試**（重試可能開出一段新的空對話）。Herdr 在中間重開了也一樣停下來，給你指令。
 - 不自動做、只告訴你（訊息寫「要自己重開（原因）」）：手機遠端連著的 Claude（`bridgeSessionId`）、`kit run` 開的、Windows、程式關掉後那格不會留 shell 的、找不到對話 id 或對話沒存檔的。別的帳號（root）的 agent 不碰。
 - 別台機器的 agent：一樣做（`hc` 用 `機器/t7` 的位址，找 id 在那台跑），還沒實測。

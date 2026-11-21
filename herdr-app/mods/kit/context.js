@@ -248,13 +248,27 @@ export const helpersWork = (g) => Object.values(g?.records ?? {}).some((r) => r?
 export const resumeFailed = (text) => /No conversation found|No session found|session not found|Could not (find|resume)/i.test(String(text ?? ""));
 // Codex's update menu, shown as it opens: Esc closes it (else what is typed next goes into the menu)
 export const updateMenu = (text) => /Update available|new version|Update now|Skip until next/i.test(String(text ?? ""));
-// One relaunch per agent (shared kit.relaunch.v1: address -> { state, at, tool, name, what, id?, cmd?, sent?, menu?, esc?, why?,
+// a question the tool asks before its prompt once it came back (Claude: "Allow external CLAUDE.md file imports?", "Do
+// you trust the files in this folder?"): never answered for you. Only the bottom of the screen counts (the resumed
+// conversation above it may hold the same words). -> its line ("…?"), "" when the question line isn't seen, or null
+const ASKING = /Enter to confirm|Esc to cancel|Do you trust|❯\s*(\d+\.\s*)?(Yes|No)\b/i;
+export function questionOn(text) {
+  const lines = String(text ?? "").split("\n").map((l) => l.replace(/[│┃║╭╮╰╯─━═]/g, "").trim()).filter(Boolean).slice(-25);
+  let at = -1;
+  for (let i = lines.length - 1; i >= Math.max(0, lines.length - 12) && at < 0; i--) if (ASKING.test(lines[i])) at = i;
+  if (at < 0) return null;
+  for (let i = at; i >= 0; i--) if (/[?？]$/.test(lines[i])) return lines[i];
+  return "";
+}
+// One relaunch per agent (shared kit.relaunch.v1: address -> { state, at, tool, name, what, id?, cmd?, sent?, menu?, esc?, why?, question?,
 // lock?, build? }), stepped by any header's tick (relaunch.js). -> what to do now:
 //   queued:   "begin" once it waits (idle or done), no work of its own runs and nobody types in it; "timeout" after 30 min
 //   status:   (Codex) "read" its /status for the id; "fail" after 15 s
 //   quitting: "enter" (Claude's menu after /exit) once after 1.5 s; "type" once the shell is back; "fail" after 30 s
-//   starting: (Codex) "menu" to look for its update menu (Esc) until esc; "check" once the program is back and waits;
-//             "fail" when the shell is still there 10 s on, or after 60 s
+//   starting: (Codex) "menu" to look for its update menu (Esc) until esc; "check" once the program is back and waits,
+//             "look" for a question (questionOn) while it doesn't yet (and doesn't work); "fail" when the shell is still there 10 s on, or after 60 s
+//   asking:   it came back and asks you something: "check" once it waits (done when the question is gone); "fail" when
+//             the shell is back (the answer closed it)
 //   done:     "clear" after 8 s (the header says 已接回 until then)
 //   failed:   "clear" once the program runs again (someone typed the line), else it stays (the header: 接不回)
 // f: { status, busy, typing, shell (null: not asked) }. Locked (another copy is at it): null
@@ -274,16 +288,24 @@ export function relaunchStep(e, f, now = Date.now()) {
     case "starting":
       if (since > 60000 || (f?.shell && since > 10000)) return "fail";
       if (f?.shell === false && e.tool === "codex" && !e.esc) return since >= 2000 ? "menu" : null;   // its update menu first
+      if (f?.shell === false && waits) return "check";
+      return f?.shell === false && since >= 3000 && f.status !== "working" ? "look" : null;
+    case "asking":
+      if (f?.shell) return "fail";
       return f?.shell === false && waits ? "check" : null;
     case "done": return now - (e.at ?? 0) > RELAUNCH_DONE ? "clear" : null;
     case "failed": return f?.shell === false && Boolean(f?.status) ? "clear" : null;
     default: return null;
   }
 }
-// the pane header's words for it: { text, level: "dim" | "bad" | "ok", tip } | null
-export function relaunchWords(e) {
+// the pane header's words for it: { text, level: "dim" | "bad" | "ok" | "ask", tip } | null. f: { status, typing } of the
+// pane now (typing: it has the focus in the front window, relaunchStep's "someone types in it")
+export function relaunchWords(e, f = {}) {
   if (!e?.state) return null;
+  if (e.state === "queued" && f.typing && (f.status === "idle" || f.status === "done"))
+    return { text: "你在這格：切到別格就重開接回", level: "dim", tip: `kit 改了${e.what ?? ""}：你可能正在這格打字，先等；切到別格（或別的程式）就自動關掉再接回同一個對話` };
   if (e.state === "queued") return { text: "等它停下來就重開接回", level: "dim", tip: `kit 改了${e.what ?? ""}：等它這一輪做完，自動關掉再接回同一個對話` };
+  if (e.state === "asking") return { text: "接回了，在等你回答它的問題", level: "ask", tip: `${e.question ? `它問：${e.question}\n` : ""}在這格回答後就好了（不會替你回答）` };
   if (e.state === "done") return { text: "已接回", level: "ok", tip: "已接回同一個對話" };
   if (e.state === "failed") return { text: "接不回", level: "bad",
     tip: `${e.why ?? "沒接回"}${e.cmd ? `\n接回指令：${e.cmd}\n按一下：在這格重試；右鍵：複製指令` : ""}\n對話紀錄在磁碟上，不會丟` };

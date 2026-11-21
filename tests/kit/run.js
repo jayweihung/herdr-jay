@@ -19,7 +19,7 @@ const mem = new Map();
 Object.defineProperty(globalThis, "localStorage", { configurable: true, value: { getItem: (k) => mem.get(k) ?? null, setItem: (k, v) => mem.set(k, String(v)), removeItem: (k) => mem.delete(k) } });
 const H = (globalThis.__H = {
   store: {}, props: {}, layout: { id: "root", children: [] }, window: { platform: "macos" }, home: "/Users/amy",
-  calls: [], answer: () => ({ code: 0, stdout: "", stderr: "" }), overlays: [], runs: [], notes: [], timeouts: [],
+  calls: [], closed: [], answer: () => ({ code: 0, stdout: "", stderr: "" }), overlays: [], runs: [], notes: [], timeouts: [],
   texts: [], strings: [], panes: [], spaces: [], tasks: [], clicks: {}, lastId: null, files: null, writes: [],
   machines: [], hcAnswer: null, reads: [], clipboard: [], drags: [], afters: [], writeFail: null, colors: {},
 });
@@ -85,7 +85,7 @@ globalThis.__stubs = {
     return null;
   },
   appHome: () => H.appHome ?? "/Users/amy/.config/herdr-app",
-  openOverlay: (o) => { H.overlays.push(o); return "o1"; }, closeOverlay: () => {}, notify: (n) => H.notes.push(n),
+  openOverlay: (o) => { H.overlays.push(o); return "o1"; }, closeOverlay: (id) => { H.closed.push(id); }, notify: (n) => H.notes.push(n),
   panes: () => H.panes, spaces: () => H.spaces, machines: () => H.machines, agents: () => H.agents ?? [], terminals: () => H.terminals ?? [], focused: () => null,
 };
 
@@ -130,7 +130,7 @@ function logoPath(M, name) {
   return `data/kit/bots/v${M.bots.BOT_VERSION}/${b.animal}${b.color ? `-${b.color}` : ""}.icon.svg`;
 }
 function fresh() {
-  H.store = {}; H.calls = []; H.runs = []; H.overlays = []; H.notes = []; H.texts = []; H.strings = []; H.tasks = []; H.timeouts = []; H.files = null; H.writes = []; H.runFail = null; H.runAnswer = null; H.agents = null; H.terminals = null;
+  H.store = {}; H.calls = []; H.runs = []; H.overlays = []; H.closed = []; H.notes = []; H.texts = []; H.strings = []; H.tasks = []; H.timeouts = []; H.files = null; H.writes = []; H.runFail = null; H.runAnswer = null; H.agents = null; H.terminals = null;
   H.props = {}; H.layout = { id: "root", children: [] }; H.window = { platform: "macos" }; H.panes = []; H.spaces = [];
   H.machines = []; H.hcAnswer = null; H.reads = []; H.clipboard = []; H.appHome = null; H.drags = []; H.afters = []; H.writeFail = null;
   delete globalThis.__stubs.nextDrop;   // an older Herdr: no drag API
@@ -419,6 +419,22 @@ test("自動重開接回 (context.js relaunchStep): each step and when it happen
   assert.deepEqual([X.relaunchWords({ state: "done" }).text, X.relaunchWords({ state: "failed", cmd: "claude --resume x" }).level], ["已接回", "bad"]);
   assert.match(X.relaunchWords({ state: "failed", why: "w", cmd: "claude --resume x" }).tip, /接回指令：claude --resume x\n按一下：在這格重試；右鍵：複製指令/);
   assert.equal(X.relaunchWords(null), null);
+  // you are in that pane (it has the focus in the front window): said so, not "until it stops"
+  assert.equal(X.relaunchWords({ state: "queued", what: "MCP" }, { status: "idle", typing: true }).text, "你在這格：切到別格就重開接回");
+  assert.equal(X.relaunchWords({ state: "queued", what: "MCP" }, { status: "working", typing: true }).text, "等它停下來就重開接回", "at work: that is the reason");
+  // a question in front of its prompt after it came back: looked for, never answered; done once it waits without one
+  assert.deepEqual([S(st, { shell: false, status: "blocked" }, at + 2000), S(st, { shell: false, status: "blocked" }, at + 3000), S(st, { shell: false, status: null }, at + 3000)],
+    [null, "look", "look"]);
+  const ask = { state: "asking", at, sent: at, tool: "claude" };
+  assert.deepEqual([S(ask, { shell: false, status: "blocked" }, at + 999999), S(ask, { shell: false, status: "idle" }, at + 999999), S(ask, { shell: true }, at + 1)],
+    [null, "check", "fail"], "no time limit: it waits for you");
+  assert.deepEqual([X.relaunchWords(ask).text, X.relaunchWords(ask).level], ["接回了，在等你回答它的問題", "ask"]);
+  const imports = "╭──────────╮\n│ Allow external CLAUDE.md file imports? │\n│ This project's CLAUDE.md imports files outside the current working directory. │\n│ ❯ 1. Yes, allow external imports │\n│   2. No, disable external imports │\n╰──────────╯\n   Enter to confirm · Esc to cancel";
+  assert.equal(X.questionOn(imports), "Allow external CLAUDE.md file imports?");
+  assert.equal(X.questionOn("Do you trust the files in this folder?\n❯ 1. Yes, proceed\n  2. No, exit"), "Do you trust the files in this folder?");
+  assert.equal(X.questionOn("❯ No, keep it\n"), "", "a menu without a question line");
+  assert.deepEqual([X.questionOn("> "), X.questionOn("❯ "), X.questionOn(`Enter to confirm · Esc to cancel\n${"talk\n".repeat(13)}❯ `)], [null, null, null],
+    "its prompt; the same words higher up in the conversation");
 });
 test("自動重開接回 (relaunch.js): asked once; 好 queues it; once it waits: /exit, Enter, the printed line checked and typed, back: 已接回", async (M) => {
   fresh();
@@ -469,6 +485,35 @@ test("自動重開接回 (relaunch.js): asked once; 好 queues it; once it waits
   H.panes = [{ pane: "p3", terminal: "t3", tab: "tab1", cwd: "/p", status: null, program: { agent: false, name: "zsh", shell: true } }];
   const head = view(M, { role: "header", pane: "p3", terminal: "t3" });
   assert.match(render(head), /接不回/);
+});
+test("自動重開接回 (relaunch.js): a question after it came back (Claude's CLAUDE.md imports) is not answered: 在等你回答 and a notice; done once its prompt shows", async (M) => {
+  fresh();
+  const RL = M.common.RELAUNCH, t = fakeTerm("claude");
+  H.agents = [{ address: "t3", app: "claude-code", status: "blocked", tab_name: "api" }];
+  H.store[RL] = { t3: { state: "starting", at: Date.now(), sent: Date.now(), tool: "claude", name: "api（t3）", what: "MCP", id: SID, cmd: "c", build: M.common.BUILD } };
+  t.screen = "Allow external CLAUDE.md file imports?\n❯ 1. Yes, allow external imports\n  2. No, disable external imports\nEnter to confirm · Esc to cancel";
+  await relaunchStep(M);
+  assert.equal(H.store[RL].t3.state, "starting", "looked for 3 s after it was typed");
+  skew += 3001; await relaunchStep(M);
+  assert.deepEqual([H.store[RL].t3.state, H.store[RL].t3.question, t.sent], ["asking", "Allow external CLAUDE.md file imports?", []], "nothing typed or pressed for you");
+  assert.equal(H.notes.at(-1).body, "api（t3） 接回了，但它在問你：Allow external CLAUDE.md file imports?。請到那一格回答");
+  assert.deepEqual(H.notes.at(-1).action, { name: "pane.focus", args: { terminal: "t3" } });
+  const notes = H.notes.length;
+  H.agents[0].status = "idle"; skew += 120000; await relaunchStep(M);
+  assert.deepEqual([H.store[RL].t3.state, H.notes.length], ["asking", notes], "still asked: said once, no time limit");
+  t.screen = "> "; await relaunchStep(M);
+  assert.deepEqual([H.store[RL].t3.state, H.notes.at(-1).title], ["done", "已接回"]);
+  // the header says so
+  H.store[RL].t3 = { state: "asking", at: Date.now(), tool: "claude", question: "Do you trust the files in this folder?" };
+  H.spaces = [{ id: "s1", tabs: [{ id: "tab1" }] }];
+  H.panes = [{ pane: "p3", terminal: "t3", tab: "tab1", cwd: "/p", status: "idle", focused: true, program: { agent: true, name: "Claude Code" }, app: "claude-code" }];
+  const head = view(M, { role: "header", pane: "p3", terminal: "t3" });
+  assert.match(render(head), /接回了，在等你回答它的問題/);
+  // waiting while you are in that pane (focused, Herdr in front): the real reason; another program in front: as before
+  H.store[RL].t3 = { state: "queued", at: Date.now(), tool: "claude", what: "MCP" };
+  assert.match(render(head), /你在這格：切到別格就重開接回/);
+  H.window = { platform: "macos", active: false };
+  assert.match(render(head), /等它停下來就重開接回/);
 });
 test("自動重開接回 (relaunch.js): only told for kit run, Windows, another account; 以後都直接做 queues without asking", async (M) => {
   fresh();
@@ -2001,6 +2046,62 @@ test("agent popup: a row's 加到… says 加入中… while kit runs, then ✓ 
   H.store["kit.agent.data.v1"] = { [target.key]: { items: [sk("calm", used)], here: { items: id === "add-skill-calm" ? [] : [{ scope: "folder", kind: "skill", name: "calm" }] } } };
   shown = render(v);
   assert.doesNotMatch(shown, /✓ 已加到/, "the list shows it: the row as usual");
+});
+test("agent popup: after its own 從資料夾拿掉 the list is read again at once, even while an older read hangs (that one's answer is dropped); ⟳ works while it reads", async (M) => {
+  fresh();
+  let inDir = true, hold = null;
+  const list = () => ({ code: 0, stdout: `${JSON.stringify({ ...KIT_LIST, items: [{ kind: "mcp", name: "m", status: "unused" }], here: { items: [], folder: { dir: "/x", why: "", items: inDir ? ["mcp:m"] : [] } } })}\n`, stderr: "" });
+  fakeKit();
+  const plain = H.answer;
+  H.answer = (argv, on) => {
+    const a = argv[0] === "sh" ? argv.slice(4) : argv.slice(1);
+    if (a[0] === "list" && a.includes("--dir")) { const r = list(); return hold === true ? new Promise((ok) => { hold = () => ok(r); }) : r; }
+    if (a[0] === "rm") inDir = false;
+    return plain(argv, on);
+  };
+  H.spaces = [{ id: "s1", tabs: [{ id: "tab1" }] }];
+  H.panes = [{ pane: "p1", terminal: "t1", tab: "tab1", cwd: "/x", status: "idle", program: { agent: true, name: "Claude Code" }, app: "claude-code" }];
+  const hp = { role: "header", pane: "p1", terminal: "t1" }, key = "|/x|t1", here = () => H.store["kit.agent.data.v1"]?.[key]?.here?.folder?.items;
+  const head = view(M, hp); await settle(); await tick();
+  assert.deepEqual(here(), ["mcp:m"]);
+  // a read that hangs (its copy closed, a slow kit), started before the change
+  const target = { key, term: "t1", machine: null, cwd: "/x", title: "Claude Code", app: "claude-code" };
+  const pop = view(M, { role: "agent", target, overlay: "o7" }); H.props = hp;
+  skew += 5; render(pop); H.clicks.reload({}, cx); H.props = hp;
+  hold = true; skew += 1600; head.part.tick(cx);
+  const wait = async () => { for (let i = 0; i < 30; i++) await new Promise((r) => setImmediate(r)); };
+  await wait();
+  assert.equal(typeof hold, "function", "the old read is under way");
+  assert.equal(pop.part.loading, true); render(pop);
+  assert.ok("reload" in H.clicks, "⟳ can be pressed while it reads");
+  skew += 5; render(pop); H.clicks["rmdir-mcp-m"]({}, cx); await wait();
+  assert.equal(inDir, false, "kit rm ran");
+  skew += 1600; head.part.tick(cx); await wait();
+  assert.deepEqual([here(), pop.part.loading], [[], false], "read again at once, not after the old one");
+  render(pop); assert.ok(!("rmdir-mcp-m" in H.clicks), "the popup no longer offers to take it off the folder");
+  inDir = true; hold(); await settle();
+  assert.deepEqual(here(), [], "the older read's answer, from before the change, is dropped");
+});
+test("agent popup: the 要重開才讀得到 window its own change opened isn't left under it (Herdr keeps windows under popups): the popup closes itself", async (M) => {
+  fresh();
+  const t = fakeTerm("claude", `ok\nsession {"sessionId":"${SID}","status":"idle"}\ntranscript\n`);
+  H.agents = [{ address: "t1", app: "claude-code", status: "idle", tab_name: "api" }];
+  H.terminals = [{ address: "t1", cwd: "/x" }];
+  const target = { key: "|/x|t1", term: "t1", machine: null, cwd: "/x", title: "Claude Code", app: "claude-code" };
+  H.store["kit.agent.data.v1"] = { [target.key]: { items: [{ kind: "mcp", name: "m", status: "unused" }], here: { items: [], folder: { dir: "/x", why: "", items: ["mcp:m"] } } } };
+  H.store["kit.agent.v1"] = { [target.key]: { started: Date.now(), at: Date.now() } };
+  const pop = view(M, { role: "agent", target, overlay: "o7" });
+  skew += 5; render(pop);
+  H.clicks["rmdir-mcp-m"]({}, cx); render(pop);
+  assert.deepEqual(H.closed, [], "not while its own kit rm runs");
+  await settle();
+  assert.equal(H.overlays.at(-1)?.props?.role, "relaunch-ask");
+  render(pop);
+  assert.deepEqual(H.closed, ["o7"]);
+  assert.deepEqual(t.sent, []);
+  // opened again while the window is still there: it stays
+  H.closed = []; const again = view(M, { role: "agent", target, overlay: "o8" }); render(again);
+  assert.deepEqual(H.closed, []);
 });
 test("agent popup: kit 0.7.0's blocked: 被擋下 with why; 收進 kit into an own source (URL: kit collect --allow → agentkit-library; none: kit new --from → my-own), then kit add; no blocked key: as before", async (M) => {
   fresh(); fakeKit();

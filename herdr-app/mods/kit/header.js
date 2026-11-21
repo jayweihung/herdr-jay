@@ -24,10 +24,10 @@
 // What it computes (the bar, the numbers, the tips) is in context.js.
 import { div, svg } from "gpui-kit";
 import { h_flex, v_flex, InputState, Input } from "gpui-base";
-import { panes, spaces, agents, terminals, props, run, theme, hc, shared, setShared, openOverlay, closeOverlay, notify, appHome, readTextFile, exec } from "herdr";
+import { panes, spaces, agents, terminals, props, run, theme, hc, shared, setShared, openOverlay, closeOverlay, notify, appHome, readTextFile, exec, window } from "herdr";
 import * as files from "fs/promises";
 import { collectedFrom, AGENT_CACHE, AGENT_DATA, AGENT_WANT, CTX, NOTE, LIMIT_SENT, EDITORS, localGet, localSet, fs, stop, slash, shortDir, clean, spin, waiting, icon, textBlock,
-  copyOnRight, btn, busyNow, takeBusy, giveBusy, markChanged, kit, kitJson, apiState, apiKnown, apiAtLeast, checkApi, apiCard, num, kfmt, reloadAfter, reloadNext, RELAUNCH } from "./common.js";
+  copyOnRight, btn, busyNow, takeBusy, giveBusy, markChanged, kit, kitJson, apiState, apiKnown, apiAtLeast, checkApi, apiCard, num, kfmt, reloadAfter, reloadNext, RELAUNCH, RELAUNCH_ASK } from "./common.js";
 import { toolOf, ctxArgs, askZero, zeroNumbers, sendText, sendArgs, removal, ctxTips, summaryText, chipNumbers, level, howCounted, ago, catColorKey, barSegments,
   catShare, compactLine, noteArgs, CTX_FULL, NAME_MAX, limitOf, continueDue, CONTINUE_TEXT, usageLines, ompUsage, whenText,
   compactKey, compactStep, compactLive, compactedAfter, compactWords, reloadKey, relaunchWords } from "./context.js";
@@ -323,14 +323,17 @@ export class Header {
     this.tickContext(p, cx);
     this.tickLimit(p, cx);
     const c = (shared(AGENT_CACHE) ?? {})[w.key], want = (shared(AGENT_WANT) ?? {})[w.key] ?? 0;
-    if (c?.busy && Date.now() - (c.started ?? 0) < LOAD_TTL) return;
-    if (c && !c.busy && Date.now() - c.at < STALE && (c.started ?? 0) >= want) return;
+    // a load under way that started before a change (the popup's own add / rm, ⟳, the popup opened again) is out of date:
+    // a new one starts at once and only the newest is kept (else a slow or lost one held the popup's list and spinner)
+    if (c?.busy && Date.now() - (c.started ?? 0) < LOAD_TTL && (c.started ?? 0) > want) return;
+    if (c && !c.busy && Date.now() - c.at < STALE && (c.started ?? 0) > want) return;
     const started = Date.now();
     setShared(AGENT_CACHE, { ...pruned(shared(AGENT_CACHE)), [w.key]: { ...summary(null), ...(c ?? {}), busy: true, started } });
     cx.spawn(async (cx) => {
       let d;
       try { d = await loadAgent(w.machine, p.cwd, p.terminal, toolOf(p.app, p.program?.key)); }
       catch (e) { d = { error: String(e?.message ?? e), machine: w.machine, at: Date.now() }; }
+      if ((shared(AGENT_CACHE) ?? {})[w.key]?.started !== started) return;   // a newer load took over
       setShared(AGENT_DATA, { ...pruned(shared(AGENT_DATA)), [w.key]: d });
       setShared(AGENT_CACHE, { ...pruned(shared(AGENT_CACHE)), [w.key]: { ...summary(d), started, at: Date.now(), busy: false } });
       cx.notify();
@@ -494,7 +497,7 @@ export class Header {
   relaunchLabel(t, p, w) {
     const e = (shared(RELAUNCH) ?? {})[p.terminal], bad = w.level === "bad";
     const el = div().id(`kit-rl-${p.pane}`).flex_none().max_w(320).truncate().px(bad ? 6 : 0).rounded(4)
-      .text_color(bad ? t.background : w.level === "ok" ? t.done : t.dim).when(bad, (d) => d.bg(t.blocked).font_semibold())
+      .text_color(bad ? t.background : w.level === "ok" ? t.done : w.level === "ask" ? t.blocked : t.dim).when(bad, (d) => d.bg(t.blocked).font_semibold())
       .tooltip(w.tip).child(w.text);
     if (!bad || !e?.cmd) return el;
     return copyOnRight(el.cursor_pointer().on_mouse_down("left", stop).on_click((_e, cx) => {
@@ -530,7 +533,8 @@ export class Header {
     if (p.terminal && p.program?.agent) this.menuPick(p);
     const name = ((p.program?.agent || p.program?.shell) && p.program.name) || p.title || p.program?.name || "shell";
     const pic = icon(p.program, 14, t.dim), st = p.status, pane = p.pane, agent = Boolean(p.terminal && p.program?.agent), live = this.hovered;
-    const ctxOn = agent && apiState(placeOf(p).machine)?.ok !== false, rl = p.terminal ? relaunchWords((shared(RELAUNCH) ?? {})[p.terminal]) : null;
+    const ctxOn = agent && apiState(placeOf(p).machine)?.ok !== false, rl = p.terminal
+      ? relaunchWords((shared(RELAUNCH) ?? {})[p.terminal], { status: st, typing: Boolean(p.focused) && window()?.active !== false }) : null;
     // the status in a small box of one width (a red "!" for Needs you, a dot when done, else nothing): the header never moves
     const status = div().flex_none().w(16).h(22).flex().items_center().justify_center()
       .when(st === "blocked", (el) => el.child(div().flex_none().size(14).flex().items_center().justify_center().rounded(7).bg(t.blocked)
@@ -577,6 +581,7 @@ export class Header {
     this.msg = null;        // { ok, text } after a button
     this.sending = false;
     this.mine = null;       // the id of the kit.busy this window holds
+    this.openedAt = Date.now();
     this.keep = InputState.new({ placeholder: "壓縮時要保留什麼（可空白）" });
     this.keep.on("submit", (_e, cx) => this.send("compact", cx));
     // kit context --detail only once kit api says kit there can be used (the header asks it; asked here too in case)
@@ -740,6 +745,8 @@ export class Header {
   }
 
   renderContext(_cx) {
+    // the 要重開才讀得到 window opened after it (its 拿掉 did it): out of its way, as the Kit popup (agent.js render)
+    if (!this.mine && (shared(RELAUNCH_ASK)?.at ?? 0) > this.openedAt) closeOverlay(props()?.overlay);
     const t = theme(), z = fs(), d = this.d, p = this.paneNow();
     const root = v_flex().id("ctx-root").size_full().h(CTX_H).rounded(8).bg(t.surface).text_size(z).text_color(t.foreground)
       .child(this.ctxHeader(t, z));

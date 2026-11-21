@@ -5,7 +5,7 @@ import { div, svg, image } from "gpui-kit";
 import { h_flex, v_flex, TextView, EditorState } from "gpui-base";
 import { exec, home, notify, settings, shared, setShared, theme, window, readTextFile, appHome, agents, terminals, hc } from "herdr";
 import { readFile } from "fs/promises";
-import { toolOf, sendArgs, compactStep, changeOfArgs, syncKinds, reloadTargets, reloadNeed, reloadLine, reloadKey, RELOAD_TEXT, ruleText, pluginHooks, needOf, KIND_NAME } from "./context.js";
+import { toolOf, sendArgs, compactStep, changeOfArgs, syncKinds, reloadTargets, reloadLine, reloadKey, RELOAD_TEXT, ruleText, pluginHooks, removedBy, reloadPlan, KIND_NAME } from "./context.js";
 import { offerRelaunch, agentName } from "./relaunch.js";
 
 // ---------- shared state (every copy sees it; it survives a restart, so nothing in it may stay "busy" forever) ----------
@@ -270,8 +270,14 @@ const listNow = (machine) => kit(["list", "--json"], 60000, machine).then((r) =>
 export async function reloadAfter(args, machine, before = null) {
   let change = changeOfArgs(args);
   const after = !change && args?.[0] === "sync" && before ? await listNow(machine) : null;
-  if (after) change = { kinds: syncKinds(before, after), dir: null };
-  if (!change?.kinds.length) return "";
+  // what was taken off (kit rm; what the sync took off): a message, never a relaunch (context.js reloadPlan); the rest
+  // (adds: kinds added or changed) as before. A rule added is a message too (below), not a kind to reload.
+  let gone = change?.verb === "rm" ? change.names.map((name) => ({ kind: change.kinds[0], name })) : [];
+  const keep = (d) => d && { ...d, items: (d.items ?? []).filter((i) => !gone.some((g) => g.kind === i.kind && g.name === i.name)) };
+  if (after) { gone = removedBy(before, after); change = { kinds: syncKinds(keep(before), keep(after)), dir: null }; }
+  if (!change) return "";
+  const adds = change.verb ? (change.verb === "add" && change.kinds[0] !== "rule" ? change.kinds : []) : change.kinds;
+  if (!adds.length && !gone.length && change.verb !== "add") return "";
   const terms = new Map((terminals() ?? []).map((x) => [x.address, x])), busy = shared("agents.busy") ?? {};
   // agents run as another account (root): its header's kit list said here.user. Its kit is not the one changed, and a
   // rule's path is this account's: nothing is sent to it
@@ -282,24 +288,27 @@ export async function reloadAfter(args, machine, before = null) {
     return { address: a.address, name: agentName(a), tool: toolOf(a.app, a.program?.key), cwd: terms.get(a.address)?.foreground?.cwd ?? terms.get(a.address)?.cwd ?? a.cwd, machine,
       user: users.get(`${machine ?? ""}|${String(a.address).split("/").pop()}`) ?? null, status: a.status === "done" && busy[a.address] ? "working" : a.status };
   });
-  // add / rm of rules: told as a message (where each rule is: kit list there now), so no one has to close anything
-  let text = null;
-  if (change.verb && change.kinds[0] === "rule") {
-    const now = change.verb === "add" ? await listNow(machine) : null;
+  // a rule added: told as a message (where each rule is: kit list there now), so no one has to close anything
+  let ruleAdd = null;
+  if (change.verb === "add" && change.kinds[0] === "rule") {
+    const now = await listNow(machine);
     const path = (n) => (now?.items ?? []).find((i) => i.kind === "rule" && i.name === n)?.path ?? null;
-    text = ruleText(change.verb, change.names.map((n) => ({ name: n, path: path(n) })), change.dir);
+    ruleAdd = ruleText("add", change.names.map((n) => ({ name: n, path: path(n) })), change.dir);
   }
-  // a plugin with hooks (kit list's parts): omp loads those only when it starts (add: kit list now; rm: from before it)
-  const hooks = change.kinds.includes("plugin") && list.some((x) => x.tool === "omp")
-    ? pluginHooks(before, after ?? (change.verb === "add" ? await listNow(machine) : null), change.names ?? null) : false;
+  // a plugin with hooks (kit list's parts): omp loads those only when it starts (add: kit list now; sync: what differs);
+  // one taken off with hooks keeps running them until the tool lets it go (from the list before it)
+  const addHooks = adds.includes("plugin") && list.some((x) => x.tool === "omp")
+    ? pluginHooks(keep(before), keep(after) ?? (change.verb === "add" ? await listNow(machine) : null), change.verb ? change.names : null) : false;
+  const goneHooks = gone.some((g) => g.kind === "plugin") && pluginHooks(before, null, gone.filter((g) => g.kind === "plugin").map((g) => g.name));
   const later = [];   // the agents to close and open again (relaunch.js)
   const rows = await Promise.all(reloadTargets(list, machine, change.dir).map(async (x) => {
-    if (text && x.tool === "codex") return { name: x.address, tool: x.tool, done: null };   // reads AGENTS.md every turn
-    if (text) return { name: x.address, tool: x.tool, done: null, rule: await reloadOne(x.address, x.status, text) };
-    const need = reloadNeed(x.tool, change.kinds, hooks);
-    if (need.relaunch) later.push({ address: x.address, tool: x.tool, name: x.name,
-      what: change.kinds.filter((k) => needOf(x.tool, k, hooks) === "relaunch").map((k) => KIND_NAME[k] ?? k).join("、") });
-    return { name: x.address, tool: x.tool, done: need.send ? await reloadOne(x.address, x.status) : null };
+    const plan = reloadPlan(x.tool, { adds, addHooks, gone, goneHooks, dir: change.dir });
+    if (plan.relaunch) later.push({ address: x.address, tool: x.tool, name: x.name, what: plan.what.map((k) => KIND_NAME[k] ?? k).join("、") });
+    const row = { name: x.address, tool: x.tool, done: null };
+    if (ruleAdd && x.tool !== "codex") row.rule = await reloadOne(x.address, x.status, ruleAdd);   // Codex reads AGENTS.md every turn
+    for (const t of plan.texts) row[t.kind === "rule" ? "rule" : "told"] = await reloadOne(x.address, x.status, t.text);
+    if (plan.send) row.done = await reloadOne(x.address, x.status);
+    return row;
   }));
   const how = later.length ? await offerRelaunch(later) : {};
   return reloadLine(rows.map((r) => ({ ...r, relaunch: how[r.name] ?? null })));
@@ -333,7 +342,7 @@ async function sendHead(addr) {
 // a queued reload's next step (compactStep), from reloadTick: its next text typed in once it waits, or given up after
 // 30 minutes. -> a promise
 export async function reloadNext(addr, e, step, name) {
-  const words = (xs) => xs.map((x) => (x === RELOAD_TEXT ? "重新載入" : "規則")).join("、");
+  const words = (xs) => xs.map((x) => (x === RELOAD_TEXT ? "重新載入" : /^kit 剛從\S*拿掉(技能|MCP|外掛) /.test(x) ? "拿掉的訊息" : "規則")).join("、");
   if (step === "send") {
     const r = await sendHead(addr);
     if (!r.ok) notify({ title: "沒有全部送出", body: `${name}：要的話自己打 ${[r.head, ...r.rest].join(" ／ ")}`, level: "warning" });

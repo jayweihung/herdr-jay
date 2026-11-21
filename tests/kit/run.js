@@ -257,6 +257,46 @@ test("reload after a kit change: which agents (its machine; the account: all, --
   assert.equal(X.pluginHooks({ items: [pl("a", true), pl("b", false)] }, { items: [pl("a", true), pl("b", false, 2)] }), false, "sync: only b changed");
   assert.equal(X.pluginHooks({ items: [pl("a", true)] }, { items: [pl("a", true, 2)] }), true);
 });
+test("reload after a kit change: what was taken off (kit rm, any scope; what a sync took off) is a message, never a relaunch; a plugin with hooks: Claude /reload-plugins, omp and Codex a relaunch", ({ context: X }) => {
+  const plan = (tool, gone, goneHooks = false, dir = null) => { const p = X.reloadPlan(tool, { gone, goneHooks, dir }); return [p.send ? "reload" : "-", p.relaunch ? "relaunch" : "-", ...p.texts.map((t) => t.text)].join(" | "); };
+  const one = (kind) => [{ kind, name: "x" }];
+  const SAID = { skill: "kit 剛從整個帳號拿掉技能 x：之後不要再用它", mcp: "kit 剛從整個帳號拿掉 MCP x：之後不要再用它的工具",
+    plugin: "kit 剛從整個帳號拿掉外掛 x：之後不要再用它的技能和指令", rule: "kit 剛從整個帳號拿掉規則 x：之後不用再照它做" };
+  for (const tool of ["claude", "omp", "codex"]) for (const kind of ["skill", "mcp", "plugin", "rule"])
+    assert.equal(plan(tool, one(kind)), tool === "codex" && kind === "rule" ? "- | -" : `- | - | ${SAID[kind]}`, `${tool} ${kind}: told, not closed (Codex reads AGENTS.md every turn: no rule message)`);
+  assert.equal(plan("claude", one("plugin"), true), "reload | -", "Claude: /reload-plugins drops its hooks");
+  assert.equal(plan("omp", one("plugin"), true), "- | relaunch");
+  assert.equal(plan("codex", one("plugin"), true), "- | relaunch");
+  assert.deepEqual(X.reloadPlan("omp", { gone: one("plugin"), goneHooks: true }).what, ["plugin"]);
+  assert.equal(plan("claude", [{ kind: "mcp", name: "a" }, { kind: "mcp", name: "b" }, { kind: "skill", name: "s" }], false, "/p"),
+    "- | - | kit 剛從這個資料夾拿掉技能 s：之後不要再用它 | kit 剛從這個資料夾拿掉 MCP a、b：之後不要再用它的工具", "one message per kind, names joined");
+  assert.equal(X.reloadPlan("claude", { adds: ["mcp"], gone: one("skill") }).texts.length, 0, "added too and closed: the new conversation has it all");
+  assert.deepEqual(X.reloadPlan("omp", { adds: ["skill"] }), { send: true, relaunch: false, what: [], texts: [] }, "additions as before");
+  const it = (kind, name, status = "used") => ({ kind, name, status });
+  assert.deepEqual(X.removedBy({ items: [it("mcp", "m"), it("skill", "s", "required"), it("skill", "u", "unused"), it("agent", "g")] }, { items: [it("mcp", "m", "unused")] }),
+    [{ kind: "mcp", name: "m" }, { kind: "skill", name: "s" }]);
+  assert.match(X.reloadLine([{ name: "t3", tool: "omp", done: null, told: "sent" }, { name: "t4", tool: "codex", done: null, told: "queued" }]), /^t3 已告訴它拿掉了（不用關）；t4 排隊告訴它拿掉了/);
+});
+test("reload after a kit change: kit rm and a sync that takes something off tell each open agent, close none", async (M) => {
+  fresh();
+  const sends = () => H.calls.filter((c) => c.argv[0] === "hc" && c.argv[1] === "send").map((c) => c.argv.slice(2));
+  H.agents = [{ address: "t1", app: "claude-code", status: "idle" }, { address: "t2", app: "omp", status: "idle" }, { address: "t3", app: "codex", status: "idle" }];
+  H.terminals = H.agents.map((a) => ({ address: a.address, cwd: "/p" }));
+  assert.equal(await M.common.reloadAfter(["rm", "mcp", "m"], null), "t1、t2、t3 已告訴它拿掉了（不用關）");
+  assert.deepEqual(sends().map((x) => x[1]), Array(3).fill("kit 剛從整個帳號拿掉 MCP m：之後不要再用它的工具"));
+  assert.deepEqual([H.overlays.length, H.store[M.common.RELAUNCH] ?? null], [0, null], "nothing asked, nothing closed");
+  // a plugin with hooks taken off: Claude reloads, omp and Codex are closed and opened again (asked first)
+  H.calls = [];
+  const pl = { kind: "plugin", name: "p", status: "used", parts: { hooks: true } };
+  assert.match(await M.common.reloadAfter(["rm", "plugin", "p"], null, { items: [pl] }), /^t1 已重新載入；t2 要自己重開（它已經關掉了）；t3 要自己重開（它已經關掉了）$/);
+  assert.deepEqual(sends(), [["t1", "/reload-plugins"]]);
+  // a sync that only took an MCP off: told; one that also changed a skill: omp reloads it as before
+  H.calls = [];
+  const before = { items: [{ kind: "mcp", name: "m", status: "used" }, { kind: "skill", name: "s", status: "used", v: 1 }] };
+  H.answer = (argv) => ((argv[0] === "sh" ? argv[4] : argv[1]) === "list"
+    ? { code: 0, stdout: JSON.stringify({ items: [{ kind: "mcp", name: "m", status: "unused" }, { kind: "skill", name: "s", status: "used", v: 2 }] }), stderr: "" } : { code: 0, stdout: "", stderr: "" });
+  assert.equal(await M.common.reloadAfter(["sync"], null, before), "t2 已重新載入；t1、t2、t3 已告訴它拿掉了（不用關）");
+});
 test("reload after a kit change: typed in now while it waits, else queued once per agent; the header sends it when it stops, gives up after 30 minutes", async (M) => {
   fresh();
   const { reloadAfter, reloadNext } = M.common, { reloadKey, compactStep } = M.context;
@@ -2088,12 +2128,12 @@ test("agent popup: the 要重開才讀得到 window its own change opened isn't 
   H.agents = [{ address: "t1", app: "claude-code", status: "idle", tab_name: "api" }];
   H.terminals = [{ address: "t1", cwd: "/x" }];
   const target = { key: "|/x|t1", term: "t1", machine: null, cwd: "/x", title: "Claude Code", app: "claude-code" };
-  H.store["kit.agent.data.v1"] = { [target.key]: { items: [{ kind: "mcp", name: "m", status: "unused" }], here: { items: [], folder: { dir: "/x", why: "", items: ["mcp:m"] } } } };
+  H.store["kit.agent.data.v1"] = { [target.key]: { items: [{ kind: "mcp", name: "m", status: "unused" }], here: { items: [], folder: { dir: "/x", why: "", items: [] } } } };
   H.store["kit.agent.v1"] = { [target.key]: { started: Date.now(), at: Date.now() } };
   const pop = view(M, { role: "agent", target, overlay: "o7" });
   skew += 5; render(pop);
-  H.clicks["rmdir-mcp-m"]({}, cx); render(pop);
-  assert.deepEqual(H.closed, [], "not while its own kit rm runs");
+  H.clicks["adddir-mcp-m"]({}, cx); render(pop);
+  assert.deepEqual(H.closed, [], "not while its own kit add runs");
   await settle();
   assert.equal(H.overlays.at(-1)?.props?.role, "relaunch-ask");
   render(pop);

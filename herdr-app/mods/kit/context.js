@@ -89,7 +89,7 @@ export const compactedAfter = (e, d, started) => e?.state === "sent" && d?.sourc
 export const compactWords = (e, now = Date.now()) => (!compactLive(e, now) ? "" : e.state === "sent" ? "壓縮中…" : "已排隊，這輪結束後壓縮");
 
 // ---------- after a kit change: the agents already open pick it up ----------
-// What each tool does about a changed kind (kit add / rm / sync): "none" (it sees it by itself), "reload" (type
+// What each tool does about an added or changed kind (kit add, sync; what was taken off: reloadPlan): "none" (it sees it by itself), "reload" (type
 // /reload-plugins), "relaunch" (read only when a conversation starts: once it waits, Herdr closes it and opens the same
 // conversation again, relaunch.js). Claude Code watches its skill folders, and kit writes its MCP in ~/.claude.json,
 // which /reload-plugins does not read; omp has no watcher, /reload-plugins reloads its skills, tools, agents, MCP, but
@@ -152,8 +152,40 @@ export function reloadNeed(tool, kinds, hooks = false) {
   const w = new Set((kinds ?? []).map((k) => needOf(tool, k, hooks)));
   return { send: w.has("reload") && !w.has("relaunch"), relaunch: w.has("relaunch") };
 }
+// What was taken off (kit rm, or what a kit sync took off) is never a reason to close a conversation (jay): the open agent
+// is told in a message, any tool. names: the item names
+export function goneText(kind, names, dir) {
+  const where = dir ? "這個資料夾" : "整個帳號", list = names.join("、");
+  if (kind === "skill") return `kit 剛從${where}拿掉技能 ${list}：之後不要再用它`;
+  if (kind === "mcp") return `kit 剛從${where}拿掉 MCP ${list}：之後不要再用它的工具`;
+  return `kit 剛從${where}拿掉外掛 ${list}：之後不要再用它的技能和指令`;
+}
+// kit sync: what it took off (in use before: used / required; not after) -> [{ kind, name }]
+export function removedBy(before, after) {
+  const on = (i) => i.status === "used" || i.status === "required";
+  const now = new Set((after?.items ?? []).filter(on).map((i) => `${i.kind}\u0000${i.name}`));
+  return (before?.items ?? []).filter((i) => KINDS.includes(i.kind) && on(i) && !now.has(`${i.kind}\u0000${i.name}`)).map((i) => ({ kind: i.kind, name: i.name }));
+}
+// One agent after a change -> { send (/reload-plugins), relaunch, what (the kinds a relaunch is for), texts: [{ kind,
+// text }] (the messages about what was taken off) }. adds: the kinds added or changed (today's way: reloadNeed);
+// gone: [{ kind, name }] taken off: a message each kind (a rule's as ruleText; Codex reads AGENTS.md every turn: none),
+// except a plugin with hooks (goneHooks): its hooks run whatever it is told, so Claude gets /reload-plugins (drops
+// them) and omp, Codex a relaunch (as for an added one). A relaunch reads it all: no messages then.
+export function reloadPlan(tool, { adds = [], addHooks = false, gone = [], goneHooks = false, dir = null } = {}) {
+  const need = reloadNeed(tool, adds, addHooks), hookOff = goneHooks ? (tool === "claude" ? "reload" : "relaunch") : null;
+  const relaunch = need.relaunch || hookOff === "relaunch";
+  const what = [...new Set([...adds.filter((k) => needOf(tool, k, addHooks) === "relaunch"), ...(hookOff === "relaunch" ? ["plugin"] : [])])];
+  const texts = [];
+  if (!relaunch) for (const kind of KINDS) {
+    const names = gone.filter((g) => g.kind === kind).map((g) => g.name);
+    if (!names.length || (kind === "rule" && tool === "codex") || (kind === "plugin" && hookOff === "reload")) continue;
+    texts.push({ kind, text: kind === "rule" ? ruleText("rm", names.map((name) => ({ name })), dir) : goneText(kind, names, dir) });
+  }
+  return { send: !relaunch && (need.send || hookOff === "reload"), relaunch, what, texts };
+}
 // the line under the action: 「t1、t5 已重新載入；t2 排隊重新載入；t4（Codex）停下來時自動重開接回；t3 要自己重開（kit run
-// 開的要自己重開）」 (rows: [{ name, tool, done: "sent" | "queued" | "failed" | null, rule, relaunch: "queued" | "asked" |
+// 開的要自己重開）」 (rows: [{ name, tool, done: "sent" | "queued" | "failed" | null, rule, told (the same, for a rule's
+// message and one about what was taken off), relaunch: "queued" | "asked" |
 // "declined" | why not (words) | null }])
 export function reloadLine(rows) {
   const of = (d) => rows.filter((r) => r.done === d).map((r) => r.name).join("、");
@@ -165,6 +197,10 @@ export function reloadLine(rows) {
   if (rule("sent")) parts.push(`${rule("sent")} 已收到規則（不用關）`);
   if (rule("queued")) parts.push(`${rule("queued")} 排隊送規則（它停下來就送）`);
   if (rule("failed")) parts.push(`${rule("failed")} 沒送出規則`);
+  const told = (d) => rows.filter((r) => r.told === d).map((r) => r.name).join("、");
+  if (told("sent")) parts.push(`${told("sent")} 已告訴它拿掉了（不用關）`);
+  if (told("queued")) parts.push(`${told("queued")} 排隊告訴它拿掉了（它停下來就送）`);
+  if (told("failed")) parts.push(`${told("failed")} 沒送出拿掉的訊息`);
   const rl = (d) => rows.filter((r) => r.relaunch === d).map((r) => `${r.name}（${TOOL_NAME[r.tool] ?? r.tool}）`).join("、");
   if (rl("queued")) parts.push(`${rl("queued")}停下來時自動重開接回`);
   if (rl("asked")) parts.push(`${rl("asked")}要重開才讀得到：在跳出的視窗選要不要自動重開接回`);

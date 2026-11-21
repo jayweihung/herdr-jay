@@ -130,8 +130,10 @@ export class AgentPopup {
       .child(div().text_size(z - 1).text_color(t.muted).child(d.here.user === "root"
         ? "這個視窗用你的帳號跑，看不到也不能改 root 的 kit。root 只用簽過的版本（kit approve）；要換版本：簽一個新的 kit approve，再請它 kit sync。"
         : `這個視窗用你的帳號跑，看不到也不能改 ${d.here.user} 的 kit。`))
-      .when(d.here.user === "root", (el) => el.child(div().text_size(z - 1).text_color(t.blocked)
-        .child(d.view?.age ? `清單沒有更新（上次 ${Math.round(d.view.age / 60)} 分鐘前）` : "清單沒有更新（這台讀不到 root 的清單檔）"))));
+      .when(d.here.user === "root", (el) => el.child(div().text_size(z - 1).text_color(d.view === undefined ? t.muted : t.blocked)
+        // not asked yet (an answer kept from before, or still reading): no red words until the read says so
+        .child(d.view === undefined ? "讀取 root 的清單中…" : d.view.age ? `清單沒有更新（上次 ${Math.round(d.view.age / 60)} 分鐘前）`
+          : `清單沒有更新（這台讀不到 root 的清單檔：${d.view.none}）`))));
     if (d.kit_version_wanted) root.child(versionCard(t, z, this.where, d));
     return root.child(this.agentList(t, z, d));
   }

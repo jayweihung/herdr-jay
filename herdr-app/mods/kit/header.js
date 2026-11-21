@@ -70,19 +70,21 @@ export async function loadAgent(machine, cwd, term) {
   return { ...data, items, machine, at, view };
 }
 // An agent run as root: kit list can't see root's kit, but the machine may keep a copy root's cron writes (root's
-// kit list --json --dir /root) that this account can read. -> { list, age (s, by that machine's clock) } | { age } | { none }
+// kit list --json --dir /root) that this account can read. -> { list, age (s, by that machine's clock) } | { age } | { none: why }
 const ROOT_VIEW = "/var/lib/kit-root-view/list.json";
 export const ROOT_VIEW_MAX = 30 * 60;   // older than this: shown as not kept up
 async function rootView(machine) {
   try {
     const r = await exec("sh", ["-c", `f=${ROOT_VIEW}; [ -r "$f" ] || exit 3; date +%s; stat -c %Y "$f" 2>/dev/null || stat -f %m "$f"; cat "$f"`], { timeout: 20000, on: machine });
-    if (r.code !== 0) return { none: true };
+    if (r.code === 3) return { none: "沒有這個檔，或這個帳號讀不到" };
+    if (r.code !== 0) return { none: clean(r.stderr) || `結束碼 ${r.code}` };
     const [now, mt, ...rest] = String(r.stdout ?? "").split("\n"), age = Number(now) - Number(mt);
-    if (!(age >= 0)) return { none: true };
+    if (!(age >= 0)) return { none: "讀不到檔案的修改時間" };
     if (age > ROOT_VIEW_MAX) return { age };
-    const list = JSON.parse(rest.join("\n"));
-    return list && typeof list === "object" && Array.isArray(list.items) ? { list, age } : { none: true };
-  } catch { return { none: true }; }
+    let list = null;
+    try { list = JSON.parse(rest.join("\n")); } catch {}
+    return list && typeof list === "object" && Array.isArray(list.items) ? { list, age } : { none: "內容不是 kit list --json" };
+  } catch (e) { return { none: clean(String(e?.message ?? e)) || "讀的時候出錯" }; }
 }
 // the button's words: how many rules / skills / MCP this agent reads (kit's for the account, its folder's own,
 // and the set kit run started it with), each name counted once

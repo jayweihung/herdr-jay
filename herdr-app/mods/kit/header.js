@@ -39,7 +39,8 @@ const STALE = 60000, LOAD_TTL = 90000;   // look again after a minute; a load lo
 // loads this version of the mod still runs ("list|key" / "ctx|key" -> started): a slow one (a busy machine) isn't taken
 // as lost while it runs, so a tick doesn't start the same asks again beside it
 const RUNNING = new Map();
-const underWay = (k, c) => Boolean(c?.busy && (Date.now() - (c.started ?? 0) < LOAD_TTL || RUNNING.get(k) === c.started));
+const HUNG = 300000;   // one still running after this (something under it never answered) is taken as lost after all
+const underWay = (k, c) => { const age = Date.now() - (c?.started ?? 0); return Boolean(c?.busy && (age < LOAD_TTL || (RUNNING.get(k) === c.started && age < HUNG))); };
 const running = (k, started, work) => { RUNNING.set(k, started); return work.finally(() => { if (RUNNING.get(k) === started) RUNNING.delete(k); }); };
 const SHORT = 120000;
 const CTX_W = 480, CTX_H = 640;   // the context popup

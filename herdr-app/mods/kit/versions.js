@@ -46,12 +46,12 @@ export function oldReason(i, tool) {
   return { kind, why: `這次對話開始後改過${when ? `（${when}）` : ""}，${how}` };
 }
 
-// the popup's one line over the lists, from the rows' oldReason: "全部最新" | "2 項舊版：按同步" | "3 項舊版：開新對話才會讀到"
+// the popup's one line over the lists, from the rows' oldReason: "全部最新" | "2 項舊版：按同步" (同步 brings, reloads or
+// relaunches them all: agent.js) | "3 項舊版：2 項按同步，1 項開新對話才會讀到" ("new": a skill this conversation
+// already read; neither a reload nor the same conversation again brings it)
 export function oldSummary(reasons) {
   const old = reasons.filter(Boolean);
   if (!old.length) return "全部最新";
-  const n = (k) => old.filter((r) => r.kind === k).length, sync = n("sync"), reload = n("reload");
-  // the most common thing to do; a tie: 同步 first (a new conversation still reads the old copy until then)
-  return `${old.length} 項舊版：${sync * 2 >= old.length ? "按同步" : reload * 2 > old.length ? `打 ${RELOAD_TEXT}`
-    : n("relaunch") > n("new") ? "重開接回才會讀到" : "開新對話才會讀到"}`;
+  const stay = old.filter((r) => r.kind === "new").length, fix = old.length - stay;
+  return `${old.length} 項舊版：${!stay ? "按同步" : !fix ? "開新對話才會讀到" : `${fix} 項按同步，${stay} 項開新對話才會讀到`}`;
 }

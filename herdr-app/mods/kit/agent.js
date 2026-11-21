@@ -7,16 +7,22 @@
 // the header for a fresh one (AGENT_WANT).
 import { div } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
-import { theme, shared, setShared, closeOverlay, props } from "herdr";
+import { theme, shared, setShared, closeOverlay, props, agents } from "herdr";
 import { AGENT_CACHE, AGENT_DATA, AGENT_WANT, MSG, fs, mono, stop, shortDir, spin, waiting, icon, textBlock, copyOnRight, btn,
   busyNow, dropStaleBusy, giveBusy, apiState, checkApi, apiCard, messageBox, problemCard, versionCard, localGet, localSet,
-  kitAction, markChanged, squeeze, groupRows, kit, apiAtLeast, partsLine, RELAUNCH_AUTO, RELAUNCH_ASK } from "./common.js";
-import { POPUP_H, agentPid } from "./header.js";
-import { toolOf, usedArgs, usedOf, usedLine } from "./context.js";
+  kitAction, markChanged, squeeze, groupRows, kit, apiAtLeast, partsLine, RELAUNCH_AUTO, RELAUNCH_ASK, reloadOne } from "./common.js";
+import { POPUP_H, agentPid, loadAgent } from "./header.js";
+import { toolOf, usedArgs, usedOf, usedLine, KIND_NAME, RELOAD_TEXT } from "./context.js";
+import { offerRelaunch, agentName } from "./relaunch.js";
 import { versionText, oldReason, oldSummary } from "./versions.js";
 
 const LONG = 600000, SHORT = 120000; // how long kit sync and install, and the other actions, may take
 const LOAD_TTL = 90000;
+// what this agent reads of kit's: the account's (used, required) and its folder's (kit add --dir)
+const usingOf = (d) => {
+  const dir = new Set(d?.here?.folder?.items ?? []);
+  return (d?.items ?? []).filter((i) => i.kind !== "agent" && (i.status === "used" || i.status === "required" || dir.has(`${i.kind}:${i.name}`)));
+};
 
 export class AgentPopup {
   constructor(role) { this.role = role; }
@@ -80,6 +86,50 @@ export class AgentPopup {
   act(label, args, cx, ttl = SHORT, okText = null) {
     kitAction(this, cx, { label, args, ttl, okText, machine: this.target?.machine ?? null, msg: MSG(this.where) });
   }
+  // 同步: kit sync for the machine (reloadAfter: the open agents, for what it changed), then THIS agent up to date: its
+  // list read again, and for each old row (versions.js oldReason) what 同步 can do: a reload gets /reload-plugins,
+  // one read only when a conversation starts (rules, MCP …) the relaunch ask (relaunch.js offerRelaunch); each once,
+  // also when reloadAfter already did it for this agent (did). Said in the line over kit's words.
+  sync(cx) {
+    const machine = this.target?.machine ?? null, msg = MSG(this.where), did = {};
+    kitAction(this, cx, { label: "同步", args: ["sync"], ttl: LONG, machine, msg, did, after: (cx) => {
+      markChanged(machine);
+      if (shared(msg)?.ok !== true) return;
+      this.syncing = true;
+      cx.spawn(async (cx) => {
+        let line;
+        try { line = await this.catchUp(did); } catch (e) { line = `同步好了；這個 agent 沒有跟上：${e?.message ?? e}`; }
+        const m = shared(msg);
+        if (m) setShared(msg, { ...m, text: [line, m.text].filter(Boolean).join("\n") });
+        this.syncing = false;
+        cx.notify();
+      });
+    } });
+  }
+  async catchUp(did) {
+    const tg = this.target ?? {}, tool = toolOf(tg.app, tg.program?.key);
+    const a = (agents() ?? []).find((x) => x.address === tg.term);
+    if (!a || !tool) return "同步好了；讀不到這個 agent（它可能已經關掉）";
+    const d = await loadAgent(tg.machine ?? null, tg.cwd, tg.term, tool);
+    if (d?.error) return `同步好了；讀不到這個 agent 的清單：${d.error}`;
+    const old = usingOf(d).map((i) => [i, oldReason(i, tool)]).filter(([, r]) => r);
+    if (!old.length) return "同步好了，這個 agent 全部最新";
+    const of = (k) => old.filter(([, r]) => r.kind === k).map(([i]) => i), prev = did[a.address] ?? {}, parts = [];
+    if (of("reload").length) {
+      const status = a.status === "done" && (shared("agents.busy") ?? {})[a.address] ? "working" : a.status;
+      const done = prev.done ?? await reloadOne(a.address, status);
+      parts.push({ sent: `送了 ${RELOAD_TEXT}`, queued: `排隊送 ${RELOAD_TEXT}（它停下來就送）` }[done] ?? `沒送出 ${RELOAD_TEXT}`);
+    }
+    const rl = of("relaunch");
+    if (rl.length) {
+      const what = [...new Set(rl.map((i) => KIND_NAME[i.kind] ?? i.kind))].join("、");
+      const how = prev.relaunch ?? (await offerRelaunch([{ address: a.address, tool, name: agentName(a), what }]))[a.address];
+      parts.push(how === "asked" ? "要重開接回（在跳出的視窗選）" : how === "queued" ? "停下來時自動重開接回" : `要自己重開（${how}）`);
+    }
+    if (of("new").length) parts.push(`${of("new").length} 項要開新對話才會讀到`);
+    if (of("sync").length) parts.push(`${of("sync").length} 項同步後還是舊的（同步沒帶來：可能被擋著或還沒核准）`);
+    return `同步好了；${a.address}：${parts.join("，")}`;
+  }
   // a row's add / rm: its button says 加入中… while kit runs, then ✓ 已… until the list (asked again) shows it, so it
   // never looks like it can be pressed again. want: "used" | "unused" (the account), "dir" | "nodir" (this folder)
   rowAct(i, want, label, args, cx, okText) {
@@ -106,7 +156,7 @@ export class AgentPopup {
   render(_cx) {
     // the 要重開才讀得到 window opened after this popup (its own add / rm did it, once that is over): Herdr keeps windows
     // under popups, and a popup's first click outside only closes it, so this popup steps aside (kit's words stay in MSG)
-    if (!this.mine && (shared(RELAUNCH_ASK)?.at ?? 0) > this.openedAt) closeOverlay(props()?.overlay);
+    if (!this.mine && !this.syncing && (shared(RELAUNCH_ASK)?.at ?? 0) > this.openedAt) closeOverlay(props()?.overlay);
     const t = theme(), z = fs(), msg = this.msg;
     // a popup is as tall as its content, and the list (flex_1) has none of its own: give the popup a height
     const root = v_flex().id("kit-agent-root").size_full().h(POPUP_H).rounded(8).bg(t.surface).text_size(z).text_color(t.foreground)
@@ -150,7 +200,7 @@ export class AgentPopup {
       .child(v_flex().flex_1().min_w(0)
         // only the name: where it runs is in its own pane already (jay); ⟳ turns while reading
         .child(copyOnRight(div().truncate().font_semibold().child(tg.title || "agent"), tg.title || "agent")))
-      .when(Boolean(canSync), (el) => el.child(btn(t, z, "sync", busy === "同步" ? "同步中…" : "同步", { small: true, off: Boolean(busy), on: (cx) => this.act("同步", ["sync"], cx, LONG) })))
+      .when(Boolean(canSync), (el) => el.child(btn(t, z, "sync", busy === "同步" || this.syncing ? "同步中…" : "同步", { small: true, off: Boolean(busy || this.syncing), on: (cx) => this.sync(cx) })))
       // pressable while it reads too: a newer read takes over one that hangs
       .child(btn(t, z, "reload", this.loading ? spin(z - 2, t.dim) : "⟳", { small: true, on: (cx) => { this.want(); this.loadUsed(cx); } }))
       .child(btn(t, z, "close", "✕", { small: true, on: () => closeOverlay(props()?.overlay) }));
@@ -171,7 +221,7 @@ export class AgentPopup {
     const at = this.target?.machine ?? null;
     this.vers = this.ro || apiAtLeast(at, 14);
     this.tool = toolOf(this.target?.app, this.target?.program?.key);
-    const using = items.filter((i) => i.kind !== "agent" && (i.status === "used" || i.status === "required" || mine(i)));
+    const using = usingOf(d);
     if (this.ro) { /* no 舊版 */ } else if (!this.vers) {
       if (apiState(at)?.ok) body.child(div().text_size(z - 1.5).text_color(t.muted).child(`${at ? "那台" : "這台"}的 kit 太舊，更新後才看得到版本`));
     } else if (using.some((i) => i.version)) {

@@ -235,8 +235,8 @@ export function giveBusy(id) { if (id && shared(BUSY)?.id === id) setShared(BUSY
 // back), clears the message, runs kit there (machine null: this computer), puts kit's words in the shared key msg,
 // then what it did to the agents already open (reloadAfter), gives the lock back, then after(cx) (what changed is out
 // of date). okText: one plain sentence instead of kit's own lines when it worked (kit's warnings, stderr, still shown
-// under it). false: another action holds the lock.
-export function kitAction(owner, cx, { label, args, msg, ttl = 120000, machine = null, okText = null, after = null }) {
+// under it). did: filled by reloadAfter (see there). false: another action holds the lock.
+export function kitAction(owner, cx, { label, args, msg, ttl = 120000, machine = null, okText = null, after = null, did = null }) {
   owner.mine = takeBusy(label, ttl);
   if (!owner.mine) return false;
   setShared(msg, null);
@@ -249,7 +249,7 @@ export function kitAction(owner, cx, { label, args, msg, ttl = 120000, machine =
       const text = clean([r.out, r.err].filter(Boolean).join("\n"));
       if (r.code === 0 && okText) setShared(msg, { ok: true, plain: true, label, text: [okText, clean(r.err ?? "")].filter(Boolean).join("\n"), at: Date.now() });
       else setShared(msg, { ok: r.code === 0, label, text: text || (r.code === 0 ? "完成" : `失敗（${r.code}）`), at: Date.now() });
-      const line = r.code === 0 ? await reloadAfter(args, machine, before).catch(() => "") : "";
+      const line = r.code === 0 ? await reloadAfter(args, machine, before, did).catch(() => "") : "";
       if (line) setShared(msg, { ...shared(msg), text: `${shared(msg)?.text ?? ""}\n${line}` });
     } finally {
       giveBusy(owner.mine);
@@ -266,8 +266,9 @@ export function kitAction(owner, cx, { label, args, msg, ttl = 120000, machine =
 const listNow = (machine) => kit(["list", "--json"], 60000, machine).then((r) => kitJson(r, "kit list --json").data ?? null, () => null);
 // args: what kit ran there (add / rm; sync with before, kit list --json from before it); machine: where (null: this
 // computer). Each open agent there that reads it gets /reload-plugins now if it waits, else queued (its header sends it
-// once it waits). -> the line to show ("" when no open agent is affected)
-export async function reloadAfter(args, machine, before = null) {
+// once it waits). did (an object, optional): address -> { done, relaunch } of each agent it reached (reloadLine's row
+// words), so the agent popup's 同步 does not do it twice. -> the line to show ("" when no open agent is affected)
+export async function reloadAfter(args, machine, before = null, did = null) {
   let change = changeOfArgs(args);
   const after = !change && args?.[0] === "sync" && before ? await listNow(machine) : null;
   // what was taken off (kit rm; what the sync took off): a message, never a relaunch (context.js reloadPlan); the rest
@@ -311,6 +312,7 @@ export async function reloadAfter(args, machine, before = null) {
     return row;
   }));
   const how = later.length ? await offerRelaunch(later) : {};
+  if (did) for (const r of rows) did[r.name] = { done: r.done, relaunch: how[r.name] ?? null };
   return reloadLine(rows.map((r) => ({ ...r, relaunch: how[r.name] ?? null })));
 }
 // One entry per agent (shared reload/<address> = { state: "queued", at, text, texts, next?, sent? }): its texts in
@@ -320,7 +322,7 @@ export async function reloadAfter(args, machine, before = null) {
 // A half-typed draft in its input box: hc send itself holds the text until you send or clear it (at most draft_wait,
 // 60 s, after your last key); hc get says nothing about the input box, so past that it may land on the draft.
 export const TAKE_MS = 2000;
-async function reloadOne(addr, status, text = RELOAD_TEXT) {
+export async function reloadOne(addr, status, text = RELOAD_TEXT) {
   const key = reloadKey(addr), e = shared(key), live = e && compactStep(e, null, null) === null;
   const texts = live ? (e.texts ?? [e.text]) : [], all = texts.includes(text) ? texts : [...texts, text];
   setShared(key, { ...(live ? e : {}), state: "queued", at: live ? e.at : Date.now(), text: all[0], texts: all });

@@ -1936,15 +1936,15 @@ test("versions.js: an item's version in words, 舊版 and why (not synced here, 
   assert.equal(X.oldReason(it({ kind: "plugin", loaded: "old", installed: { omp: { id: "a1b2c3d4", at: 1 } } }), "omp").kind, "reload", "omp: a plugin without hooks reloads");
   assert.deepEqual(X.oldReason(it({ kind: "skill", loaded: "old" }), "omp"), { kind: "reload", why: "這次對話用的是舊版，打 /reload-plugins 就會讀到新的" });
   assert.equal(X.oldReason(it({ kind: "mcp", loaded: "old", installed: { codex: { id: "a1b2c3d4", at: 1 } } }), "codex").why, "這次對話開始後改過（11/21 版），重開接回同一個對話才會讀到");
-  assert.equal(X.oldSummary([{ kind: "relaunch" }, { kind: "relaunch" }, { kind: "new" }]), "3 項舊版：重開接回才會讀到");
+  assert.equal(X.oldSummary([{ kind: "relaunch" }, { kind: "relaunch" }, { kind: "new" }]), "3 項舊版：2 項按同步，1 項開新對話才會讀到");
+  assert.equal(X.oldSummary([{ kind: "relaunch" }, { kind: "reload" }, { kind: "sync" }, { kind: "relaunch" }, { kind: "reload" }]), "5 項舊版：按同步", "同步 brings, reloads or relaunches them all");
   assert.equal(X.oldReason(it({ loaded: "old", installed: { codex: { id: "a1b2c3d4", at: 1 } } }), "codex"), null, "Codex re-reads its rules each turn");
-  assert.equal(X.oldSummary([{ kind: "reload" }, { kind: "reload" }, { kind: "new" }]), "3 項舊版：打 /reload-plugins");
+  assert.equal(X.oldSummary([{ kind: "new" }, { kind: "new" }]), "2 項舊版：開新對話才會讀到", "only what 同步 can't fix: what to do");
   assert.deepEqual(["new", "unknown", null].map((l) => X.oldReason(it({ loaded: l }), "claude")), [null, null, null]);
   assert.equal(X.oldReason(it({ loaded: "old" }), "codex").kind, "sync");
   // summary
   assert.deepEqual([[null, null], []].map((r) => X.oldSummary(r)), ["全部最新", "全部最新"]);
-  assert.equal(X.oldSummary([{ kind: "new" }, { kind: "new" }, { kind: "sync" }, null]), "3 項舊版：開新對話才會讀到");
-  assert.equal(X.oldSummary([{ kind: "new" }, { kind: "sync" }]), "2 項舊版：按同步", "a tie: 同步 first");
+  assert.equal(X.oldSummary([{ kind: "new" }, { kind: "new" }, { kind: "sync" }, null]), "3 項舊版：1 項按同步，2 項開新對話才會讀到");
 });
 test("usage limit (context.js): names, times, the lines of kit usage, when 繼續 is due", ({ context: X }) => {
   const now = new Date(2026, 10, 15, 9, 0).getTime(), at = (d, h, m) => new Date(2026, 10, d, h, m).getTime();
@@ -2142,6 +2142,54 @@ test("agent popup: the 要重開才讀得到 window its own change opened isn't 
   // opened again while the window is still there: it stays
   H.closed = []; const again = view(M, { role: "agent", target, overlay: "o8" }); render(again);
   assert.deepEqual(H.closed, []);
+});
+test("agent popup: 同步 brings this agent up to date: kit sync, its list read again, /reload-plugins once, the relaunch ask once (also when reloadAfter did it), 全部最新", async (M) => {
+  const target = { key: "|/x|t1", term: "t1", machine: null, cwd: "/x", title: "Claude Code", app: "claude-code" }, key = "kit.msg.agent:|/x|t1";
+  const it = (kind, name, old, id = "v2") => ({ kind, name, status: "used", version: { id, date: "2026-11-21" }, installed: { claude: { id } }, loaded: old ? "old" : "new" });
+  // rows(synced): kit list's items before / after kit sync (no --dir: reloadAfter's; --dir: the popup's own read)
+  const press = async (rows) => {
+    fresh();
+    const t = fakeTerm("claude", `ok\nsession {"sessionId":"${SID}","status":"idle"}\ntranscript\n`), probe = H.answer;
+    let synced = false;
+    H.answer = (argv, on) => {
+      if (argv[0] !== "kit") return probe(argv, on);
+      const a = argv.slice(1);
+      if (a[0] === "api") return { code: 0, stdout: "1.14\n", stderr: "" };
+      if (a[0] === "sync") { synced = true; return { code: 0, stdout: "同步好了\n", stderr: "" }; }
+      if (a[0] === "list") return { code: 0, stdout: `${JSON.stringify({ ...KIT_LIST, items: rows(synced), here: { items: [], folder: { dir: "/x", why: "", items: [] } } })}\n`, stderr: "" };
+      return { code: 0, stdout: "", stderr: "" };
+    };
+    H.agents = [{ address: "t1", app: "claude-code", status: "idle", tab_name: "api" }];
+    H.terminals = [{ address: "t1", cwd: "/x" }];
+    H.store["kit.agent.data.v1"] = { [target.key]: { items: rows(false), here: { items: [], folder: { dir: "/x", why: "", items: [] } } } };
+    H.store["kit.agent.v1"] = { [target.key]: { started: Date.now(), at: Date.now() } };
+    const v = view(M, { role: "agent", target, overlay: "o7" }); await settle();
+    skew += 5; render(v); H.clicks.sync({}, cx); await settle();
+    return { t, v, text: H.store[key]?.text ?? "", asks: H.overlays.filter((o) => o.props?.role === "relaunch-ask").length,
+      reloads: t.sent.filter((x) => x[1] === "/reload-plugins").length };
+  };
+  // nothing old after the sync
+  let r = await press(() => [it("plugin", "p", false)]);
+  assert.match(r.text, /^同步好了，這個 agent 全部最新/); assert.deepEqual([r.reloads, r.asks], [0, 0]);
+  // a plugin read before it changed (Claude: /reload-plugins), the sync changed nothing: sent once
+  r = await press(() => [it("plugin", "p", true)]);
+  assert.match(r.text, /^同步好了；t1：送了 \/reload-plugins\n/); assert.deepEqual([r.reloads, r.asks], [1, 0]);
+  // an MCP and a rule (read only when it starts): the ask, once, for this agent, both kinds; a skill already read: said
+  r = await press(() => [it("mcp", "m", true), it("rule", "r", true), it("skill", "s", true)]);
+  assert.match(r.text, /^同步好了；t1：要重開接回（在跳出的視窗選），1 項要開新對話才會讀到/);
+  assert.deepEqual([r.reloads, r.asks, r.t.sent], [0, 1, []]);
+  assert.deepEqual(H.store[M.common.RELAUNCH_ASK].rows, [{ address: "t1", tool: "claude", name: "api（t1）", what: "MCP、規則" }]);
+  // still not the newest here after the sync: said, nothing sent
+  r = await press(() => [{ ...it("skill", "s", false, "v2"), installed: { claude: { id: "v1" } } }]);
+  assert.match(r.text, /^同步好了；t1：1 項同步後還是舊的（同步沒帶來/); assert.deepEqual([r.reloads, r.asks], [0, 0]);
+  // the sync changed them: reloadAfter already sent /reload-plugins / asked about this agent: not again
+  r = await press((s) => [it("plugin", "p", true, s ? "v2" : "v1")]);
+  assert.match(r.text, /^同步好了；t1：送了 \/reload-plugins/); assert.deepEqual([r.reloads, r.asks], [1, 0]);
+  r = await press((s) => [it("mcp", "m", true, s ? "v2" : "v1"), it("plugin", "p", true)]);
+  assert.match(r.text, /^同步好了；t1：送了 \/reload-plugins，要重開接回（在跳出的視窗選）/);
+  assert.deepEqual([r.reloads, r.asks], [1, 1]);
+  // the relaunch window its 同步 opened: the popup steps aside once it is over (not under it)
+  render(r.v); assert.deepEqual(H.closed, ["o7"]);
 });
 test("agent popup: kit 0.7.0's blocked: 被擋下 with why; 收進 kit into an own source (URL: kit collect --allow → agentkit-library; none: kit new --from → my-own), then kit add; no blocked key: as before", async (M) => {
   fresh(); fakeKit();

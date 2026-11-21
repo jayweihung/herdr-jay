@@ -35,7 +35,8 @@ export function oldReason(i, tool) {
     return { kind: "sync", why: `這台還沒同步（最新是${v.dirty ? "還沒送出的那份" : ` ${versionText(i)?.text ?? v.id}`}）` };
   if (i?.loaded !== "old") return null;
   // what that tool needs to read the new one (context.js RELOAD): reload | a new conversation | nothing (it re-reads each turn)
-  const need = RELOAD[tool]?.[i.kind];
+  // omp's /reload-plugins does not load a plugin's hooks: those need a new conversation
+  const need = tool === "omp" && i.kind === "plugin" && i.parts?.hooks ? "new" : RELOAD[tool]?.[i.kind];
   if (need === "none" && i.kind !== "skill") return null;
   const how = need === "reload" ? `打 ${RELOAD_TEXT} 就會讀到` : tool === "codex" ? "打 /new 開新對話才會讀到" : "開新對話才會讀到";
   if (i.kind === "skill") return { kind: need === "reload" ? "reload" : "new", why: `這次對話用的是舊版，${how}新的` };

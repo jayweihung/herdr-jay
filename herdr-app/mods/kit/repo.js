@@ -18,6 +18,7 @@ import { DATA, LOAD, EDITORS, NODES, MSG, KIT_TAB, fs, mono, stop, slash, shortD
 export { lockFrom, urlId, groupRows };
 import { layoutNeeds, moveIntoBar } from "./layout.js";
 import { machinesTab, loadMachines, machinesDue, machinesLoading, agoText } from "./machines.js";
+import { versionText } from "./versions.js";
 
 const LONG = 600000, SHORT = 120000; // how long kit sync / push, and the other actions, may take
 const STALE = 60000, LOAD_TTL = 90000;
@@ -1045,6 +1046,7 @@ export class Repo {
   repoRow(t, z, i, from = false) {
     const badge = (text, color) => div().flex_none().px(5).rounded(4).text_size(z - 2.5).text_color(t.background).bg(color).child(text);
     const mark = (text, color) => div().flex_none().text_size(z - 2.5).text_color(color).child(text);
+    const ver = apiAtLeast(null, 14) ? versionText(i) : null;   // kit api 1.14: "11/21 版", "原作者 11/10 版"
     return h_flex().id(`repo-${i.kind}-${i.name}`).gap(8).items_center().px(8).py(6).rounded(6).cursor_pointer()
       .hover((s) => s.bg(t.hover)).on_mouse_down("left", stop)
       .on_click((_e, cx) => cx.spawn(async (cx) => { await this.openItem(i, cx); cx.notify(); }))
@@ -1057,7 +1059,8 @@ export class Repo {
           .when(Boolean(i.from) && outdatedOf(shared(OUTDATED), i) === "new", (el) => el.child(mark("新版", t.muted)))
           .when(Boolean(i.from) && outdatedOf(shared(OUTDATED), i) === "later", (el) => el.child(mark("新版・先不收", t.dim)))
           .when(Boolean(i.from) && outdatedOf(shared(OUTDATED), i) === "unreachable", (el) => el.child(badge("連不到", t.ansi1)))
-          .when(i.status === "required", (el) => el.child(badge("團隊必備", t.accent))))
+          .when(i.status === "required", (el) => el.child(badge("團隊必備", t.accent)))
+          .when(Boolean(ver), (el) => el.child(div().id(`repo-ver-${i.kind}-${i.name}`).flex_none().text_size(z - 2.5).text_color(t.muted).tooltip(ver.tip || ver.text).child(ver.text))))
         .child(copyOnRight(div().min_w(0).truncate().text_size(z - 1.5).text_color(t.muted).child([from && i.from ? `收自 ${i.from}` : "", i.description_zh || i.description, i.src].filter(Boolean).join(" · ") || "（還沒寫說明）"),
           i.description_zh || i.description || i.path))
         .when(Boolean(partsLine(i.parts)), (el) => el.child(div().text_size(z - 1.5).text_color(t.dim).child(partsLine(i.parts)))))

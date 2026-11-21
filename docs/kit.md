@@ -177,6 +177,10 @@ the mod doesn't know shows a card 「不認得的 role」 naming it: check the s
 - **找和分組**：最上面有一個搜尋框（找名字、說明、從哪收的），找的時候每段都會打開。「還沒用的」先列 kit 倉裡自己寫的，
   再列從網址收來的：同一個網址收了好幾個就收成一組「▸ 收自 mattpocock/skills（39）」，點一下打開（記在這台電腦），
   只收一個的就是一行，寫「收自 作者/repo」。每個都有自己的「加到這個資料夾」，要哪個加哪個。分組看的是 agent 那台主機上倉裡的 `third_party.lock`。
+- **版本**（kit api 1.14 起）：每一列名字旁邊用淡色小字寫版本：自己寫的是來源裡最後一次改到它的日期「11/21 版」（同一天改好幾次「11/21 版（3）」，改了還沒 commit 是「改了還沒送出」），收來的是原作者那個 commit 的時間「原作者 11/10 版」（問不到就寫收進來時的日期）；滑鼠停上去看完整日期、commit 訊息、指紋，收來的再加收進來的日期。這個 agent 讀的那一份不是最新的，那一列標「舊版」，下面一行寫原因和怎麼辦：
+  - 「這台還沒同步（最新是 11/21 版）」：這台裝給這個工具的那份不是最新的，按上面的「同步」。
+  - 「這次對話開始後改過（11/21 版），開新對話才會讀到」：規則、MCP、外掛在對話一開始就讀了。技能是「這次對話用的是舊版，開新對話才會讀到新的」（用過才算）。
+  清單最上面一行總結：「全部最新」或「3 項舊版：開新對話才會讀到」（寫最多項要做的那件事）。那台的 kit 比 api 1.14 舊時只寫一次「那台的 kit 太舊，更新後才看得到版本」。root 的唯讀清單只寫版本，不標舊版。
 - 「這次啟動帶的」：用 `kit run`（或 Agents 的「開啟」）開的 agent 才有，只有這個 agent 有，關掉就沒了。要改，到 Agents 改那個 agent。這時下面的標題會變成「另外也讀到的」。
 - **skill 需要的程式**：skill 要的程式（例如 archify 要 Node.js 18 以上）這台沒有或太舊時，那一項下面會出現「⚠ 需要 Node.js 18 以上（這台沒有）［安裝］」（太舊是［升級］）。按下去先顯示 kit 會執行的指令（例如 `brew install node`），按「確定安裝」才執行（就是 `kit install-tool node --min 18`）；那種裝法失敗，kit 會換配方裡的下一種。kit 沒有這台能用的裝法時，只寫「請自己裝」。怎麼看出來、怎麼加新的程式，看 kit 的說明（「skill 需要的程式」）。
 - **skill 自己的套件**：skill 要先 `npm install` 或 `pip install` 才能跑時，下面會出現「⚠ 需要先裝它自己的 npm 套件［安裝］」或「⚠ 需要先裝它自己的 Python 套件［安裝］」（skill 改過、要重裝時是［更新］）。按下去先顯示要執行的指令，按「確定安裝」才裝（就是 `kit install-deps <skill> npm|pip`）：裝在 kit 自己的資料夾（Python 是自己的 venv），不跑套件自己的安裝程式。kit 不接受的寫法（`requirements.txt` 的某一行、不是 npm registry 上的版本）只寫「kit 不裝：」和原因，沒有［安裝］。
@@ -330,6 +334,7 @@ Kit 面板（或 context 細項的「拿掉」）改了什麼，同一台電腦�
   面板上方出現紅框卡片「等你放行：<倉> 送出被擋，N 個檔案」，列出檔案和原因（點檔名打開看），關係圖也有一行「等你同意」（點了打開 Kit 面板）。
   按「放行並送出」：這份內容記進 `~/.config/agentkit-dev/allow.txt`，再送一次；之後檔案改了會再擋。按「不要」：不放行，改動留在這台。
   agent 送出被擋時也一樣出現在這裡，由你決定；agent 不能自己放行（Claude 有禁止規則擋那個資料夾，Codex 的沙箱寫不到）。禁用字、身分這類擋法不能放行。
+  **版本**（kit api 1.14 起）：每一列名字旁邊淡色小字「11/21 版」（自己寫的，同一天改好幾次「11/21 版（3）」，改了還沒 commit「改了還沒送出」）或「原作者 11/10 版」（收來的），滑鼠停上去看完整日期、commit 訊息、指紋（收來的再加收進來的日期）。
   **原作者有新版、連不到**（kit 0.6.8 起）：面板一天問一次 `kit outdated --json`（每個收來的 skill 去問原作者的 git 現在是哪個 commit，
   記在這台電腦），「收來的」標題旁寫「N 個有新版、M 個連不到原作者」（滑鼠停在上面看幾小時前查的），那一行／那一組旁邊用淡色小字寫「新版」，連不到的標紅色「連不到」，
   關係圖也多一行（點了打開 Kit 的「技能」）。「⟳」馬上再查一次；「收新版（N）」照 `third_party.lock` 一個一個 `kit collect <名字>`
@@ -739,7 +744,7 @@ Agents 面板上方有兩個分頁：「定義」是上面那些做好的 agent�
 (agent), `agents.js` (agents, agents-toggle), `place.js` (an agent put in a space: the drag payload, the drop loop,
 `kit place` then `tab.new`), `header.js` (header, context), `layout.js` (where kit sits in a
 layout: 放進上排 / 更新版面), `machines.js` (the repository's 各機器 tab: every machine's kit, what it lacks by
-`FEATURES`, the self-reported accounts of `kit-machines.json`, the sources against the approved commits), `context.js` (what the context window and chip compute, from plain values), `common.js`
+`FEATURES`, the self-reported accounts of `kit-machines.json`, the sources against the approved commits), `context.js` (what the context window and chip compute, from plain values), `versions.js` (an item's version in words and why an agent's copy is old, from plain values), `common.js`
 (running kit, `kit api`, the shared state keys, the layout's node ids, one kit action at a time, the shared UI
 pieces, and `kitJson`: kit's JSON and its error codes), `bots.js` (the agents' logos: an agent file's `bot:`, the
 still SVGs, the live `LiveBot` view), `bot-models.js` (the animals in Zdog, their colors), `bot-paint.js` (Zdog draws

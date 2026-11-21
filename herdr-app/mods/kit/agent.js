@@ -13,6 +13,7 @@ import { AGENT_CACHE, AGENT_DATA, AGENT_WANT, MSG, fs, mono, stop, shortDir, spi
   kitAction, markChanged, squeeze, groupRows, kit, apiAtLeast, partsLine } from "./common.js";
 import { POPUP_H, agentPid } from "./header.js";
 import { toolOf, usedArgs, usedOf, usedLine } from "./context.js";
+import { versionText, oldReason, oldSummary } from "./versions.js";
 
 const LONG = 600000, SHORT = 120000; // how long kit sync and install, and the other actions, may take
 const LOAD_TTL = 90000;
@@ -161,6 +162,18 @@ export class AgentPopup {
     const f0 = this.filter, hit = (i) => !f0 || [i.name, i.description, i.description_zh, i.source, i.from, i.path].some((x) => String(x ?? "").toLowerCase().includes(f0));
     const body = v_flex().id("kit-agent-body").flex_1().min_h(0).overflow_y_scrollbar().px(10).py(8).gap(8);
     body.child(Input.new(this.input).flex_none().h(28).px(8).rounded(6).border_1().border_color(t.border).bg(t.background).text_size(z - 1).text_color(t.foreground));
+    // versions (kit api 1.14): what each row is, and over the lists whether all it reads is the newest. root's list
+    // (look only) shows its own kit's versions when they are there, never 舊版 (root waits for kit approve)
+    const at = this.target?.machine ?? null;
+    this.vers = this.ro || apiAtLeast(at, 14);
+    this.tool = toolOf(this.target?.app, this.target?.program?.key);
+    const using = items.filter((i) => i.kind !== "agent" && (i.status === "used" || i.status === "required" || mine(i)));
+    if (this.ro) { /* no 舊版 */ } else if (!this.vers) {
+      if (apiState(at)?.ok) body.child(div().text_size(z - 1.5).text_color(t.muted).child(`${at ? "那台" : "這台"}的 kit 太舊，更新後才看得到版本`));
+    } else if (using.some((i) => i.version)) {
+      const line = oldSummary(using.map((i) => oldReason(i, this.tool)));
+      body.child(div().text_size(z - 1.5).text_color(line === "全部最新" ? t.muted : t.foreground).child(line));
+    }
     const kindName = { rule: "規則", skill: "技能", mcp: "MCP", plugin: "外掛" };
     // 1. what kit run started it with: only this agent has it, for this run
     if (ag) {
@@ -345,7 +358,12 @@ export class AgentPopup {
     if (i.status === "used") head.child(badge("Kit · 整個帳號", t.working));
     if (inDir) head.child(badge("Kit · 這個資料夾", t.done));
     if (i.new) head.child(badge("新", t.done));
+    // its version, and 舊版 with why under the row (only what this agent reads; never in root's look-only list)
+    const ver = this.vers ? versionText(i) : null;
+    const old = this.vers && !this.ro && (i.status === "used" || i.status === "required" || inDir) ? oldReason(i, this.tool) : null;
+    if (old) head.child(badge("舊版", t.muted));
     this.usedBadge(t, z, head, i);
+    if (ver) head.child(div().id(`ver-${i.kind}-${i.name}`).flex_none().text_size(z - 2.5).text_color(t.muted).tooltip(ver.tip || ver.text).child(ver.text));
     const dirArgs = (verb) => [verb, "--dir", f.dir, i.kind, i.name];
     const fd = f ? shortDir(f.dir) : "";
     const action = h_flex().flex_none().gap(4).items_center();
@@ -406,6 +424,7 @@ export class AgentPopup {
     const unset = (i.vars ?? []).filter((v) => v && v.set === false && typeof v.name === "string").map((v) => v.name);
     return v_flex().id(`row-${i.kind}-${i.name}`).gap(4).px(8).py(5).rounded(6).hover((s) => s.bg(t.hover))
       .child(row)
+      .when(Boolean(old), (el) => el.child(div().pl(2).text_size(z - 1.5).text_color(t.muted).child(old?.why ?? "")))
       .when(unset.length > 0, (el) => el.child(div().pl(2).text_size(z - 1.5).text_color(t.working)
         .child(`⚠ 這台沒設環境變數：${unset.join("、")}（設好再開新的對話；值不會進倉）`)))
       .children(missing.map((x) => this.needLine(t, z, x)));

@@ -2143,6 +2143,10 @@ test("agent popup: the 要重開才讀得到 window its own change opened isn't 
   H.closed = []; const again = view(M, { role: "agent", target, overlay: "o8" }); render(again);
   assert.deepEqual(H.closed, []);
 });
+test("relaunch ask: an agent is called by its tab name, or by its title when the tab only has its number", async (M) => {
+  assert.equal(M.relaunch.agentName({ tab_name: "api", title: "Claude Code", address: "t1" }), "api（t1）");
+  assert.equal(M.relaunch.agentName({ tab_name: "2", title: "api 測試", address: "t9" }), "api 測試（t9）");
+});
 test("agent popup: 同步 brings this agent up to date: kit sync, its list read again, /reload-plugins once, the relaunch ask once (also when reloadAfter did it), 全部最新", async (M) => {
   const target = { key: "|/x|t1", term: "t1", machine: null, cwd: "/x", title: "Claude Code", app: "claude-code" }, key = "kit.msg.agent:|/x|t1";
   const it = (kind, name, old, id = "v2") => ({ kind, name, status: "used", version: { id, date: "2026-11-21" }, installed: { claude: { id } }, loaded: old ? "old" : "new" });

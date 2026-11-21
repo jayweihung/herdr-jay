@@ -36,7 +36,8 @@ exit 0`;
 const machineOf = (addr) => (String(addr).includes("/") ? String(addr).split("/")[0] : null);
 const statusOf = (a) => (a.status === "done" && (shared("agents.busy") ?? {})[a.address] ? "working" : a.status);
 // how the notices and the window name an agent: its tab, then its address (t7, box/t7)
-export const agentName = (a) => `${a.tab_name || a.title || a.program?.name || "agent"}（${a.address}）`;
+// a tab nobody named is called by its number ("2"): the agent's own title says more
+export const agentName = (a) => `${(/^\d+$/.test(a.tab_name ?? "") ? "" : a.tab_name) || a.title || a.program?.name || "agent"}（${a.address}）`;
 async function getJson(addr) {
   const r = await hc(["get", addr, "--json"]).catch(() => null);
   try { return r?.code === 0 ? JSON.parse(r.stdout) : null; } catch { return null; }

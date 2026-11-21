@@ -41,8 +41,10 @@ export const POPUP_W = 440, POPUP_H = 560;    // the "agent" popup (agent.js dra
 // where a pane lives: its machine (its space's), and the key its answers are kept under
 function placeOf(p) {
   const sp = spaces().find((s) => (s.tabs ?? []).some((t) => t.id === p.tab));
-  const machine = sp?.machine ?? null;
-  return { machine, space: sp?.id ?? null, key: `${machine ?? ""}|${p.cwd ?? ""}|${p.terminal}` };
+  const machine = sp?.machine ?? null, tb = sp?.tabs?.find((t) => t.id === p.tab);
+  // its space / tab as hc ls names it ("work / 1"): two agents in one folder on one machine look alike without it
+  const tab = sp && tb ? `${sp.name} / ${tb.name}` : null;
+  return { machine, space: sp?.id ?? null, tab, key: `${machine ?? ""}|${p.cwd ?? ""}|${p.terminal}` };
 }
 const agentPanes = () => panes().filter((p) => p.terminal && p.program?.agent);
 // 額度恢復後自動打「繼續」: on unless turned off in the context window (this computer)
@@ -400,7 +402,7 @@ export class Header {
 
   openContext(p) {
     const w = placeOf(p);
-    const target = { key: w.key, pane: p.pane, term: p.terminal, machine: w.machine, cwd: p.cwd ?? null, tool: toolOf(p.app, p.program?.key),
+    const target = { key: w.key, pane: p.pane, term: p.terminal, machine: w.machine, tab: w.tab, cwd: p.cwd ?? null, tool: toolOf(p.app, p.program?.key),
       title: ((p.program?.agent || p.program?.shell) && p.program.name) || p.title || "", program: p.program ?? null };
     openOverlay({ mod: "kit", props: { role: "context", target }, kind: "popup", width: CTX_W, height: CTX_H });
   }
@@ -437,7 +439,7 @@ export class Header {
 
   openAgent(p) {
     const w = placeOf(p);
-    const target = { key: w.key, term: p.terminal, machine: w.machine, space: w.space, cwd: p.cwd ?? null, app: p.app ?? null,
+    const target = { key: w.key, term: p.terminal, machine: w.machine, space: w.space, tab: w.tab, cwd: p.cwd ?? null, app: p.app ?? null,
       title: ((p.program?.agent || p.program?.shell) && p.program.name) || p.title || "", program: p.program ?? null };
     openOverlay({ mod: "kit", props: { role: "agent", target }, kind: "popup", width: POPUP_W, height: POPUP_H });
   }
@@ -730,7 +732,7 @@ export class Header {
 
   ctxHeader(t, z) {
     const tg = this.target, pic = icon(tg.program, 18, t.foreground);
-    const where = [tg.machine ?? "這台電腦", shortDir(tg.cwd)].filter(Boolean).join(" · ");
+    const where = [tg.machine ?? "這台電腦", tg.tab, shortDir(tg.cwd)].filter(Boolean).join(" · ");
     return h_flex().flex_none().px(10).py(8).gap(6).items_center().border_b(1).border_color(t.border)
       .child(div().size(32).flex_none().rounded(16).bg(t.raised).flex().items_center().justify_center().child(pic ?? div().text_color(t.dim).child("•")))
       .child(v_flex().flex_1().min_w(0)

@@ -127,7 +127,7 @@ export class AgentPopup {
 
   paneHeader(t, z) {
     const d = this.data, busy = this.busy, tg = this.target ?? {};
-    const where = [tg.machine ?? "這台電腦", shortDir(d?.here?.dir ?? tg.cwd)].filter(Boolean).join(" · ");
+    const where = [tg.machine ?? "這台電腦", tg.tab, shortDir(d?.here?.dir ?? tg.cwd)].filter(Boolean).join(" · ");
     const pic = icon(tg.program, 18, t.foreground), canSync = d && !d.error && !d.here?.user;
     return h_flex().flex_none().px(10).py(8).gap(6).items_center().border_b(1).border_color(t.border)
       .child(div().size(32).flex_none().rounded(16).bg(t.raised).flex().items_center().justify_center().child(pic ?? div().text_color(t.muted).child("•")))

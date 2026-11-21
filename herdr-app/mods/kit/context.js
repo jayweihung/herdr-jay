@@ -186,7 +186,7 @@ export function probeOf(tool, out) {
     let s = null;
     try { s = JSON.parse(line("session") ?? "null"); } catch {}
     r.id = typeof s?.sessionId === "string" ? s.sessionId : null;
-    r.bridge = Boolean(s?.bridgeSessionId);   // Remote Control: the phone is connected to it
+    r.bridge = Boolean(s?.bridgeSessionId);   // Remote Control is on (remoteControlAtStartup: every session): it reconnects by itself after the resume, so not a reason to skip
     r.busy = s?.status === "busy";
   } else if (tool === "omp") {
     const m = /_([\w-]+)\.jsonl$/.exec(line("file") ?? "");   // ~/.omp/agent/sessions/<folder>/<time>_<id>.jsonl
@@ -201,7 +201,6 @@ export function relaunchWhy(f) {
   if (f.windows) return "Windows 還不能自動重開";
   if (!f.shellStays) return "程式關掉後這格不會留下 shell";
   if (f.kitRun) return "kit run 開的要自己重開";
-  if (f.bridge) return "手機遠端連著它，重開會斷線";
   if (f.tool === "claude" && !f.id) return "找不到它的對話 id";
   if (f.tool === "claude" && !f.transcript) return "它的對話沒有存檔，重開會接不回";
   if (f.tool === "omp" && !f.id) return "找不到它的對話檔（還沒說過話？）";

@@ -366,7 +366,7 @@ test("自動重開接回 (context.js): who is closed and opened again and why no
   assert.equal(X.relaunchWhy({ ...ok, tool: "codex", id: null, transcript: false }), null, "Codex: its id comes from /status just before");
   assert.equal(X.relaunchWhy({ ...ok, tool: "omp", transcript: false }), null);
   for (const [f, why] of [[{ tool: "gemini" }, "不認得這個程式"], [{ windows: true }, "Windows 還不能自動重開"], [{ shellStays: false }, "程式關掉後這格不會留下 shell"],
-    [{ kitRun: true }, "kit run 開的要自己重開"], [{ bridge: true }, "手機遠端連著它，重開會斷線"], [{ id: null }, "找不到它的對話 id"],
+    [{ kitRun: true }, "kit run 開的要自己重開"], [{ id: null }, "找不到它的對話 id"],
     [{ transcript: false }, "它的對話沒有存檔，重開會接不回"], [{ tool: "omp", id: null }, "找不到它的對話檔（還沒說過話？）"]])
     assert.equal(X.relaunchWhy({ ...ok, ...f }), why, JSON.stringify(f));
   // the resume line each tool printed as it quit: the bottom-most, Claude's with its own flags; only up to the id is
@@ -470,13 +470,13 @@ test("自動重開接回 (relaunch.js): asked once; 好 queues it; once it waits
   const head = view(M, { role: "header", pane: "p3", terminal: "t3" });
   assert.match(render(head), /接不回/);
 });
-test("自動重開接回 (relaunch.js): only told for the phone's Remote Control, kit run, Windows, another account; 以後都直接做 queues without asking", async (M) => {
+test("自動重開接回 (relaunch.js): only told for kit run, Windows, another account; 以後都直接做 queues without asking", async (M) => {
   fresh();
-  const RL = M.common.RELAUNCH, t = fakeTerm("claude", `ok\nsession {"sessionId":"${SID}","bridgeSessionId":"s1"}\ntranscript\n`);
+  const RL = M.common.RELAUNCH, t = fakeTerm("claude", `ok\nkitrun\nsession {"sessionId":"${SID}","bridgeSessionId":"s1"}\ntranscript\n`);
   H.agents = [{ address: "t3", app: "claude-code", status: "idle" }, { address: "t4", app: "claude-code", status: "idle" }];
   H.terminals = H.agents.map((a) => ({ address: a.address, cwd: "/p" }));
   H.store["kit.agent.data.v1"] = { "|/p|t4": { here: { user: "root" }, machine: null } };
-  assert.equal(await M.common.reloadAfter(["add", "mcp", "m"], null), "t3 要自己重開（手機遠端連著它，重開會斷線）", "root's t4: not even told (its kit is root's)");
+  assert.equal(await M.common.reloadAfter(["add", "mcp", "m"], null), "t3 要自己重開（kit run 開的要自己重開）", "root's t4: not even told (its kit is root's)");
   t.probe = `ok\nkitrun\nsession {"sessionId":"${SID}"}\ntranscript\n`;
   assert.equal(await M.common.reloadAfter(["add", "mcp", "m"], null), "t3 要自己重開（kit run 開的要自己重開）");
   t.probe = `ok\nsession {"sessionId":"${SID}"}\n`;

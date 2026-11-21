@@ -245,6 +245,9 @@ test("reload after a kit change: which agents (its machine; the account: all, --
   assert.equal(need("omp", ["plugin"], true), "-/relaunch", "omp: a plugin's hooks load only when it starts");
   assert.equal(need("claude", ["plugin"], true), "reload/-", "Claude Code reloads hooks");
   assert.equal(need("omp", ["rule", "mcp"]), "-/relaunch", "several kinds: the relaunch reads them all, no /reload-plugins");
+  assert.deepEqual([null, "config", "plugin"].map((cm) => { const n = X.reloadNeed("claude", ["mcp"], false, cm); return `${n.send ? "reload" : "-"}/${n.relaunch ? "relaunch" : "-"}`; }), ["-/relaunch", "-/relaunch", "reload/-"], "kit 0.10: Claude's MCP in kit-mcp reloads");
+  assert.deepEqual(X.reloadPlan("claude", { adds: ["mcp"], cm: "plugin" }), { send: true, relaunch: false, what: [], texts: [] });
+  assert.equal(X.reloadNeed("codex", ["mcp"], false, "plugin").relaunch, true, "claude_mcp is Claude's only");
   assert.equal(X.reloadLine([{ name: "t1", tool: "claude", done: "sent" }, { name: "t5", tool: "omp", done: "sent" }, { name: "t2", tool: "omp", done: "queued" },
     { name: "t4", tool: "codex", done: null, relaunch: "queued" }, { name: "t6", tool: "claude", done: null, relaunch: "asked" }, { name: "t3", tool: "claude", done: null, relaunch: "kit run 開的要自己重開" }]),
     "t1、t5 已重新載入；t2 排隊重新載入（它停下來就送）；t4（Codex）停下來時自動重開接回；t6（Claude Code）要重開才讀得到：在跳出的視窗選要不要自動重開接回；t3 要自己重開（kit run 開的要自己重開）");
@@ -1932,6 +1935,8 @@ test("versions.js: an item's version in words, 舊版 and why (not synced here, 
   assert.deepEqual(X.oldReason(it({ loaded: "old" }), "claude"), { kind: "relaunch", why: "這次對話開始後改過（11/21 版），重開接回同一個對話才會讀到" });
   assert.deepEqual(X.oldReason(it({ kind: "skill", loaded: "old" }), "claude"), { kind: "new", why: "這次對話用的是舊版，開新對話才會讀到新的" });
   assert.deepEqual(X.oldReason(it({ kind: "plugin", loaded: "old" }), "claude"), { kind: "reload", why: "這次對話開始後改過（11/21 版），打 /reload-plugins 就會讀到" }, "Claude reloads plugins");
+  assert.equal(X.oldReason(it({ kind: "mcp", loaded: "old" }), "claude", "plugin").why, "這次對話開始後改過（11/21 版），打 /reload-plugins 就會讀到", "kit 0.10: Claude's MCP in kit-mcp");
+  assert.equal(X.oldReason(it({ kind: "mcp", loaded: "old" }), "claude", "config").kind, "relaunch");
   assert.equal(X.oldReason(it({ kind: "plugin", loaded: "old", parts: { hooks: true }, installed: { omp: { id: "a1b2c3d4", at: 1 } } }), "omp").why, "這次對話開始後改過（11/21 版），重開接回同一個對話才會讀到", "omp: hooks load only when it starts");
   assert.equal(X.oldReason(it({ kind: "plugin", loaded: "old", installed: { omp: { id: "a1b2c3d4", at: 1 } } }), "omp").kind, "reload", "omp: a plugin without hooks reloads");
   assert.deepEqual(X.oldReason(it({ kind: "skill", loaded: "old" }), "omp"), { kind: "reload", why: "這次對話用的是舊版，打 /reload-plugins 就會讀到新的" });

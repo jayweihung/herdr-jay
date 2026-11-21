@@ -301,9 +301,11 @@ export async function reloadAfter(args, machine, before = null, did = null) {
   const addHooks = adds.includes("plugin") && list.some((x) => x.tool === "omp")
     ? pluginHooks(keep(before), keep(after) ?? (change.verb === "add" ? await listNow(machine) : null), change.verb ? change.names : null) : false;
   const goneHooks = gone.some((g) => g.kind === "plugin") && pluginHooks(before, null, gone.filter((g) => g.kind === "plugin").map((g) => g.name));
+  // how Claude gets kit's MCP there (kit list's claude_mcp, api 1.15): the list after a sync, else what its agents' lists said
+  const cm = (after ?? before)?.claude_mcp ?? Object.values(shared(AGENT_DATA) ?? {}).find((d) => (d?.machine ?? null) === (machine ?? null) && !d?.here?.user && d?.claude_mcp)?.claude_mcp ?? null;
   const later = [];   // the agents to close and open again (relaunch.js)
   const rows = await Promise.all(reloadTargets(list, machine, change.dir).map(async (x) => {
-    const plan = reloadPlan(x.tool, { adds, addHooks, gone, goneHooks, dir: change.dir });
+    const plan = reloadPlan(x.tool, { adds, addHooks, gone, goneHooks, dir: change.dir, cm });
     if (plan.relaunch) later.push({ address: x.address, tool: x.tool, name: x.name, what: plan.what.map((k) => KIND_NAME[k] ?? k).join("、") });
     const row = { name: x.address, tool: x.tool, done: null };
     if (ruleAdd && x.tool !== "codex") row.rule = await reloadOne(x.address, x.status, ruleAdd);   // Codex reads AGENTS.md every turn

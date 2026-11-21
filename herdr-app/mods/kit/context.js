@@ -91,8 +91,9 @@ export const compactWords = (e, now = Date.now()) => (!compactLive(e, now) ? "" 
 // ---------- after a kit change: the agents already open pick it up ----------
 // What each tool does about an added or changed kind (kit add, sync; what was taken off: reloadPlan): "none" (it sees it by itself), "reload" (type
 // /reload-plugins), "relaunch" (read only when a conversation starts: once it waits, Herdr closes it and opens the same
-// conversation again, relaunch.js). Claude Code watches its skill folders, and kit writes its MCP in ~/.claude.json,
-// which /reload-plugins does not read; omp has no watcher, /reload-plugins reloads its skills, tools, agents, MCP, but
+// conversation again, relaunch.js). Claude Code watches its skill folders; kit 0.10 (api 1.15) puts its MCP in its own
+// plugin kit-mcp (kit list's claude_mcp "plugin"), which /reload-plugins connects, else in ~/.claude.json, which it
+// does not read; omp has no watcher, /reload-plugins reloads its skills, tools, agents, MCP, but
 // not a plugin's hooks; Codex 0.169 picks up a new skill on its next turn (tried), reads ~/.codex/AGENTS.md again every
 // turn and reads config.toml (MCP, plugins) only when a conversation starts. Tried for all three (2026-11-21): the quit
 // command prints the line that resumes the same conversation, and the resumed one reads the new rules and MCP.
@@ -102,8 +103,10 @@ export const RELOAD = {
   omp: { skill: "reload", plugin: "reload", mcp: "reload", rule: "relaunch" },   // a plugin with hooks: relaunch (needOf)
   codex: { skill: "none", plugin: "relaunch", mcp: "relaunch", rule: "none" },
 };
-// one kind for one tool; hooks: the plugin brings hooks (kit list's parts.hooks), which omp loads only when it starts
-export const needOf = (tool, kind, hooks = false) => (tool === "omp" && kind === "plugin" && hooks ? "relaunch" : RELOAD[tool]?.[kind] ?? "none");
+// one kind for one tool; hooks: the plugin brings hooks (kit list's parts.hooks), which omp loads only when it starts;
+// cm: kit list's claude_mcp on that machine ("plugin": Claude's MCP reloads)
+export const needOf = (tool, kind, hooks = false, cm = null) => (tool === "omp" && kind === "plugin" && hooks ? "relaunch"
+  : tool === "claude" && kind === "mcp" && cm === "plugin" ? "reload" : RELOAD[tool]?.[kind] ?? "none");
 const KINDS = ["rule", "skill", "mcp", "plugin"];
 // one pending reload per agent (shared "reload/<address>" = { state: "queued", at, text }), stepped like a compact
 // (compactStep: "send" once it waits, "timeout" after 30 minutes)
@@ -148,8 +151,8 @@ export function ruleText(verb, names, dir) {
   return `kit 剛把規則 ${list} 加到${where}（這個對話開始時還沒有）：${paths.length ? `請先讀 ${paths.join("、")}，` : ""}之後照它做`;
 }
 // one agent's need for the changed kinds -> { send, relaunch }: a relaunch reads everything, so no /reload-plugins then
-export function reloadNeed(tool, kinds, hooks = false) {
-  const w = new Set((kinds ?? []).map((k) => needOf(tool, k, hooks)));
+export function reloadNeed(tool, kinds, hooks = false, cm = null) {
+  const w = new Set((kinds ?? []).map((k) => needOf(tool, k, hooks, cm)));
   return { send: w.has("reload") && !w.has("relaunch"), relaunch: w.has("relaunch") };
 }
 // What was taken off (kit rm, or what a kit sync took off) is never a reason to close a conversation (jay): the open agent
@@ -171,10 +174,10 @@ export function removedBy(before, after) {
 // gone: [{ kind, name }] taken off: a message each kind (a rule's as ruleText; Codex reads AGENTS.md every turn: none),
 // except a plugin with hooks (goneHooks): its hooks run whatever it is told, so Claude gets /reload-plugins (drops
 // them) and omp, Codex a relaunch (as for an added one). A relaunch reads it all: no messages then.
-export function reloadPlan(tool, { adds = [], addHooks = false, gone = [], goneHooks = false, dir = null } = {}) {
-  const need = reloadNeed(tool, adds, addHooks), hookOff = goneHooks ? (tool === "claude" ? "reload" : "relaunch") : null;
+export function reloadPlan(tool, { adds = [], addHooks = false, gone = [], goneHooks = false, dir = null, cm = null } = {}) {
+  const need = reloadNeed(tool, adds, addHooks, cm), hookOff = goneHooks ? (tool === "claude" ? "reload" : "relaunch") : null;
   const relaunch = need.relaunch || hookOff === "relaunch";
-  const what = [...new Set([...adds.filter((k) => needOf(tool, k, addHooks) === "relaunch"), ...(hookOff === "relaunch" ? ["plugin"] : [])])];
+  const what = [...new Set([...adds.filter((k) => needOf(tool, k, addHooks, cm) === "relaunch"), ...(hookOff === "relaunch" ? ["plugin"] : [])])];
   const texts = [];
   if (!relaunch) for (const kind of KINDS) {
     const names = gone.filter((g) => g.kind === kind).map((g) => g.name);

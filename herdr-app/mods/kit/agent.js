@@ -112,7 +112,7 @@ export class AgentPopup {
     if (!a || !tool) return "同步好了；讀不到這個 agent（它可能已經關掉）";
     const d = await loadAgent(tg.machine ?? null, tg.cwd, tg.term, tool);
     if (d?.error) return `同步好了；讀不到這個 agent 的清單：${d.error}`;
-    const old = usingOf(d).map((i) => [i, oldReason(i, tool)]).filter(([, r]) => r);
+    const old = usingOf(d).map((i) => [i, oldReason(i, tool, d.claude_mcp)]).filter(([, r]) => r);
     if (!old.length) return "同步好了，這個 agent 全部最新";
     const of = (k) => old.filter(([, r]) => r.kind === k).map(([i]) => i), prev = did[a.address] ?? {}, parts = [];
     // a relaunch reads everything again: no /reload-plugins before it
@@ -226,7 +226,7 @@ export class AgentPopup {
     if (this.ro) { /* no 舊版 */ } else if (!this.vers) {
       if (apiState(at)?.ok) body.child(div().text_size(z - 1.5).text_color(t.muted).child(`${at ? "那台" : "這台"}的 kit 太舊，更新後才看得到版本`));
     } else if (using.some((i) => i.version)) {
-      const line = oldSummary(using.map((i) => oldReason(i, this.tool)));
+      const line = oldSummary(using.map((i) => oldReason(i, this.tool, d?.claude_mcp)));
       body.child(div().text_size(z - 1.5).text_color(line === "全部最新" ? t.muted : t.foreground).child(line));
     }
     // 以後都直接做 (relaunch.js): said here, with the way back to being asked
@@ -419,7 +419,7 @@ export class AgentPopup {
     if (i.new) head.child(badge("新", t.done));
     // its version, and 舊版 with why under the row (only what this agent reads; never in root's look-only list)
     const ver = this.vers ? versionText(i) : null;
-    const old = this.vers && !this.ro && (i.status === "used" || i.status === "required" || inDir) ? oldReason(i, this.tool) : null;
+    const old = this.vers && !this.ro && (i.status === "used" || i.status === "required" || inDir) ? oldReason(i, this.tool, this.data?.claude_mcp) : null;
     if (old) head.child(badge("舊版", t.muted));
     this.usedBadge(t, z, head, i);
     if (ver) head.child(div().id(`ver-${i.kind}-${i.name}`).flex_none().text_size(z - 2.5).text_color(t.muted).tooltip(ver.tip || ver.text).child(ver.text));

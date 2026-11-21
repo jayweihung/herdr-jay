@@ -26,10 +26,10 @@ export function versionText(i) {
 
 import { needOf, RELOAD_TEXT } from "./context.js";
 
-// why what an agent running `tool` (claude | codex | omp) reads is old: { kind: "sync" | "reload" | "relaunch" | "new", why } | null
+// why what an agent running `tool` (claude | codex | omp) reads is old (cm: that kit list's claude_mcp): { kind: "sync" | "reload" | "relaunch" | "new", why } | null
 //   sync: this machine's copy for that tool is not the newest one (installed[tool].id ≠ version.id)
 //   new:  the machine has it, but this conversation started before it changed (loaded "old")
-export function oldReason(i, tool) {
+export function oldReason(i, tool, cm = null) {
   const v = i?.version, have = tool ? i?.installed?.[tool] : null;
   if (v?.id && have?.id && have.id !== v.id)
     return { kind: "sync", why: `這台還沒同步（最新是${v.dirty ? "還沒送出的那份" : ` ${versionText(i)?.text ?? v.id}`}）` };
@@ -37,7 +37,7 @@ export function oldReason(i, tool) {
   // what that tool needs to read the new one (context.js needOf): reload | relaunch (close it and resume the same
   // conversation: Herdr does it once it waits, relaunch.js) | nothing (it re-reads each turn); omp's /reload-plugins
   // does not load a plugin's hooks
-  const need = needOf(tool, i.kind, Boolean(i.parts?.hooks));
+  const need = needOf(tool, i.kind, Boolean(i.parts?.hooks), cm);   // cm: kit list's claude_mcp
   if (need === "none" && i.kind !== "skill") return null;
   const kind = need === "reload" ? "reload" : need === "relaunch" ? "relaunch" : "new";
   const how = { reload: `打 ${RELOAD_TEXT} 就會讀到`, relaunch: "重開接回同一個對話才會讀到", new: "開新對話才會讀到" }[kind];

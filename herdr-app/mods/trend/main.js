@@ -69,15 +69,20 @@ const same = (a, b) => { const x = flat(a); return !x || flat(b).includes(x); };
 // under ⭐ 收藏: a chip per group it is split by (a topic, a subject), shown only while ⭐ 收藏 is
 const starSubs = (groups) => (groups.length > 1 ? `<div class="row subs" hidden><button data-sub="*">全部收藏</button>`
   + groups.map(([u, n]) => `<button data-sub="${esc(u)}">${esc(u || "其他")} ${n}</button>`).join("") + "</div>" : "");
-// line icons (lucide, 1.5 stroke) where the pages had emoji; they take their text's color
-const ico = (d, fill = "none") => `<svg width="15" height="15" viewBox="0 0 24 24" fill="${fill}" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
-const ICON = {
-  deep: ico('<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>'),
-  three: ico('<path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/>'),
-  report: ico('<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8M16 13H8M16 17H8"/>'),
+// line icons (lucide, 1.5 stroke) where the pages had emoji; they take their text's color. Each is drawn once
+// (SPRITE, at the top of every page) and a card only points at it: inlined, 3 icons on 300+ cards made the list
+// page pass Herdr's 1 MiB file limit
+const PATHS = {
+  deep: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
+  three: '<path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/>',
+  report: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8M16 13H8M16 17H8"/>',
+  star: '<path d="M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z"/>',
 };
-const STAR = '<path d="M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z"/>';
-const starIcon = (on) => ico(STAR, on ? "currentColor" : "none");
+const SPRITE = `<svg width="0" height="0" style="position:absolute" aria-hidden="true">${Object.entries(PATHS).map(([k, d]) =>
+  `<symbol id="i-${k}" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">${d}</symbol>`).join("")}</svg>`;
+const ico = (k, fill = "none") => `<svg width="15" height="15" fill="${fill}" aria-hidden="true"><use href="#i-${k}"/></svg>`;
+const ICON = { deep: ico("deep"), three: ico("three"), report: ico("report") };
+const starIcon = (on) => ico("star", on ? "currentColor" : "none");
 // a page in Herdr's colors and font size: <nav> chips filter the <section data-cat>s; [data-do] clicks set the #hash.
 // The chips are one row that scrolls sideways (the chosen one scrolled into view); 篩選 opens the less used ones.
 function pageHtml(body) {
@@ -131,7 +136,7 @@ blockquote{margin:8px 0;padding-left:8px;border-left:2px solid var(--border);col
 .acts button:hover{border-color:var(--muted)}.acts button:active{transform:translateY(1px)}
 .spin{display:inline-block;width:.75em;height:.75em;margin:0 5px 0 2px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:spin .8s linear infinite;vertical-align:-.1em}
 @keyframes spin{to{transform:rotate(360deg)}}.busy{color:var(--accent)!important;font-weight:600}
-</style></head><body>${body}
+</style></head><body>${SPRITE}${body}
 <script>
 const K=location.pathname.split("/").pop()+":",get=(k)=>{try{return localStorage.getItem(K+k)}catch{return null}},set=(k,v)=>{try{localStorage.setItem(K+k,v)}catch{}};
 // a chip shows its subject's sections (a section with data-show even with no cards: its 正在搜); 升溫 and 新進榜 show

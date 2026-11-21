@@ -102,13 +102,13 @@ const KINDS = ["rule", "skill", "mcp", "plugin"];
 // one pending reload per agent (shared "reload/<address>" = { state: "queued", at, text }), stepped like a compact
 // (compactStep: "send" once it waits, "timeout" after 30 minutes)
 export const reloadKey = (address) => `reload/${address}`;
-// kit add / rm [--dir D] <kind> <names…> -> { kinds: [kind], dir }; anything else null
+// kit add / rm [--dir D] <kind> <names…> -> { kinds: [kind], dir, verb, names }; anything else null
 export function changeOfArgs(args) {
   const a = args ?? [], rest = [];
   if (a[0] !== "add" && a[0] !== "rm") return null;
   let dir = null;
   for (let i = 1; i < a.length; i++) if (a[i] === "--dir") dir = a[++i] ?? null; else rest.push(a[i]);
-  return KINDS.includes(rest[0]) ? { kinds: [rest[0]], dir } : null;
+  return KINDS.includes(rest[0]) ? { kinds: [rest[0]], dir, verb: a[0], names: rest.slice(1) } : null;
 }
 // kit sync: the kinds whose items (status, version …) or blocked differ between two kit list --json
 export function syncKinds(before, after) {
@@ -125,6 +125,14 @@ export function reloadTargets(list, machine, dir) {
   const d = dir && n(dir);
   return (list ?? []).filter((x) => x.tool && (x.machine ?? null) === (machine ?? null) && (!d || n(x.cwd) === d || n(x.cwd).startsWith(d + "/")));
 }
+// A rule is read when a conversation starts: an open agent gets it as a message instead (jay: take effect without
+// closing it), any tool. names: [{ name, path }] (path: where the rule is on that machine; null when not known)
+export function ruleText(verb, names, dir) {
+  const where = dir ? "這個資料夾" : "整個帳號", list = names.map((x) => x.name).join("、");
+  if (verb === "rm") return `kit 剛從${where}拿掉規則 ${list}：之後不用再照它做`;
+  const paths = names.map((x) => x.path).filter(Boolean);
+  return `kit 剛把規則 ${list} 加到${where}（這個對話開始時還沒有）：${paths.length ? `請先讀 ${paths.join("、")}，` : ""}之後照它做`;
+}
 // one agent's need for the changed kinds -> { send, note: "restart" | "new" | null }
 export function reloadNeed(tool, kinds) {
   const w = new Set((kinds ?? []).map((k) => RELOAD[tool]?.[k] ?? "none"));
@@ -138,6 +146,10 @@ export function reloadLine(rows) {
   if (of("sent")) parts.push(`${of("sent")} 已重新載入`);
   if (of("queued")) parts.push(`${of("queued")} 排隊重新載入（它停下來就送）`);
   if (of("failed")) parts.push(`${of("failed")} 沒送出重新載入`);
+  const rule = (d) => rows.filter((r) => r.rule === d).map((r) => r.name).join("、");
+  if (rule("sent")) parts.push(`${rule("sent")} 已收到規則（不用關）`);
+  if (rule("queued")) parts.push(`${rule("queued")} 排隊送規則（它停下來就送）`);
+  if (rule("failed")) parts.push(`${rule("failed")} 沒送出規則`);
   for (const r of rows.filter((x) => x.note === "restart")) parts.push(`${r.name}（${TOOL[r.tool] ?? r.tool}）要重開`);
   for (const r of rows.filter((x) => x.note === "new")) parts.push(`${r.name} 要開新對話（規則）`);
   return parts.join("；");

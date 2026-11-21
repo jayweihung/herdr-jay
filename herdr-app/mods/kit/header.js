@@ -521,7 +521,8 @@ export class Header {
       .when(Boolean(pic), (el) => el.child(pic))
       .child(div().flex_none().truncate().max_w(NAME_MAX).font_medium().text_color(t.foreground).child(name))
       .child(div().flex_1().min_w(0).truncate().text_color(t.dim).child(shortDir(p.cwd)))
-      .when(agent && Boolean(shared(reloadKey(p.terminal))), (el) => el.child(div().flex_none().text_color(t.dim).child("排隊重新載入")))
+      .when(agent && Boolean(shared(reloadKey(p.terminal))), (el) => el.child(div().flex_none().text_color(t.dim)
+        .child((shared(reloadKey(p.terminal)).texts ?? []).some((x) => x !== "/reload-plugins") ? "排隊送規則" : "排隊重新載入")))
       .when(agent, (el) => el.child(this.kitButton(t, p)).when(ctxOn, (el) => el.child(this.contextChip(t, p))))
       .child(status)
       .child(buttons);

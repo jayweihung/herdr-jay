@@ -216,8 +216,12 @@ test("compact (shared compact/<address>, as Herdr's Agents list): queued while i
   assert.deepEqual([X.compactStep(quiet, "done", 3, 5000 + 29999), X.compactStep(quiet, "done", 3, 5000 + 30000), X.compactStep(sent, "done", 3, 5000 + 30000)], [null, "done", null]);
 });
 test("reload after a kit change: the kind from kit add / rm, or a sync's before and after", ({ context: X }) => {
-  assert.deepEqual(X.changeOfArgs(["add", "mcp", "a", "b"]), { kinds: ["mcp"], dir: null });
-  assert.deepEqual(X.changeOfArgs(["rm", "--dir", "/p/x", "rule", "r"]), { kinds: ["rule"], dir: "/p/x" });
+  assert.deepEqual(X.changeOfArgs(["add", "mcp", "a", "b"]), { kinds: ["mcp"], dir: null, verb: "add", names: ["a", "b"] });
+  assert.deepEqual(X.changeOfArgs(["rm", "--dir", "/p/x", "rule", "r"]), { kinds: ["rule"], dir: "/p/x", verb: "rm", names: ["r"] });
+  // a rule goes to open agents as a message: where it is, so they read it now (no closing)
+  assert.equal(X.ruleText("add", [{ name: "r", path: "/s/rules/r.md" }], null), "kit 剛把規則 r 加到整個帳號（這個對話開始時還沒有）：請先讀 /s/rules/r.md，之後照它做");
+  assert.equal(X.ruleText("rm", [{ name: "r", path: null }], "/p/x"), "kit 剛從這個資料夾拿掉規則 r：之後不用再照它做");
+  assert.match(X.reloadLine([{ name: "t1", tool: "codex", done: null, note: null, rule: "sent" }, { name: "t2", tool: "claude", done: null, note: null, rule: "queued" }]), /t1 已收到規則（不用關）；t2 排隊送規則/);
   for (const a of [["sync"], ["agent", "x", "add", "skill", "s"], ["add", "agent", "x"], ["install", "skill"], null]) assert.equal(X.changeOfArgs(a), null, JSON.stringify(a));
   const it = (kind, name, v = {}) => ({ kind, name, status: "used", ...v });
   const before = { items: [it("skill", "a"), it("mcp", "m"), it("rule", "r"), it("agent", "g")], blocked: [] };
@@ -1732,8 +1736,8 @@ test("agent popup: kit 0.7.0's blocked: 被擋下 with why; 收進 kit into an o
   const bl = { kind: "skill", name: "brand", tool: "claude", path: "/Users/amy/.claude/skills/brand", scope: "account" };
   H.store["kit.agent.data.v1"] = { [target.key]: { ...base, blocked: [bl, { kind: "mcp", name: "x", tool: "codex", path: "/Users/amy/.codex/config.toml", scope: "account" }] } };
   let shown = render(v);
-  assert.match(shown, /被擋下的（2）/); assert.match(shown, /被擋下：不是 kit 的/);
-  assert.match(shown, /不是公司的，也不是 kit 放的，所以 Claude Code 不載入它/); assert.match(shown, /MCP：到倉庫用「貼上設定」收進 kit/);
+  assert.match(shown, /被擋下的（2）/); assert.match(shown, /不是公司的，也不是 kit 放的/);
+  assert.match(shown, /不是公司的，也不是 kit 放的，所以工具不載入它們/); assert.match(shown, /到倉庫貼上設定/);
   const key = `claude-skill-brand-${bl.path}`;
   H.clicks[`take-${key}`]({}, cx); render(v);
   assert.ok("take-to-my-own" in H.clicks && !("take-to-team" in H.clicks), "own sources (push: direct) only");

@@ -5,7 +5,7 @@ import { div, svg, image } from "gpui-kit";
 import { h_flex, v_flex, TextView, EditorState } from "gpui-base";
 import { exec, home, notify, settings, shared, setShared, theme, window, readTextFile, appHome, agents, terminals, hc } from "herdr";
 import { readFile } from "fs/promises";
-import { toolOf, sendArgs, compactStep, changeOfArgs, syncKinds, reloadTargets, reloadNeed, reloadLine, reloadKey, RELOAD_TEXT } from "./context.js";
+import { toolOf, sendArgs, compactStep, changeOfArgs, syncKinds, reloadTargets, reloadNeed, reloadLine, reloadKey, RELOAD_TEXT, ruleText } from "./context.js";
 
 // ---------- shared state (every copy sees it; it survives a restart, so nothing in it may stay "busy" forever) ----------
 export const DATA = "kit.data.v2";             // the repository's data ({ at: 0 } = out of date: the panel loads it again)
@@ -270,17 +270,27 @@ export async function reloadAfter(args, machine, before = null) {
   const terms = new Map((terminals() ?? []).map((x) => [x.address, x])), busy = shared("agents.busy") ?? {};
   const list = (agents() ?? []).map((a) => ({ address: a.address, tool: toolOf(a.app, a.program?.key), cwd: terms.get(a.address)?.cwd ?? a.cwd,
     machine: String(a.address).includes("/") ? String(a.address).split("/")[0] : null, status: a.status === "done" && busy[a.address] ? "working" : a.status }));
+  // add / rm of rules: told as a message (where each rule is: kit list there now), so no one has to close anything
+  let text = null;
+  if (change.verb && change.kinds[0] === "rule") {
+    const now = change.verb === "add" ? await listNow(machine) : null;
+    const path = (n) => (now?.items ?? []).find((i) => i.kind === "rule" && i.name === n)?.path ?? null;
+    text = ruleText(change.verb, change.names.map((n) => ({ name: n, path: path(n) })), change.dir);
+  }
   const rows = await Promise.all(reloadTargets(list, machine, change.dir).map(async (x) => {
+    if (text) return { name: x.address, tool: x.tool, note: null, done: null, rule: await reloadOne(x.address, x.status, text) };
     const need = reloadNeed(x.tool, change.kinds);
     return { name: x.address, tool: x.tool, note: need.note, done: need.send ? await reloadOne(x.address, x.status) : null };
   }));
   return reloadLine(rows);
 }
-// typed in now while it waits (idle, done: sendArgs, as the compact), else queued: one per agent, a queued one stays
-async function reloadOne(addr, status) {
-  const key = reloadKey(addr), args = sendArgs(addr, status, RELOAD_TEXT), e = shared(key);
+// typed in now while it waits (idle, done: sendArgs, as the compact), else queued: one entry per agent, its texts in
+// order, each once (a /reload-plugins and a rule's message can wait together)
+async function reloadOne(addr, status, text = RELOAD_TEXT) {
+  const key = reloadKey(addr), args = sendArgs(addr, status, text), e = shared(key);
   if (!args) {
-    if (!(e && compactStep(e, null, null) === null)) setShared(key, { state: "queued", at: Date.now(), text: RELOAD_TEXT });
+    const live = e && compactStep(e, null, null) === null, texts = live ? (e.texts ?? [e.text]) : [];
+    setShared(key, { state: "queued", at: live ? e.at : Date.now(), text: texts[0] ?? text, texts: texts.includes(text) ? texts : [...texts, text] });
     return "queued";
   }
   setShared(key, null);
@@ -290,11 +300,14 @@ async function reloadOne(addr, status) {
 // a queued reload's next step (compactStep), from the agent's header: typed in once it waits, or given up after 30 minutes
 export function reloadNext(addr, e, step, name) {
   setShared(reloadKey(addr), null);
-  if (step === "send") hc(["send", addr, e.text]).then((r) => r?.code === 0, () => false).then((ok) => notify(ok
-    ? { title: "已重新載入", body: name, level: "info", timeout: 3000 }
-    : { title: "沒有送出重新載入", body: `${name}：要的話自己打 ${e.text}`, level: "warning" }));
+  const texts = e.texts ?? [e.text];
+  // one after another: /reload-plugins first, a rule's message after it
+  if (step === "send") texts.reduce((p, x) => p.then((ok) => hc(["send", addr, x]).then((r) => ok && r?.code === 0, () => false)), Promise.resolve(true))
+    .then((ok) => notify(ok
+      ? { title: "已送出", body: `${name}：${texts.map((x) => (x === RELOAD_TEXT ? "重新載入" : "規則")).join("、")}`, level: "info", timeout: 3000 }
+      : { title: "沒有全部送出", body: `${name}：要的話自己打 ${texts.join(" ／ ")}`, level: "warning" }));
   else if (step === "timeout") notify({ title: "排隊的重新載入取消了", level: "warning", timeout: 6000,
-    body: `${name}：等了 30 分鐘它還沒停下來，沒有送出（要的話自己打 ${e.text}）` });
+    body: `${name}：等了 30 分鐘它還沒停下來，沒有送出（要的話自己打 ${texts.join(" ／ ")}）` });
 }
 
 // Load into shared state (load: the in-progress key, data: where the answer goes), the newest load wins: a slower,

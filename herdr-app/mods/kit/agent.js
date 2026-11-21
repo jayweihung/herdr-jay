@@ -196,7 +196,8 @@ export class AgentPopup {
       const folded = !f0 && (this.folded.blocked ?? false);
       body.child(div().mt(6).border_t(1).border_color(t.border));
       body.child(this.secHead(t, z, "blocked", `被擋下的（${blocked.length}）`, folded, ""));
-      if (!folded) body.child(v_flex().gap(2).children(blocked.map((b) => this.blockedRow(t, z, b, d.sources ?? []))));
+      if (!folded) body.child(div().pl(18).text_size(z - 1.5).text_color(t.muted).child("不是公司的，也不是 kit 放的，所以工具不載入它們；收進 kit 才會用"))
+        .child(v_flex().gap(2).children(blocked.map((b) => this.blockedRow(t, z, b, d.sources ?? []))));
     }
     if (d.here?.error) body.child(div().text_size(z - 1.5).text_color(t.muted).child(textBlock(`here-error-${this.where}`, `${shortDir(d.here.dir)}：${d.here.error}`)));
     // 3. what kit has that the account does not use yet
@@ -259,10 +260,9 @@ export class AgentPopup {
     const busy = Boolean(this.busy), key = `${b.tool}-${b.kind}-${b.name}-${b.path}`, pk = `blocked:${b.kind}:${b.name}`;
     const badge = (text, color) => div().flex_none().px(5).rounded(4).text_size(z - 2.5).text_color(t.background).bg(color).child(text);
     const tool = { claude: "Claude Code", codex: "Codex", omp: "omp" }[b.tool] ?? b.tool;
+    const name = b.name || String(b.path ?? "").split(/[\\/]/).filter(Boolean).pop() || "（沒有名字）";
     const head = h_flex().gap(5).items_center().min_w(0)
-      .child(copyOnRight(div().min_w(0).truncate().font_semibold().text_color(t.muted).child(b.name), b.name))
-      .child(badge("被擋下：不是 kit 的", t.ansi1))
-      .child(badge(b.scope === "folder" ? shortDir(b.dir ?? b.path) : "這個帳號", t.muted))
+      .child(copyOnRight(div().min_w(0).truncate().font_semibold().text_color(t.muted).child(name), name))
       .child(badge(tool, t.dim));
     let p = this.pend?.[pk];
     if (p?.done && Date.now() - p.at > 60000) { this.pend[pk] = null; p = null; }
@@ -270,10 +270,10 @@ export class AgentPopup {
     if (this.ro) { /* look only */ } else if (p) action.child(p.doing
       ? h_flex().gap(4).items_center().px(8).h(24).rounded(6).bg(t.raised).text_size(z - 1.5).text_color(t.muted).child(spin(z - 3, t.muted)).child("收進中…")
       : div().text_size(z - 1.5).text_color(t.done).child("✓ 已收進 kit"));
-    else if (b.kind === "mcp") action.child(div().text_size(z - 1.5).text_color(t.dim).child("MCP：到倉庫用「貼上設定」收進 kit"));
+    else if (b.kind === "mcp") action.child(div().text_size(z - 1.5).text_color(t.dim).child("到倉庫貼上設定"));
     else if (this.taking?.key !== key) action.child(btn(t, z, `take-${key}`, "收進 kit", { small: true, kind: "primary", off: busy,
       on: (cx) => { this.taking = { key, source: null }; this.takeUrl.set_value(""); cx.notify(); } }));
-    const why = `不是公司的，也不是 kit 放的，所以 ${tool} 不載入它 · ${shortDir(b.path)}`;
+    const why = [b.scope === "folder" ? shortDir(b.dir ?? b.path) : "這個帳號", shortDir(b.path)].join(" · ");
     const row = v_flex().id(`blocked-${key}`).gap(4).px(8).py(5).rounded(6).hover((s) => s.bg(t.hover))
       .child(h_flex().gap(8).items_center()
         .child(v_flex().flex_1().min_w(0).child(this.descCol(t, z, `blocked-${key}`, head, why, b.path)))
@@ -315,11 +315,11 @@ export class AgentPopup {
     if (started) this.pend = { ...(this.pend ?? {}), [pk]: { doing: true } };
   }
 
-  // 這次用了 N 次 (・剛剛: in the conversation's last turn) after a row's name, when this conversation used it
+  // 這個對話用了 N 次 (・剛剛: in the conversation's last turn) after a row's name, when this conversation used it
   usedBadge(t, z, head, i) {
     const u = usedOf(this.used, i.kind, i.name);
     if (u) head.child(div().flex_none().px(5).rounded(4).text_size(z - 2.5).text_color(t.background).bg(u.recent ? t.accent : t.dim)
-      .child(`這次用了 ${u.count} 次${u.recent ? "・剛剛" : ""}`));
+      .child(`這個對話用了 ${u.count} 次${u.recent ? "・剛剛" : ""}`));
   }
 
   // a row's name and its one-line description; a click shows the whole description (wrapped, selectable) and, under
@@ -358,7 +358,7 @@ export class AgentPopup {
     // folder (there the folder buttons make no sense: the home folder is the account). No button that reaches further
     // than the folder the agent runs in.
     if (pend || this.ro) { /* its 加入中… / ✓ above; look only: nothing */ } else if (canDir && i.kind === "plugin") {   // a plugin: the whole account only
-      action.child(div().text_size(z - 1.5).text_color(t.dim).child(i.status === "unused" ? "外掛只能加到整個帳號（在家目錄開的 agent 加）" : "整個帳號的"));
+      action.child(div().text_size(z - 1.5).text_color(t.dim).child(i.status === "unused" ? "只能加到整個帳號" : "整個帳號的"));
     } else if (canDir) {
       if (inDir) action.child(btn(t, z, `rmdir-${i.kind}-${i.name}`, "從資料夾拿掉", { small: true, off: busy, on: (cx) => this.rowAct(i, "nodir", `從資料夾拿掉 ${i.name}`, dirArgs("rm"), cx, `已從 ${fd} 拿掉 ${i.name}。在 ${fd} 開新的對話就不會有了。`) }));
       else if (i.status === "unused") action.child(btn(t, z, `adddir-${i.kind}-${i.name}`, "加到這個資料夾", { small: true, kind: "primary", off: busy, on: (cx) => this.rowAct(i, "dir", `加到這個資料夾 ${i.name}`, dirArgs("add"), cx, `已加到 ${fd}：${i.name}。在 ${fd}（含子資料夾）開新的對話才會讀到，別的地方不受影響。`) }));
@@ -369,7 +369,7 @@ export class AgentPopup {
     const row = h_flex().gap(8).items_center()
       .child(v_flex().flex_1().min_w(0).gap(1)
         .child(this.descCol(t, z, `${i.kind}-${i.name}`, head, sub, i.description_zh || i.description || i.source || sub, i.description_zh ? i.description : ""))
-        .when(Boolean(partsLine(i.parts)), (el) => el.child(div().text_size(z - 1.5).text_color(t.dim).child(partsLine(i.parts)))))
+        .when(Boolean(partsLine(i.parts)), (el) => el.child(copyOnRight(div().min_w(0).truncate().text_size(z - 1.5).text_color(t.dim).child(partsLine(i.parts)), partsLine(i.parts)))))
       .child(action);
     // what is missing for it to run: programs (node, python ...), then its own npm packages
     const missing = (i.needs ?? []).filter((x) => !x.ok).map((x) => ({

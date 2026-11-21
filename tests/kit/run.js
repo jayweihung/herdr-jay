@@ -238,13 +238,13 @@ test("reload after a kit change: which agents (its machine; the account: all, --
   assert.deepEqual(at(null, "/p/x/"), ["t1", "t2"], "--dir: in it or below, not a sibling with the same start");
   assert.deepEqual(at("box", null), ["box/t4"]);
   const need = (tool, kinds) => { const n = X.reloadNeed(tool, kinds); return `${n.send ? "reload" : "-"}/${n.note ?? "-"}`; };
-  assert.deepEqual(["skill", "plugin", "mcp", "rule"].map((k) => need("claude", [k])), ["-/-", "reload/-", "reload/-", "-/new"], "Claude Code");
+  assert.deepEqual(["skill", "plugin", "mcp", "rule"].map((k) => need("claude", [k])), ["-/-", "reload/-", "-/new", "-/new"], "Claude Code");
   assert.deepEqual(["skill", "plugin", "mcp", "rule"].map((k) => need("omp", [k])), ["reload/-", "reload/-", "reload/-", "-/new"], "omp");
   assert.deepEqual(["skill", "plugin", "mcp", "rule"].map((k) => need("codex", [k])), ["-/-", "-/new", "-/new", "-/-"], "Codex");
   assert.equal(need("omp", ["rule", "mcp"]), "reload/new", "several kinds: reload and say what is left");
   assert.equal(X.reloadLine([{ name: "t63", tool: "claude", done: "sent" }, { name: "t96", tool: "omp", done: "sent" }, { name: "t2", tool: "omp", done: "queued" },
     { name: "t1p", tool: "codex", done: null, note: "restart" }, { name: "t7z", tool: "claude", done: null, note: "new" }]),
-    "t63、t96 已重新載入；t2 排隊重新載入（它停下來就送）；t1p（Codex）要重開；t7z 要開新對話（規則）");
+    "t63、t96 已重新載入；t2 排隊重新載入（它停下來就送）；t1p（Codex）要重開；t7z 要開新對話");
   assert.equal(X.reloadLine([{ name: "t1", tool: "claude", done: null, note: null }]), "", "a skill for Claude Code: nothing to say");
 });
 test("reload after a kit change: typed in now while it waits, else queued once per agent; the header sends it when it stops, gives up after 30 minutes", async (M) => {
@@ -255,7 +255,7 @@ test("reload after a kit change: typed in now while it waits, else queued once p
   H.terminals = H.agents.map((a) => ({ address: a.address, cwd: "/p" }));
   H.store["agents.busy"] = { t3: { at: 1 } };   // done, but its own work still runs: working
   const line = await reloadAfter(["add", "mcp", "m"], null);
-  assert.equal(line, "t1 已重新載入；t2、t3 排隊重新載入（它停下來就送）；t4 要開新對話（打 /new，不用重開）");
+  assert.equal(line, "t1 已重新載入；t2 排隊重新載入（它停下來就送）；t3 要開新對話；t4 要開新對話（打 /new，不用重開）");
   assert.deepEqual(H.calls.filter((c) => c.argv[0] === "hc").map((c) => c.argv), [["hc", "send", "t1", "/reload-plugins"]]);
   const first = H.store[reloadKey("t2")];
   assert.equal(first.state, "queued"); assert.ok(H.store[reloadKey("t3")]); assert.equal(H.store[reloadKey("t1")] ?? null, null);

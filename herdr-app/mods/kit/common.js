@@ -294,9 +294,13 @@ async function reloadOne(addr, status, text = RELOAD_TEXT) {
     setShared(key, { state: "queued", at: live ? e.at : Date.now(), text: texts[0] ?? text, texts: texts.includes(text) ? texts : [...texts, text] });
     return "queued";
   }
+  // what was queued before goes first (one after another), never dropped
+  const before = e && compactStep(e, null, null) === null ? (e.texts ?? [e.text]).filter((x) => x !== text) : [];
   setShared(key, null);
+  let ok = true;
+  for (const x of before) ok = (await hc(sendArgs(addr, status, x) ?? ["send", addr, x]).catch(() => null))?.code === 0 && ok;
   const r = await hc(args).catch(() => null);
-  return r?.code === 0 ? "sent" : "failed";
+  return r?.code === 0 && ok ? "sent" : "failed";
 }
 // a queued reload's next step (compactStep), from the agent's header: typed in once it waits, or given up after 30 minutes
 export function reloadNext(addr, e, step, name) {

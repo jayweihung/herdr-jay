@@ -279,7 +279,7 @@ export async function reloadAfter(args, machine, before = null) {
     .map(([k, d]) => [`${d.machine ?? ""}|${k.split("|").pop().split("/").pop()}`, d.here.user]));
   const list = (agents() ?? []).map((a) => {
     const machine = String(a.address).includes("/") ? String(a.address).split("/")[0] : null;
-    return { address: a.address, name: agentName(a), tool: toolOf(a.app, a.program?.key), cwd: terms.get(a.address)?.cwd ?? a.cwd, machine,
+    return { address: a.address, name: agentName(a), tool: toolOf(a.app, a.program?.key), cwd: terms.get(a.address)?.foreground?.cwd ?? terms.get(a.address)?.cwd ?? a.cwd, machine,
       user: users.get(`${machine ?? ""}|${String(a.address).split("/").pop()}`) ?? null, status: a.status === "done" && busy[a.address] ? "working" : a.status };
   });
   // add / rm of rules: told as a message (where each rule is: kit list there now), so no one has to close anything

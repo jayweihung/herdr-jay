@@ -2186,8 +2186,9 @@ test("agent popup: 同步 brings this agent up to date: kit sync, its list read 
   r = await press((s) => [it("plugin", "p", true, s ? "v2" : "v1")]);
   assert.match(r.text, /^同步好了；t1：送了 \/reload-plugins/); assert.deepEqual([r.reloads, r.asks], [1, 0]);
   r = await press((s) => [it("mcp", "m", true, s ? "v2" : "v1"), it("plugin", "p", true)]);
-  assert.match(r.text, /^同步好了；t1：送了 \/reload-plugins，要重開接回（在跳出的視窗選）/);
-  assert.deepEqual([r.reloads, r.asks], [1, 1]);
+  // a relaunch coming: the popup sends no /reload-plugins of its own 
+  assert.match(r.text, /^同步好了；t1：要重開接回（在跳出的視窗選）/);
+  assert.deepEqual([r.reloads, r.asks], [0, 1]);
   // the relaunch window its 同步 opened: the popup steps aside once it is over (not under it)
   render(r.v); assert.deepEqual(H.closed, ["o7"]);
 });

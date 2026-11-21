@@ -115,7 +115,8 @@ export class AgentPopup {
     const old = usingOf(d).map((i) => [i, oldReason(i, tool)]).filter(([, r]) => r);
     if (!old.length) return "同步好了，這個 agent 全部最新";
     const of = (k) => old.filter(([, r]) => r.kind === k).map(([i]) => i), prev = did[a.address] ?? {}, parts = [];
-    if (of("reload").length) {
+    // a relaunch reads everything again: no /reload-plugins before it
+    if (of("reload").length && !of("relaunch").length) {
       const status = a.status === "done" && (shared("agents.busy") ?? {})[a.address] ? "working" : a.status;
       const done = prev.done ?? await reloadOne(a.address, status);
       parts.push({ sent: `送了 ${RELOAD_TEXT}`, queued: `排隊送 ${RELOAD_TEXT}（它停下來就送）` }[done] ?? `沒送出 ${RELOAD_TEXT}`);

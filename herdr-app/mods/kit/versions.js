@@ -24,6 +24,8 @@ export function versionText(i) {
   return { text: `${own} 版${!up && v.n > 1 ? `（${v.n}）` : ""}`, tip };
 }
 
+import { RELOAD, RELOAD_TEXT } from "./context.js";
+
 // why what an agent running `tool` (claude | codex | omp) reads is old: { kind: "sync" | "new", why } | null
 //   sync: this machine's copy for that tool is not the newest one (installed[tool].id ≠ version.id)
 //   new:  the machine has it, but this conversation started before it changed (loaded "old")
@@ -32,16 +34,20 @@ export function oldReason(i, tool) {
   if (v?.id && have?.id && have.id !== v.id)
     return { kind: "sync", why: `這台還沒同步（最新是${v.dirty ? "還沒送出的那份" : ` ${versionText(i)?.text ?? v.id}`}）` };
   if (i?.loaded !== "old") return null;
-  if (i.kind === "skill") return { kind: "new", why: "這次對話用的是舊版，開新對話才會讀到新的" };
+  // what that tool needs to read the new one (context.js RELOAD): reload | a new conversation | nothing (it re-reads each turn)
+  const need = RELOAD[tool]?.[i.kind];
+  if (need === "none" && i.kind !== "skill") return null;
+  const how = need === "reload" ? `打 ${RELOAD_TEXT} 就會讀到` : tool === "codex" ? "打 /new 開新對話才會讀到" : "開新對話才會讀到";
+  if (i.kind === "skill") return { kind: need === "reload" ? "reload" : "new", why: `這次對話用的是舊版，${how}新的` };
   const when = versionText(i)?.text;
-  return { kind: "new", why: `這次對話開始後改過${when ? `（${when}）` : ""}，開新對話才會讀到` };
+  return { kind: need === "reload" ? "reload" : "new", why: `這次對話開始後改過${when ? `（${when}）` : ""}，${how}` };
 }
 
 // the popup's one line over the lists, from the rows' oldReason: "全部最新" | "2 項舊版：按同步" | "3 項舊版：開新對話才會讀到"
 export function oldSummary(reasons) {
   const old = reasons.filter(Boolean);
   if (!old.length) return "全部最新";
-  const sync = old.filter((r) => r.kind === "sync").length;
+  const n = (k) => old.filter((r) => r.kind === k).length, sync = n("sync"), reload = n("reload");
   // the most common thing to do; a tie: 同步 first (a new conversation still reads the old copy until then)
-  return `${old.length} 項舊版：${sync * 2 >= old.length ? "按同步" : "開新對話才會讀到"}`;
+  return `${old.length} 項舊版：${sync * 2 >= old.length ? "按同步" : reload * 2 > old.length ? `打 ${RELOAD_TEXT}` : "開新對話才會讀到"}`;
 }

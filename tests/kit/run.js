@@ -1654,6 +1654,11 @@ test("versions.js: an item's version in words, 舊版 and why (not synced here, 
   assert.deepEqual(["claude", "codex", "omp", null].map((tool) => X.oldReason(it(), tool)?.why ?? null), [null, "這台還沒同步（最新是 11/21 版）", null, null]);
   assert.deepEqual(X.oldReason(it({ loaded: "old" }), "claude"), { kind: "new", why: "這次對話開始後改過（11/21 版），開新對話才會讀到" });
   assert.deepEqual(X.oldReason(it({ kind: "skill", loaded: "old" }), "claude"), { kind: "new", why: "這次對話用的是舊版，開新對話才會讀到新的" });
+  assert.deepEqual(X.oldReason(it({ kind: "plugin", loaded: "old" }), "claude"), { kind: "reload", why: "這次對話開始後改過（11/21 版），打 /reload-plugins 就會讀到" }, "Claude reloads plugins");
+  assert.deepEqual(X.oldReason(it({ kind: "skill", loaded: "old" }), "omp"), { kind: "reload", why: "這次對話用的是舊版，打 /reload-plugins 就會讀到新的" });
+  assert.equal(X.oldReason(it({ kind: "mcp", loaded: "old", installed: { codex: { id: "a1b2c3d4", at: 1 } } }), "codex").why, "這次對話開始後改過（11/21 版），打 /new 開新對話才會讀到");
+  assert.equal(X.oldReason(it({ loaded: "old", installed: { codex: { id: "a1b2c3d4", at: 1 } } }), "codex"), null, "Codex re-reads its rules each turn");
+  assert.equal(X.oldSummary([{ kind: "reload" }, { kind: "reload" }, { kind: "new" }]), "3 項舊版：打 /reload-plugins");
   assert.deepEqual(["new", "unknown", null].map((l) => X.oldReason(it({ loaded: l }), "claude")), [null, null, null]);
   assert.equal(X.oldReason(it({ loaded: "old" }), "codex").kind, "sync");
   // summary

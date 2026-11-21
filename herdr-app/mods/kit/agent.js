@@ -10,7 +10,7 @@ import { v_flex, h_flex, InputState, Input } from "gpui-base";
 import { theme, shared, setShared, closeOverlay, props } from "herdr";
 import { AGENT_CACHE, AGENT_DATA, AGENT_WANT, MSG, fs, mono, stop, shortDir, spin, waiting, icon, textBlock, copyOnRight, btn,
   busyNow, dropStaleBusy, giveBusy, apiState, checkApi, apiCard, messageBox, problemCard, versionCard, localGet, localSet,
-  kitAction, markChanged, squeeze, groupRows, kit, apiAtLeast, partsLine } from "./common.js";
+  kitAction, markChanged, squeeze, groupRows, kit, apiAtLeast, partsLine, RELAUNCH_AUTO } from "./common.js";
 import { POPUP_H, agentPid } from "./header.js";
 import { toolOf, usedArgs, usedOf, usedLine } from "./context.js";
 import { versionText, oldReason, oldSummary } from "./versions.js";
@@ -174,6 +174,10 @@ export class AgentPopup {
       const line = oldSummary(using.map((i) => oldReason(i, this.tool)));
       body.child(div().text_size(z - 1.5).text_color(line === "全部最新" ? t.muted : t.foreground).child(line));
     }
+    // 以後都直接做 (relaunch.js): said here, with the way back to being asked
+    if (shared(RELAUNCH_AUTO) === true) body.child(h_flex().gap(6).items_center().text_size(z - 1.5)
+      .child(div().flex_1().min_w(0).text_color(t.muted).child("kit 的改動要重開才讀得到時：直接自動重開接回，不問"))
+      .child(btn(t, z, "rl-ask", "改回先問", { tiny: true, on: (cx) => { setShared(RELAUNCH_AUTO, null); cx.notify(); } })));
     const kindName = { rule: "規則", skill: "技能", mcp: "MCP", plugin: "外掛" };
     // 1. what kit run started it with: only this agent has it, for this run
     if (ag) {

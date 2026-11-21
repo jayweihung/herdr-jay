@@ -27,11 +27,12 @@ import { h_flex, v_flex, InputState, Input } from "gpui-base";
 import { panes, spaces, agents, terminals, props, run, theme, hc, shared, setShared, openOverlay, closeOverlay, notify, appHome, readTextFile, exec } from "herdr";
 import * as files from "fs/promises";
 import { collectedFrom, AGENT_CACHE, AGENT_DATA, AGENT_WANT, CTX, NOTE, LIMIT_SENT, EDITORS, localGet, localSet, fs, stop, slash, shortDir, clean, spin, waiting, icon, textBlock,
-  copyOnRight, btn, busyNow, takeBusy, giveBusy, markChanged, kit, kitJson, apiState, apiKnown, apiAtLeast, checkApi, apiCard, num, kfmt, reloadAfter, reloadNext } from "./common.js";
+  copyOnRight, btn, busyNow, takeBusy, giveBusy, markChanged, kit, kitJson, apiState, apiKnown, apiAtLeast, checkApi, apiCard, num, kfmt, reloadAfter, reloadNext, RELAUNCH } from "./common.js";
 import { toolOf, ctxArgs, askZero, zeroNumbers, sendText, sendArgs, removal, ctxTips, summaryText, chipNumbers, level, howCounted, ago, catColorKey, barSegments,
   catShare, compactLine, noteArgs, CTX_FULL, NAME_MAX, limitOf, continueDue, CONTINUE_TEXT, usageLines, ompUsage, whenText,
-  compactKey, compactStep, compactLive, compactedAfter, compactWords, reloadKey } from "./context.js";
+  compactKey, compactStep, compactLive, compactedAfter, compactWords, reloadKey, relaunchWords } from "./context.js";
 import { unsentTick } from "./repo.js";
+import { relaunchTick, relaunchRetry } from "./relaunch.js";
 
 const CTX_STALE = 15000, CTX_IDLE = 60000;   // how often to ask how full the context is: working / not
 const STALE = 60000, LOAD_TTL = 90000;   // look again after a minute; a load longer than this is taken as lost
@@ -309,6 +310,7 @@ export class Header {
   // First whether kit there is new enough (kit api): until it is, nothing else is asked.
   tick(cx) {
     reloadTick();
+    relaunchTick();
     const p = this.me();
     if (!p?.terminal || !p.program?.agent) return;
     checkPage(cx);
@@ -487,6 +489,20 @@ export class Header {
     else if (k.id === "page" && pageFor(p) && !pageOpen(p)) togglePage(p);
   }
 
+  // 自動重開接回's words (context.js relaunchWords): waiting, at it, 已接回 for a moment; 接不回 in red: a click types the
+  // resume line again in this pane, a right-click copies it. Herdr can't cover one pane with a notice: it is said here.
+  relaunchLabel(t, p, w) {
+    const e = (shared(RELAUNCH) ?? {})[p.terminal], bad = w.level === "bad";
+    const el = div().id(`kit-rl-${p.pane}`).flex_none().max_w(320).truncate().px(bad ? 6 : 0).rounded(4)
+      .text_color(bad ? t.background : w.level === "ok" ? t.done : t.dim).when(bad, (d) => d.bg(t.blocked).font_semibold())
+      .tooltip(w.tip).child(w.text);
+    if (!bad || !e?.cmd) return el;
+    return copyOnRight(el.cursor_pointer().on_mouse_down("left", stop).on_click((_e, cx) => {
+      cx.stop_propagation();
+      cx.spawn(async () => { const why = await relaunchRetry(p.terminal); if (why) notify({ title: "沒有重試", body: why, level: "warning", timeout: 5000 }); });
+    }), e.cmd);
+  }
+
   kitButton(t, p) {
     const w = placeOf(p), s = this.kitSummary(p);
     const color = s.level === "bad" ? t.blocked : t.dim;
@@ -514,7 +530,7 @@ export class Header {
     if (p.terminal && p.program?.agent) this.menuPick(p);
     const name = ((p.program?.agent || p.program?.shell) && p.program.name) || p.title || p.program?.name || "shell";
     const pic = icon(p.program, 14, t.dim), st = p.status, pane = p.pane, agent = Boolean(p.terminal && p.program?.agent), live = this.hovered;
-    const ctxOn = agent && apiState(placeOf(p).machine)?.ok !== false;
+    const ctxOn = agent && apiState(placeOf(p).machine)?.ok !== false, rl = p.terminal ? relaunchWords((shared(RELAUNCH) ?? {})[p.terminal]) : null;
     // the status in a small box of one width (a red "!" for Needs you, a dot when done, else nothing): the header never moves
     const status = div().flex_none().w(16).h(22).flex().items_center().justify_center()
       .when(st === "blocked", (el) => el.child(div().flex_none().size(14).flex().items_center().justify_center().rounded(7).bg(t.blocked)
@@ -534,8 +550,10 @@ export class Header {
       .when(Boolean(pic), (el) => el.child(pic))
       .child(div().flex_none().truncate().max_w(NAME_MAX).font_medium().text_color(t.foreground).child(name))
       .child(div().flex_1().min_w(0).truncate().text_color(t.dim).child(shortDir(p.cwd)))
-      .when(agent && Boolean(shared(reloadKey(p.terminal))), (el) => el.child(div().flex_none().text_color(t.dim)
+      .when(agent && !rl && Boolean(shared(reloadKey(p.terminal))), (el) => el.child(div().flex_none().text_color(t.dim)
         .child((shared(reloadKey(p.terminal)).texts ?? []).some((x) => x !== "/reload-plugins") ? "排隊送規則" : "排隊重新載入")))
+      // 自動重開接回 (relaunch.js): also while the pane runs only its shell, between closing and opening again
+      .when(Boolean(rl && p.terminal), (el) => el.child(this.relaunchLabel(t, p, rl)))
       .when(agent, (el) => el.child(this.kitButton(t, p)).when(ctxOn, (el) => el.child(this.contextChip(t, p))))
       .child(status)
       .child(buttons);

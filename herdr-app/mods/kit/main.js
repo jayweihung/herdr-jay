@@ -11,6 +11,7 @@
 //   agents-toggle    the tab-bar button that shows or hides the Agents panel                                agents.js
 //   header           a pane's header (the layout's pane frame header): kit's button and the context chip    header.js
 //   context          the popup the context chip opens: where the agent's tokens go                          header.js
+//   relaunch-ask     the window that asks once per kit change whether to close and resume agents         relaunch.js
 // Older names still work: panel = repo, toggle = repo-toggle, pane = agent. A copy without a role but with a pane
 // (Herdr gives a pane header { pane, terminal }) is a header; without either, the repository. Any other role: a card
 // that says so. Where it all sits in a layout: layout.js; what every part shares: common.js.
@@ -21,9 +22,10 @@ import { Repo } from "./repo.js";
 import { AgentPopup } from "./agent.js";
 import { Agents } from "./agents.js";
 import { Header } from "./header.js";
+import { RelaunchAsk } from "./relaunch.js";
 import { fs } from "./common.js";
 
-const PARTS = { repo: Repo, "repo-toggle": Repo, editor: Repo, agent: AgentPopup, agents: Agents, "agents-toggle": Agents, header: Header, context: Header };
+const PARTS = { repo: Repo, "repo-toggle": Repo, editor: Repo, agent: AgentPopup, agents: Agents, "agents-toggle": Agents, header: Header, context: Header, "relaunch-ask": RelaunchAsk };
 const OLD_NAMES = { panel: "repo", toggle: "repo-toggle", pane: "agent" };
 const own = (o, k) => typeof k === "string" && Object.prototype.hasOwnProperty.call(o, k);
 // the part a copy is: its role (or what an older name means now), "unknown" for a role this mod doesn't have

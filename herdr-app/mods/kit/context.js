@@ -90,16 +90,20 @@ export const compactWords = (e, now = Date.now()) => (!compactLive(e, now) ? "" 
 
 // ---------- after a kit change: the agents already open pick it up ----------
 // What each tool does about a changed kind (kit add / rm / sync): "none" (it sees it by itself), "reload" (type
-// /reload-plugins), "new" (read at a conversation's start: 要開新對話), "restart" (要重開). Claude Code watches its skill
-// folders; omp has no watcher, /reload-plugins reloads its skills, hooks, tools, agents, MCP; Codex 0.169 picks up a new
-// skill on its next turn (tried), reads ~/.codex/AGENTS.md again every turn (AgentsMdManager::refresh, from its source,
-// not tried) and reads config.toml (MCP, plugins) again on /new; its TUI has no reload for them.
+// /reload-plugins), "relaunch" (read only when a conversation starts: once it waits, Herdr closes it and opens the same
+// conversation again, relaunch.js). Claude Code watches its skill folders, and kit writes its MCP in ~/.claude.json,
+// which /reload-plugins does not read; omp has no watcher, /reload-plugins reloads its skills, tools, agents, MCP, but
+// not a plugin's hooks; Codex 0.169 picks up a new skill on its next turn (tried), reads ~/.codex/AGENTS.md again every
+// turn and reads config.toml (MCP, plugins) only when a conversation starts. Tried for all three (2026-11-21): the quit
+// command prints the line that resumes the same conversation, and the resumed one reads the new rules and MCP.
 export const RELOAD_TEXT = "/reload-plugins";
 export const RELOAD = {
-  claude: { skill: "none", plugin: "reload", mcp: "new", rule: "new" },   // mcp: kit writes ~/.claude.json, which /reload-plugins does not read
-  omp: { skill: "reload", plugin: "reload", mcp: "reload", rule: "new" },
-  codex: { skill: "none", plugin: "new", mcp: "new", rule: "none" },
+  claude: { skill: "none", plugin: "reload", mcp: "relaunch", rule: "relaunch" },
+  omp: { skill: "reload", plugin: "reload", mcp: "reload", rule: "relaunch" },   // a plugin with hooks: relaunch (needOf)
+  codex: { skill: "none", plugin: "relaunch", mcp: "relaunch", rule: "none" },
 };
+// one kind for one tool; hooks: the plugin brings hooks (kit list's parts.hooks), which omp loads only when it starts
+export const needOf = (tool, kind, hooks = false) => (tool === "omp" && kind === "plugin" && hooks ? "relaunch" : RELOAD[tool]?.[kind] ?? "none");
 const KINDS = ["rule", "skill", "mcp", "plugin"];
 // one pending reload per agent (shared "reload/<address>" = { state: "queued", at, text }), stepped like a compact
 // (compactStep: "send" once it waits, "timeout" after 30 minutes)
@@ -120,6 +124,14 @@ export function syncKinds(before, after) {
   for (const k of new Set([...b.keys(), ...a.keys()])) if (b.get(k) !== a.get(k)) out.add(k.split("\u0000")[1]);
   return KINDS.filter((k) => out.has(k));
 }
+// a changed plugin brings hooks (kit list --json's parts.hooks, before or after): names, those (kit add / rm); null,
+// every plugin that differs between the two (kit sync)
+export function pluginHooks(before, after, names = null) {
+  const by = (d) => new Map((d?.items ?? []).filter((i) => i.kind === "plugin").map((i) => [i.name, i]));
+  const b = by(before), a = by(after);
+  return [...new Set([...b.keys(), ...a.keys()])].some((n) => (names ? names.includes(n) : JSON.stringify(b.get(n)) !== JSON.stringify(a.get(n)))
+    && Boolean(b.get(n)?.parts?.hooks || a.get(n)?.parts?.hooks));
+}
 // the open agents a change reaches: those on its machine (null: this computer), with --dir only those in D or below,
 // never one run as another account (user: root's kit is its own) (list: [{ address, machine, cwd, tool, user }])
 export function reloadTargets(list, machine, dir) {
@@ -135,15 +147,16 @@ export function ruleText(verb, names, dir) {
   const paths = names.map((x) => x.path).filter(Boolean);
   return `kit 剛把規則 ${list} 加到${where}（這個對話開始時還沒有）：${paths.length ? `請先讀 ${paths.join("、")}，` : ""}之後照它做`;
 }
-// one agent's need for the changed kinds -> { send, note: "restart" | "new" | null }
-export function reloadNeed(tool, kinds) {
-  const w = new Set((kinds ?? []).map((k) => RELOAD[tool]?.[k] ?? "none"));
-  return { send: w.has("reload"), note: w.has("restart") ? "restart" : w.has("new") ? "new" : null };
+// one agent's need for the changed kinds -> { send, relaunch }: a relaunch reads everything, so no /reload-plugins then
+export function reloadNeed(tool, kinds, hooks = false) {
+  const w = new Set((kinds ?? []).map((k) => needOf(tool, k, hooks)));
+  return { send: w.has("reload") && !w.has("relaunch"), relaunch: w.has("relaunch") };
 }
-// the line under the action: 「t63、t96 已重新載入；t2 排隊重新載入；t1p（Codex）要重開；t7z 要開新對話（規則）」
-// (rows: [{ name, tool, done: "sent" | "queued" | "failed" | null, note }])
+// the line under the action: 「t1、t5 已重新載入；t2 排隊重新載入；t4（Codex）停下來時自動重開接回；t3 要自己重開（kit run
+// 開的要自己重開）」 (rows: [{ name, tool, done: "sent" | "queued" | "failed" | null, rule, relaunch: "queued" | "asked" |
+// "declined" | why not (words) | null }])
 export function reloadLine(rows) {
-  const TOOL = { claude: "Claude Code", codex: "Codex", omp: "omp" }, of = (d) => rows.filter((r) => r.done === d).map((r) => r.name).join("、");
+  const of = (d) => rows.filter((r) => r.done === d).map((r) => r.name).join("、");
   const parts = [];
   if (of("sent")) parts.push(`${of("sent")} 已重新載入`);
   if (of("queued")) parts.push(`${of("queued")} 排隊重新載入（它停下來就送）`);
@@ -152,9 +165,130 @@ export function reloadLine(rows) {
   if (rule("sent")) parts.push(`${rule("sent")} 已收到規則（不用關）`);
   if (rule("queued")) parts.push(`${rule("queued")} 排隊送規則（它停下來就送）`);
   if (rule("failed")) parts.push(`${rule("failed")} 沒送出規則`);
-  for (const r of rows.filter((x) => x.note === "restart")) parts.push(`${r.name}（${TOOL[r.tool] ?? r.tool}）要重開`);
-  for (const r of rows.filter((x) => x.note === "new")) parts.push(`${r.name} 要開新對話${r.tool === "codex" ? "（打 /new，不用重開）" : ""}`);
+  const rl = (d) => rows.filter((r) => r.relaunch === d).map((r) => `${r.name}（${TOOL_NAME[r.tool] ?? r.tool}）`).join("、");
+  if (rl("queued")) parts.push(`${rl("queued")}停下來時自動重開接回`);
+  if (rl("asked")) parts.push(`${rl("asked")}要重開才讀得到：在跳出的視窗選要不要自動重開接回`);
+  for (const r of rows.filter((x) => x.relaunch && !["queued", "asked"].includes(x.relaunch))) parts.push(`${r.name} 要自己重開（${r.relaunch}）`);
   return parts.join("；");
+}
+
+// ---------- 自動重開接回: close an agent that waits and open the same conversation again (relaunch.js does it) ----------
+export const TOOL_NAME = { claude: "Claude Code", codex: "Codex", omp: "omp" };
+export const KIND_NAME = { rule: "規則", skill: "技能", mcp: "MCP", plugin: "外掛" };
+// how each tool is told to quit (Claude Code shows a menu after /exit: Enter takes its first choice, exit)
+export const QUIT_TEXT = { claude: "/exit", codex: "/quit", omp: "/exit" };
+// the probe's lines (relaunch.js PROBE: "kitrun", "session <Claude's sessions/<pid>.json>", "transcript", "file <omp's
+// open session file>") -> { kitRun, id, transcript, bridge, busy }
+export function probeOf(tool, out) {
+  const lines = String(out ?? "").split("\n"), line = (k) => lines.find((l) => l.startsWith(`${k} `))?.slice(k.length + 1) ?? null;
+  const r = { kitRun: lines.includes("kitrun"), id: null, transcript: lines.includes("transcript"), bridge: false, busy: false };
+  if (tool === "claude") {
+    let s = null;
+    try { s = JSON.parse(line("session") ?? "null"); } catch {}
+    r.id = typeof s?.sessionId === "string" ? s.sessionId : null;
+    r.bridge = Boolean(s?.bridgeSessionId);   // Remote Control: the phone is connected to it
+    r.busy = s?.status === "busy";
+  } else if (tool === "omp") {
+    const m = /_([\w-]+)\.jsonl$/.exec(line("file") ?? "");   // ~/.omp/agent/sessions/<folder>/<time>_<id>.jsonl
+    r.id = m ? m[1] : null;
+  }
+  return r;
+}
+// why this agent is not closed and opened again (words), or null: it may be. f: { tool, windows, shellStays, kitRun,
+// bridge, id, transcript } (Codex: its id is read from its /status just before)
+export function relaunchWhy(f) {
+  if (!QUIT_TEXT[f?.tool]) return "不認得這個程式";
+  if (f.windows) return "Windows 還不能自動重開";
+  if (!f.shellStays) return "程式關掉後這格不會留下 shell";
+  if (f.kitRun) return "kit run 開的要自己重開";
+  if (f.bridge) return "手機遠端連著它，重開會斷線";
+  if (f.tool === "claude" && !f.id) return "找不到它的對話 id";
+  if (f.tool === "claude" && !f.transcript) return "它的對話沒有存檔，重開會接不回";
+  if (f.tool === "omp" && !f.id) return "找不到它的對話檔（還沒說過話？）";
+  return null;
+}
+// the resume line the tool printed as it quit (the bottom-most): Claude `claude <its flags> --resume <id>`, Codex
+// `codex resume <id>`, omp `omp --resume <id>` -> { cmd, id } | null. It is typed into a shell: a line with shell
+// syntax in it ($, ;, |, `, redirections …) is not taken
+const RESUME = {
+  claude: /(?:^|[\s"'])(claude\s[^\n]*?--resume[= ]([0-9a-f][0-9a-f-]{7,}))/,
+  codex: /(?:^|[\s"'])(codex\s+resume\s+([0-9a-f][0-9a-f-]{7,}))/,
+  omp: /(?:^|[\s"'])(omp\s[^\n]*?--resume[= ]([\w-]{6,}))/,
+};
+export function parseResume(tool, text) {
+  const re = RESUME[tool];
+  if (!re) return null;
+  for (const l of String(text ?? "").split("\n").reverse()) {
+    const m = re.exec(l);
+    if (m) return /[;&|`$<>(){}\\]/.test(m[1]) ? null : { cmd: m[1].trim(), id: m[2] };
+  }
+  return null;
+}
+// Codex's /status: its "Session:" line -> the id, or null
+export function statusId(text) {
+  const all = [...String(text ?? "").matchAll(/Session(?: id)?:\s*([0-9a-f]{8}-[0-9a-f-]{27,})/gi)];
+  return all.length ? all[all.length - 1][1] : null;
+}
+// what is typed in the shell: Claude without CLAUDE_CODE_CHILD_SESSION (else its conversation is not saved from then on)
+export const resumeTyped = (tool, cmd) => (tool === "claude" ? `env -u CLAUDE_CODE_CHILD_SESSION ${cmd}` : cmd);
+// the line people type themselves when it was not done (its id known)
+export const resumeByHand = (tool, id) => (!id ? null : tool === "claude" ? `claude --resume ${id}` : tool === "codex" ? `codex resume ${id}` : tool === "omp" ? `omp --resume ${id}` : null);
+// hc get --json: the program has ended and its shell is in front again
+export function shellBack(g) {
+  const fg = g?.foreground;
+  if (!fg) return true;
+  if (fg.pid != null && fg.pid === g.pid) return true;
+  const base = String(fg.argv?.[0] ?? fg.name ?? "").split("/").pop().replace(/^-/, "");
+  return /^(zsh|bash|sh|fish|dash|ksh|tcsh|nu)$/.test(base);
+}
+// hc get --json: the program leaves a shell when it ends (Herdr's shell wrapper `"$@"; exec "$0" -li`, or a kept terminal)
+export const shellStays = (g) => Boolean(g?.keep) || (g?.argv ?? []).some((a) => /exec "\$0"/.test(String(a)));
+// hc get --json: a helper it started still works (a sub-agent)
+export const helpersWork = (g) => Object.values(g?.records ?? {}).some((r) => r?.state === "working");
+// the screen after it came back says it could not resume
+export const resumeFailed = (text) => /No conversation found|No session found|session not found|Could not (find|resume)/i.test(String(text ?? ""));
+// Codex's update menu, shown as it opens: Esc closes it (else what is typed next goes into the menu)
+export const updateMenu = (text) => /Update available|new version|Update now|Skip until next/i.test(String(text ?? ""));
+// One relaunch per agent (shared kit.relaunch.v1: address -> { state, at, tool, name, what, id?, cmd?, sent?, menu?, esc?, why?,
+// lock?, build? }), stepped by any header's tick (relaunch.js). -> what to do now:
+//   queued:   "begin" once it waits (idle or done), no work of its own runs and nobody types in it; "timeout" after 30 min
+//   status:   (Codex) "read" its /status for the id; "fail" after 15 s
+//   quitting: "enter" (Claude's menu after /exit) once after 1.5 s; "type" once the shell is back; "fail" after 30 s
+//   starting: (Codex) "menu" to look for its update menu (Esc) until esc; "check" once the program is back and waits;
+//             "fail" when the shell is still there 10 s on, or after 60 s
+//   done:     "clear" after 8 s (the header says 已接回 until then)
+//   failed:   "clear" once the program runs again (someone typed the line), else it stays (the header: 接不回)
+// f: { status, busy, typing, shell (null: not asked) }. Locked (another copy is at it): null
+export const RELAUNCH_QUEUED = 1800000, RELAUNCH_DONE = 8000;
+export function relaunchStep(e, f, now = Date.now()) {
+  if (!e?.state || (e.lock ?? 0) > now) return null;
+  const waits = f?.status === "idle" || f?.status === "done", since = now - (e.sent ?? e.at ?? 0);
+  switch (e.state) {
+    case "queued":
+      if (now - (e.at ?? 0) > RELAUNCH_QUEUED) return "timeout";
+      return waits && !f.busy && !f.typing ? "begin" : null;
+    case "status": return since > 15000 ? "fail" : "read";
+    case "quitting":
+      if (f?.shell) return "type";
+      if (since > 30000) return "fail";
+      return e.tool === "claude" && !e.menu && since >= 1500 ? "enter" : null;
+    case "starting":
+      if (since > 60000 || (f?.shell && since > 10000)) return "fail";
+      if (f?.shell === false && e.tool === "codex" && !e.esc) return since >= 2000 ? "menu" : null;   // its update menu first
+      return f?.shell === false && waits ? "check" : null;
+    case "done": return now - (e.at ?? 0) > RELAUNCH_DONE ? "clear" : null;
+    case "failed": return f?.shell === false && Boolean(f?.status) ? "clear" : null;
+    default: return null;
+  }
+}
+// the pane header's words for it: { text, level: "dim" | "bad" | "ok", tip } | null
+export function relaunchWords(e) {
+  if (!e?.state) return null;
+  if (e.state === "queued") return { text: "等它停下來就重開接回", level: "dim", tip: `kit 改了${e.what ?? ""}：等它這一輪做完，自動關掉再接回同一個對話` };
+  if (e.state === "done") return { text: "已接回", level: "ok", tip: "已接回同一個對話" };
+  if (e.state === "failed") return { text: "接不回", level: "bad",
+    tip: `${e.why ?? "沒接回"}${e.cmd ? `\n接回指令：${e.cmd}\n按一下：在這格重試；右鍵：複製指令` : ""}\n對話紀錄在磁碟上，不會丟` };
+  return { text: "套用 kit 的改動中… 關掉 → 接回同一個對話", level: "dim", tip: "先不要在這格打字，好了會通知你" };
 }
 // what kit can take off for a line of the window (kit list --json of that agent), the Kit popup's rule: an agent in a
 // folder only changes that folder (kit rm --dir), one in the home folder the account; a required one never.

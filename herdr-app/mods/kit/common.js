@@ -5,7 +5,8 @@ import { div, svg, image } from "gpui-kit";
 import { h_flex, v_flex, TextView, EditorState } from "gpui-base";
 import { exec, home, notify, settings, shared, setShared, theme, window, readTextFile, appHome, agents, terminals, hc } from "herdr";
 import { readFile } from "fs/promises";
-import { toolOf, sendArgs, compactStep, changeOfArgs, syncKinds, reloadTargets, reloadNeed, reloadLine, reloadKey, RELOAD_TEXT, ruleText } from "./context.js";
+import { toolOf, sendArgs, compactStep, changeOfArgs, syncKinds, reloadTargets, reloadNeed, reloadLine, reloadKey, RELOAD_TEXT, ruleText, pluginHooks, needOf, KIND_NAME } from "./context.js";
+import { offerRelaunch, agentName } from "./relaunch.js";
 
 // ---------- shared state (every copy sees it; it survives a restart, so nothing in it may stay "busy" forever) ----------
 export const DATA = "kit.data.v2";             // the repository's data ({ at: 0 } = out of date: the panel loads it again)
@@ -34,6 +35,9 @@ export const OUTDATED = "kit.outdated.v1";   // { at, err?, skills: { "source|na
 export const ALLOW_ASK = "kit.allowAsk.v1"; // the text of ~/.config/agentkit-dev/ask.txt: files a commit hook blocked for what they are,
                                                    // waiting for the owner's 放行 (repo.js)
 export const API = "kit.api.v1";               // machine ("" = this computer) -> what kit api said (see checkApi)
+export const RELAUNCH = "kit.relaunch.v1";     // address -> one 自動重開接回 and its step (relaunch.js; context.js relaunchStep)
+export const RELAUNCH_ASK = "kit.relaunch.ask"; // { at, rows } the agents the open 要重開 window asks about
+export const RELAUNCH_AUTO = "kit.relaunch.auto"; // true: 以後都直接做 (no window, queued at once); the Kit popup turns it off
 
 // ---------- the layout's nodes (the panels are found and shown / hidden by these ids) ----------
 export const NODES = {
@@ -239,7 +243,8 @@ export function kitAction(owner, cx, { label, args, msg, ttl = 120000, machine =
   cx.notify();
   cx.spawn(async (cx) => {
     try {
-      const before = args[0] === "sync" ? await listNow(machine) : null;
+      // sync: what changed; rm of a plugin: whether it had hooks (reloadAfter)
+      const before = args[0] === "sync" || (args[0] === "rm" && changeOfArgs(args)?.kinds[0] === "plugin") ? await listNow(machine) : null;
       const r = await kit(args, ttl, machine);
       const text = clean([r.out, r.err].filter(Boolean).join("\n"));
       if (r.code === 0 && okText) setShared(msg, { ok: true, plain: true, label, text: [okText, clean(r.err ?? "")].filter(Boolean).join("\n"), at: Date.now() });
@@ -274,7 +279,7 @@ export async function reloadAfter(args, machine, before = null) {
     .map(([k, d]) => [`${d.machine ?? ""}|${k.split("|").pop().split("/").pop()}`, d.here.user]));
   const list = (agents() ?? []).map((a) => {
     const machine = String(a.address).includes("/") ? String(a.address).split("/")[0] : null;
-    return { address: a.address, tool: toolOf(a.app, a.program?.key), cwd: terms.get(a.address)?.cwd ?? a.cwd, machine,
+    return { address: a.address, name: agentName(a), tool: toolOf(a.app, a.program?.key), cwd: terms.get(a.address)?.cwd ?? a.cwd, machine,
       user: users.get(`${machine ?? ""}|${String(a.address).split("/").pop()}`) ?? null, status: a.status === "done" && busy[a.address] ? "working" : a.status };
   });
   // add / rm of rules: told as a message (where each rule is: kit list there now), so no one has to close anything
@@ -284,13 +289,20 @@ export async function reloadAfter(args, machine, before = null) {
     const path = (n) => (now?.items ?? []).find((i) => i.kind === "rule" && i.name === n)?.path ?? null;
     text = ruleText(change.verb, change.names.map((n) => ({ name: n, path: path(n) })), change.dir);
   }
+  // a plugin with hooks (kit list's parts): omp loads those only when it starts (add: kit list now; rm: from before it)
+  const hooks = change.kinds.includes("plugin") && list.some((x) => x.tool === "omp")
+    ? pluginHooks(before, after ?? (change.verb === "add" ? await listNow(machine) : null), change.names ?? null) : false;
+  const later = [];   // the agents to close and open again (relaunch.js)
   const rows = await Promise.all(reloadTargets(list, machine, change.dir).map(async (x) => {
-    if (text && x.tool === "codex") return { name: x.address, tool: x.tool, note: null, done: null };   // reads AGENTS.md every turn
-    if (text) return { name: x.address, tool: x.tool, note: null, done: null, rule: await reloadOne(x.address, x.status, text) };
-    const need = reloadNeed(x.tool, change.kinds);
-    return { name: x.address, tool: x.tool, note: need.note, done: need.send ? await reloadOne(x.address, x.status) : null };
+    if (text && x.tool === "codex") return { name: x.address, tool: x.tool, done: null };   // reads AGENTS.md every turn
+    if (text) return { name: x.address, tool: x.tool, done: null, rule: await reloadOne(x.address, x.status, text) };
+    const need = reloadNeed(x.tool, change.kinds, hooks);
+    if (need.relaunch) later.push({ address: x.address, tool: x.tool, name: x.name,
+      what: change.kinds.filter((k) => needOf(x.tool, k, hooks) === "relaunch").map((k) => KIND_NAME[k] ?? k).join("、") });
+    return { name: x.address, tool: x.tool, done: need.send ? await reloadOne(x.address, x.status) : null };
   }));
-  return reloadLine(rows);
+  const how = later.length ? await offerRelaunch(later) : {};
+  return reloadLine(rows.map((r) => ({ ...r, relaunch: how[r.name] ?? null })));
 }
 // One entry per agent (shared reload/<address> = { state: "queued", at, text, texts, next?, sent? }): its texts in
 // order, each once (a /reload-plugins and a rule's message can wait together). The first is typed in now if the agent

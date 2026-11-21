@@ -104,7 +104,8 @@ async function loadMod() {
   const at = (f) => import(pathToFileURL(join(dir, f)).href);
   const m = { main: await at("main.js"), common: await at("common.js"), layout: await at("layout.js"), context: await at("context.js"), bots: await at("bots.js"),
     machines: await at("machines.js"), place: await at("place.js"), repo: await at("repo.js"), graph: await at("graph.js"),
-    events: await at("events.js"), timeline: await at("timeline.js"), said: await at("said.js"), header: await at("header.js"), agents: await at("agents.js"), versions: await at("versions.js") };
+    events: await at("events.js"), timeline: await at("timeline.js"), said: await at("said.js"), header: await at("header.js"), agents: await at("agents.js"), versions: await at("versions.js"),
+    relaunch: await at("relaunch.js") };
   rmSync(dir, { recursive: true, force: true });
   return m;
 }
@@ -237,15 +238,24 @@ test("reload after a kit change: which agents (its machine; the account: all, --
   assert.deepEqual(at(null, null), ["t1", "t2", "t3"], "account: every agent on this computer, not another machine's, not a shell");
   assert.deepEqual(at(null, "/p/x/"), ["t1", "t2"], "--dir: in it or below, not a sibling with the same start");
   assert.deepEqual(at("box", null), ["box/t4"]);
-  const need = (tool, kinds) => { const n = X.reloadNeed(tool, kinds); return `${n.send ? "reload" : "-"}/${n.note ?? "-"}`; };
-  assert.deepEqual(["skill", "plugin", "mcp", "rule"].map((k) => need("claude", [k])), ["-/-", "reload/-", "-/new", "-/new"], "Claude Code");
-  assert.deepEqual(["skill", "plugin", "mcp", "rule"].map((k) => need("omp", [k])), ["reload/-", "reload/-", "reload/-", "-/new"], "omp");
-  assert.deepEqual(["skill", "plugin", "mcp", "rule"].map((k) => need("codex", [k])), ["-/-", "-/new", "-/new", "-/-"], "Codex");
-  assert.equal(need("omp", ["rule", "mcp"]), "reload/new", "several kinds: reload and say what is left");
-  assert.equal(X.reloadLine([{ name: "t63", tool: "claude", done: "sent" }, { name: "t96", tool: "omp", done: "sent" }, { name: "t2", tool: "omp", done: "queued" },
-    { name: "t1p", tool: "codex", done: null, note: "restart" }, { name: "t7z", tool: "claude", done: null, note: "new" }]),
-    "t63、t96 已重新載入；t2 排隊重新載入（它停下來就送）；t1p（Codex）要重開；t7z 要開新對話");
-  assert.equal(X.reloadLine([{ name: "t1", tool: "claude", done: null, note: null }]), "", "a skill for Claude Code: nothing to say");
+  const need = (tool, kinds, hooks) => { const n = X.reloadNeed(tool, kinds, hooks); return `${n.send ? "reload" : "-"}/${n.relaunch ? "relaunch" : "-"}`; };
+  assert.deepEqual(["skill", "plugin", "mcp", "rule"].map((k) => need("claude", [k])), ["-/-", "reload/-", "-/relaunch", "-/relaunch"], "Claude Code");
+  assert.deepEqual(["skill", "plugin", "mcp", "rule"].map((k) => need("omp", [k])), ["reload/-", "reload/-", "reload/-", "-/relaunch"], "omp");
+  assert.deepEqual(["skill", "plugin", "mcp", "rule"].map((k) => need("codex", [k])), ["-/-", "-/relaunch", "-/relaunch", "-/-"], "Codex");
+  assert.equal(need("omp", ["plugin"], true), "-/relaunch", "omp: a plugin's hooks load only when it starts");
+  assert.equal(need("claude", ["plugin"], true), "reload/-", "Claude Code reloads hooks");
+  assert.equal(need("omp", ["rule", "mcp"]), "-/relaunch", "several kinds: the relaunch reads them all, no /reload-plugins");
+  assert.equal(X.reloadLine([{ name: "t1", tool: "claude", done: "sent" }, { name: "t5", tool: "omp", done: "sent" }, { name: "t2", tool: "omp", done: "queued" },
+    { name: "t4", tool: "codex", done: null, relaunch: "queued" }, { name: "t6", tool: "claude", done: null, relaunch: "asked" }, { name: "t3", tool: "claude", done: null, relaunch: "kit run 開的要自己重開" }]),
+    "t1、t5 已重新載入；t2 排隊重新載入（它停下來就送）；t4（Codex）停下來時自動重開接回；t6（Claude Code）要重開才讀得到：在跳出的視窗選要不要自動重開接回；t3 要自己重開（kit run 開的要自己重開）");
+  assert.equal(X.reloadLine([{ name: "t1", tool: "claude", done: null }]), "", "a skill for Claude Code: nothing to say");
+  // which plugins changed and bring hooks: named (add / rm), else any that differs (sync)
+  const pl = (name, hooks, v = 1) => ({ kind: "plugin", name, v, parts: { hooks } });
+  assert.equal(X.pluginHooks(null, { items: [pl("a", true)] }, ["a"]), true);
+  assert.equal(X.pluginHooks({ items: [pl("a", true)] }, null, ["a"]), true, "rm: as listed before");
+  assert.equal(X.pluginHooks(null, { items: [pl("a", true), pl("b", false)] }, ["b"]), false);
+  assert.equal(X.pluginHooks({ items: [pl("a", true), pl("b", false)] }, { items: [pl("a", true), pl("b", false, 2)] }), false, "sync: only b changed");
+  assert.equal(X.pluginHooks({ items: [pl("a", true)] }, { items: [pl("a", true, 2)] }), true);
 });
 test("reload after a kit change: typed in now while it waits, else queued once per agent; the header sends it when it stops, gives up after 30 minutes", async (M) => {
   fresh();
@@ -255,8 +265,9 @@ test("reload after a kit change: typed in now while it waits, else queued once p
   H.terminals = H.agents.map((a) => ({ address: a.address, cwd: "/p" }));
   H.store["agents.busy"] = { t3: { at: 1 } };   // done, but its own work still runs: working
   const line = await reloadAfter(["add", "mcp", "m"], null);
-  assert.equal(line, "t1 已重新載入；t2 排隊重新載入（它停下來就送）；t3 要開新對話；t4 要開新對話（打 /new，不用重開）");
-  assert.deepEqual(H.calls.filter((c) => c.argv[0] === "hc").map((c) => c.argv), [["hc", "send", "t1", "/reload-plugins"]]);
+  // Claude's and Codex's MCP: a relaunch, looked at first (this fake hc get has no program in front: nothing to close)
+  assert.equal(line, "t1 已重新載入；t2 排隊重新載入（它停下來就送）；t3 要自己重開（它已經關掉了）；t4 要自己重開（它已經關掉了）");
+  assert.deepEqual(H.calls.filter((c) => c.argv[0] === "hc" && c.argv[1] === "send").map((c) => c.argv), [["hc", "send", "t1", "/reload-plugins"]]);
   const first = H.store[reloadKey("t2")];
   assert.equal(first.state, "queued"); assert.equal(H.store[reloadKey("t3")] ?? null, null);   // Claude: MCP needs a new conversation, nothing queued assert.equal(H.store[reloadKey("t1")] ?? null, null);
   first.at -= 1000; H.store[reloadKey("t2")] = first;
@@ -322,6 +333,187 @@ test("reload: what is queued goes out for every agent (any header's tick, not on
   assert.deepEqual(sends().slice(2).map((x) => x[1]), [RELOAD_TEXT]);
   skew += TAKE_MS + 1; await tick(); await settle();
   assert.match(sends()[3][1], /^kit 剛把規則 q/);
+});
+// ---------- 自動重開接回 (context.js decides, relaunch.js asks Herdr) ----------
+const SID = "6d3b5c1e-1111-2222-3333-444455556666";
+// a fake agent terminal: hc get says what is in front (the tool, or its shell once it quit), hc read gives its screen,
+// every hc send / keys is recorded (sent: [["send", text] | ["keys", key]]); the probe (exec sh) answers t.probe
+function fakeTerm(tool, probe = "ok\n") {
+  const t = { front: "tool", screen: "", sent: [], probe };
+  H.hcAnswer = (args) => {
+    const [cmd, addr, ...rest] = args;
+    if (cmd === "get") return { code: 0, stderr: "", stdout: JSON.stringify({ address: addr, pid: 10, keep: true, argv: ["/bin/zsh", "-lic", '"$@"; exec "$0" -li', "/bin/zsh", tool], records: {},
+      foreground: t.front === "tool" ? { pid: 50, argv: [tool] } : { pid: 10, argv: ["-zsh"] } }) };
+    if (cmd === "read") return { code: 0, stdout: t.screen, stderr: "" };
+    if (cmd === "send" || cmd === "keys") t.sent.push([cmd, ...rest]);
+    return { code: 0, stdout: "", stderr: "" };
+  };
+  H.answer = (argv) => (argv[0] === "sh" && argv[1] === "-c" && String(argv[2]).startsWith("echo ok") ? { code: 0, stdout: t.probe, stderr: "" } : { code: 0, stdout: "", stderr: "" });
+  return t;
+}
+// relaunch.js's tick starts its work without handing it to cx: let it all finish
+const relaunchStep = async (M) => { M.relaunch.relaunchTick(); for (let i = 0; i < 6; i++) await new Promise((r) => setImmediate(r)); };
+test("自動重開接回 (context.js): who is closed and opened again and why not, each tool's printed resume line, Codex's /status id, the shell in front", ({ context: X }) => {
+  const id = SID;
+  assert.deepEqual(X.probeOf("claude", `ok\nsession {"pid":50,"sessionId":"${id}","status":"idle"}\ntranscript\n`), { kitRun: false, id, transcript: true, bridge: false, busy: false });
+  assert.equal(X.probeOf("claude", `ok\nsession {"sessionId":"${id}","bridgeSessionId":"session_1"}\n`).bridge, true, "Remote Control from the phone");
+  assert.equal(X.probeOf("claude", `ok\nsession {"sessionId":"${id}","status":"busy"}\n`).busy, true);
+  assert.deepEqual(X.probeOf("omp", "ok\nkitrun\nfile /h/.omp/agent/sessions/--p--/2026-11-21T10-00-00_abc123def.jsonl\n"), { kitRun: true, id: "abc123def", transcript: false, bridge: false, busy: false });
+  assert.equal(X.probeOf("omp", "ok\n").id, null); assert.equal(X.probeOf("claude", "ok\nsession {broken\n").id, null);
+  // why not: the first reason that holds; null: it may be closed and opened again
+  const ok = { tool: "claude", windows: false, shellStays: true, kitRun: false, bridge: false, id, transcript: true };
+  assert.equal(X.relaunchWhy(ok), null);
+  assert.equal(X.relaunchWhy({ ...ok, tool: "codex", id: null, transcript: false }), null, "Codex: its id comes from /status just before");
+  assert.equal(X.relaunchWhy({ ...ok, tool: "omp", transcript: false }), null);
+  for (const [f, why] of [[{ tool: "gemini" }, "不認得這個程式"], [{ windows: true }, "Windows 還不能自動重開"], [{ shellStays: false }, "程式關掉後這格不會留下 shell"],
+    [{ kitRun: true }, "kit run 開的要自己重開"], [{ bridge: true }, "手機遠端連著它，重開會斷線"], [{ id: null }, "找不到它的對話 id"],
+    [{ transcript: false }, "它的對話沒有存檔，重開會接不回"], [{ tool: "omp", id: null }, "找不到它的對話檔（還沒說過話？）"]])
+    assert.equal(X.relaunchWhy({ ...ok, ...f }), why, JSON.stringify(f));
+  // the resume line each tool printed as it quit: the bottom-most, Claude's with its own flags; only up to the id is
+  // taken, and never a line with shell syntax in it
+  assert.deepEqual(X.parseResume("claude", `claude --resume 00000000-0000-0000\nResume this session with:\nclaude --model opus --permission-mode plan --resume ${id}\n% `),
+    { cmd: `claude --model opus --permission-mode plan --resume ${id}`, id });
+  assert.deepEqual(X.parseResume("codex", `To continue this session, run codex resume ${id}\n`), { cmd: `codex resume ${id}`, id });
+  assert.deepEqual(X.parseResume("omp", "Resume with: omp --resume abc123def\n$ "), { cmd: "omp --resume abc123def", id: "abc123def" });
+  assert.deepEqual(X.parseResume("claude", `claude --resume ${id}; rm -rf ~`), { cmd: `claude --resume ${id}`, id }, "only up to the id");
+  assert.equal(X.parseResume("claude", `claude --mcp-config $(cat x) --resume ${id}`), null, "shell syntax: not typed");
+  assert.equal(X.parseResume("claude", `cat ~/.claude/x --resume ${id}`), null, "a path with .claude in it is not the command");
+  assert.deepEqual([X.parseResume("codex", "nothing"), X.parseResume("pi", "pi --resume abcdefgh")], [null, null]);
+  assert.equal(X.statusId(`│  Session:                  ${id}   │`), id); assert.equal(X.statusId("Session: none"), null);
+  assert.equal(X.resumeTyped("claude", "claude --resume x"), "env -u CLAUDE_CODE_CHILD_SESSION claude --resume x", "else Claude doesn't save the conversation");
+  assert.equal(X.resumeTyped("codex", "codex resume x"), "codex resume x");
+  assert.deepEqual(["claude", "codex", "omp"].map((t) => X.resumeByHand(t, "x")), ["claude --resume x", "codex resume x", "omp --resume x"]);
+  assert.equal(X.resumeByHand("claude", null), null);
+  // hc get: the shell in front again; a shell left when it ends; a helper at work
+  assert.equal(X.shellBack({ pid: 10, foreground: { pid: 50, argv: ["claude"], name: "2.1.330" } }), false);
+  assert.deepEqual([{ pid: 10, foreground: { pid: 10, argv: ["/bin/zsh"] } }, { pid: 10, foreground: { pid: 77, argv: ["-zsh"] } }, { pid: 10 }].map(X.shellBack), [true, true, true]);
+  assert.equal(X.shellStays({ argv: ["/bin/zsh", "-lic", '"$@"; exec "$0" -li', "/bin/zsh", "claude"] }), true, "Herdr's shell wrapper");
+  assert.deepEqual([X.shellStays({ keep: true, argv: ["claude"] }), X.shellStays({ argv: ["claude"] })], [true, false]);
+  assert.deepEqual([X.helpersWork({ records: { a: { state: "idle" }, b: { state: "working" } } }), X.helpersWork({})], [true, false]);
+  assert.deepEqual([X.resumeFailed("No conversation found with session ID: x"), X.resumeFailed("> ")], [true, false]);
+  assert.deepEqual([X.updateMenu("✨ Update available! 0.169 -> 0.170"), X.updateMenu("›")], [true, false]);
+});
+test("自動重開接回 (context.js relaunchStep): each step and when it happens; never while it works, waits for you or someone types in it", ({ context: X }) => {
+  const S = X.relaunchStep, at = 1000, q = { state: "queued", at, tool: "claude" };
+  assert.deepEqual([{ status: "working" }, { status: "blocked" }, { status: "idle", busy: true }, { status: "idle", typing: true }, { status: null }].map((f) => S(q, f, at + 1)),
+    [null, null, null, null, null], "working, needs you, a compact first, someone types, gone");
+  assert.deepEqual([S(q, { status: "done" }, at + 1), S(q, { status: "idle" }, at + 1)], ["begin", "begin"]);
+  assert.equal(S({ ...q, lock: at + 5 }, { status: "idle" }, at + 1), null, "another copy is at it");
+  assert.equal(S(q, { status: "working" }, at + 1800001), "timeout");
+  const quit = { state: "quitting", at, sent: at, tool: "claude" };
+  assert.deepEqual([S(quit, { shell: false }, at + 1000), S(quit, { shell: false }, at + 1500), S({ ...quit, menu: true }, { shell: false }, at + 2000),
+    S(quit, { shell: true }, at + 2000), S({ ...quit, menu: true }, { shell: false }, at + 30001)], [null, "enter", null, "type", "fail"], "Claude: Enter on its menu once");
+  assert.equal(S({ ...quit, tool: "omp" }, { shell: false }, at + 1500), null, "omp: no menu");
+  const st = { state: "starting", at, sent: at, tool: "claude" };
+  assert.deepEqual([S(st, { shell: true }, at + 5000), S(st, { shell: false, status: "working" }, at + 5000), S(st, { shell: false, status: "idle" }, at + 5000),
+    S(st, { shell: true }, at + 10001), S(st, { shell: false, status: "working" }, at + 60001)], [null, null, "check", "fail", "fail"]);
+  const cs = { ...st, tool: "codex" };
+  assert.deepEqual([S(cs, { shell: false, status: "idle" }, at + 1000), S(cs, { shell: false, status: "idle" }, at + 2000), S({ ...cs, esc: true }, { shell: false, status: "idle" }, at + 2000)],
+    [null, "menu", "check"], "Codex: its update menu first");
+  assert.deepEqual([S({ state: "status", sent: at }, {}, at + 1000), S({ state: "status", sent: at }, {}, at + 15001)], ["read", "fail"]);
+  assert.deepEqual([S({ state: "done", at }, {}, at + 100), S({ state: "done", at }, {}, at + 8001)], [null, "clear"]);
+  assert.deepEqual([S({ state: "failed", at }, { shell: true, status: null }, at + 99999999), S({ state: "failed", at }, { shell: false, status: "idle" }, at + 1)], [null, "clear"],
+    "接不回 stays until the program runs there again");
+  assert.equal(X.relaunchWords({ state: "queued", what: "MCP" }).text, "等它停下來就重開接回");
+  assert.equal(X.relaunchWords({ state: "quitting" }).text, "套用 kit 的改動中… 關掉 → 接回同一個對話");
+  assert.deepEqual([X.relaunchWords({ state: "done" }).text, X.relaunchWords({ state: "failed", cmd: "claude --resume x" }).level], ["已接回", "bad"]);
+  assert.match(X.relaunchWords({ state: "failed", why: "w", cmd: "claude --resume x" }).tip, /接回指令：claude --resume x\n按一下：在這格重試；右鍵：複製指令/);
+  assert.equal(X.relaunchWords(null), null);
+});
+test("自動重開接回 (relaunch.js): asked once; 好 queues it; once it waits: /exit, Enter, the printed line checked and typed, back: 已接回", async (M) => {
+  fresh();
+  const RL = M.common.RELAUNCH, t = fakeTerm("claude", `ok\nsession {"sessionId":"${SID}","status":"idle"}\ntranscript\n`);
+  H.agents = [{ address: "t3", app: "claude-code", status: "idle", tab_name: "api", focused: false }];
+  H.terminals = [{ address: "t3", cwd: "/p" }];
+  assert.equal(await M.common.reloadAfter(["add", "mcp", "m"], null), "t3（Claude Code）要重開才讀得到：在跳出的視窗選要不要自動重開接回");
+  assert.deepEqual(H.overlays.at(-1), { mod: "kit", props: { role: "relaunch-ask" }, kind: "window", key: "kit-relaunch-ask", width: 460, height: 230 });
+  assert.deepEqual(H.store[M.common.RELAUNCH_ASK].rows, [{ address: "t3", tool: "claude", name: "api（t3）", what: "MCP" }]);
+  assert.deepEqual(t.sent, [], "nothing typed before you answer");
+  H.props = { role: "relaunch-ask", overlay: "o1" };
+  const v = new M.main.default(); v.init(H.props, cx);
+  assert.match(render(v), /api（t3）（Claude Code）要重開才讀得到新的MCP：等它這一輪做完，自動關掉再接回同一個對話/);
+  H.clicks["rl-yes"]({}, cx);
+  assert.deepEqual([H.store[M.common.RELAUNCH_ASK], H.store[RL].t3.state, H.store[M.common.RELAUNCH_AUTO] ?? null], [null, "queued", null]);
+  // at work: nothing; waits, but you type in it: nothing; waits: /exit
+  H.agents[0].status = "working"; await relaunchStep(M);
+  H.agents[0].status = "idle"; H.agents[0].focused = true; await relaunchStep(M);
+  assert.deepEqual(t.sent, []);
+  H.agents[0].focused = false; await relaunchStep(M);
+  assert.deepEqual(t.sent, [["send", "/exit"]]);
+  assert.deepEqual([H.store[RL].t3.state, H.store[RL].t3.id], ["quitting", SID]);
+  skew += 1600; await relaunchStep(M);
+  assert.deepEqual(t.sent.at(-1), ["keys", "enter"], "Enter on Claude's exit menu");
+  t.front = "shell"; t.screen = `Resume this session with:\nclaude --model opus --resume ${SID}\n% `;
+  await relaunchStep(M);
+  assert.deepEqual(t.sent.at(-1), ["send", `env -u CLAUDE_CODE_CHILD_SESSION claude --model opus --resume ${SID}`]);
+  assert.equal(H.store[RL].t3.state, "starting");
+  t.front = "tool"; t.screen = "> "; await relaunchStep(M);
+  assert.equal(H.store[RL].t3.state, "done");
+  assert.deepEqual([H.notes.at(-1).title, H.notes.at(-1).body], ["已接回", "api（t3） 已接回同一個對話，新的MCP已經可以用"]);
+  skew += 8001; await relaunchStep(M);
+  assert.equal(H.store[RL].t3, undefined);
+  // again, but the printed line is another conversation's: nothing typed, 接不回 with the line; a click types it
+  H.store[RL] = { t3: { state: "queued", at: Date.now(), tool: "claude", name: "api（t3）", what: "MCP" } };
+  t.sent = []; await relaunchStep(M);
+  t.front = "shell"; t.screen = "claude --resume 99999999-aaaa-bbbb-cccc-dddddddddddd\n% "; await relaunchStep(M);
+  assert.deepEqual(t.sent, [["send", "/exit"]]);
+  assert.deepEqual([H.store[RL].t3.state, H.store[RL].t3.cmd, H.notes.at(-1).title], ["failed", `claude --resume ${SID}`, "接不回"]);
+  skew += 999999; await relaunchStep(M);
+  assert.equal(H.store[RL].t3.state, "failed", "never tried again by itself");
+  assert.equal(await M.relaunch.relaunchRetry("t3"), null);
+  assert.deepEqual([t.sent.at(-1), H.store[RL].t3.state], [["send", `claude --resume ${SID}`], "starting"]);
+  t.front = "tool"; t.screen = "No conversation found with session ID"; await relaunchStep(M);
+  assert.deepEqual([H.store[RL].t3.state, H.notes.at(-1).title], ["failed", "接不回"]);
+  // the header: 接不回 in red, its click types it again
+  H.spaces = [{ id: "s1", tabs: [{ id: "tab1" }] }];
+  H.panes = [{ pane: "p3", terminal: "t3", tab: "tab1", cwd: "/p", status: null, program: { agent: false, name: "zsh", shell: true } }];
+  const head = view(M, { role: "header", pane: "p3", terminal: "t3" });
+  assert.match(render(head), /接不回/);
+});
+test("自動重開接回 (relaunch.js): only told for the phone's Remote Control, kit run, Windows, another account; 以後都直接做 queues without asking", async (M) => {
+  fresh();
+  const RL = M.common.RELAUNCH, t = fakeTerm("claude", `ok\nsession {"sessionId":"${SID}","bridgeSessionId":"s1"}\ntranscript\n`);
+  H.agents = [{ address: "t3", app: "claude-code", status: "idle" }, { address: "t4", app: "claude-code", status: "idle" }];
+  H.terminals = H.agents.map((a) => ({ address: a.address, cwd: "/p" }));
+  H.store["kit.agent.data.v1"] = { "|/p|t4": { here: { user: "root" }, machine: null } };
+  assert.equal(await M.common.reloadAfter(["add", "mcp", "m"], null), "t3 要自己重開（手機遠端連著它，重開會斷線）", "root's t4: not even told (its kit is root's)");
+  t.probe = `ok\nkitrun\nsession {"sessionId":"${SID}"}\ntranscript\n`;
+  assert.equal(await M.common.reloadAfter(["add", "mcp", "m"], null), "t3 要自己重開（kit run 開的要自己重開）");
+  t.probe = `ok\nsession {"sessionId":"${SID}"}\n`;
+  assert.equal(await M.common.reloadAfter(["add", "mcp", "m"], null), "t3 要自己重開（它的對話沒有存檔，重開會接不回）");
+  t.probe = `ok\nsession {"sessionId":"${SID}"}\ntranscript\n`; H.window = { platform: "windows" };
+  assert.equal(await M.common.reloadAfter(["add", "mcp", "m"], null), "t3 要自己重開（Windows 還不能自動重開）");
+  assert.deepEqual([H.overlays.length, H.store[RL] ?? null, t.sent], [0, null, []]);
+  H.window = { platform: "macos" }; H.store[M.common.RELAUNCH_AUTO] = true;
+  assert.equal(await M.common.reloadAfter(["add", "mcp", "m"], null), "t3（Claude Code）停下來時自動重開接回");
+  assert.deepEqual([H.overlays.length, H.store[RL].t3.state, H.store[RL].t3.what], [0, "queued", "MCP"]);
+  assert.match(await M.common.reloadAfter(["add", "rule", "r"], null), /^t3 已收到規則/, "a rule added: a message, as before (no relaunch)");
+  assert.deepEqual([H.store[RL].t3.state, H.store[RL].t3.what], ["queued", "MCP"]);
+});
+test("自動重開接回 (relaunch.js): Codex: its id from /status, /quit, the printed line, Esc on its update menu", async (M) => {
+  fresh();
+  const RL = M.common.RELAUNCH, t = fakeTerm("codex");
+  H.agents = [{ address: "t4", app: "codex", status: "idle", tab_name: "web" }];
+  H.store[RL] = { t4: { state: "queued", at: Date.now(), tool: "codex", name: "web（t4）", what: "外掛" } };
+  await relaunchStep(M);
+  assert.deepEqual([t.sent, H.store[RL].t4.state], [[["send", "/status"]], "status"]);
+  await relaunchStep(M);
+  assert.equal(H.store[RL].t4.state, "status", "no Session line yet");
+  t.screen = `│ Session:  ${SID} │`; await relaunchStep(M);
+  assert.deepEqual([t.sent.at(-1), H.store[RL].t4.state, H.store[RL].t4.id], [["send", "/quit"], "quitting", SID]);
+  t.front = "shell"; t.screen = `To continue this session, run codex resume ${SID}\n$ `; await relaunchStep(M);
+  assert.deepEqual(t.sent.at(-1), ["send", `codex resume ${SID}`]);
+  t.front = "tool"; t.screen = "✨ Update available! 0.169 -> 0.170\n› 1. Update now\n  2. Skip"; await relaunchStep(M);
+  assert.equal(H.store[RL].t4.state, "starting", "its menu is looked for 2 s after");
+  skew += 2001; await relaunchStep(M);
+  assert.deepEqual([t.sent.at(-1), H.store[RL].t4.esc], [["keys", "esc"], true]);
+  t.screen = "›"; await relaunchStep(M);
+  assert.deepEqual([H.store[RL].t4.state, H.notes.at(-1).body], ["done", "web（t4） 已接回同一個對話，新的外掛已經可以用"]);
+  // no Session line in 15 s: Codex is left running, only told
+  H.store[RL] = { t4: { state: "queued", at: Date.now(), tool: "codex", name: "web（t4）", what: "MCP" } };
+  t.screen = ""; t.sent = []; await relaunchStep(M);
+  skew += 15001; await relaunchStep(M);
+  assert.deepEqual([t.sent, H.store[RL].t4, H.notes.at(-1).title], [[["send", "/status"]], undefined, "沒有重開接回"]);
 });
 test("compact (context window and header): pressed while it works, queued once; the header types it in when it stops; kit's compacted ends it; a turn or a timeout too", async (M) => {
   fresh(); fakeKit();
@@ -1652,12 +1844,14 @@ test("versions.js: an item's version in words, 舊版 and why (not synced here, 
   // old: not synced for that tool; read before it changed; not synced wins
   const it = (o) => ({ kind: "rule", name: "zh-tw", version: v(), installed: { claude: { id: "a1b2c3d4", at: 1 }, codex: { id: "old00000", at: 1 }, omp: null }, ...o });
   assert.deepEqual(["claude", "codex", "omp", null].map((tool) => X.oldReason(it(), tool)?.why ?? null), [null, "這台還沒同步（最新是 11/21 版）", null, null]);
-  assert.deepEqual(X.oldReason(it({ loaded: "old" }), "claude"), { kind: "new", why: "這次對話開始後改過（11/21 版），開新對話才會讀到" });
+  assert.deepEqual(X.oldReason(it({ loaded: "old" }), "claude"), { kind: "relaunch", why: "這次對話開始後改過（11/21 版），重開接回同一個對話才會讀到" });
   assert.deepEqual(X.oldReason(it({ kind: "skill", loaded: "old" }), "claude"), { kind: "new", why: "這次對話用的是舊版，開新對話才會讀到新的" });
   assert.deepEqual(X.oldReason(it({ kind: "plugin", loaded: "old" }), "claude"), { kind: "reload", why: "這次對話開始後改過（11/21 版），打 /reload-plugins 就會讀到" }, "Claude reloads plugins");
-  assert.equal(X.oldReason(it({ kind: "plugin", loaded: "old", parts: { hooks: true }, installed: { omp: { id: "a1b2c3d4", at: 1 } } }), "omp").why, "這次對話開始後改過（11/21 版），開新對話才會讀到", "omp: hooks need a new conversation");
+  assert.equal(X.oldReason(it({ kind: "plugin", loaded: "old", parts: { hooks: true }, installed: { omp: { id: "a1b2c3d4", at: 1 } } }), "omp").why, "這次對話開始後改過（11/21 版），重開接回同一個對話才會讀到", "omp: hooks load only when it starts");
+  assert.equal(X.oldReason(it({ kind: "plugin", loaded: "old", installed: { omp: { id: "a1b2c3d4", at: 1 } } }), "omp").kind, "reload", "omp: a plugin without hooks reloads");
   assert.deepEqual(X.oldReason(it({ kind: "skill", loaded: "old" }), "omp"), { kind: "reload", why: "這次對話用的是舊版，打 /reload-plugins 就會讀到新的" });
-  assert.equal(X.oldReason(it({ kind: "mcp", loaded: "old", installed: { codex: { id: "a1b2c3d4", at: 1 } } }), "codex").why, "這次對話開始後改過（11/21 版），打 /new 開新對話才會讀到");
+  assert.equal(X.oldReason(it({ kind: "mcp", loaded: "old", installed: { codex: { id: "a1b2c3d4", at: 1 } } }), "codex").why, "這次對話開始後改過（11/21 版），重開接回同一個對話才會讀到");
+  assert.equal(X.oldSummary([{ kind: "relaunch" }, { kind: "relaunch" }, { kind: "new" }]), "3 項舊版：重開接回才會讀到");
   assert.equal(X.oldReason(it({ loaded: "old", installed: { codex: { id: "a1b2c3d4", at: 1 } } }), "codex"), null, "Codex re-reads its rules each turn");
   assert.equal(X.oldSummary([{ kind: "reload" }, { kind: "reload" }, { kind: "new" }]), "3 項舊版：打 /reload-plugins");
   assert.deepEqual(["new", "unknown", null].map((l) => X.oldReason(it({ loaded: l }), "claude")), [null, null, null]);

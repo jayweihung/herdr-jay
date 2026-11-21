@@ -66,14 +66,30 @@ export async function loadAgent(machine, cwd, term) {
   // the skills kit collect took: from whom (third_party.lock there), for the popup's groups
   const locks = await collectedFrom(data.sources, machine).catch(() => ({}));
   const items = (data.items ?? []).map((i) => ((i.kind === "skill" || i.kind === "plugin") && locks[i.source]?.[i.name] ? { ...i, from: locks[i.source][i.name] } : i));
-  return { ...data, items, machine, at };
+  const view = data.here?.user === "root" ? await rootView(machine) : undefined;
+  return { ...data, items, machine, at, view };
+}
+// An agent run as root: kit list can't see root's kit, but the machine may keep a copy root's cron writes (root's
+// kit list --json --dir /root) that this account can read. -> { list, age (s, by that machine's clock) } | { age } | { none }
+const ROOT_VIEW = "/var/lib/kit-root-view/list.json";
+export const ROOT_VIEW_MAX = 30 * 60;   // older than this: shown as not kept up
+async function rootView(machine) {
+  try {
+    const r = await exec("sh", ["-c", `f=${ROOT_VIEW}; [ -r "$f" ] || exit 3; date +%s; stat -c %Y "$f" 2>/dev/null || stat -f %m "$f"; cat "$f"`], { timeout: 20000, on: machine });
+    if (r.code !== 0) return { none: true };
+    const [now, mt, ...rest] = String(r.stdout ?? "").split("\n"), age = Number(now) - Number(mt);
+    if (!(age >= 0)) return { none: true };
+    if (age > ROOT_VIEW_MAX) return { age };
+    const list = JSON.parse(rest.join("\n"));
+    return list && typeof list === "object" && Array.isArray(list.items) ? { list, age } : { none: true };
+  } catch { return { none: true }; }
 }
 // the button's words: how many rules / skills / MCP this agent reads (kit's for the account, its folder's own,
 // and the set kit run started it with), each name counted once
 function summary(d) {
   if (!d) return { text: "…", level: "dim" };
   if (d.error) return { text: "出錯了", level: "bad", why: d.error };
-  if (d.here?.user) return { text: `${d.here.user} · 這裡看不到`, level: "dim" };
+  if (d.here?.user) return { text: `${d.here.user} · ${d.view?.list ? "只能看" : "這裡看不到"}`, level: "dim" };
   const names = { rule: new Set(), skill: new Set(), mcp: new Set() };
   for (const i of d.items ?? []) if ((i.status === "used" || i.status === "required") && names[i.kind]) names[i.kind].add(i.name);
   for (const i of d.here?.items ?? []) names[i.kind]?.add(`${i.scope}:${i.path ?? i.name}`);

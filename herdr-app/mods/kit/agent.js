@@ -116,11 +116,22 @@ export class AgentPopup {
       return root.child(div().p(14).text_color(t.muted).child("讀不到這個 agent（它可能換了資料夾，或已經關掉）。關掉這個視窗，再按一次它上面的 Kit 按鈕。"));
     if (!d) return root.child(div().p(14).child(waiting(t, z, "讀取中…")));
     if (d.error) return root.child(problemCard(t, z, this.where, d.error, d.code));
+    // root's list as root's cron last wrote it (ROOT_VIEW): look only, no button anywhere
+    if (d.here?.user && d.view?.list) {
+      this.ro = true;
+      const mins = Math.max(1, Math.round(d.view.age / 60));
+      return root.child(div().flex_none().px(14).py(8).border_b(1).border_color(t.border).text_size(z - 1).text_color(t.muted)
+        .child(`${d.here.user} 的清單（${mins} 分鐘前更新，每 10 分鐘更新），只能看；要換請在 Mac 簽 kit approve，再請它 kit sync`))
+        .child(this.agentList(t, z, d.view.list));
+    }
+    this.ro = false;
     if (d.here?.user) return root.child(v_flex().p(14).gap(6)
       .child(div().font_semibold().child(`這個 agent 用 ${d.here.user} 帳號跑，kit 照常能用`))
       .child(div().text_size(z - 1).text_color(t.muted).child(d.here.user === "root"
         ? "這個視窗用你的帳號跑，看不到也不能改 root 的 kit。root 只用簽過的版本（kit approve）；要換版本：簽一個新的 kit approve，再請它 kit sync。"
-        : `這個視窗用你的帳號跑，看不到也不能改 ${d.here.user} 的 kit。`)));
+        : `這個視窗用你的帳號跑，看不到也不能改 ${d.here.user} 的 kit。`))
+      .when(d.here.user === "root", (el) => el.child(div().text_size(z - 1).text_color(t.blocked)
+        .child(d.view?.age ? `清單沒有更新（上次 ${Math.round(d.view.age / 60)} 分鐘前）` : "清單沒有更新（這台讀不到 root 的清單檔）"))));
     if (d.kit_version_wanted) root.child(versionCard(t, z, this.where, d));
     return root.child(this.agentList(t, z, d));
   }
@@ -167,7 +178,7 @@ export class AgentPopup {
     // 2. what it reads besides: kit's for the whole account (can be taken off) and its folder's / account's own (look only)
     body.child(div().font_semibold().child(ag ? "另外也讀到的" : "這個 agent 在用的"));
     // what this conversation used so far (kit used): rules are always read, so only skills and MCP
-    if (apiAtLeast(this.target?.machine ?? null, 10)) body.child(div().text_size(z - 1.5).text_color(t.muted)
+    if (!this.ro && apiAtLeast(this.target?.machine ?? null, 10)) body.child(div().text_size(z - 1.5).text_color(t.muted)
       .child(this.usedBusy ? "這次對話用了：讀取中…" : this.used ? `${usedLine(this.used)}。規則每次對話都會帶。` : "這次對話用了什麼：讀不到（這個 agent 的對話紀錄找不到）"));
     for (const kind of ["rule", "skill", "mcp", "plugin"]) {
       const kitRows = items.filter((i) => i.kind === kind && (i.status === "used" || i.status === "required" || mine(i)) && hit(i));
@@ -192,6 +203,7 @@ export class AgentPopup {
     // 3. what kit has that the account does not use yet
     //    kit's own first, then what kit collect took, one group per URL it came from (closed until clicked; open while
     //    searching); a URL with one thing is a plain row
+    if (this.ro) return body;
     const more = items.filter((i) => i.kind !== "agent" && i.status === "unused" && !mine(i) && hit(i));
     const news = more.filter((i) => i.new).length;
     if (more.length) {
@@ -256,7 +268,7 @@ export class AgentPopup {
     let p = this.pend?.[pk];
     if (p?.done && Date.now() - p.at > 60000) { this.pend[pk] = null; p = null; }
     const action = h_flex().flex_none().gap(4).items_center();
-    if (p) action.child(p.doing
+    if (this.ro) { /* look only */ } else if (p) action.child(p.doing
       ? h_flex().gap(4).items_center().px(8).h(24).rounded(6).bg(t.raised).text_size(z - 1.5).text_color(t.muted).child(spin(z - 3, t.muted)).child("收進中…")
       : div().text_size(z - 1.5).text_color(t.done).child("✓ 已收進 kit"));
     else if (b.kind === "mcp") action.child(div().text_size(z - 1.5).text_color(t.dim).child("MCP：到倉庫用「貼上設定」收進 kit"));
@@ -346,7 +358,7 @@ export class AgentPopup {
     // An agent started in a folder only changes that folder; the account is changed only from one started in the home
     // folder (there the folder buttons make no sense: the home folder is the account). No button that reaches further
     // than the folder the agent runs in.
-    if (pend) { /* its 加入中… / ✓ above */ } else if (canDir && i.kind === "plugin") {   // a plugin: the whole account only
+    if (pend || this.ro) { /* its 加入中… / ✓ above; look only: nothing */ } else if (canDir && i.kind === "plugin") {   // a plugin: the whole account only
       action.child(div().text_size(z - 1.5).text_color(t.dim).child(i.status === "unused" ? "外掛只能加到整個帳號（在家目錄開的 agent 加）" : "整個帳號的"));
     } else if (canDir) {
       if (inDir) action.child(btn(t, z, `rmdir-${i.kind}-${i.name}`, "從資料夾拿掉", { small: true, off: busy, on: (cx) => this.rowAct(i, "nodir", `從資料夾拿掉 ${i.name}`, dirArgs("rm"), cx, `已從 ${fd} 拿掉 ${i.name}。在 ${fd} 開新的對話就不會有了。`) }));

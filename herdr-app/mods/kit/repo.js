@@ -538,7 +538,12 @@ export class Repo {
         if (this.making) this.newName.focus();
         cx.notify();
       } }))));
-    if (kind === "machines") return box.child(machinesTab(t, z));
+    // the yellow bar lives on the item tabs: here, one line that takes you there (the 30-minute reminder opens this panel as it is)
+    if (kind === "machines") return box.child((d.dirty ?? []).length && !this.plan
+      ? h_flex().flex_none().mx(10).mt(8).px(10).py(6).gap(8).items_center().rounded(8).bg(t.raised).border_1().border_color(t.working)
+        .child(div().flex_1().text_size(z - 1).text_color(t.foreground).child("有改動還沒送出"))
+        .child(btn(t, z, "unsent-go", "去送出", { small: true, kind: "primary", on: (cx) => { this.kind = "rule"; localSet("kit.kind", "rule"); cx.notify(); } }))
+      : div()).child(machinesTab(t, z));
     box.child(div().flex_none().px(10).pt(8).child(Input.new(this.input).h(30).px(8).rounded(6).border_1().border_color(t.border)
       .bg(t.background).text_size(z - 1).text_color(t.foreground)));
     const hit = (...xs) => !f || xs.some((x) => String(x ?? "").toLowerCase().includes(f));

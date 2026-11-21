@@ -104,7 +104,7 @@ async function loadMod() {
   const at = (f) => import(pathToFileURL(join(dir, f)).href);
   const m = { main: await at("main.js"), common: await at("common.js"), layout: await at("layout.js"), context: await at("context.js"), bots: await at("bots.js"),
     machines: await at("machines.js"), place: await at("place.js"), repo: await at("repo.js"), graph: await at("graph.js"),
-    events: await at("events.js"), timeline: await at("timeline.js"), said: await at("said.js"), header: await at("header.js"), agents: await at("agents.js") };
+    events: await at("events.js"), timeline: await at("timeline.js"), said: await at("said.js"), header: await at("header.js"), agents: await at("agents.js"), versions: await at("versions.js") };
   rmSync(dir, { recursive: true, force: true });
   return m;
 }
@@ -1579,6 +1579,41 @@ test("header: an agent pane asks kit api, then kit list --dir --pid and kit cont
   assert.equal(kitCalls("list").length + kitCalls("context").length, 0);
   assert.match(render(v), /kit 太舊/);
 });
+test("header: kit api 1.14 also gets --tool (which agent), so kit list fills loaded; the agent's own process, not its shell", async (M) => {
+  fresh(); fakeKit({ api: "1.14", list: { items: [], here: { items: [] } } });
+  H.hcAnswer = (a) => (a[0] === "get" ? { code: 0, stdout: JSON.stringify({ pid: 4242, foreground: { pid: 5151 } }), stderr: "" } : null);
+  H.spaces = [{ id: "s1", tabs: [{ id: "tab1" }] }];
+  H.panes = [{ pane: "p1", terminal: "t1", tab: "tab1", cwd: "/x", status: "idle", program: { agent: true, name: "omp", key: "omp" }, app: "omp" }];
+  view(M, { role: "header", pane: "p1", terminal: "t1" }); await settle(); await tick();
+  assert.deepEqual(kitCalls("list")[0].argv.slice(1), ["list", "--json", "--dir", "/x", "--pid", "5151", "--tool", "omp"]);
+});
+test("versions.js: an item's version in words, 舊版 and why (not synced here, or read before it changed), the popup's one line", ({ versions: X }) => {
+  const v = (o = {}) => ({ id: "a1b2c3d4", date: "2026-11-21", n: 1, commit: "c".repeat(40), message: "fix wording", dirty: false, ...o });
+  assert.equal(X.monthDay("2026-01-05"), "1/5"); assert.equal(X.monthDay(null), null);
+  assert.equal(X.versionText({ name: "x" }), null, "an older kit: nothing");
+  assert.equal(X.oldReason({ name: "x", kind: "rule" }, "claude"), null);
+  // own
+  assert.equal(X.versionText({ version: v() }).text, "11/21 版");
+  assert.equal(X.versionText({ version: v({ n: 3 }) }).text, "11/21 版（3）");
+  assert.equal(X.versionText({ version: v({ dirty: true, commit: null }) }).text, "改了還沒送出");
+  assert.equal(X.versionText({ version: v() }).tip, "2026-11-21 · fix wording · 指紋 a1b2c3d4");
+  // collected
+  const col = { version: v({ date: "2026-11-15", n: 2 }), upstream: { commit: "u", date: "2026-11-10", collected: "2026-11-15" } };
+  assert.equal(X.versionText(col).text, "原作者 11/10 版");
+  assert.match(X.versionText(col).tip, /原作者 2026-11-10 · 收進來 2026-11-15$/);
+  assert.equal(X.versionText({ ...col, upstream: { ...col.upstream, date: null } }).text, "11/15 版");
+  // old: not synced for that tool; read before it changed; not synced wins
+  const it = (o) => ({ kind: "rule", name: "zh-tw", version: v(), installed: { claude: { id: "a1b2c3d4", at: 1 }, codex: { id: "old00000", at: 1 }, omp: null }, ...o });
+  assert.deepEqual(["claude", "codex", "omp", null].map((tool) => X.oldReason(it(), tool)?.why ?? null), [null, "這台還沒同步（最新是 11/21 版）", null, null]);
+  assert.deepEqual(X.oldReason(it({ loaded: "old" }), "claude"), { kind: "new", why: "這次對話開始後改過（11/21 版），開新對話才會讀到" });
+  assert.deepEqual(X.oldReason(it({ kind: "skill", loaded: "old" }), "claude"), { kind: "new", why: "這次對話用的是舊版，開新對話才會讀到新的" });
+  assert.deepEqual(["new", "unknown", null].map((l) => X.oldReason(it({ loaded: l }), "claude")), [null, null, null]);
+  assert.equal(X.oldReason(it({ loaded: "old" }), "codex").kind, "sync");
+  // summary
+  assert.deepEqual([[null, null], []].map((r) => X.oldSummary(r)), ["全部最新", "全部最新"]);
+  assert.equal(X.oldSummary([{ kind: "new" }, { kind: "new" }, { kind: "sync" }, null]), "3 項舊版：開新對話才會讀到");
+  assert.equal(X.oldSummary([{ kind: "new" }, { kind: "sync" }]), "2 項舊版：按同步", "a tie: 同步 first");
+});
 test("usage limit (context.js): names, times, the lines of kit usage, when 繼續 is due", ({ context: X }) => {
   const now = new Date(2026, 10, 15, 9, 0).getTime(), at = (d, h, m) => new Date(2026, 10, d, h, m).getTime();
   assert.equal(X.whenText(at(15, 23, 5), now), "23:05"); assert.equal(X.whenText(at(16, 0, 10), now), "明天 00:10"); assert.equal(X.whenText(at(20, 10, 0), now), "11/20 10:00");
@@ -2459,6 +2494,7 @@ test("FEATURES: kit 0.5.0 (api 1.3) adds 貼上 MCP 設定, 各機器的核准�
   assert.deepEqual(X.FEATURES.filter((f) => f.api === "1.3").map((f) => [f.name, f.kit]),
     [["貼上 MCP 設定", "0.5.0"], ["各機器的核准和來源", "0.5.0"], ["把 agent 放到 space", "0.5.0"]]);
   assert.deepEqual(X.missing({ api: "1.2" }, { api: [1, 3] }).lacks.map((f) => f.name), ["貼上 MCP 設定", "各機器的核准和來源", "把 agent 放到 space"]);
+  assert.deepEqual(X.missing({ api: "1.13" }, { api: [1, 14] }).lacks, [{ name: "版本和舊版", kit: "0.9.0" }], "kit 0.9.0 (api 1.14)");
 });
 
 // ---------- 倉庫 → MCP → ＋ 新增 → 貼上設定 (kit new mcp --config <file>) ----------

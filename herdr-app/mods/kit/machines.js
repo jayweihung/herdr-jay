@@ -34,6 +34,7 @@ export const FEATURES = [
   { api: "1.3", name: "貼上 MCP 設定", kit: "0.5.0" },
   { api: "1.3", name: "各機器的核准和來源", kit: "0.5.0" },
   { api: "1.3", name: "把 agent 放到 space", kit: "0.5.0" },
+  { api: "1.14", name: "版本和舊版", kit: "0.9.0" },
 ];
 // what the copy button puts on the clipboard (kit's own steps: kit self-update, then kit sync)
 export const UPGRADE = { sh: "kit self-update && kit sync", cmd: "kit self-update; if ($?) { kit sync }" };
@@ -150,9 +151,8 @@ export function missing(row, top) {
   const mine = apiOf(row.api) ?? [0, 0];
   if (!top.api || apiCmp(mine, top.api) >= 0) return { lacks: [], kit: null };
   const lacks = FEATURES.filter((f) => apiCmp(apiOf(f.api), mine) > 0 && apiCmp(apiOf(f.api), top.api) <= 0).map(({ name, kit }) => ({ name, kit }));
-  const known = FEATURES.reduce((m, f) => (apiCmp(apiOf(f.api), m) > 0 ? apiOf(f.api) : m), [0, 0]);
-  // the newest kit has something this table doesn't know yet
-  if (apiCmp(top.api, known) > 0) lacks.push({ name: `kit ${top.kit ?? "新版"} 的新功能`, kit: top.kit });
+  // the newest kit's api is not in this table (newer than it, or a gap in it): its new things unnamed
+  if (!FEATURES.some((f) => apiCmp(apiOf(f.api), top.api) === 0)) lacks.push({ name: `kit ${top.kit ?? "新版"} 的新功能`, kit: top.kit });
   const kit = lacks.reduce((v, f) => (f.kit && (!v || verCmp(f.kit, v) > 0) ? f.kit : v), null) ?? top.kit;
   return { lacks, kit };
 }

@@ -55,12 +55,14 @@ function pruned(obj) {
   return Object.fromEntries(Object.entries(obj ?? {}).filter(([k]) => live.has(k)));
 }
 
-// kit list for one agent; never this computer's list in place of another machine's
-export async function loadAgent(machine, cwd, term) {
+// kit list for one agent; never this computer's list in place of another machine's. --pid is the agent's own process
+// (its start time tells kit whether it read an item before it changed: loaded), --tool which agent (kit api 1.14)
+export async function loadAgent(machine, cwd, term, tool = null) {
   const args = ["list", "--json"];
   if (cwd) args.push("--dir", cwd);
-  const g = term ? await hc(["get", term, "--json"]).catch(() => null) : null;
-  try { const pid = JSON.parse(g?.stdout ?? "{}").pid; if (pid) args.push("--pid", String(pid)); } catch {}
+  const pid = await agentPid(term);
+  if (pid) args.push("--pid", String(pid));
+  if (pid && tool && apiAtLeast(machine, 14)) args.push("--tool", tool);
   const { data, error } = kitJson(await kit(args, 60000, machine), "kit list --json"), at = Date.now();
   if (error) return { error: error.message, code: error.code, machine, at };
   // the skills kit collect took: from whom (third_party.lock there), for the popup's groups
@@ -311,7 +313,7 @@ export class Header {
     setShared(AGENT_CACHE, { ...pruned(shared(AGENT_CACHE)), [w.key]: { ...summary(null), ...(c ?? {}), busy: true, started } });
     cx.spawn(async (cx) => {
       let d;
-      try { d = await loadAgent(w.machine, p.cwd, p.terminal); }
+      try { d = await loadAgent(w.machine, p.cwd, p.terminal, toolOf(p.app, p.program?.key)); }
       catch (e) { d = { error: String(e?.message ?? e), machine: w.machine, at: Date.now() }; }
       setShared(AGENT_DATA, { ...pruned(shared(AGENT_DATA)), [w.key]: d });
       setShared(AGENT_CACHE, { ...pruned(shared(AGENT_CACHE)), [w.key]: { ...summary(d), started, at: Date.now(), busy: false } });

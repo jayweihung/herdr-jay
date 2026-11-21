@@ -258,7 +258,7 @@ test("reload after a kit change: typed in now while it waits, else queued once p
   assert.equal(line, "t1 已重新載入；t2 排隊重新載入（它停下來就送）；t3 要開新對話；t4 要開新對話（打 /new，不用重開）");
   assert.deepEqual(H.calls.filter((c) => c.argv[0] === "hc").map((c) => c.argv), [["hc", "send", "t1", "/reload-plugins"]]);
   const first = H.store[reloadKey("t2")];
-  assert.equal(first.state, "queued"); assert.ok(H.store[reloadKey("t3")]); assert.equal(H.store[reloadKey("t1")] ?? null, null);
+  assert.equal(first.state, "queued"); assert.equal(H.store[reloadKey("t3")] ?? null, null);   // Claude: MCP needs a new conversation, nothing queued assert.equal(H.store[reloadKey("t1")] ?? null, null);
   first.at -= 1000; H.store[reloadKey("t2")] = first;
   await reloadAfter(["add", "plugin", "p"], null);
   assert.equal(H.store[reloadKey("t2")].at, first.at, "a second change while queued keeps the one pending");

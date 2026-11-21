@@ -270,6 +270,17 @@ function compactNext(addr, e, step, name, turn) {
     body: `${name}：${e.state === "sent" ? "3 分鐘還沒看到它壓縮完，不再等（看一下它的畫面）" : "等了 30 分鐘它還沒停下來，沒有送出"}` });
 }
 
+// what a kit change queued (common.js reloadAfter), for every agent, not only this header's: one in a tab not on screen
+// gets it too. Any header's tick walks them; reloadNext marks one before hc types, so two headers never send it twice
+export function reloadTick(now = Date.now()) {
+  let list = [];
+  try { list = agents() ?? []; } catch {}
+  for (const a of list) {
+    const r = shared(reloadKey(a.address)), step = r && !(r.next > now) && compactStep(r, statusOf(a), null, now);
+    if (step) reloadNext(a.address, r, step, nameOf(a)).catch(() => {});
+  }
+}
+
 export class Header {
   constructor(role) { this.role = role; }
 
@@ -295,6 +306,7 @@ export class Header {
   // ask kit when there is no answer, it is a minute old, or someone asked for a fresh one; one ask at a time per agent.
   // First whether kit there is new enough (kit api): until it is, nothing else is asked.
   tick(cx) {
+    reloadTick();
     const p = this.me();
     if (!p?.terminal || !p.program?.agent) return;
     checkPage(cx);
@@ -322,12 +334,9 @@ export class Header {
   }
 
   // its compact (shared with Herdr's Agents list): a queued one typed in once it waits, a sent one ended (compactStep);
-  // kit not needed (kit context's "compacted" ends one sooner: tickContext). Its queued /reload-plugins (after a kit
-  // change: common.js reloadAfter) the same way.
+  // kit not needed (kit context's "compacted" ends one sooner: tickContext)
   tickCompact(p) {
-    const a = agentOf(p), e = a && shared(compactKey(a.address)), r = a && shared(reloadKey(a.address));
-    const rs = r && compactStep(r, statusOf(a), null);
-    if (rs) reloadNext(a.address, r, rs, nameOf(a));
+    const a = agentOf(p), e = a && shared(compactKey(a.address));
     if (!e) return;
     const turn = turnOf(a.address), step = compactStep(e, statusOf(a), turn);
     if (step) compactNext(a.address, e, step, nameOf(a), turn);

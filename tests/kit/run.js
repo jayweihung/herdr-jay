@@ -276,6 +276,53 @@ test("reload after a kit change: typed in now while it waits, else queued once p
   reloadNext("t3", old, "timeout", "t3");
   assert.equal(H.store[reloadKey("t3")] ?? null, null); assert.match(JSON.stringify(H.notes.at(-1)), /等了 30 分鐘/);
 });
+test("reload: never to an agent run as another account (root: its header's kit list said here.user)", async (M) => {
+  fresh();
+  const { reloadKey } = M.context;
+  assert.deepEqual(M.context.reloadTargets([{ address: "t1", machine: null, cwd: "/p", tool: "claude", user: "root" }, { address: "t2", machine: null, cwd: "/p", tool: "omp", user: null }], null, null).map((x) => x.address), ["t2"]);
+  H.agents = [{ address: "t1", app: "omp", status: "idle" }, { address: "t2", app: "omp", status: "working" }, { address: "box/t3", app: "omp", status: "idle" }, { address: "box/t4", app: "omp", status: "idle" }];
+  H.terminals = H.agents.map((a) => ({ address: a.address, cwd: "/p" }));
+  H.store["kit.agent.data.v1"] = { "|/p|t1": { here: { user: "root" }, machine: null }, "|/p|t2": { here: { user: "root" }, machine: null }, "box|/p|t3": { here: { user: "root" }, machine: "box" }, "box|/p|t4": { here: {}, machine: "box" } };
+  assert.equal(await M.common.reloadAfter(["add", "rule", "r"], null), "");
+  assert.equal(await M.common.reloadAfter(["add", "mcp", "m"], "box"), "box/t4 已重新載入");
+  assert.deepEqual(H.calls.filter((c) => c.argv[0] === "hc").map((c) => c.argv), [["hc", "send", "box/t4", "/reload-plugins"]]);
+  assert.equal(H.store[reloadKey("t2")] ?? null, null, "nothing queued for root either");
+});
+test("reload: what is queued goes out for every agent (any header's tick, not only its own), once; several texts one at a time, in order, each after it took the one before", async (M) => {
+  fresh();
+  const { reloadKey, RELOAD_TEXT } = M.context, { TAKE_MS } = M.common;
+  const sends = () => H.calls.filter((c) => c.argv[0] === "hc" && c.argv[1] === "send").map((c) => c.argv.slice(2));
+  H.agents = [{ address: "t2", app: "omp", status: "working", title: "api" }];
+  H.terminals = [{ address: "t2", cwd: "/p" }];
+  await M.common.reloadAfter(["add", "mcp", "m"], null);
+  await M.common.reloadAfter(["add", "rule", "r"], null);
+  assert.deepEqual(H.store[reloadKey("t2")].texts.map((x) => x === RELOAD_TEXT ? "reload" : "rule"), ["reload", "rule"]);
+  // a shell pane's header on screen, not t2's: its tick still sends t2's
+  H.spaces = [{ id: "s1", tabs: [{ id: "tab1" }] }];
+  H.panes = [{ pane: "p9", terminal: "t9", tab: "tab1", cwd: "/x", status: "idle", program: { agent: false, name: "zsh" } }];
+  view(M, { role: "header", pane: "p9", terminal: "t9" }); await settle();
+  await tick();
+  assert.deepEqual(sends(), [], "not while it works");
+  H.agents[0].status = "idle";
+  await tick(); M.header.reloadTick(); await settle();
+  assert.deepEqual(sends(), [["t2", RELOAD_TEXT]], "the first only, once (a second walk at the same time sends nothing)");
+  await tick(); await settle();
+  assert.equal(sends().length, 1, `the next waits ${TAKE_MS} ms`);
+  H.agents[0].status = "working"; skew += TAKE_MS + 1; await tick(); await settle();
+  assert.equal(sends().length, 1, "and until it waits again");
+  H.agents[0].status = "done"; await tick(); await settle();
+  assert.match(sends()[1][1], /^kit 剛把規則 r/);
+  assert.equal(H.store[reloadKey("t2")], null);
+  assert.equal(H.notes.at(-1).body, "api：重新載入、規則");
+  await tick(); await settle();
+  assert.equal(sends().length, 2);
+  // waiting now: the first typed in at once, the one after it queued behind it
+  H.store[reloadKey("t2")] = { state: "queued", at: Date.now(), text: RELOAD_TEXT, texts: [RELOAD_TEXT] };
+  assert.equal(await M.common.reloadAfter(["add", "rule", "q"], null), "t2 排隊送規則（它停下來就送）");
+  assert.deepEqual(sends().slice(2).map((x) => x[1]), [RELOAD_TEXT]);
+  skew += TAKE_MS + 1; await tick(); await settle();
+  assert.match(sends()[3][1], /^kit 剛把規則 q/);
+});
 test("compact (context window and header): pressed while it works, queued once; the header types it in when it stops; kit's compacted ends it; a turn or a timeout too", async (M) => {
   fresh(); fakeKit();
   const plain = H.answer;

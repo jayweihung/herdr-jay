@@ -54,7 +54,8 @@ export function sendText(cmds, what, keep) {
 // hc send, only to an agent that waits for you (idle or done), plainly: never --if idle, which hc refuses when the core
 // still says done for an agent Herdr shows idle (someone looked at it after it finished; hc's --if knows only idle and
 // working). Never while it works or needs you: Codex refuses a command typed in while it works, omp's /compact stops
-// the work, Claude Code holds it until the turn ends.
+// the work, Claude Code holds it until the turn ends. Your half-typed draft in its input box is not looked at here: hc
+// get has no field for it; hc send itself waits until you send or clear it, at most draft_wait (60 s) after your last key.
 export function sendArgs(addr, status, text) {
   return addr && text && (status === "idle" || status === "done") ? ["send", addr, text] : null;
 }
@@ -119,12 +120,12 @@ export function syncKinds(before, after) {
   for (const k of new Set([...b.keys(), ...a.keys()])) if (b.get(k) !== a.get(k)) out.add(k.split("\u0000")[1]);
   return KINDS.filter((k) => out.has(k));
 }
-// the open agents a change reaches: those on its machine (null: this computer), with --dir only those in D or below
-// (list: [{ address, machine, cwd, tool }])
+// the open agents a change reaches: those on its machine (null: this computer), with --dir only those in D or below,
+// never one run as another account (user: root's kit is its own) (list: [{ address, machine, cwd, tool, user }])
 export function reloadTargets(list, machine, dir) {
   const n = (p) => String(p ?? "").replace(/\\/g, "/").replace(/\/+$/, "");
   const d = dir && n(dir);
-  return (list ?? []).filter((x) => x.tool && (x.machine ?? null) === (machine ?? null) && (!d || n(x.cwd) === d || n(x.cwd).startsWith(d + "/")));
+  return (list ?? []).filter((x) => x.tool && !x.user && (x.machine ?? null) === (machine ?? null) && (!d || n(x.cwd) === d || n(x.cwd).startsWith(d + "/")));
 }
 // A rule is read when a conversation starts: an open agent gets it as a message instead (jay: take effect without
 // closing it), any tool. names: [{ name, path }] (path: where the rule is on that machine; null when not known)

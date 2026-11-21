@@ -268,8 +268,15 @@ export async function reloadAfter(args, machine, before = null) {
   if (after) change = { kinds: syncKinds(before, after), dir: null };
   if (!change?.kinds.length) return "";
   const terms = new Map((terminals() ?? []).map((x) => [x.address, x])), busy = shared("agents.busy") ?? {};
-  const list = (agents() ?? []).map((a) => ({ address: a.address, tool: toolOf(a.app, a.program?.key), cwd: terms.get(a.address)?.cwd ?? a.cwd,
-    machine: String(a.address).includes("/") ? String(a.address).split("/")[0] : null, status: a.status === "done" && busy[a.address] ? "working" : a.status }));
+  // agents run as another account (root): its header's kit list said here.user. Its kit is not the one changed, and a
+  // rule's path is this account's: nothing is sent to it
+  const users = new Map(Object.entries(shared(AGENT_DATA) ?? {}).filter(([, d]) => d?.here?.user)
+    .map(([k, d]) => [`${d.machine ?? ""}|${k.split("|").pop().split("/").pop()}`, d.here.user]));
+  const list = (agents() ?? []).map((a) => {
+    const machine = String(a.address).includes("/") ? String(a.address).split("/")[0] : null;
+    return { address: a.address, tool: toolOf(a.app, a.program?.key), cwd: terms.get(a.address)?.cwd ?? a.cwd, machine,
+      user: users.get(`${machine ?? ""}|${String(a.address).split("/").pop()}`) ?? null, status: a.status === "done" && busy[a.address] ? "working" : a.status };
+  });
   // add / rm of rules: told as a message (where each rule is: kit list there now), so no one has to close anything
   let text = null;
   if (change.verb && change.kinds[0] === "rule") {
@@ -285,34 +292,45 @@ export async function reloadAfter(args, machine, before = null) {
   }));
   return reloadLine(rows);
 }
-// typed in now while it waits (idle, done: sendArgs, as the compact), else queued: one entry per agent, its texts in
-// order, each once (a /reload-plugins and a rule's message can wait together)
+// One entry per agent (shared reload/<address> = { state: "queued", at, text, texts, next?, sent? }): its texts in
+// order, each once (a /reload-plugins and a rule's message can wait together). The first is typed in now if the agent
+// waits (idle, done: sendArgs, as the compact); the rest one at a time from reloadTick, each once it waits again and
+// TAKE_MS after the one before, so it has taken that one first (omp's /reload-plugins reconnects its MCP meanwhile).
+// A half-typed draft in its input box: hc send itself holds the text until you send or clear it (at most draft_wait,
+// 60 s, after your last key); hc get says nothing about the input box, so past that it may land on the draft.
+export const TAKE_MS = 2000;
 async function reloadOne(addr, status, text = RELOAD_TEXT) {
-  const key = reloadKey(addr), args = sendArgs(addr, status, text), e = shared(key);
-  if (!args) {
-    const live = e && compactStep(e, null, null) === null, texts = live ? (e.texts ?? [e.text]) : [];
-    setShared(key, { state: "queued", at: live ? e.at : Date.now(), text: texts[0] ?? text, texts: texts.includes(text) ? texts : [...texts, text] });
-    return "queued";
-  }
-  // what was queued before goes first (one after another), never dropped
-  const before = e && compactStep(e, null, null) === null ? (e.texts ?? [e.text]).filter((x) => x !== text) : [];
-  setShared(key, null);
-  let ok = true;
-  for (const x of before) ok = (await hc(sendArgs(addr, status, x) ?? ["send", addr, x]).catch(() => null))?.code === 0 && ok;
-  const r = await hc(args).catch(() => null);
-  return r?.code === 0 && ok ? "sent" : "failed";
+  const key = reloadKey(addr), e = shared(key), live = e && compactStep(e, null, null) === null;
+  const texts = live ? (e.texts ?? [e.text]) : [], all = texts.includes(text) ? texts : [...texts, text];
+  setShared(key, { ...(live ? e : {}), state: "queued", at: live ? e.at : Date.now(), text: all[0], texts: all });
+  if (!sendArgs(addr, status, all[0]) || (live && e.next > Date.now())) return "queued";
+  const r = await sendHead(addr);
+  return !r.ok ? "failed" : r.rest.length ? "queued" : "sent";
 }
-// a queued reload's next step (compactStep), from the agent's header: typed in once it waits, or given up after 30 minutes
-export function reloadNext(addr, e, step, name) {
+// type in the first queued text; the rest stay queued (marked before hc types, so no other tick sends it too)
+// -> { ok, head, rest, sent }
+async function sendHead(addr) {
+  const key = reloadKey(addr), e = shared(key), [head, ...rest] = e.texts ?? [e.text], sent = [...(e.sent ?? []), head];
+  const mark = Date.now() + 60000;   // while hc types (a mod reload meanwhile: a minute later the rest go on)
+  setShared(key, rest.length ? { ...e, at: Date.now(), next: mark, text: rest[0], texts: rest, sent } : null);
+  const ok = (await hc(["send", addr, head]).catch(() => null))?.code === 0, now = shared(key), mine = now?.next === mark;
+  if (!ok) { if (mine) setShared(key, null); return { ok, head, rest, sent: e.sent ?? [] }; }
+  if (mine) setShared(key, { ...now, next: Date.now() + TAKE_MS });
+  return { ok, head, rest, sent };
+}
+// a queued reload's next step (compactStep), from reloadTick: its next text typed in once it waits, or given up after
+// 30 minutes. -> a promise
+export async function reloadNext(addr, e, step, name) {
+  const words = (xs) => xs.map((x) => (x === RELOAD_TEXT ? "重新載入" : "規則")).join("、");
+  if (step === "send") {
+    const r = await sendHead(addr);
+    if (!r.ok) notify({ title: "沒有全部送出", body: `${name}：要的話自己打 ${[r.head, ...r.rest].join(" ／ ")}`, level: "warning" });
+    else if (!r.rest.length) notify({ title: "已送出", body: `${name}：${words(r.sent)}`, level: "info", timeout: 3000 });
+    return;
+  }
   setShared(reloadKey(addr), null);
-  const texts = e.texts ?? [e.text];
-  // one after another: /reload-plugins first, a rule's message after it
-  if (step === "send") texts.reduce((p, x) => p.then((ok) => hc(["send", addr, x]).then((r) => ok && r?.code === 0, () => false)), Promise.resolve(true))
-    .then((ok) => notify(ok
-      ? { title: "已送出", body: `${name}：${texts.map((x) => (x === RELOAD_TEXT ? "重新載入" : "規則")).join("、")}`, level: "info", timeout: 3000 }
-      : { title: "沒有全部送出", body: `${name}：要的話自己打 ${texts.join(" ／ ")}`, level: "warning" }));
-  else if (step === "timeout") notify({ title: "排隊的重新載入取消了", level: "warning", timeout: 6000,
-    body: `${name}：等了 30 分鐘它還沒停下來，沒有送出（要的話自己打 ${texts.join(" ／ ")}）` });
+  if (step === "timeout") notify({ title: "排隊的重新載入取消了", level: "warning", timeout: 6000,
+    body: `${name}：等了 30 分鐘它還沒停下來，沒有送出（要的話自己打 ${(e.texts ?? [e.text]).join(" ／ ")}）` });
 }
 
 // Load into shared state (load: the in-progress key, data: where the answer goes), the newest load wins: a slower,

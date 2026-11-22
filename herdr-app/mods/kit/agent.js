@@ -72,9 +72,14 @@ export class AgentPopup {
 
   async close(_cx) { giveBusy(this.mine); this.mine = null; }
 
-  get data() { return (shared(AGENT_DATA) ?? {})[this.target?.key] ?? null; }
-  get busy() { return busyNow(); }
-  get loading() { const c = (shared(AGENT_CACHE) ?? {})[this.target?.key]; return Boolean(c?.busy && Date.now() - (c.started ?? 0) < LOAD_TTL); }
+  // read once per render (this.rs): a shared() read is a host call that copies the whole value (every agent's list),
+  // and reading it per row took ~15 ms a row in Herdr, past its 50 ms render budget ("could not be re-rendered")
+  get data() { return this.rs ? this.rs.data : (shared(AGENT_DATA) ?? {})[this.target?.key] ?? null; }
+  get busy() { return this.rs ? this.rs.busy : busyNow(); }
+  get loading() {
+    if (this.rs) return this.rs.loading;
+    const c = (shared(AGENT_CACHE) ?? {})[this.target?.key]; return Boolean(c?.busy && Date.now() - (c.started ?? 0) < LOAD_TTL);
+  }
   get msg() { return shared(MSG(this.where)) ?? null; }
   // ask its pane header to look again
   want() {
@@ -156,7 +161,11 @@ export class AgentPopup {
     return p;
   }
 
-  render(_cx) {
+  render(cx) {
+    this.rs = null; this.rs = { data: this.data, busy: this.busy, loading: this.loading };
+    try { return this.draw(cx); } finally { this.rs = null; }
+  }
+  draw(_cx) {
     // the 要重開才讀得到 window opened after this popup (its own add / rm did it, once that is over): Herdr keeps windows
     // under popups, and a popup's first click outside only closes it, so this popup steps aside (kit's words stay in MSG)
     if (!this.mine && !this.syncing && (shared(RELAUNCH_ASK)?.at ?? 0) > this.openedAt) closeOverlay(props()?.overlay);
@@ -515,3 +524,4 @@ export class AgentPopup {
         .child(btn(t, z, `need-no-${x.key}`, "取消", { small: true, off: busy, on: (cx) => { this.asking = null; cx.notify(); } })));
   }
 }
+

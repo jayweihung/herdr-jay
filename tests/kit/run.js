@@ -2091,6 +2091,18 @@ test("agent popup: an MCP whose pinned package is not installed: no 加到… un
   H.store["kit.agent.data.v1"] = { [target.key]: { items: [mcp({ packages: [{ ...pk, bad: "not on npm" }] })], here: { items: [] } } };
   render(v); assert.ok("add-mcp-rea" in H.clicks || "adddir-mcp-rea" in H.clicks, "kit can't install it: adding stays (it downloads each start)");
 });
+test("agent popup: one render reads the shared list once, not once per row (in Herdr each read copies every agent's list: ~15 ms a row)", async (M) => {
+  fresh(); fakeKit();
+  const target = { key: "|/x|t1", term: "t1", machine: null, cwd: "/x", title: "Claude Code" };
+  const items = Array.from({ length: 30 }, (_, k) => ({ kind: "skill", name: `s${k}`, status: k < 10 ? "used" : "unused", source: "lib", description: "d" }));
+  H.store["kit.agent.data.v1"] = { [target.key]: { items, here: { items: [] }, at: Date.now() } };
+  H.store["kit.agent.v1"] = { [target.key]: { started: Date.now(), at: Date.now() } };
+  const v = view(M, { role: "agent", target }); await settle(); render(v);
+  const real = H.store; let reads = 0;
+  H.store = new Proxy(real, { get: (o, k) => { if (k === "kit.agent.data.v1" || k === "kit.busy") reads++; return o[k]; } });
+  try { render(v); } finally { H.store = real; }
+  assert.ok(reads <= 4, `read ${reads} times for 30 rows`);
+});
 test("agent popup: a long 還沒用的 starts closed and builds 20 rows at a time (100 at once passed Herdr's 50 ms render budget)", async (M) => {
   fresh(); fakeKit();
   const target = { key: "|/x|t1", term: "t1", machine: null, cwd: "/x", title: "Claude Code" };

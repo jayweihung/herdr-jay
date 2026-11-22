@@ -2073,6 +2073,24 @@ test("agent popup (and its old name pane): shows what the header's kit list said
   assert.match(render(v), /kit 太舊/); assert.match(render(v), /在 box 的終端機/);
   assert.equal(kitCalls("list").length, 0);
 });
+test("agent popup: an MCP whose pinned package is not installed: no 加到… until it is (先裝好才能加); 安裝中… on its row while kit installs", async (M) => {
+  fresh(); fakeKit();
+  const target = { key: "|/x|t1", term: "t1", machine: null, cwd: "/x", title: "Claude Code" };
+  const pk = { kind: "npm", package: "rea-agents", version: "6.10.1", ok: false, had: false, install: "npm install --ignore-scripts", bad: "" };
+  const mcp = (extra = {}) => ({ kind: "mcp", name: "rea", status: "unused", source: "lib", description: "d", packages: [pk], ...extra });
+  H.store["kit.agent.data.v1"] = { [target.key]: { items: [mcp()], here: { items: [] } } };
+  H.store["kit.agent.v1"] = { [target.key]: { started: Date.now(), at: Date.now() } };
+  const v = view(M, { role: "agent", target }); await settle();
+  let shown = render(v);
+  assert.match(shown, /先裝好才能加/); assert.ok(!Object.keys(H.clicks).some((k) => /^add(dir)?-mcp-rea$/.test(k)), "no 加到…");
+  H.clicks["need-rea-mcp"]({}, cx); render(v); H.clicks["need-go-rea-mcp"]({}, cx);
+  assert.match(render(v), /安裝中…/);
+  await settle();
+  H.store["kit.agent.data.v1"] = { [target.key]: { items: [mcp({ packages: [{ ...pk, ok: true }] })], here: { items: [] } } };
+  render(v); assert.ok("add-mcp-rea" in H.clicks || "adddir-mcp-rea" in H.clicks, "installed: 加到… is back");
+  H.store["kit.agent.data.v1"] = { [target.key]: { items: [mcp({ packages: [{ ...pk, bad: "not on npm" }] })], here: { items: [] } } };
+  render(v); assert.ok("add-mcp-rea" in H.clicks || "adddir-mcp-rea" in H.clicks, "kit can't install it: adding stays (it downloads each start)");
+});
 test("agent popup: a long 還沒用的 starts closed and builds 20 rows at a time (100 at once passed Herdr's 50 ms render budget)", async (M) => {
   fresh(); fakeKit();
   const target = { key: "|/x|t1", term: "t1", machine: null, cwd: "/x", title: "Claude Code" };

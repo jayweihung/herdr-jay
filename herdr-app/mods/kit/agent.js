@@ -432,7 +432,11 @@ export class AgentPopup {
     // An agent started in a folder only changes that folder; the account is changed only from one started in the home
     // folder (there the folder buttons make no sense: the home folder is the account). No button that reaches further
     // than the folder the agent runs in.
-    if (pend || this.ro) { /* its 加入中… / ✓ above; look only: nothing */ } else if (canDir && i.kind === "plugin") {   // a plugin: the whole account only
+    // not added before what it needs is installed (jay): kit can install it, so 安裝／裝套件 under the row comes first
+    const first = i.status === "unused" && !inDir && [...(i.needs ?? []), ...(i.packages ?? [])].some((x) => !x.ok && x.install && !x.bad);
+    if (pend || this.ro) { /* its 加入中… / ✓ above; look only: nothing */ } else if (first) {
+      action.child(div().text_size(z - 1.5).text_color(t.dim).child("先裝好才能加"));
+    } else if (canDir && i.kind === "plugin") {   // a plugin: the whole account only
       action.child(div().text_size(z - 1.5).text_color(t.dim).child(i.status === "unused" ? "只能加到整個帳號" : "整個帳號的"));
     } else if (canDir) {
       if (inDir) action.child(btn(t, z, `rmdir-${i.kind}-${i.name}`, "從資料夾拿掉", { small: true, off: busy, on: (cx) => this.rowAct(i, "nodir", `從資料夾拿掉 ${i.name}`, dirArgs("rm"), cx, `已從 ${fd} 拿掉 ${i.name}。在 ${fd} 開新的對話就不會有了。`) }));
@@ -494,6 +498,9 @@ export class AgentPopup {
     const line = h_flex().gap(6).items_center().flex_wrap().pl(2).text_size(z - 1.5)
       .child(div().text_color(t.working).child(`⚠ ${x.what}`));
     if (!x.install) return line.child(div().text_color(t.muted).child(x.none));
+    // while kit installs it: said on its own row (jay: the greyed buttons alone did not say anything was happening)
+    if (this.busy === `安裝 ${x.title}`) return line.child(h_flex().gap(4).items_center().text_color(t.muted).child(spin(z - 3, t.muted))
+      .child("安裝中…（大的套件要幾分鐘）"));
     if (!asking) return line.child(btn(t, z, `need-${x.key}`, x.label, { small: true, off: busy, on: (cx) => { this.asking = x.key; cx.notify(); } }));
     return v_flex().gap(4).pl(2).text_size(z - 1.5)
       .child(div().text_color(t.working).child(`⚠ ${x.what}`))

@@ -149,7 +149,9 @@ export class AgentPopup {
     if (!p) return null;
     if (p.done) {
       const now = { used: i.status === "used", unused: i.status !== "used", dir: inDir, nodir: !inDir }[p.done];
-      if (now || Date.now() - p.at > 60000) { this.pend[k] = null; return null; }
+      // ✓ stays until a list read AFTER the action says otherwise: kit list can take longer than a minute, and the row
+      // went back to 加到… though kit had added it (jay: "按下去不理我")
+      if (now || ((this.data?.at ?? 0) > p.at && Date.now() - p.at > 60000)) { this.pend[k] = null; return null; }
     }
     return p;
   }

@@ -2073,7 +2073,7 @@ test("agent popup (and its old name pane): shows what the header's kit list said
   assert.match(render(v), /kit 太舊/); assert.match(render(v), /在 box 的終端機/);
   assert.equal(kitCalls("list").length, 0);
 });
-test("agent popup: 還沒用的 builds 20 rows at a time (100 at once passed Herdr's 50 ms render budget)", async (M) => {
+test("agent popup: a long 還沒用的 starts closed and builds 20 rows at a time (100 at once passed Herdr's 50 ms render budget)", async (M) => {
   fresh(); fakeKit();
   const target = { key: "|/x|t1", term: "t1", machine: null, cwd: "/x", title: "Claude Code" };
   const items = Array.from({ length: 45 }, (_, k) => ({ kind: "skill", name: `s${k}`, status: "unused", source: "lib", description: "d" }));
@@ -2081,6 +2081,7 @@ test("agent popup: 還沒用的 builds 20 rows at a time (100 at once passed Her
   H.store["kit.agent.v1"] = { [target.key]: { started: Date.now(), at: Date.now() } };
   const v = view(M, { role: "agent", target }); await settle();
   const rows = () => ids(v).filter((k) => /^add-skill-s\d+$/.test(k)).length;
+  assert.equal(rows(), 0, "a long 還沒用的 starts closed"); render(v); H.clicks["sec-paneMore"]({}, cx);
   assert.equal(rows(), 20); assert.match(render(v), /再顯示 20 個（還有 25 個）/);
   H.clicks["more-rows"]({}, cx); assert.equal(rows(), 40);
   H.clicks["more-rows"]({}, cx); assert.equal(rows(), 45); assert.ok(!("more-rows" in H.clicks));

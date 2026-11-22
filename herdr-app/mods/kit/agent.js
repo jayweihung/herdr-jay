@@ -279,7 +279,7 @@ export class AgentPopup {
     const more = items.filter((i) => i.kind !== "agent" && i.status === "unused" && !mine(i) && hit(i));
     const news = more.filter((i) => i.new).length;
     if (more.length) {
-      const folded = !f0 && (this.folded.paneMore ?? false);
+      const folded = !f0 && (this.folded.paneMore ?? more.length > 8);   // closed when long, like the lists above: each row costs render time
       body.child(div().mt(6).border_t(1).border_color(t.border));
       body.child(this.secHead(t, z, "paneMore", `還沒用的（${more.length}）`, folded, news ? `${news} 個新的` : ""));
       if (!folded) {

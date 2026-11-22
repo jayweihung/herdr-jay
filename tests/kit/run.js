@@ -2266,7 +2266,7 @@ test("agent popup: 同步 brings this agent up to date: kit sync, its list read 
   // the relaunch window its 同步 opened: the popup steps aside once it is over (not under it)
   render(r.v); assert.deepEqual(H.closed, ["o7"]);
 });
-test("agent popup: kit 0.7.0's blocked: 被擋下 with why; 收進 kit into an own source (URL: kit collect --allow → agentkit-library; none: kit new --from → my-own), then kit add; no blocked key: as before", async (M) => {
+test("agent popup: kit 0.7.0's blocked: 被擋下 with why; 收進 kit into an own source (URL: kit collect --allow → agentkit-library; none: kit new --from → my-own), not added; no blocked key: as before", async (M) => {
   fresh(); fakeKit();
   try { localStorage.removeItem("kit.folded"); } catch {}
   const target = { key: "|/x|t1", term: "t1", machine: null, cwd: "/x", title: "Claude Code" };
@@ -2291,8 +2291,8 @@ test("agent popup: kit 0.7.0's blocked: 被擋下 with why; 收進 kit into an o
   assert.match(render(v), /收進中…/);
   await settle();
   assert.deepEqual(kitCalls("new")[0].argv.slice(1), ["new", "skill", "brand", "--from", bl.path, "--to", "my-own"]);
-  assert.deepEqual(kitCalls("add").at(-1).argv.slice(1), ["add", "skill", "brand"]);
-  assert.match(render(v), /✓ 已收進 kit/); assert.match(H.store["kit.msg.agent:|/x|t1"].text, /已收進 my-own 並加到整個帳號/);
+  assert.equal(kitCalls("add").length, 0, "only collected: adding is a step of its own");
+  assert.match(render(v), /✓ 已收進 kit/); assert.match(H.store["kit.msg.agent:|/x|t1"].text, /已收進 my-own：brand。還沒有 agent 會用/);
   v.part.pend = null; render(v);
   H.clicks[`take-${key}`]({}, cx);
   const url = "https://github.com/x/y/tree/main/skills/brand";
@@ -2571,7 +2571,7 @@ test("收進來（N 個）: several skills ticked (every one that can be, at fir
   assert.equal(v.part.making, null, "the box closes once something was collected");
   assert.deepEqual(JSON.parse(localStorage.getItem("kit.groups")), ["a/r"], "its group open in the list");
 });
-test("收進來, your own source (push: direct): sent right after, added to the whole account (ticked), the sign card when this computer signs it; other changes there: not sent", async (M) => {
+test("收進來, your own source (push: direct): sent right after, never added anywhere (that is the agent's Kit list), the sign card when this computer signs it; other changes there: not sent", async (M) => {
   const sk = (name) => ({ name, path: `skills/${name}`, description: name, license: "MIT", scripts: "", skipped: 0, valid: true, exists: "", dest: `/s/mine/skills/${name}/SKILL.md` });
   const look = { url: "https://github.com/a/r", ref: "dev", source: "mine", push: "direct", id: "github.com/a/r", allowed: true, can_allow: false, skills: [sk("tdd"), sk("grill")] };
   const list = (changed) => ({ ...TEAM_LIST, sources: [{ name: "mine", source: "/s/mine", dir: "/s/mine", push: "direct", changed }],
@@ -2589,17 +2589,16 @@ test("收進來, your own source (push: direct): sent right after, added to the 
   };
   let v = await go([]);
   let shown = render(v);
-  assert.match(shown, /收好就直接送出（mine 是你自己的倉/); assert.match(shown, /收好後加到整個帳號/);
-  H.clicks["collect-add"]({}, cx);
-  assert.equal(localStorage.getItem("kit.collect.add"), "1", "ticked: kept on this computer");
+  assert.match(shown, /收好就直接送出（mine 是你自己的倉/); assert.match(shown, /只是收進來，還沒有 agent 會用/);
+  assert.ok(!("collect-add" in H.clicks), "no 加到整個帳號 here: collecting and adding are separate");
   H.clicks["collect-many"]({}, cx); await settle(); await settle();
   const args = (sub) => kitCalls(sub).map((c) => c.argv.slice(c.argv[0] === "sh" ? 4 : 1));
   assert.deepEqual(args("collect").filter((a) => !a.includes("--look")), [["collect", "https://github.com/a/r", "--to", "mine", "--path", "skills/tdd", "--ref", "dev"],
     ["collect", "https://github.com/a/r", "--to", "mine", "--path", "skills/grill", "--ref", "dev"]], "the branch kit took from a page's address (look's ref)");
   assert.deepEqual(args("push"), [["push", "--to", "mine", "--json"]], "sent once, no dry run (looked at in 下載看看)");
-  assert.deepEqual(args("add"), [["add", "skill", "tdd", "grill"]], "added in one go (kit api 1.8)");
+  assert.deepEqual(args("add"), [], "only collected");
   shown = render(v);
-  assert.match(shown, /收了 2 個/); assert.match(shown, /mine 已推上去/); assert.match(shown, /已加到整個帳號/);
+  assert.match(shown, /收了 2 個/); assert.match(shown, /mine 已推上去/); assert.match(shown, /還沒有 agent 會用/);
   assert.match(shown, /請簽 mine/); assert.match(shown, /kit approve \/s\/mine --push/);
   render(v); H.clicks["sign-copy"]({}, cx); assert.deepEqual(H.clipboard, ["kit approve /s/mine --push"], "copied, nothing run");
   assert.equal(kitCalls("approve").length, 0);

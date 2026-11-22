@@ -28,8 +28,6 @@ const STALE = 60000, LOAD_TTL = 90000;
 // be finishing). 39 skills take minutes; twice an edit had stopped a run, silently, a few in.
 const COLLECT = "kit.collecting";
 const SIGN_HINT = "kit.signHint";   // after 收進來 sent a source this computer signs for: { source, cmd, at }, until closed
-// 收進來 then 加到整個帳號 (own sources): ticked unless untick it once (kept on this computer)
-const addAfter = () => localGet("kit.collect.add") === "1";   // off until ticked: whether to use it is decided after looking
 // the command to sign SOURCE (kit api 1.8 remembers the approvals repo and key), when this computer signs for it
 // (kit list --json's sign names it); else null
 export function signHint(d, source) {
@@ -857,20 +855,17 @@ export class Repo {
     });
   }
 
-  // what happens after 收進來, under its button: your own source is sent right away (unless it has other changes) and
-  // 加到整個帳號 (ticked: kept on this computer); a team source goes through 送出 (a PR)
+  // what happens after 收進來, under its button: your own source is sent right away (unless it has other changes); a team
+  // source goes through 送出 (a PR). Never added anywhere: that is the agent's Kit list
   afterNotes(t, z, lk) {
     const note = (s, c = t.muted) => div().text_size(z - 1.5).text_color(c).child(s);
     if (lk.push !== "direct") return [note("收進來後：用 git diff 看收了哪些檔案 → 清單上面黃色那條按「送出」開 PR → 合併、kit sync 後，在 agent 視窗上的 Kit 清單加到要用的地方。")];
-    const other = (this.data?.dirty ?? []).some((y) => y.name === lk.source), on = addAfter();
+    const other = (this.data?.dirty ?? []).some((y) => y.name === lk.source);
+    // collecting only puts it in the source; using it is a separate step, in an agent's Kit list (jay, 2026-11-22)
     return [
       note(other ? `${lk.source} 還有別的改動沒送：收好不會自動送出，請按清單上面黃色那條的「送出」一起看。`
         : `收好就直接送出（${lk.source} 是你自己的倉，剛才「下載看看」已經看過要收什麼）。`, other ? t.working : t.muted),
-      h_flex().id("collect-add").gap(6).items_start().rounded(4).cursor_pointer().hover((s) => s.bg(t.hover)).text_size(z - 1.5).on_mouse_down("left", stop)
-        .on_click((_e, cx) => { localSet("kit.collect.add", on ? "0" : "1"); cx.notify(); })
-        .child(div().flex_none().mt(2).size(14).rounded(3).border_1().border_color(on ? t.accent : t.border).bg(on ? t.accent : t.background)
-          .flex().items_center().justify_center().text_size(10).text_color(t.background).child(on ? "✓" : ""))
-        .child(div().flex_1().min_w(0).text_color(t.foreground).child("收好後加到整個帳號（每個 agent 都讀得到）")),   // flex_1 min_w 0: it wraps inside the card
+      note("只是收進來，還沒有 agent 會用：要用，到 agent 視窗上的 Kit 清單加到要用的地方。"),
     ];
   }
 
@@ -887,7 +882,7 @@ export class Repo {
     // sent yet (those go through 送出, where you see them), and added to the whole account if 加到整個帳號 is ticked
     const own = lk.push === "direct", other = (this.data?.dirty ?? []).some((y) => y.name === lk.source);
     setShared(COLLECT, { url: lk.url, ref: lk.ref || null, id: lk.id, source: lk.source, allow: Boolean(allow), todo: picked.map((x) => ({ name: x.name, path: x.path })), kind: picked[0]?.kind === "plugin" ? "plugin" : "skill",
-      total: picked.length, ok: [], bad: [], build: BUILD, push: lk.push ?? null, send: own && !other, other: own && other, add: own && addAfter() });
+      total: picked.length, ok: [], bad: [], build: BUILD, push: lk.push ?? null, send: own && !other, other: own && other });
     setShared(SIGN_HINT, null);
     // its group open from the start: each one collected shows in the list right away, not only when all are done
     // (a long run that showed nothing new for minutes read as failed)
@@ -906,7 +901,7 @@ export class Repo {
     if (!this.startBusy("收", LONG + SHORT * picked.length)) return;
     const own = s?.push === "direct", other = (this.data?.dirty ?? []).some((y) => y.name === source);
     setShared(COLLECT, { url: null, id: "原作者的新版", source, allow: false, byName: true, todo: picked.map((i) => ({ name: i.name, path: "" })),
-      total: picked.length, ok: [], bad: [], build: BUILD, push: s?.push ?? null, send: own && !other, other: own && other, add: false });
+      total: picked.length, ok: [], bad: [], build: BUILD, push: s?.push ?? null, send: own && !other, other: own && other });
     setShared(SIGN_HINT, null);
     cx.notify();
     this.runCollect(cx);
@@ -1009,16 +1004,7 @@ export class Repo {
       lines.push(sent ? `${j.source} 已推上去` : `送出 ${j.source} 沒成功（收的檔案還在）：\n${r.text}\n改好再按清單上面黃色那條的「送出」。`);
     } else if (j.other) lines.push(`沒有自動送出：${j.source} 還有別的改動沒送。按清單上面黃色那條的「送出」，一起看過再送。`);
     else lines.push("下一步：用 git diff 看收了哪些檔案 → 清單上面黃色那條按「送出」送上去（團隊的倉會開 PR，合併、kit sync 後才回到這裡）。");
-    if (j.add) {
-      step("加到整個帳號");
-      const bad = [];
-      const k = j.kind ?? "skill";
-      if (apiAtLeast(null, 8)) { const r = await kit(["add", k, ...j.ok], LONG); if (r.code !== 0) bad.push(clean(r.err || r.out).trim()); }
-      else for (const n of j.ok) { const r = await kit(["add", k, n], SHORT); if (r.code !== 0) bad.push(`${n}：${clean(r.err || r.out).trim().split("\n").pop()}`); }
-      lines.push(bad.length ? `加到整個帳號沒有全部成功：\n${bad.join("\n")}` : "已加到整個帳號：agent 下次開（或 kit sync 之後）就讀得到。");
-      const reloaded = j.ok.length > bad.length ? await reloadAfter(["add", k], null).catch(() => "") : "";
-      if (reloaded) lines.push(reloaded);
-    }
+    lines.push("還沒有 agent 會用：要用，到 agent 視窗上的 Kit 清單加到要用的地方。");
     if (sent) {
       const d = await loadNewest(LOAD, DATA, loadRepo).catch(() => null), cmd = signHint(d ?? this.data, j.source);
       if (cmd) setShared(SIGN_HINT, { source: j.source, cmd, at: Date.now() });

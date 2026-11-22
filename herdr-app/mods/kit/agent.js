@@ -268,7 +268,7 @@ export class AgentPopup {
       const folded = !f0 && (this.folded.blocked ?? false);
       body.child(div().mt(6).border_t(1).border_color(t.border));
       body.child(this.secHead(t, z, "blocked", `被擋下的（${blocked.length}）`, folded, ""));
-      if (!folded) body.child(div().pl(18).text_size(z - 1.5).text_color(t.muted).child("不是公司的，也不是 kit 放的，所以工具不載入它們；收進 kit 才會用"))
+      if (!folded) body.child(div().pl(18).text_size(z - 1.5).text_color(t.muted).child("不是公司的，也不是 kit 放的，所以工具不載入它們；收進 kit、再加到要用的地方才會用"))
         .child(v_flex().gap(2).children(blocked.map((b) => this.blockedRow(t, z, b, d.sources ?? []))));
     }
     if (d.here?.error) body.child(div().text_size(z - 1.5).text_color(t.muted).child(textBlock(`here-error-${this.where}`, `${shortDir(d.here.dir)}：${d.here.error}`)));
@@ -374,19 +374,14 @@ export class AgentPopup {
       .child(btn(t, z, `take-no-${key}`, "取消", { small: true, off: busy, on: (cx) => { this.taking = null; cx.notify(); } }))));
   }
   // 收進 kit: kit collect <url> --to <source> --allow (an own source may add the author to collect_sources), or kit new
-  // skill <name> --from <its folder> --to <source>; when it worked kit add (its folder's with --dir; a plugin the account's)
+  // skill <name> --from <its folder> --to <source>. Only collected: adding it is the row's own 加到… under 還沒用的 (jay:
+  // collecting and adding are separate steps)
   takeIn(b, url, source, cx) {
     const pk = `blocked:${b.kind}:${b.name}`, machine = this.target?.machine ?? null, msg = MSG(this.where);
     const first = url ? ["collect", url, "--to", source, "--allow"] : ["new", "skill", b.name, "--from", b.path, "--to", source];
-    const dir = b.scope === "folder" && b.dir && b.kind !== "plugin" ? b.dir : null;
-    const end = (ok) => { this.pend = { ...(this.pend ?? {}), [pk]: ok ? { done: true, at: Date.now() } : null }; markChanged(machine); };
-    const started = kitAction(this, cx, { label: `收進 kit ${b.name}`, args: first, ttl: LONG, machine, msg, after: (cx) => {
-      if (shared(msg)?.ok !== true) return end(false);
-      const where = dir ? shortDir(dir) : "整個帳號";
-      if (!kitAction(this, cx, { label: `加到${where} ${b.name}`, args: ["add", ...(dir ? ["--dir", dir] : []), b.kind, b.name], ttl: SHORT, machine, msg,
-        okText: `已收進 ${source} 並加到${where}：${b.name}。開新的對話就讀得到；要給別台用，到倉庫按「送出」。`,
-        after: () => end(shared(msg)?.ok === true) })) end(false);
-    } });
+    const started = kitAction(this, cx, { label: `收進 kit ${b.name}`, args: first, ttl: LONG, machine, msg,
+      okText: `已收進 ${source}：${b.name}。還沒有 agent 會用：要用，在下面「還沒用的」按加到…；要給別台用，到倉庫按「送出」。`,
+      after: () => { this.pend = { ...(this.pend ?? {}), [pk]: shared(msg)?.ok === true ? { done: true, at: Date.now() } : null }; markChanged(machine); } });
     if (started) this.pend = { ...(this.pend ?? {}), [pk]: { doing: true } };
   }
 

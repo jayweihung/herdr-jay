@@ -757,6 +757,7 @@ test("context window: the bar, the shares, the footer line, the chip's numbers (
   assert.equal(X.askZero(zero, { zeroAt: 1e9 - X.ZERO_EVERY }, "claude", 1e9), true, "ten minutes on: again");
   assert.equal(X.askZero({ ...zero, used: 5 }, null, "claude"), false, "a real number");
   assert.equal(X.askZero(zero, null, "codex"), false, "only Claude's status line says 0 like that");
+  assert.equal(X.askZero({ tool: "claude", used: null, pct: null, user: "root", why: "x" }, null, "claude"), false, "run as another user: nothing to ask");
   assert.deepEqual(X.zeroNumbers({ used: 33100, window: 400000, pct: 8, model: "m", categories: [] }, null), { used: 33100, window: 400000, pct: 8, model: "m", exact: true });
   assert.equal(X.zeroNumbers({ used: 0 }, null), null);
   assert.deepEqual(X.zeroNumbers(null, { zeroAt: 5, used: 33100, window: 400000, pct: 8 }).used, 33100, "kept until asked again");

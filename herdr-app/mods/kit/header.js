@@ -410,7 +410,8 @@ export class Header {
   contextChip(t, p) {
     const c = (shared(CTX) ?? {})[placeOf(p).key], lim = limitOf(c);
     if (lim) return this.limitChip(t, p, lim);
-    const { has, pct, nums, copy, loading } = chipNumbers(c);
+    const { has, pct, nums: n, copy, loading } = chipNumbers(c);
+    const nums = c?.user && !has ? `${c.user} · 看不到` : n;   // run as another user: kit can't read it
     const color = pct == null ? t.dim : levelColor(t, pct);
     const chip = h_flex().id(`kit-ctx-${p.pane}`).flex_none().w(CTX_FULL).h(22).pl(2).pr(6).gap(5).items_center().rounded(6)
       .bg(t.surface).border_1().border_color(pct != null && pct >= 90 ? t.blocked : t.border).text_size(11).cursor_pointer()
@@ -639,7 +640,8 @@ export class Header {
           if (r.code !== 0) err = clean(r.err || r.out) || `kit context 失敗（${r.code}）`;
           else {
             try { d = JSON.parse(r.out); } catch { d = null; }
-            if (!d || !Array.isArray(d.categories)) { d = null; err = "kit context --detail 的輸出讀不懂（kit 太舊？打 kit self-update）"; }
+            if (d?.why) { err = d.why; d = null; }   // an agent run as another user (kit api 1.15: user, why)
+            else if (!d || !Array.isArray(d.categories)) { d = null; err = "kit context --detail 的輸出讀不懂（kit 太舊？打 kit self-update）"; }
           }
         }
       } catch (e) { err = String(e?.message ?? e); }

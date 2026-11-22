@@ -371,7 +371,7 @@ export function removal(list, group, name, path) {
 // at most once every ZERO_EVERY per pane: -> true when a 0 from the quick ask should be asked that way
 export const ZERO_EVERY = 10 * 60 * 1000;
 export function askZero(d, before, tool, now = Date.now()) {
-  if (tool !== "claude" || !d || d.error || Number(d.used) || Number(d.pct)) return false;
+  if (tool !== "claude" || !d || d.error || d.user || Number(d.used) || Number(d.pct)) return false;   // (user: run as another user, no numbers to ask for)
   return !(before?.zeroAt && now - before.zeroAt < ZERO_EVERY);
 }
 // the numbers from that ask, or the last ones it gave while the status line still says 0 (null: none)

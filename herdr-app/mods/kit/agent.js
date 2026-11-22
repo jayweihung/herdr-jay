@@ -283,7 +283,10 @@ export class AgentPopup {
       body.child(div().mt(6).border_t(1).border_color(t.border));
       body.child(this.secHead(t, z, "paneMore", `還沒用的（${more.length}）`, folded, news ? `${news} 個新的` : ""));
       if (!folded) {
-        const groups = groupRows(more), list = v_flex().gap(2).children(groups[0].rows.map((i) => this.row(t, z, i)));
+        // 20 at a time: ~100 rows built in one render passed Herdr's 50 ms and the popup froze ("could not be re-rendered")
+        const groups = groupRows(more), own = groups[0].rows, shown = this.moreShown ?? 20;
+        const list = v_flex().gap(2).children(own.slice(0, shown).map((i) => this.row(t, z, i)));
+        if (own.length > shown) list.child(btn(t, z, "more-rows", `再顯示 ${Math.min(20, own.length - shown)} 個（還有 ${own.length - shown} 個）`, { small: true, on: (cx) => { this.moreShown = shown + 20; cx.notify(); } }));
         for (const g of groups.slice(1)) {
           if (g.rows.length === 1) { list.child(this.row(t, z, g.rows[0], true)); continue; }
           const shut = !f0 && (this.folded[`from-${g.from}`] ?? true);

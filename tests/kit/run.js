@@ -2073,6 +2073,18 @@ test("agent popup (and its old name pane): shows what the header's kit list said
   assert.match(render(v), /kit 太舊/); assert.match(render(v), /在 box 的終端機/);
   assert.equal(kitCalls("list").length, 0);
 });
+test("agent popup: 還沒用的 builds 20 rows at a time (100 at once passed Herdr's 50 ms render budget)", async (M) => {
+  fresh(); fakeKit();
+  const target = { key: "|/x|t1", term: "t1", machine: null, cwd: "/x", title: "Claude Code" };
+  const items = Array.from({ length: 45 }, (_, k) => ({ kind: "skill", name: `s${k}`, status: "unused", source: "lib", description: "d" }));
+  H.store["kit.agent.data.v1"] = { [target.key]: { items, here: { items: [] } } };
+  H.store["kit.agent.v1"] = { [target.key]: { started: Date.now(), at: Date.now() } };
+  const v = view(M, { role: "agent", target }); await settle();
+  const rows = () => ids(v).filter((k) => /^add-skill-s\d+$/.test(k)).length;
+  assert.equal(rows(), 20); assert.match(render(v), /再顯示 20 個（還有 25 個）/);
+  H.clicks["more-rows"]({}, cx); assert.equal(rows(), 40);
+  H.clicks["more-rows"]({}, cx); assert.equal(rows(), 45); assert.ok(!("more-rows" in H.clicks));
+});
 test("agent popup: a row's 加到… says 加入中… while kit runs, then ✓ 已加到… until the list shows it (never looks pressable twice)", async (M) => {
   fresh(); fakeKit();
   const target = { key: "|/x|t1", term: "t1", machine: null, cwd: "/x", title: "Claude Code" };

@@ -153,6 +153,22 @@ export class AgentPopup {
     } });
     if (started) this.pend = { ...(this.pend ?? {}), [k]: { doing: want } };
   }
+  // one at a time (kit api 1.17), on a skill or plugin of the whole account whose newest the machine has not got:
+  // 只同步這個 (kit sync --only) or 固定在這一版 (kit hold); held: 換成新版 (still held) or 取消固定. Rules and MCP are
+  // not held (Claude reads a rule's file in the source itself): they go with 同步
+  holdBtns(t, z, i, old, busy) {
+    if (this.ro || (old.kind !== "sync" && old.kind !== "held") || (i.kind !== "skill" && i.kind !== "plugin")
+      || (i.status !== "used" && i.status !== "required") || !apiAtLeast(this.target?.machine ?? null, 17)) return [];
+    const one = `${i.kind}:${i.name}`, go = (key, label, args, okText) => btn(t, z, `${key}-${i.kind}-${i.name}`, label, { tiny: true, off: busy,
+      on: (cx) => kitAction(this, cx, { label: `${label} ${i.name}`, args, ttl: SHORT, okText, machine: this.target?.machine ?? null,
+        msg: MSG(this.where), after: () => markChanged(this.target?.machine ?? null) }) });
+    const took = `${i.name} 換成倉庫最新的了；這個 agent 要開新對話（或重開接回）才會用到`;
+    return old.kind === "held"
+      ? [go("take", "換成新版", ["sync", "--only", one], `${took}（還是固定，固定在新的這一版）`).tooltip("只換這一個，別的不動；換完還是固定"),
+         go("unhold", "取消固定", ["hold", i.kind, i.name, "--off"], `${i.name} 不再固定，之後同步會跟著倉庫`).tooltip("之後同步（包括自動的）會換成倉庫最新的")]
+      : [go("only", "只同步這個", ["sync", "--only", one], took).tooltip("只把這一個換成倉庫最新的，別的不動"),
+         go("hold", "先固定在這一版", ["hold", i.kind, i.name], `${i.name} 固定在現在這一版：同步不會換它`).tooltip("之後同步（包括自動的）都不換它，等你按「換成新版」")];
+  }
   // a row's add / rm in progress or done but not yet in the list: { doing } / { done }; null once the list shows it
   // (or a minute later)
   pendOf(i, inDir) {
@@ -437,7 +453,7 @@ export class AgentPopup {
     // its version, and 舊版 with why under the row (only what this agent reads; never in root's look-only list)
     const ver = this.vers ? versionText(i) : null;
     const old = this.vers && !this.ro && (i.status === "used" || i.status === "required" || inDir) ? oldReason(i, this.tool, this.data?.claude_mcp) : null;
-    if (old) head.child(badge("舊版", t.muted));
+    if (old) head.child(badge(old.kind === "held" ? "固定" : "舊版", t.muted));
     this.usedBadge(t, z, head, i);
     if (ver) head.child(div().id(`ver-${i.kind}-${i.name}`).flex_none().text_size(z - 2.5).text_color(t.muted).tooltip(ver.tip || ver.text).child(ver.text));
     const dirArgs = (verb) => [verb, "--dir", f.dir, i.kind, i.name];
@@ -504,7 +520,9 @@ export class AgentPopup {
     const unset = (i.vars ?? []).filter((v) => v && v.set === false && typeof v.name === "string").map((v) => v.name);
     return v_flex().id(`row-${i.kind}-${i.name}`).gap(4).px(8).py(5).rounded(6).hover((s) => s.bg(t.hover))
       .child(row)
-      .when(Boolean(old), (el) => el.child(div().pl(2).text_size(z - 1.5).text_color(t.muted).child(old?.why ?? "")))
+      .when(Boolean(old), (el) => el.child(h_flex().pl(2).gap(6).items_center().min_w(0)
+        .child(div().min_w(0).text_size(z - 1.5).text_color(t.muted).child(old?.why ?? ""))
+        .children(this.holdBtns(t, z, i, old, busy))))
       .when(unset.length > 0, (el) => el.child(div().pl(2).text_size(z - 1.5).text_color(t.working)
         .child(`⚠ 這台沒設環境變數：${unset.join("、")}（設好再開新的對話；值不會進倉）`)))
       .children(missing.map((x) => this.needLine(t, z, x)));

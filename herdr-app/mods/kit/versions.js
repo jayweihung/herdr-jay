@@ -26,13 +26,16 @@ export function versionText(i) {
 
 import { needOf, RELOAD_TEXT } from "./context.js";
 
-// why what an agent running `tool` (claude | codex | omp) reads is old (cm: that kit list's claude_mcp): { kind: "sync" | "reload" | "relaunch" | "new", why } | null
+// why what an agent running `tool` (claude | codex | omp) reads is old (cm: that kit list's claude_mcp): { kind: "sync" | "held" | "reload" | "relaunch" | "new", why } | null
 //   sync: this machine's copy for that tool is not the newest one (installed[tool].id ≠ version.id)
+//   held: that, but this machine keeps it on purpose (kit hold, kit api 1.17): not counted as old
 //   new:  the machine has it, but this conversation started before it changed (loaded "old")
 export function oldReason(i, tool, cm = null) {
   const v = i?.version, have = tool ? i?.installed?.[tool] : null;
+  const newest = v?.dirty ? "還沒送出的那份" : ` ${versionText(i)?.text ?? v?.id}`;
   if (v?.id && have?.id && have.id !== v.id)
-    return { kind: "sync", why: `這台還沒同步（最新是${v.dirty ? "還沒送出的那份" : ` ${versionText(i)?.text ?? v.id}`}）` };
+    return i.held === true ? { kind: "held", why: `固定在這台現在用的這一版（倉庫有新的：最新是${newest}）` }
+      : { kind: "sync", why: `這台還沒同步（最新是${newest}）` };
   if (i?.loaded !== "old") return null;
   // what that tool needs to read the new one (context.js needOf): reload | relaunch (close it and resume the same
   // conversation: Herdr does it once it waits, relaunch.js) | nothing (it re-reads each turn); omp's /reload-plugins
@@ -50,7 +53,7 @@ export function oldReason(i, tool, cm = null) {
 // relaunches them all: agent.js) | "3 項舊版：2 項按同步，1 項開新對話才會讀到" ("new": a skill this conversation
 // already read; neither a reload nor the same conversation again brings it)
 export function oldSummary(reasons) {
-  const old = reasons.filter(Boolean);
+  const old = reasons.filter((r) => r && r.kind !== "held");
   if (!old.length) return "全部最新";
   const stay = old.filter((r) => r.kind === "new").length, fix = old.length - stay;
   return `${old.length} 項舊版：${!stay ? "按同步" : !fix ? "開新對話才會讀到" : `${fix} 項按同步，${stay} 項開新對話才會讀到`}`;

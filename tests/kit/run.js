@@ -1951,6 +1951,10 @@ test("versions.js: an item's version in words, 舊版 and why (not synced here, 
   // summary
   assert.deepEqual([[null, null], []].map((r) => X.oldSummary(r)), ["全部最新", "全部最新"]);
   assert.equal(X.oldSummary([{ kind: "new" }, { kind: "new" }, { kind: "sync" }, null]), "3 項舊版：1 項按同步，2 項開新對話才會讀到");
+  // held (kit hold, kit api 1.17): kept on purpose, not old
+  assert.deepEqual(X.oldReason(it({ held: true }), "codex"), { kind: "held", why: "固定在這台現在用的這一版（倉庫有新的：最新是 11/21 版）" });
+  assert.equal(X.oldReason(it({ held: true }), "claude"), null, "held, and the machine has the newest: nothing");
+  assert.equal(X.oldSummary([{ kind: "held" }, null]), "全部最新"); assert.equal(X.oldSummary([{ kind: "held" }, { kind: "sync" }]), "1 項舊版：按同步");
 });
 test("usage limit (context.js): names, times, the lines of kit usage, when 繼續 is due", ({ context: X }) => {
   const now = new Date(2026, 10, 15, 9, 0).getTime(), at = (d, h, m) => new Date(2026, 10, d, h, m).getTime();
@@ -2247,6 +2251,37 @@ test("relaunch ask: an agent is called by its tab name, or by its title when the
   assert.equal(M.relaunch.agentName({ tab_name: "api", title: "Claude Code", address: "t1" }), "api（t1）");
   assert.equal(M.relaunch.agentName({ tab_name: "2", title: "api 測試", address: "t9" }), "api 測試（t9）");
 });
+test("agent popup (kit api 1.17): a skill whose newest isn't here: 只同步這個 (kit sync --only), 先固定在這一版 (kit hold); held: 固定, 換成新版, 取消固定; a rule: none of them", async (M) => {
+  const target = { key: "|/x|t1", term: "t1", machine: null, cwd: "/x", title: "Claude Code", app: "claude-code" };
+  const it = (kind, name, o = {}) => ({ kind, name, status: "used", version: { id: "v2", date: "2026-11-21" }, installed: { claude: { id: "v1" } }, loaded: "new", ...o });
+  const run = async (rows) => {
+    fresh(); fakeTerm("claude", `ok\nsession {"sessionId":"${SID}","status":"idle"}\ntranscript\n`); const probe = H.answer, calls = [];
+    H.answer = (argv, on) => {
+      if (argv[0] !== "kit") return probe(argv, on);
+      const a = argv.slice(1);
+      if (a[0] === "api") return { code: 0, stdout: "1.17\n", stderr: "" };
+      if (a[0] === "list") return { code: 0, stdout: `${JSON.stringify({ ...KIT_LIST, items: rows, here: { items: [], folder: { dir: "/x", why: "", items: [] } } })}\n`, stderr: "" };
+      if (a[0] === "sync" || a[0] === "hold") calls.push(a);
+      return probe(argv, on);
+    };
+    H.agents = [{ address: "t1", app: "claude-code", status: "idle", tab_name: "api" }]; H.terminals = [{ address: "t1", cwd: "/x" }];
+    H.store["kit.agent.data.v1"] = { [target.key]: { items: rows, here: { items: [], folder: { dir: "/x", why: "", items: [] } } } };
+    H.store["kit.agent.v1"] = { [target.key]: { started: Date.now(), at: Date.now() } };
+    const v = view(M, { role: "agent", target, overlay: "o7" }); await settle(); await tick(); await settle();
+    return { v, calls, shown: render(v) };
+  };
+  let r = await run([it("skill", "tdd"), it("rule", "zh-tw")]);
+  assert.match(r.shown, /tdd[\s\S]*舊版[\s\S]*這台還沒同步[\s\S]*只同步這個[\s\S]*先固定在這一版/);
+  assert.equal(Object.keys(H.clicks).filter((k) => /-rule-zh-tw$/.test(k) && /^(only|hold|take|unhold)-/.test(k)).length, 0, "a rule: goes with 同步");
+  H.clicks["only-skill-tdd"]({}, cx); await settle();
+  H.clicks["hold-skill-tdd"]({}, cx); await settle();
+  assert.deepEqual(r.calls, [["sync", "--only", "skill:tdd"], ["hold", "skill", "tdd"]]);
+  r = await run([it("skill", "tdd", { held: true })]);
+  assert.match(r.shown, /tdd[\s\S]*固定[\s\S]*固定在這台現在用的這一版（倉庫有新的[\s\S]*換成新版[\s\S]*取消固定/); assert.match(r.shown, /全部最新/); assert.doesNotMatch(r.shown, /舊版/);
+  H.clicks["take-skill-tdd"]({}, cx); await settle(); H.clicks["unhold-skill-tdd"]({}, cx); await settle();
+  assert.deepEqual(r.calls, [["sync", "--only", "skill:tdd"], ["hold", "skill", "tdd", "--off"]]);
+});
+
 test("agent popup: 同步 brings this agent up to date: kit sync, its list read again, /reload-plugins once, the relaunch ask once (also when reloadAfter did it), 全部最新", async (M) => {
   const target = { key: "|/x|t1", term: "t1", machine: null, cwd: "/x", title: "Claude Code", app: "claude-code" }, key = "kit.msg.agent:|/x|t1";
   const it = (kind, name, old, id = "v2") => ({ kind, name, status: "used", version: { id, date: "2026-11-21" }, installed: { claude: { id } }, loaded: old ? "old" : "new" });

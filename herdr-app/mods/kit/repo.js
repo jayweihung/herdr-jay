@@ -21,6 +21,7 @@ import { machinesTab, loadMachines, machinesDue, machinesLoading, agoText } from
 import { versionText } from "./versions.js";
 
 const LONG = 600000, SHORT = 120000; // how long kit sync / push, and the other actions, may take
+const DIFF_COMMITS = 20, DIFF_LINES = 150;   // 看改了什麼: commits listed, lines of one file's diff drawn
 const STALE = 60000, LOAD_TTL = 90000;
 // 收進來（N 個） under way: { url, id, source, allow, todo: [{ name, path }], total, ok: [names], bad: [lines], build }.
 // Shared, so it outlives the build that ran it: a reload of the mod (someone saving a file in it) or a restart ends that
@@ -894,8 +895,9 @@ export class Repo {
 
   // 更新 (was 收新版): kit collect <name> again for each collected skill whose author has a newer one (kit outdated), one source at
   // a time (the first that has some); then as after 收進來 (your own source is sent right after when nothing else waits)
-  collectNew(cx) {
-    const o = shared(OUTDATED), rows = (this.data?.items ?? []).filter((i) => (i.kind === "skill" || i.kind === "plugin") && i.from && outdatedOf(o, i) === "new");
+  // only: one row (只更新這個, under 看改了什麼) instead of all of the first source's
+  collectNew(cx, only = null) {
+    const o = shared(OUTDATED), rows = only ? [only] : (this.data?.items ?? []).filter((i) => (i.kind === "skill" || i.kind === "plugin") && i.from && outdatedOf(o, i) === "new");
     if (!rows.length) return;
     const source = rows[0].src, picked = rows.filter((i) => i.src === source), s = (this.data?.sources ?? []).find((x) => x.name === source);
     if (!this.startBusy("收", LONG + SHORT * picked.length)) return;
@@ -1073,7 +1075,10 @@ export class Repo {
     const badge = (text, color) => div().flex_none().px(5).rounded(4).text_size(z - 2.5).text_color(t.background).bg(color).child(text);
     const mark = (text, color) => div().flex_none().text_size(z - 2.5).text_color(color).child(text);
     const ver = apiAtLeast(null, 14) ? versionText(i) : null;   // kit api 1.14: "11/21 版", "原作者 11/10 版"
-    return h_flex().id(`repo-${i.kind}-${i.name}`).gap(8).items_center().px(8).py(6).rounded(6).cursor_pointer()
+    // 看改了什麼 (kit api 1.16, kit outdated --diff): on a collected one whose author has a newer one
+    const st = i.from ? outdatedOf(shared(OUTDATED), i) : null, canDiff = (st === "new" || st === "later") && apiAtLeast(null, 16);
+    const dv = canDiff ? this.diffs?.[`${i.src}|${i.name}`] : null;
+    const row = h_flex().id(`repo-${i.kind}-${i.name}`).gap(8).items_center().px(8).py(6).rounded(6).cursor_pointer()
       .hover((s) => s.bg(t.hover)).on_mouse_down("left", stop)
       .on_click((_e, cx) => cx.spawn(async (cx) => { await this.openItem(i, cx); cx.notify(); }))
       .child(v_flex().flex_1().min_w(0).gap(1)
@@ -1090,7 +1095,82 @@ export class Repo {
         .child(copyOnRight(div().min_w(0).truncate().text_size(z - 1.5).text_color(t.muted).child([from && i.from ? `收自 ${i.from}` : "", i.description_zh || i.description, i.src].filter(Boolean).join(" · ") || "（還沒寫說明）"),
           i.description_zh || i.description || i.path))
         .when(Boolean(partsLine(i.parts)), (el) => el.child(div().text_size(z - 1.5).text_color(t.dim).child(partsLine(i.parts)))))
+      .when(canDiff, (el) => el.child(btn(t, z, `diff-${i.src}-${i.name}`, dv?.open ? "收起來" : "看改了什麼", { tiny: true, on: (cx) => this.toggleDiff(i, cx) })))
       .child(div().flex_none().text_color(t.dim).child("›"));
+    return dv?.open ? v_flex().child(row).child(this.diffBox(t, z, i, dv)) : row;
+  }
+
+  // ---------- 看改了什麼: kit outdated --diff (what the author changed in that folder since it was collected) ----------
+  // kept per row while the panel lives (this.diffs["source|name"]: { open, busy, data, err, file: { name, busy, text, cut, err } });
+  // kit fetches and works it out, this only draws it
+  toggleDiff(i, cx) {
+    const k = `${i.src}|${i.name}`, dv = (this.diffs ??= {})[k];
+    if (dv?.open) dv.open = false;
+    else { this.diffs[k] = { ...(dv ?? {}), open: true }; if (!dv?.data && !dv?.busy) this.loadDiff(i, cx); }
+    cx.notify();
+  }
+  loadDiff(i, cx, file = null) {
+    const dv = this.diffs?.[`${i.src}|${i.name}`];
+    if (!dv) return;
+    if (file) dv.file = { name: file, busy: true }; else { dv.busy = true; dv.err = null; }
+    cx.notify();
+    cx.spawn(async (cx) => {
+      const r = await kit(["outdated", "--diff", i.name, "--to", i.src, ...(file ? ["--file", file] : []), "--json"], SHORT).catch((e) => ({ code: 1, out: "", err: String(e?.message ?? e) }));
+      const { data, error } = kitJson(r, "kit outdated --diff");
+      if (file) { if (dv.file?.name === file) dv.file = { name: file, busy: false, text: String(data?.diff ?? ""), cut: data?.diff_cut === true, err: error?.message ?? null }; }
+      else { dv.busy = false; dv.data = error ? null : data; dv.err = error?.message ?? null; }
+      try { cx.notify(); } catch {}
+    });
+  }
+  diffBox(t, z, i, dv) {
+    const k = `${i.src}|${i.name}`, d = dv.data;
+    const box = v_flex().id(`diffbox-${k}`).mx(8).mb(6).p(8).gap(6).rounded(6).bg(t.raised).text_size(z - 1.5).on_mouse_down("left", stop);
+    if (dv.busy) return box.child(waiting(t, z - 1.5, "向原作者拿改了什麼…"));
+    if (dv.err || !d) return box.child(div().text_color(t.ansi1).child(textBlock(`diff-err-${k}`, `看不到改了什麼：${dv.err ?? "kit 沒有回答"}`)))
+      .child(h_flex().child(btn(t, z, `diff-again-${k}`, "再試一次", { tiny: true, on: (cx) => this.loadDiff(i, cx) })));
+    const commits = d.commits ?? [], files = d.files ?? [];
+    box.child(div().child(`你的是 ${d.commit_date || "?"} 的版本，原作者現在是 ${d.now_date || "?"}`));
+    if (!commits.length && !files.length) box.child(div().text_color(t.muted).child(d.license ? "這個資料夾沒有改，只改了原作者的授權檔" : "這個資料夾沒有改"));
+    else if (d.license) box.child(div().text_color(t.blocked).child("原作者的授權檔也改了，更新前請看一下授權有沒有變"));
+    if (commits.length) {
+      box.child(div().font_semibold().child(`原作者改了 ${commits.length}${commits.length >= 100 ? " 次以上" : " 次"}（新的在上面）`));
+      box.child(v_flex().gap(1).children(commits.slice(0, DIFF_COMMITS).map((c) => h_flex().gap(8).min_w(0)
+        .child(div().flex_none().text_color(t.muted).child(String(c.date ?? "")))
+        .child(copyOnRight(div().min_w(0).truncate().child(String(c.subject ?? "")), String(c.subject ?? ""))))));
+      if (commits.length > DIFF_COMMITS) box.child(div().text_color(t.dim).child(`還有 ${commits.length - DIFF_COMMITS} 次沒列出來`));
+    }
+    if (files.length) {
+      const words = { A: "新增", M: "改了", D: "刪了" };
+      box.child(div().font_semibold().child(`改了哪些檔（${files.length} 個，點一個看差異）`));
+      for (const f of files) {
+        const on = dv.file?.name === f.path;
+        box.child(h_flex().id(`diff-file-${k}-${f.path}`).gap(8).min_w(0).px(4).rounded(4).cursor_pointer().hover((s) => s.bg(t.hover))
+          .on_click((_e, cx) => { if (on) { dv.file = null; cx.notify(); } else this.loadDiff(i, cx, f.path); })
+          .child(div().flex_none().text_color(t.dim).child(on ? "▾" : "▸"))
+          .child(div().flex_none().text_color(t.muted).child(words[f.status] ?? f.status))
+          .child(div().flex_1().min_w(0).truncate().font_family(mono()).child(f.path))
+          .when(f.added != null, (el) => el.child(div().flex_none().text_color(t.done).child(`+${f.added}`)))
+          .when(f.removed != null, (el) => el.child(div().flex_none().text_color(t.ansi1).child(`−${f.removed}`))));
+        if (on) box.child(this.diffText(t, z, k, dv.file));
+      }
+    }
+    return box.child(h_flex().gap(6).pt(2)
+      .child(btn(t, z, `diff-take-${k}`, "只更新這個", { tiny: true, kind: "primary", off: Boolean(this.busy || shared(COLLECT)), on: (cx) => this.collectNew(cx, i) })
+        .tooltip(`重新收原作者的新版，換掉 ${i.src} 裡的 ${i.name}（別的不動）`))
+      .child(btn(t, z, `diff-close-${k}`, "收起來", { tiny: true, on: (cx) => this.toggleDiff(i, cx) })));
+  }
+  // one file's diff: the first DIFF_LINES lines, + green, - red, @@ dim (each line is one element: more would pass Herdr's
+  // 50 ms render budget)
+  diffText(t, z, k, f) {
+    const box = v_flex().ml(14).p(6).rounded(4).bg(t.background).font_family(mono()).text_size(z - 2.5);
+    if (f.busy) return box.child(waiting(t, z - 2.5, "讀取中…"));
+    if (f.err) return box.child(div().text_color(t.ansi1).child(textBlock(`diff-ferr-${k}-${f.name}`, f.err)));
+    const lines = f.text.replace(/\n$/, "").split("\n").filter((l) => !/^(diff --git|index |--- |\+\+\+ )/.test(l));
+    if (!lines.length || (lines.length === 1 && !lines[0])) return box.child(div().text_color(t.muted).child("沒有文字的差異（可能是二進位檔）"));
+    box.children(lines.slice(0, DIFF_LINES).map((l) => div().whitespace_nowrap().overflow_x_hidden()
+      .text_color(l.startsWith("+") ? t.done : l.startsWith("-") ? t.ansi1 : l.startsWith("@@") ? t.dim : t.foreground).child(l || " ")));
+    if (lines.length > DIFF_LINES || f.cut) box.child(div().pt(4).text_color(t.dim).child(`只顯示前 ${Math.min(lines.length, DIFF_LINES)} 行${f.cut ? "（這個檔改得很多）" : `，共 ${lines.length} 行`}`));
+    return box;
   }
 
   // ---------- one file in the editor (in the panel, or its own window) ----------

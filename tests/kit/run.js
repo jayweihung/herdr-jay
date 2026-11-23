@@ -2694,7 +2694,7 @@ test("Skills 清單: your own first, then what was collected, one group per URL 
   assert.match(shown, /triage desc/, "open while searching"); assert.doesNotMatch(shown, /calm desc/);
 });
 
-test("收來的: kit outdated --json once a day (kit api 1.8): 有新版 / 連不到 on rows and groups, a line in 關係; 收新版 collects them again by name and sends your own", async (M) => {
+test("收來的: kit outdated --json once a day (kit api 1.8): 原作者有新版 / 連不到 on rows and groups, a line in 關係; 更新 collects them again by name and sends your own", async (M) => {
   const C = M.common;
   const o = C.outdatedFrom({ skills: [{ source: "mine", name: "tdd", state: "new", now: "b" }, { source: "mine", name: "archify", state: "unreachable" }, { source: "mine", name: "triage", state: "latest" }] }, 5);
   assert.equal(C.outdatedOf(o, { src: "mine", name: "tdd" }), "new"); assert.equal(C.outdatedOf(o, { source: "x", name: "tdd" }), null);
@@ -2726,11 +2726,11 @@ test("收來的: kit outdated --json once a day (kit api 1.8): 有新版 / 連�
   const v = view(M, { role: "repo" }); await settle(); await tick(); await settle(); await tick(); await settle();
   assert.deepEqual(args("outdated"), [["outdated", "--json"]]);
   let shown = render(v);
-  assert.match(shown, /收來的（照網址分）[\s\S]*1 個有新版、1 個連不到原作者/);
-  assert.match(shown, /收新版（1）/);
+  assert.match(shown, /收來的（照網址分）[\s\S]*原作者有 1 個新版、1 個連不到原作者/);
+  assert.match(shown, /更新（1）/);
   assert.match(shown, /archify[\s\S]*連不到[\s\S]*收自 tt\/archify/, "a single row: its badge");
-  assert.match(shown, /a\/r[\s\S]*2 個[\s\S]*1 個新版/, "the group says how many");
-  H.clicks["group-a/r"]({}, cx); assert.match(render(v), /tdd[\s\S]*新版[\s\S]*tdd desc/);
+  assert.match(shown, /a\/r[\s\S]*2 個[\s\S]*1 個原作者有新版/, "the group says how many");
+  H.clicks["group-a/r"]({}, cx); assert.match(render(v), /tdd[\s\S]*原作者有新版[\s\S]*tdd desc/);
   await tick(); await settle(); assert.equal(args("outdated").length, 1, "once a day");
   assert.equal(JSON.parse(localStorage.getItem("kit.outdated")).skills["mine|tdd"].state, "new", "kept on this computer");
   H.clicks["outdated-collect"]({}, cx); await settle(); await settle();
@@ -2738,7 +2738,7 @@ test("收來的: kit outdated --json once a day (kit api 1.8): 有新版 / 連�
   assert.deepEqual(args("push"), [["push", "--to", "mine", "--json"]], "your own source: sent");
   assert.deepEqual(args("add"), [], "already in use: not added again");
   shown = render(v);
-  assert.match(shown, /收了 1 個（原作者的新版）：tdd/); assert.doesNotMatch(shown, /收新版（/); assert.match(shown, /1 個連不到原作者/);
+  assert.match(shown, /收了 1 個（原作者的新版）：tdd/); assert.doesNotMatch(shown, /更新（\d+）/); assert.match(shown, /1 個連不到原作者/);
   out = { ...out, skills: [row("tdd", "latest"), row("triage", "latest"), row("archify", "latest")] };
   H.clicks["outdated-check"]({}, cx); await settle();
   assert.equal(args("outdated").length, 2, "⟳ asks now"); assert.match(render(v), /都是原作者最新的/);
@@ -2748,6 +2748,42 @@ test("收來的: kit outdated --json once a day (kit api 1.8): 有新版 / 連�
   try { localStorage.removeItem("kit.outdated"); } catch {}
   const v2 = view(M, { role: "repo" }); await settle(); await tick(); await settle(); await tick(); await settle();
   assert.equal(kitCalls("outdated").length, 0); assert.doesNotMatch(render(v2), /outdated-check|查原作者/);
+});
+
+test("看改了什麼 (kit api 1.16): kit outdated --diff for that row; its commits and files; a file's diff, + and - lines; 只更新這個 collects that one only", async (M) => {
+  const skill = (name) => ({ kind: "skill", name, status: "used", new: false, changed: false, source: "mine", description: `${name} desc`, path: `/x/skills/${name}/SKILL.md` });
+  const row = (name) => ({ source: "mine", name, url: "https://github.com/a/r", path: `skills/${name}`, ref: "", commit: "a".repeat(40), now: "b".repeat(40), state: "new" });
+  const diff = { kit: "0.11.0", api: "1.16", source: "mine", name: "tdd", url: "https://github.com/a/r", path: "skills/tdd", ref: "", commit: "a".repeat(40), commit_date: "2026-11-09",
+    now: "b".repeat(40), now_date: "2026-11-19", license: false, commits: [{ commit: "c".repeat(40), date: "2026-11-19", subject: "Stop over-editing" }],
+    files: [{ path: "SKILL.md", status: "M", added: 2, removed: 1 }, { path: "logo.png", status: "A", added: null, removed: null }] };
+  const file = { kit: "0.11.0", api: "1.16", name: "tdd", file: "SKILL.md", commit: "a".repeat(40), now: "b".repeat(40), diff: "diff --git a/SKILL.md b/SKILL.md\nindex 1..2 100644\n--- a/SKILL.md\n+++ b/SKILL.md\n@@ -1,2 +1,3 @@\n keep\n-old line\n+new line\n+more\n", diff_cut: false };
+  fresh();
+  fakeKit({ api: "1.16", list: { ...TEAM_LIST, sources: [{ name: "mine", source: "/x", dir: "/x", push: "direct", changed: [] }], items: [skill("tdd"), skill("calm")] },
+    push: () => ({ code: 0, stdout: `${JSON.stringify({ source: "mine", push: "direct", files: [], sent: true })}\n`, stderr: "" }) });
+  const base = H.answer;
+  H.answer = (argv) => { const a = argv[0] === "sh" ? argv.slice(4) : argv.slice(1);
+    if (a[0] === "outdated") return { code: 0, stdout: `${JSON.stringify(a.includes("--diff") ? (a.includes("--file") ? file : diff) : { kit: "0.11.0", api: "1.16", at: 1, skills: [row("tdd"), row("calm")] })}\n`, stderr: "" };
+    return a[0] === "collect" ? { code: 0, stdout: "", stderr: "kit：已收\n" } : base(argv); };
+  H.files = { "/x/third_party.lock": "tdd\thttps://github.com/a/r\tskills/tdd\ncalm\thttps://github.com/a/r\tskills/calm\n" };
+  for (const k of ["kit.outdated", "kit.groups"]) try { localStorage.removeItem(k); } catch {}
+  const args = (sub) => kitCalls(sub).map((c) => c.argv.slice(c.argv[0] === "sh" ? 4 : 1));
+  const v = view(M, { role: "repo" }); await settle(); await tick(); await settle(); await tick(); await settle();
+  render(v);   // (a click needs the drawn element)
+  H.clicks["group-a/r"]({}, cx);
+  assert.match(render(v), /tdd[\s\S]*原作者有新版[\s\S]*看改了什麼/);
+  H.clicks["diff-mine-tdd"]({}, cx); await settle(); await settle();
+  assert.deepEqual(args("outdated").filter((x) => x.includes("--diff")), [["outdated", "--diff", "tdd", "--to", "mine", "--json"]]);
+  let shown = render(v);
+  assert.match(shown, /你的是 2026-11-09 的版本，原作者現在是 2026-11-19/);
+  assert.match(shown, /原作者改了 1 次[\s\S]*2026-11-19[\s\S]*Stop over-editing/);
+  assert.match(shown, /改了哪些檔（2 個[\s\S]*改了[\s\S]*SKILL\.md[\s\S]*\+2[\s\S]*−1[\s\S]*新增[\s\S]*logo\.png/);
+  assert.match(shown, /只更新這個/);
+  H.clicks["diff-file-mine|tdd-SKILL.md"]({}, cx); await settle(); await settle();
+  assert.deepEqual(args("outdated").filter((x) => x.includes("--file")), [["outdated", "--diff", "tdd", "--to", "mine", "--file", "SKILL.md", "--json"]]);
+  shown = render(v);
+  assert.match(shown, /@@ -1,2 \+1,3 @@[\s\S]*keep[\s\S]*-old line[\s\S]*\+new line/); assert.doesNotMatch(shown, /index 1\.\.2|\+\+\+ b\/SKILL/, "git's header lines left out");
+  H.clicks["diff-take-mine|tdd"]({}, cx); await settle(); await settle();
+  assert.deepEqual(args("collect"), [["collect", "tdd", "--to", "mine"]], "only that one, not calm");
 });
 
 test("等你放行: what the commit hook blocked (ask.txt) is a card; 放行並送出 adds that very content to allow.txt, clears the ask and kit pending, sends; 不要 only clears", async (M) => {

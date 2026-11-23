@@ -892,7 +892,7 @@ export class Repo {
     this.runCollect(cx);
   }
 
-  // 收新版: kit collect <name> again for each collected skill whose author has a newer one (kit outdated), one source at
+  // 更新 (was 收新版): kit collect <name> again for each collected skill whose author has a newer one (kit outdated), one source at
   // a time (the first that has some); then as after 收進來 (your own source is sent right after when nothing else waits)
   collectNew(cx) {
     const o = shared(OUTDATED), rows = (this.data?.items ?? []).filter((i) => (i.kind === "skill" || i.kind === "plugin") && i.from && outdatedOf(o, i) === "new");
@@ -926,14 +926,16 @@ export class Repo {
       } catch {} finally { this.outBusy = false; try { cx.notify(); } catch {} }
     });
   }
-  // 收來的's head: what kit outdated said (N 個有新版、M 個連不到原作者, when), ⟳, and 收新版（N）
+  // 收來的's head: what kit outdated said (原作者有 N 個新版、M 個連不到原作者, when), ⟳, and 更新（N）
   theirsHead(t, z) {
     const o = shared(OUTDATED), api = apiAtLeast(null, 8), mine = (this.data?.items ?? []).filter((i) => (i.kind === "skill" || i.kind === "plugin") && i.from);
     const nNew = mine.filter((i) => outdatedOf(o, i) === "new").length, nGone = mine.filter((i) => outdatedOf(o, i) === "unreachable").length;
     const nLater = mine.filter((i) => outdatedOf(o, i) === "later").length;
+    // 更新 takes one source at a time (collectNew): its count is what this press does
+    const firstSrc = mine.find((i) => outdatedOf(o, i) === "new")?.src, nNow = mine.filter((i) => i.src === firstSrc && outdatedOf(o, i) === "new").length;
     // the counts only, so they fit beside the buttons; when it was asked is in the hover
     const said = !api ? "" : this.outBusy ? "查原作者有沒有新版…" : o?.err ? `沒查成功：${o.err}`
-      : !o?.at ? "" : [nNew ? `${nNew} 個有新版` : "", nLater ? `${nLater} 個先不收` : "", nGone ? `${nGone} 個連不到原作者` : ""].filter(Boolean).join("、") || "都是原作者最新的";
+      : !o?.at ? "" : [nNew ? `原作者有 ${nNew} 個新版` : "", nLater ? `${nLater} 個先不收` : "", nGone ? `${nGone} 個連不到原作者` : ""].filter(Boolean).join("、") || "都是原作者最新的";
     const when = o?.at && !this.outBusy ? `${agoText(o.at)}查的` : "";
     const keep = (o2, cx) => { setShared(OUTDATED, o2); localSet("kit.outdated", JSON.stringify(o2)); cx.notify(); };
     return h_flex().flex_none().px(8).pt(8).pb(2).gap(6).items_center()
@@ -942,7 +944,7 @@ export class Repo {
       .when(api, (el) => el.child(btn(t, z, "outdated-check", this.outBusy ? "查…" : "⟳", { tiny: true, off: Boolean(this.outBusy), on: (cx) => this.checkOutdated(cx) })))
       .when(nNew > 0, (el) => el.child(btn(t, z, "outdated-later", "先不收", { tiny: true, on: (cx) => keep(outdatedLater(o), cx) })))
       .when(nLater > 0 && nNew === 0, (el) => el.child(btn(t, z, "outdated-remind", "再提醒", { tiny: true, on: (cx) => keep(outdatedRemind(o), cx) })))
-      .when(nNew > 0, (el) => el.child(btn(t, z, "outdated-collect", `收新版（${nNew}）`, { tiny: true, kind: "primary", off: Boolean(this.busy || shared(COLLECT)), on: (cx) => this.collectNew(cx) })));
+      .when(nNew > 0, (el) => el.child(btn(t, z, "outdated-collect", `更新（${nNow}）`, { tiny: true, kind: "primary", off: Boolean(this.busy || shared(COLLECT)), on: (cx) => this.collectNew(cx) }).tooltip(`重新收原作者的新版，換掉 ${firstSrc} 裡的 ${nNow} 個${nNew > nNow ? `（其他來源的 ${nNew - nNow} 個下一次再按）` : ""}`)));
   }
 
   // a run another build started (or that stopped without ending): go on with what is left, in whichever copy takes the lock
@@ -1060,7 +1062,7 @@ export class Repo {
       .child(copyOnRight(div().min_w(0).truncate().font_semibold().child(g.from), g.from))
       .child(div().flex_none().text_size(z - 2).text_color(t.dim).child(`${g.rows.length} 個`))
       .when(ch, (el) => el.child(div().size(6).rounded(3).bg(t.working)))
-      .when(nNew > 0, (el) => el.child(mark(nNew === g.rows.length ? "新版" : `${nNew} 個新版`, t.muted)))
+      .when(nNew > 0, (el) => el.child(mark(nNew === g.rows.length ? "原作者有新版" : `${nNew} 個原作者有新版`, t.muted)))
       .when(gone, (el) => el.child(badge("連不到", t.ansi1)))
       .child(div().flex_1());
   }
@@ -1080,8 +1082,8 @@ export class Repo {
           .when(Boolean(i.changed), (el) => el.child(badge("改過", t.working)))
           .when(Boolean(checkBad(this.data, i.src)?.bad?.some((b) => b.kind === i.kind && b.name === i.name)), (el) => el.child(badge("送不出去", t.ansi1)))
           .when(Boolean(i.new), (el) => el.child(badge("新", t.done)))
-          .when(Boolean(i.from) && outdatedOf(shared(OUTDATED), i) === "new", (el) => el.child(mark("新版", t.muted)))
-          .when(Boolean(i.from) && outdatedOf(shared(OUTDATED), i) === "later", (el) => el.child(mark("新版・先不收", t.dim)))
+          .when(Boolean(i.from) && outdatedOf(shared(OUTDATED), i) === "new", (el) => el.child(mark("原作者有新版", t.muted)))
+          .when(Boolean(i.from) && outdatedOf(shared(OUTDATED), i) === "later", (el) => el.child(mark("原作者有新版・先不收", t.dim)))
           .when(Boolean(i.from) && outdatedOf(shared(OUTDATED), i) === "unreachable", (el) => el.child(badge("連不到", t.ansi1)))
           .when(i.status === "required", (el) => el.child(badge("團隊必備", t.accent)))
           .when(Boolean(ver), (el) => el.child(div().id(`repo-ver-${i.kind}-${i.name}`).flex_none().text_size(z - 2.5).text_color(t.muted).tooltip(ver.tip || ver.text).child(ver.text))))

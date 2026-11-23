@@ -101,15 +101,16 @@ export class AgentPopup {
   // list read again, and for each old row (versions.js oldReason) what 同步 can do: a reload gets /reload-plugins,
   // one read only when a conversation starts (rules, MCP …) the relaunch ask (relaunch.js offerRelaunch); each once,
   // also when reloadAfter already did it for this agent (did). Said in the line over kit's words.
-  sync(cx) {
+  // only: one row (同步這個: kit sync --only, kit api 1.18), else everything (全部同步: kit sync)
+  sync(cx, only = null) {
     const machine = this.target?.machine ?? null, msg = MSG(this.where), did = {};
-    kitAction(this, cx, { label: "同步", args: ["sync"], ttl: LONG, machine, msg, did, after: (cx) => {
+    kitAction(this, cx, { label: "同步", args: only ? ["sync", "--only", `${only.kind}:${only.name}`] : ["sync"], ttl: LONG, machine, msg, did, after: (cx) => {
       markChanged(machine);
       if (shared(msg)?.ok !== true) return;
       this.syncing = true;
       cx.spawn(async (cx) => {
         let line;
-        try { line = await this.catchUp(did); } catch (e) { line = `同步好了；這個 agent 沒有跟上：${e?.message ?? e}`; }
+        try { line = await this.catchUp(did, only); } catch (e) { line = `同步好了；這個 agent 沒有跟上：${e?.message ?? e}`; }
         const m = shared(msg);
         if (m) setShared(msg, { ...m, text: [line, m.text].filter(Boolean).join("\n") });
         this.syncing = false;
@@ -117,14 +118,15 @@ export class AgentPopup {
       });
     } });
   }
-  async catchUp(did) {
+  async catchUp(did, only = null) {
     const tg = this.target ?? {}, tool = toolOf(tg.app, tg.program?.key);
     const a = (agents() ?? []).find((x) => x.address === tg.term);
     if (!a || !tool) return "同步好了；讀不到這個 agent（它可能已經關掉）";
     const d = await loadAgent(tg.machine ?? null, tg.cwd, tg.term, tool);
     if (d?.error) return `同步好了；讀不到這個 agent 的清單：${d.error}`;
-    const old = usingOf(d).map((i) => [i, oldReason(i, tool, d.claude_mcp)]).filter(([, r]) => r);
-    if (!old.length) return "同步好了，這個 agent 全部最新";
+    const old = usingOf(d).filter((i) => !only || (i.kind === only.kind && i.name === only.name))
+      .map((i) => [i, oldReason(i, tool, d.claude_mcp)]).filter(([, r]) => r && r.kind !== "held");
+    if (!old.length) return only ? `同步好了，這個 agent 的 ${only.name} 是最新的` : "同步好了，這個 agent 全部最新";
     const of = (k) => old.filter(([, r]) => r.kind === k).map(([i]) => i), prev = did[a.address] ?? {}, parts = [];
     // a relaunch reads everything again: no /reload-plugins before it
     if (of("reload").length && !of("relaunch").length) {
@@ -153,21 +155,18 @@ export class AgentPopup {
     } });
     if (started) this.pend = { ...(this.pend ?? {}), [k]: { doing: want } };
   }
-  // one at a time (kit api 1.17), on a skill or plugin of the whole account whose newest the machine has not got:
-  // 只同步這個 (kit sync --only) or 固定在這一版 (kit hold); held: 換成新版 (still held) or 取消固定. Rules and MCP are
-  // not held (Claude reads a rule's file in the source itself): they go with 同步
+  // one at a time (kit api 1.18: nothing changes until asked): a row whose newest this machine has not got gets 同步這個
+  // (kit sync --only, then this agent catches up as with 全部同步); a held one (kit hold): 換成新版 or 取消固定
   holdBtns(t, z, i, old, busy) {
-    if (this.ro || (old.kind !== "sync" && old.kind !== "held") || (i.kind !== "skill" && i.kind !== "plugin")
-      || (i.status !== "used" && i.status !== "required") || !apiAtLeast(this.target?.machine ?? null, 17)) return [];
-    const one = `${i.kind}:${i.name}`, go = (key, label, args, okText) => btn(t, z, `${key}-${i.kind}-${i.name}`, label, { tiny: true, off: busy,
-      on: (cx) => kitAction(this, cx, { label: `${label} ${i.name}`, args, ttl: SHORT, okText, machine: this.target?.machine ?? null,
-        msg: MSG(this.where), after: () => markChanged(this.target?.machine ?? null) }) });
-    const took = `${i.name} 換成倉庫最新的了；這個 agent 要開新對話（或重開接回）才會用到`;
-    return old.kind === "held"
-      ? [go("take", "換成新版", ["sync", "--only", one], `${took}（還是固定，固定在新的這一版）`).tooltip("只換這一個，別的不動；換完還是固定"),
-         go("unhold", "取消固定", ["hold", i.kind, i.name, "--off"], `${i.name} 不再固定，之後同步會跟著倉庫`).tooltip("之後同步（包括自動的）會換成倉庫最新的")]
-      : [go("only", "只同步這個", ["sync", "--only", one], took).tooltip("只把這一個換成倉庫最新的，別的不動"),
-         go("hold", "先固定在這一版", ["hold", i.kind, i.name], `${i.name} 固定在現在這一版：同步不會換它`).tooltip("之後同步（包括自動的）都不換它，等你按「換成新版」")];
+    if (this.ro || (old.kind !== "sync" && old.kind !== "held") || !apiAtLeast(this.target?.machine ?? null, 18)) return [];
+    const off = Boolean(busy || this.syncing);
+    if (old.kind === "sync") return [btn(t, z, `only-${i.kind}-${i.name}`, "同步這個", { tiny: true, off, on: (cx) => this.sync(cx, i) })
+      .tooltip("只把這一個換成倉庫最新的，別的不動")];
+    const machine = this.target?.machine ?? null;
+    return [btn(t, z, `take-${i.kind}-${i.name}`, "換成新版", { tiny: true, off, on: (cx) => this.sync(cx, i) }).tooltip("只換這一個；換完還是固定，固定在新的這一版"),
+      btn(t, z, `unhold-${i.kind}-${i.name}`, "取消固定", { tiny: true, off, on: (cx) => kitAction(this, cx, { label: `取消固定 ${i.name}`, args: ["hold", i.kind, i.name, "--off"],
+        ttl: SHORT, okText: `${i.name} 不再固定：按「全部同步」時會一起換`, machine, msg: MSG(this.where), after: () => markChanged(machine) }) })
+        .tooltip("之後按「全部同步」會一起換")];
   }
   // a row's add / rm in progress or done but not yet in the list: { doing } / { done }; null once the list shows it
   // (or a minute later)
@@ -226,6 +225,12 @@ export class AgentPopup {
     return root.child(this.agentList(t, z, d));
   }
 
+  // kit api 1.18: nothing changes until asked, so the button says it takes everything, and how many this agent has waiting
+  syncWord(d) {
+    if (!apiAtLeast(this.target?.machine ?? null, 18)) return "同步";
+    const n = usingOf(d).filter((i) => oldReason(i, toolOf(this.target?.app, this.target?.program?.key), d.claude_mcp)?.kind === "sync").length;
+    return n ? `全部同步（${n}）` : "全部同步";
+  }
   paneHeader(t, z) {
     const d = this.data, busy = this.busy, tg = this.target ?? {};
     const pic = icon(tg.program, 18, t.foreground), canSync = d && !d.error && !d.here?.user;
@@ -234,7 +239,8 @@ export class AgentPopup {
       .child(v_flex().flex_1().min_w(0)
         // only the name: where it runs is in its own pane already (jay); ⟳ turns while reading
         .child(copyOnRight(div().truncate().font_semibold().child(tg.title || "agent"), tg.title || "agent")))
-      .when(Boolean(canSync), (el) => el.child(btn(t, z, "sync", busy === "同步" || this.syncing ? "同步中…" : "同步", { small: true, off: Boolean(busy || this.syncing), on: (cx) => this.sync(cx) })))
+      .when(Boolean(canSync), (el) => el.child(btn(t, z, "sync", busy === "同步" || this.syncing ? "同步中…" : this.syncWord(d), { small: true, off: Boolean(busy || this.syncing), on: (cx) => this.sync(cx) })
+        .tooltip("把這台的規則、技能、MCP、外掛全部換成倉庫最新的（固定的除外）")))
       // pressable while it reads too: a newer read takes over one that hangs
       .child(btn(t, z, "reload", this.loading ? spin(z - 2, t.dim) : "⟳", { small: true, on: (cx) => { this.want(); this.loadUsed(cx); } }))
       .child(btn(t, z, "close", "✕", { small: true, on: () => closeOverlay(props()?.overlay) }));

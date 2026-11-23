@@ -1932,7 +1932,7 @@ test("versions.js: an item's version in words, 舊版 and why (not synced here, 
   assert.equal(X.versionText({ ...col, upstream: { ...col.upstream, date: null } }).text, "11/15 版");
   // old: not synced for that tool; read before it changed; not synced wins
   const it = (o) => ({ kind: "rule", name: "zh-tw", version: v(), installed: { claude: { id: "a1b2c3d4", at: 1 }, codex: { id: "old00000", at: 1 }, omp: null }, ...o });
-  assert.deepEqual(["claude", "codex", "omp", null].map((tool) => X.oldReason(it(), tool)?.why ?? null), [null, "這台還沒同步（最新是 11/21 版）", null, null]);
+  assert.deepEqual(["claude", "codex", "omp", null].map((tool) => X.oldReason(it(), tool)?.why ?? null), [null, "倉庫有新版（最新是 11/21 版），這台還沒換", null, null]);
   assert.deepEqual(X.oldReason(it({ loaded: "old" }), "claude"), { kind: "relaunch", why: "這次對話開始後改過（11/21 版），重開接回同一個對話才會讀到" });
   assert.deepEqual(X.oldReason(it({ kind: "skill", loaded: "old" }), "claude"), { kind: "new", why: "這次對話用的是舊版，開新對話才會讀到新的" });
   assert.deepEqual(X.oldReason(it({ kind: "plugin", loaded: "old" }), "claude"), { kind: "reload", why: "這次對話開始後改過（11/21 版），打 /reload-plugins 就會讀到" }, "Claude reloads plugins");
@@ -2251,7 +2251,7 @@ test("relaunch ask: an agent is called by its tab name, or by its title when the
   assert.equal(M.relaunch.agentName({ tab_name: "api", title: "Claude Code", address: "t1" }), "api（t1）");
   assert.equal(M.relaunch.agentName({ tab_name: "2", title: "api 測試", address: "t9" }), "api 測試（t9）");
 });
-test("agent popup (kit api 1.17): a skill whose newest isn't here: 只同步這個 (kit sync --only), 先固定在這一版 (kit hold); held: 固定, 換成新版, 取消固定; a rule: none of them", async (M) => {
+test("agent popup (kit api 1.18): a row the machine has not got the newest of: 同步這個 (kit sync --only), any kind; held: 固定, 換成新版, 取消固定; the big one 全部同步（N）", async (M) => {
   const target = { key: "|/x|t1", term: "t1", machine: null, cwd: "/x", title: "Claude Code", app: "claude-code" };
   const it = (kind, name, o = {}) => ({ kind, name, status: "used", version: { id: "v2", date: "2026-11-21" }, installed: { claude: { id: "v1" } }, loaded: "new", ...o });
   const run = async (rows) => {
@@ -2259,7 +2259,7 @@ test("agent popup (kit api 1.17): a skill whose newest isn't here: 只同步這�
     H.answer = (argv, on) => {
       if (argv[0] !== "kit") return probe(argv, on);
       const a = argv.slice(1);
-      if (a[0] === "api") return { code: 0, stdout: "1.17\n", stderr: "" };
+      if (a[0] === "api") return { code: 0, stdout: "1.18\n", stderr: "" };
       if (a[0] === "list") return { code: 0, stdout: `${JSON.stringify({ ...KIT_LIST, items: rows, here: { items: [], folder: { dir: "/x", why: "", items: [] } } })}\n`, stderr: "" };
       if (a[0] === "sync" || a[0] === "hold") calls.push(a);
       return probe(argv, on);
@@ -2270,15 +2270,15 @@ test("agent popup (kit api 1.17): a skill whose newest isn't here: 只同步這�
     const v = view(M, { role: "agent", target, overlay: "o7" }); await settle(); await tick(); await settle();
     return { v, calls, shown: render(v) };
   };
-  let r = await run([it("skill", "tdd"), it("rule", "zh-tw")]);
-  assert.match(r.shown, /tdd[\s\S]*舊版[\s\S]*這台還沒同步[\s\S]*只同步這個[\s\S]*先固定在這一版/);
-  assert.equal(Object.keys(H.clicks).filter((k) => /-rule-zh-tw$/.test(k) && /^(only|hold|take|unhold)-/.test(k)).length, 0, "a rule: goes with 同步");
-  H.clicks["only-skill-tdd"]({}, cx); await settle();
-  H.clicks["hold-skill-tdd"]({}, cx); await settle();
-  assert.deepEqual(r.calls, [["sync", "--only", "skill:tdd"], ["hold", "skill", "tdd"]]);
+  let r = await run([it("skill", "tdd"), it("rule", "zh-tw"), it("mcp", "rea", { version: { id: "v1" } })]);
+  assert.match(r.shown, /全部同步（2）/, "two of this agent's wait (rea is the newest)");
+  assert.match(r.shown, /tdd[\s\S]*舊版[\s\S]*倉庫有新版（最新是 11\/21 版），這台還沒換[\s\S]*同步這個/);
+  assert.ok(H.clicks["only-rule-zh-tw"], "a rule too"); assert.ok(!H.clicks["only-mcp-rea"], "the newest: none");
+  H.clicks["only-rule-zh-tw"]({}, cx); await settle(); await settle();
+  assert.deepEqual(r.calls, [["sync", "--only", "rule:zh-tw"]]);
   r = await run([it("skill", "tdd", { held: true })]);
-  assert.match(r.shown, /tdd[\s\S]*固定[\s\S]*固定在這台現在用的這一版（倉庫有新的[\s\S]*換成新版[\s\S]*取消固定/); assert.match(r.shown, /全部最新/); assert.doesNotMatch(r.shown, /舊版/);
-  H.clicks["take-skill-tdd"]({}, cx); await settle(); H.clicks["unhold-skill-tdd"]({}, cx); await settle();
+  assert.match(r.shown, /tdd[\s\S]*固定[\s\S]*固定在這台現在用的這一版（倉庫有新的[\s\S]*換成新版[\s\S]*取消固定/); assert.match(r.shown, /全部最新/); assert.doesNotMatch(r.shown, /舊版|全部同步（/);
+  H.clicks["take-skill-tdd"]({}, cx); await settle(); await settle(); H.clicks["unhold-skill-tdd"]({}, cx); await settle();
   assert.deepEqual(r.calls, [["sync", "--only", "skill:tdd"], ["hold", "skill", "tdd", "--off"]]);
 });
 

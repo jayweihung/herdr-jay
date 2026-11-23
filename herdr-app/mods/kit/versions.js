@@ -27,7 +27,8 @@ export function versionText(i) {
 import { needOf, RELOAD_TEXT } from "./context.js";
 
 // why what an agent running `tool` (claude | codex | omp) reads is old (cm: that kit list's claude_mcp): { kind: "sync" | "held" | "reload" | "relaunch" | "new", why } | null
-//   sync: this machine's copy for that tool is not the newest one (installed[tool].id ≠ version.id)
+//   sync: this machine's copy for that tool is not the newest one (installed[tool].id ≠ version.id); kit 0.13 changes it
+//         only when asked (同步這個, 全部同步)
 //   held: that, but this machine keeps it on purpose (kit hold, kit api 1.17): not counted as old
 //   new:  the machine has it, but this conversation started before it changed (loaded "old")
 export function oldReason(i, tool, cm = null) {
@@ -35,7 +36,7 @@ export function oldReason(i, tool, cm = null) {
   const newest = v?.dirty ? "還沒送出的那份" : ` ${versionText(i)?.text ?? v?.id}`;
   if (v?.id && have?.id && have.id !== v.id)
     return i.held === true ? { kind: "held", why: `固定在這台現在用的這一版（倉庫有新的：最新是${newest}）` }
-      : { kind: "sync", why: `這台還沒同步（最新是${newest}）` };
+      : { kind: "sync", why: `倉庫有新版（最新是${newest}），這台還沒換` };
   if (i?.loaded !== "old") return null;
   // what that tool needs to read the new one (context.js needOf): reload | relaunch (close it and resume the same
   // conversation: Herdr does it once it waits, relaunch.js) | nothing (it re-reads each turn); omp's /reload-plugins

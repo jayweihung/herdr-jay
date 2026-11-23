@@ -18,6 +18,7 @@ import { versionText, oldReason, oldSummary } from "./versions.js";
 
 const LONG = 600000, SHORT = 120000; // how long kit sync and install, and the other actions, may take
 const LOAD_TTL = 90000;
+const USED_RETRY = 10000;   // kit used with no answer: asked again this often while the popup is open
 // what this agent reads of kit's: the account's (used, required) and its folder's (kit add --dir)
 const usingOf = (d) => {
   const dir = new Set(d?.here?.folder?.items ?? []);
@@ -44,7 +45,11 @@ export class AgentPopup {
     this.input.on("change", (_e, cx) => { this.filter = this.input.value().trim().toLowerCase(); cx.notify(); });
     checkApi(this.target.machine ?? null, cx);
     this.used = undefined;   // what this conversation used (kit used): undefined not asked yet, null asking or no answer
-    cx.timer.every(2000, (cx) => { if (!this.data) cx.notify(); if (this.used === undefined) this.loadUsed(cx); });   // (also: kit api known later)
+    // no answer is asked again every USED_RETRY: a Claude just started has no transcript until its first reply
+    cx.timer.every(2000, (cx) => {
+      if (!this.data) cx.notify();
+      if (this.used === undefined || (this.used === null && Date.now() - (this.usedAt ?? 0) > USED_RETRY)) this.loadUsed(cx, this.used === null);
+    });   // (also: kit api known later)
     this.loadUsed(cx);
     // 收進 kit (a blocked row): which row's form is open ({ key, source: picked or null }) and its original URL
     this.taking = null;
@@ -53,10 +58,11 @@ export class AgentPopup {
   }
 
   // kit used (kit api 1.10) on the agent's machine: when the popup opens and on ⟳
-  loadUsed(cx) {
+  // quiet: a retry of no answer, which keeps saying 還讀不到 rather than flashing 讀取中 every USED_RETRY
+  loadUsed(cx, quiet = false) {
     const tg = this.target ?? {}, machine = tg.machine ?? null;
     if (this.usedBusy || !tg.term || !apiAtLeast(machine, 10)) return;
-    this.usedBusy = true; this.used = null;
+    this.usedBusy = true; this.usedQuiet = quiet; this.used = null;
     cx.spawn(async (cx) => {
       let u = null;
       try {
@@ -66,7 +72,7 @@ export class AgentPopup {
           if (r.code === 0) { const d = JSON.parse(r.out); if (d && typeof d === "object" && !d.note) u = d; }
         }
       } catch {}
-      this.used = u; this.usedBusy = false; cx.notify();
+      this.used = u; this.usedBusy = false; this.usedAt = Date.now(); cx.notify();
     });
   }
 
@@ -234,11 +240,12 @@ export class AgentPopup {
     this.vers = this.ro || apiAtLeast(at, 14);
     this.tool = toolOf(this.target?.app, this.target?.program?.key);
     const using = usingOf(d);
+    let latest = false;   // 全部最新: said on the 這個 agent 在用的 line, not a line of its own
     if (this.ro) { /* no 舊版 */ } else if (!this.vers) {
       if (apiState(at)?.ok) body.child(div().text_size(z - 1.5).text_color(t.muted).child(`${at ? "那台" : "這台"}的 kit 太舊，更新後才看得到版本`));
     } else if (using.some((i) => i.version)) {
       const line = oldSummary(using.map((i) => oldReason(i, this.tool, d?.claude_mcp)));
-      body.child(div().text_size(z - 1.5).text_color(line === "全部最新" ? t.muted : t.foreground).child(line));
+      if (line === "全部最新") latest = true; else body.child(div().text_size(z - 1.5).text_color(t.foreground).child(line));
     }
     // 以後都直接做 (relaunch.js): said here, with the way back to being asked
     if (shared(RELAUNCH_AUTO) === true) body.child(h_flex().gap(6).items_center().text_size(z - 1.5)
@@ -258,10 +265,11 @@ export class AgentPopup {
       body.child(div().mt(4).border_t(1).border_color(t.border));
     }
     // 2. what it reads besides: kit's for the whole account (can be taken off) and its folder's / account's own (look only)
-    body.child(div().font_semibold().child(ag ? "另外也讀到的" : "這個 agent 在用的"));
+    body.child(h_flex().gap(8).items_baseline().child(div().font_semibold().child(ag ? "另外也讀到的" : "這個 agent 在用的"))
+      .when(latest, (el) => el.child(div().text_size(z - 1.5).text_color(t.muted).child("全部最新"))));
     // what this conversation used so far (kit used): rules are always read, so only skills and MCP
     if (!this.ro && apiAtLeast(this.target?.machine ?? null, 10)) body.child(div().text_size(z - 1.5).text_color(t.muted)
-      .child(this.usedBusy ? "這次對話用了：讀取中…" : this.used ? `${usedLine(this.used)}。規則每次對話都會帶。` : "這次對話用了什麼：讀不到（這個 agent 的對話紀錄找不到）"));
+      .child(this.usedBusy && !this.usedQuiet ? "這次對話用了：讀取中…" : this.used ? `${usedLine(this.used)}。規則每次對話都會帶。` : "這次對話用了什麼：還讀不到（剛開、還沒對話的 agent 沒有對話紀錄；每 10 秒再讀一次）"));
     for (const kind of ["rule", "skill", "mcp", "plugin"]) {
       const kitRows = items.filter((i) => i.kind === kind && (i.status === "used" || i.status === "required" || mine(i)) && hit(i));
       const ownRows = here.filter((i) => i.kind === kind && hit(i));
@@ -423,7 +431,7 @@ export class AgentPopup {
     const head = h_flex().gap(5).items_center().min_w(0)
       .child(copyOnRight(div().min_w(0).truncate().font_semibold().text_color(i.status === "unused" && !inDir ? t.muted : t.foreground).child(i.name), i.name));
     if (i.status === "required") head.child(badge("Kit · 團隊必備", t.accent));
-    if (i.status === "used") head.child(badge("Kit · 整個帳號", t.working));
+    if (i.status === "used") head.child(badge(canDir ? "Kit · 整個帳號" : "Kit", t.working));
     if (inDir) head.child(badge("Kit · 這個資料夾", t.done));
     if (i.new) head.child(badge("新", t.done));
     // its version, and 舊版 with why under the row (only what this agent reads; never in root's look-only list)
@@ -450,12 +458,12 @@ export class AgentPopup {
     } else if (canDir && i.kind === "plugin") {   // a plugin: the whole account only
       action.child(div().text_size(z - 1.5).text_color(t.dim).child(i.status === "unused" ? "只能加到整個帳號" : "整個帳號的"));
     } else if (canDir) {
-      if (inDir) action.child(btn(t, z, `rmdir-${i.kind}-${i.name}`, "從資料夾拿掉", { small: true, off: busy, on: (cx) => this.rowAct(i, "nodir", `從資料夾拿掉 ${i.name}`, dirArgs("rm"), cx, `已從 ${fd} 拿掉 ${i.name}。在 ${fd} 開新的對話就不會有了。`) }));
+      if (inDir) action.child(btn(t, z, `rmdir-${i.kind}-${i.name}`, "拿掉", { tiny: true, off: busy, on: (cx) => this.rowAct(i, "nodir", `從資料夾拿掉 ${i.name}`, dirArgs("rm"), cx, `已從 ${fd} 拿掉 ${i.name}。在 ${fd} 開新的對話就不會有了。`) }).tooltip("從這個資料夾拿掉"));
       else if (i.status === "unused") action.child(btn(t, z, `adddir-${i.kind}-${i.name}`, "加到這個資料夾", { small: true, kind: "primary", off: busy, on: (cx) => this.rowAct(i, "dir", `加到這個資料夾 ${i.name}`, dirArgs("add"), cx, `已加到 ${fd}：${i.name}。在 ${fd}（含子資料夾）開新的對話才會讀到，別的地方不受影響。`) }));
     } else if (i.status === "required") action.child(div().text_size(z - 1.5).text_color(t.dim).child("拿不掉"));
-    else if (i.status === "used") action.child(btn(t, z, `rm-${i.kind}-${i.name}`, "從帳號拿掉", { small: true, off: busy, on: (cx) => this.rowAct(i, "unused", `從帳號拿掉 ${i.name}`, ["rm", i.kind, i.name], cx, `已從整個帳號拿掉 ${i.name}。開新的對話就不會有了。`) }));
+    else if (i.status === "used") action.child(btn(t, z, `rm-${i.kind}-${i.name}`, "拿掉", { tiny: true, off: busy, on: (cx) => this.rowAct(i, "unused", `從帳號拿掉 ${i.name}`, ["rm", i.kind, i.name], cx, `已從整個帳號拿掉 ${i.name}。開新的對話就不會有了。`) }).tooltip("從整個帳號拿掉"));
     else if (!inDir) action.child(btn(t, z, `add-${i.kind}-${i.name}`, "加到整個帳號", { small: true, kind: "primary", off: busy, on: (cx) => this.rowAct(i, "used", `加到整個帳號 ${i.name}`, ["add", i.kind, i.name], cx, `已加到整個帳號：${i.name}。每個資料夾開新的對話都會讀到。`) }));
-    const sub = [from && i.from ? `收自 ${i.from}` : "", i.description_zh || i.description, i.source].filter(Boolean).join(" · ");
+    const sub = [from && i.from ? `收自 ${i.from}` : "", i.description_zh || i.description || "沒有說明", i.source].filter(Boolean).join(" · ");
     const row = h_flex().gap(8).items_center()
       .child(v_flex().flex_1().min_w(0).gap(1)
         .child(this.descCol(t, z, `${i.kind}-${i.name}`, head, sub, i.description_zh || i.description || i.source || sub, i.description_zh ? i.description : ""))

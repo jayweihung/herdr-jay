@@ -92,9 +92,12 @@ New-Item -ItemType Directory -Force "$env:USERPROFILE\src" | Out-Null
 
 Get herdr-jay now (step 2 needs its `herdr-core\patches`) / 先抓 herdr-jay（第 2 步要用）:
 
+Every clone here has `-c core.autocrlf=false`: with Git for Windows' usual `autocrlf=true` the files are checked out
+with CRLF and `git am` of the patches fails. 每個 clone 都加 `-c core.autocrlf=false`，不然 `git am` 會套不上。
+
 ```powershell
 Set-Location "$env:USERPROFILE\src"
-git clone https://github.com/jayweihung/herdr-jay.git
+git clone -c core.autocrlf=false https://github.com/jayweihung/herdr-jay.git
 ```
 
 Or on GitHub **Code → Download ZIP**, extract into `%USERPROFILE%\src` and rename the folder that directly contains
@@ -157,7 +160,7 @@ Install the core **before** the app: an app that finds no core offers to downloa
 
 ```powershell
 Set-Location "$env:USERPROFILE\src"
-git clone --recurse-submodules --shallow-submodules https://github.com/herdrdev/herdr-core.git
+git clone -c core.autocrlf=false --recurse-submodules --shallow-submodules https://github.com/herdrdev/herdr-core.git
 Set-Location herdr-core
 git checkout v0.1.21
 git rev-parse --short HEAD                          # must be 1b0393f (README versions table)
@@ -226,7 +229,7 @@ Later updates by hand, while it runs: `hc update --from target\release\herdr-cor
 
 ```powershell
 Set-Location "$env:USERPROFILE\src"
-git clone --recurse-submodules --shallow-submodules https://github.com/herdrdev/herdr-app.git
+git clone -c core.autocrlf=false --recurse-submodules --shallow-submodules https://github.com/herdrdev/herdr-app.git
 Set-Location herdr-app
 git checkout v0.1.16
 git rev-parse --short HEAD                          # must be 034f8b8 (README versions table)

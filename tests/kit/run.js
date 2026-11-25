@@ -1551,6 +1551,7 @@ test("關係: omp's and Codex's sub-agents and last words, read from their own f
   assert.equal(ompDesc("just do it\nmore"), "just do it");
   assert.deepEqual([ownKind({ app: "omp" }), ownKind({ app: "codex" }), ownKind({ app: "claude-code" }), ownKind({ program: { key: "codex" } }), ownKind({})], ["omp", "codex", null, "codex", null]);
   // CODEX_SH for real: this process holds a root rollout open; a sub-agent's rollout sits in the same day's folder
+  if (process.platform === "win32") return;   // CODEX_SH runs on Mac/Linux machines only; Windows itself uses OWN_PS
   const lsof = spawnSync("sh", ["-c", "command -v lsof || ls /proc/self/fd"], { encoding: "utf8" });
   if (lsof.status !== 0) return;
   const { openSync, closeSync } = await import("node:fs");
@@ -1604,9 +1605,11 @@ test("關係: omp's and Codex's own background work: omp's bash jobs from its se
     call("toolu_B", "npm test", "2026-11-14T18:17:21.000Z"), result("toolu_B", "bg_2", "2026-11-14T18:17:21.001Z"), delivered("bg_2"),
     j({ type: "message", message: { role: "assistant", content: [{ type: "text", text: 'about "async":{"state":"running" in words' }] } })].join("\n") + "\n");
   try {
-    const r = spawnSync("sh", ["-c", `s="$1"\n${OMP_JOBS}`, "sh", sess], { encoding: "utf8" });
-    assert.equal(r.stderr, "", "no complaints from grep, awk");
-    assert.deepEqual(ompJobs(r.stdout, now), ["sleep 240; echo 'done'"], r.stdout);
+    if (process.platform !== "win32") {   // OMP_JOBS runs on Mac/Linux machines only; Windows itself uses OWN_PS
+      const r = spawnSync("sh", ["-c", `s="$1"\n${OMP_JOBS}`, "sh", sess], { encoding: "utf8" });
+      assert.equal(r.stderr, "", "no complaints from grep, awk");
+      assert.deepEqual(ompJobs(r.stdout, now), ["sleep 240; echo 'done'"], r.stdout);
+    }
   } finally { rmSync(base, { recursive: true, force: true }); }
   // OMP_SH's output with a jobs part: the jobs, and the sub-agents and words as before
   const out = ["", `@@kit-sub@@\tW\t${(now - 1000) / 1000}\t0`, `"task":"x`, "@@kit-tail@@", "tail",
@@ -1656,7 +1659,8 @@ test("關係: omp's and Codex's own background work: omp's bash jobs from its se
   assert.doesNotMatch(script.replace(/'[^']*'/g, "''"), /\?\?|\?\.|\s&&\s|\s\|\|\s|`/, "5.1 syntax only, no backtick");
   // the script for real, where PowerShell is (pwsh on a Mac or Linux, powershell on Windows): omp by its folder
   // (-<under home>), Codex by its rollout's cwd
-  const pwsh = ["pwsh", "powershell"].find((p) => spawnSync(p, ["-NoProfile", "-Command", "1"], { encoding: "utf8" }).status === 0);
+  // on Windows the one kit runs: Windows PowerShell 5.1
+  const pwsh = (process.platform === "win32" ? ["powershell"] : ["pwsh", "powershell"]).find((p) => spawnSync(p, ["-NoProfile", "-Command", "1"], { encoding: "utf8" }).status === 0);
   if (!pwsh) { console.log("      (PowerShell not found: OWN_PS not run for real)"); return; }
   const top = realpathSync(mkdtempSync(join(tmpdir(), "kit-ps-"))), home = join(top, "home"), cwd = join(home, "proj");
   try {

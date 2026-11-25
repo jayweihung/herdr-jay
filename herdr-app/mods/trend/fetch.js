@@ -22,7 +22,8 @@ const os = require("os");
 
 const out = path.join(process.env.HERDR_APP_HOME || path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config"), "herdr-app"), "trend");
 fs.mkdirSync(out, { recursive: true });
-const put = (name, text) => { fs.writeFileSync(path.join(out, `${name}.tmp`), text); fs.renameSync(path.join(out, `${name}.tmp`), path.join(out, name)); };
+// a temp file per process: the scheduled run and a panel run may write the same file at once (Windows refuses a shared one)
+const put = (name, text) => { const tmp = path.join(out, `${name}.${process.pid}.tmp`); fs.writeFileSync(tmp, text); fs.renameSync(tmp, path.join(out, name)); };
 const now = () => new Date().toISOString().replace(/\.\d+Z$/, "Z");
 const started = now();
 // `node fetch.js --videos`: only the 影片 searches that are due (the panel runs it when you ＋ a search, so it shows

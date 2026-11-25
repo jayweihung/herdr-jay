@@ -12,6 +12,16 @@ which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/key
 Each mod also keeps its own `CHANGES.md` (shown in the mod as its version and 改動紀錄): when a change to a mod is
 user-visible, add a bullet under a new or current version at the top of that mod's `CHANGES.md`.
 
+## 2026-11-26, Windows fixes: agent-page reorder, kit relaunch reason, trend writes and update
+
+Needs: **mods** (Windows: copy agent-page, kit and trend again; trend with the new block in docs/trend.md, which keeps the agent's reports).
+
+- agent-page 1.5: dragging a page tab saves its order on a Windows PC (it needed `sh`; it always said 分頁順序沒存到).
+- kit 1.19: on Windows an agent here says Windows 還不能自動重開 without first running `sh`; adding or removing for a folder finds open agents whatever the drive letter's case.
+- trend 1.9: the scheduled run and a panel run no longer share one temp file (Windows refused the second, the list stayed old); `push-key` may start with `~\`.
+- docs/trend.md: the Windows update block keeps `.reports` (the agent's reports) instead of deleting it with the old folder.
+- Windows 修正：說明頁拖分頁存得起來、kit 說明不能自動重開的原因、熱門列表同時寫不再擋住、更新熱門不會刪掉報告。
+
 ## 2026-11-20, trend: a video topic needs more than half its words; a word may have other names
 
 Needs: **mods**.

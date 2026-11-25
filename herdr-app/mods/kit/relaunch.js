@@ -53,6 +53,7 @@ export async function relaunchFacts(addr, tool, g = null) {
   const pid = g.foreground?.pid;
   if (!pid || shellBack(g)) return { g, why: "它已經關掉了" };
   const machine = machineOf(addr);
+  if (!machine && isWindows()) return { g, why: relaunchWhy({ tool, windows: true }) };   // the probe needs sh
   let out = "";
   try { out = String((await exec("sh", ["-c", PROBE, "sh", String(pid), tool], { on: machine, timeout: 15000 })).stdout ?? ""); } catch {}
   if (!out.startsWith("ok")) return { g, why: "讀不到它的程式資訊（那台不是 Mac 或 Linux？）" };

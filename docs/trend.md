@@ -111,8 +111,11 @@ Remove: `launchctl bootout gui/$(id -u)/com.herdr-jay.trend` and delete the plis
 ```powershell
 $j = "$env:USERPROFILE\src\herdr-jay"
 $h = if ($env:HERDR_APP_HOME) { $env:HERDR_APP_HOME } elseif ($env:XDG_CONFIG_HOME) { "$env:XDG_CONFIG_HOME\herdr-app" } else { "$env:USERPROFILE\.config\herdr-app" }
+$r = "$h\mods\trend\.reports"; $keep = "$h\trend-reports.keep"                  # the agent's reports stay
+if (Test-Path $r) { Move-Item $r $keep -Force }
 Remove-Item -Recurse -Force "$h\mods\trend" -ErrorAction SilentlyContinue
 Copy-Item -Recurse -Force "$j\herdr-app\mods\trend" "$h\mods\"
+if (Test-Path $keep) { Move-Item $keep $r -Force }
 herdr-app check "$h\mods\trend" | Out-Host                                      # check passed
 $l30 = "$env:USERPROFILE\src\YOUR-SOURCE\skills\last30days\scripts\last30days.py"
 $node = (Get-Command node).Source

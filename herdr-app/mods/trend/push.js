@@ -15,7 +15,7 @@ const metaTopic = (html) => /<meta\s+name=["']trend-topic["']\s+content=["']([^"
 // out: <Herdr home>/trend; names: which snapshots (all by default); the reports too unless only some were asked for.
 // Gives a line for last.log.
 async function push(out, names = SNAPSHOTS) {
-  const origin = line(path.join(out, "sync-origin")).replace(/\/+$/, ""), keyFile = line(path.join(out, "push-key")).replace(/^~(?=\/|$)/, os.homedir());
+  const origin = line(path.join(out, "sync-origin")).replace(/\/+$/, ""), keyFile = line(path.join(out, "push-key")).replace(/^~(?=[\\/]|$)/, os.homedir());
   if (!/^https?:\/\//.test(origin) || !keyFile) return "送後端：沒有 sync-origin 或 push-key，不送";
   let key;
   try { key = fs.readFileSync(keyFile, "utf8").trim(); } catch { return "送後端：沒有金鑰檔，不送"; }

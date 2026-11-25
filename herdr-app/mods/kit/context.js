@@ -138,7 +138,8 @@ export function pluginHooks(before, after, names = null) {
 // the open agents a change reaches: those on its machine (null: this computer), with --dir only those in D or below,
 // never one run as another account (user: root's kit is its own) (list: [{ address, machine, cwd, tool, user }])
 export function reloadTargets(list, machine, dir) {
-  const n = (p) => String(p ?? "").replace(/\\/g, "/").replace(/\/+$/, "");
+  // a Windows path (C:\…) compares without case: panes and the core may give the drive letter differently
+  const n = (p) => { const s = String(p ?? "").replace(/\\/g, "/").replace(/\/+$/, ""); return /^[a-z]:/i.test(s) ? s.toLowerCase() : s; };
   const d = dir && n(dir);
   return (list ?? []).filter((x) => x.tool && !x.user && (x.machine ?? null) === (machine ?? null) && (!d || n(x.cwd) === d || n(x.cwd).startsWith(d + "/")));
 }

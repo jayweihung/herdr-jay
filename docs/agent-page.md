@@ -50,7 +50,8 @@ agent 右邊一格：第一個分頁「進度」是等你、正在做、還沒�
   ```
 
   For an agent on another machine Herdr writes it there (through its connection) and in its local copy; the next
-  15 s listing copies it back like a page. Needs `sh` (not on Windows yet). 分頁順序存在 `order.json`：沒列到的（新的）
+  15 s listing copies it back like a page. The machine the agent runs on needs `sh`; on a Windows PC its own folder is
+  written directly (not through a temp file). 分頁順序存在 `order.json`：沒列到的（新的）
   排前面，再照它的順序；拖分頁時整個重寫（先寫暫存檔再改名），寫在 agent 那台。
 - Needs the Herdr build with web elements and `props.pane` (app patches 0015–0025, [patches.md](patches.md)): macOS
   14 or later; Windows with the WebView2 Runtime (not run on Windows yet).

@@ -238,6 +238,8 @@ test("reload after a kit change: which agents (its machine; the account: all, --
   assert.deepEqual(at(null, null), ["t1", "t2", "t3"], "account: every agent on this computer, not another machine's, not a shell");
   assert.deepEqual(at(null, "/p/x/"), ["t1", "t2"], "--dir: in it or below, not a sibling with the same start");
   assert.deepEqual(at("box", null), ["box/t4"]);
+  const win = [{ address: "t6", machine: null, cwd: "c:\\Users\\me\\proj\\", tool: "claude" }, { address: "t7", machine: null, cwd: "C:/Users/me/projX", tool: "claude" }];
+  assert.deepEqual(X.reloadTargets(win, null, "C:\\Users\\Me\\proj").map((x) => x.address), ["t6"], "Windows: drive letter and case don't matter, \\ is /");
   const need = (tool, kinds, hooks) => { const n = X.reloadNeed(tool, kinds, hooks); return `${n.send ? "reload" : "-"}/${n.relaunch ? "relaunch" : "-"}`; };
   assert.deepEqual(["skill", "plugin", "mcp", "rule"].map((k) => need("claude", [k])), ["-/-", "reload/-", "-/relaunch", "-/relaunch"], "Claude Code");
   assert.deepEqual(["skill", "plugin", "mcp", "rule"].map((k) => need("omp", [k])), ["reload/-", "reload/-", "reload/-", "-/relaunch"], "omp");

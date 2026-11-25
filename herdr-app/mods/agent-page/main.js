@@ -31,9 +31,11 @@ const REMOTE = ".config/herdr-app/mods/agent-page/pages";
 const LIST = 'cd "$HOME/$1" 2>/dev/null || exit 0; for f in *.html *.htm status.json order.json; do [ -f "$f" ] && printf "%s %s\\n" "$(cksum < "$f" | tr " " _)" "$f"; done; exit 0';
 // order.json written whole and atomically (a temp file in the folder, renamed): sh -c WRITE sh <folder> <json>, the
 // folder absolute or under $HOME. The phone app writes it with the same command.
-// shortcut: needs sh (macOS, Linux); on Windows a reorder fails with a notice, add a cmd/PowerShell one when run there.
+// A Windows PC has no sh: there its own folder (absolute) is written with fs.writeFile.
+// shortcut: on Windows not atomic (the mod fs has no rename); a torn order.json reads as no order. Remote stays sh.
 const WRITE = 'cd && cd "$1" && printf "%s\\n" "$2" > .order.json.$$ && mv -f .order.json.$$ order.json';
 async function writeOrder(dir, json, on = null) {
+  if (!on && window()?.platform === "windows") return fs.writeFile(`${dir}/order.json`, `${json}\n`);
   const r = await exec("sh", ["-c", WRITE, "sh", dir, json], { on, timeout: SYNC });
   if (r.code !== 0) throw new Error(String(r.stderr || `exit ${r.code}`).trim());
 }

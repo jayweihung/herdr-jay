@@ -1,0 +1,48 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: jayweihung <3034830+jayweihung@users.noreply.github.com>
+Date: Thu, 26 Nov 2026 02:10:09 +0800
+Subject: [PATCH 30/33] test: the agents and changes harnesses take the
+ patches' exports, host namespace, ScrollHandle and localStorage
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ scripts/agents.test.ts  | 2 +-
+ scripts/changes.test.ts | 5 ++++-
+ 2 files changed, 5 insertions(+), 2 deletions(-)
+
+diff --git a/scripts/agents.test.ts b/scripts/agents.test.ts
+index eabfd54..71f1178 100644
+--- a/scripts/agents.test.ts
++++ b/scripts/agents.test.ts
+@@ -2,7 +2,7 @@ import { test, expect } from "bun:test";
+ import { readFile } from "node:fs/promises";
+ 
+ const source = (await readFile(new URL("../defaults/mods/agents/main.js", import.meta.url), "utf8"))
+-  .replace(/^import .*;\n/gm, "").replace("export default class Agents", "class Agents");
++  .replace('import * as host from "herdr";', "const host = {};").replace(/^import .*;\n/gm, "").replace("export default class Agents", "class Agents").replace(/^export (?=const |function )/gm, "");
+ 
+ function harness(pins: string[], globals: Record<string, unknown> = {}) {
+   const data = new Map([["pins", JSON.stringify(pins)]]);
+diff --git a/scripts/changes.test.ts b/scripts/changes.test.ts
+index 118fdb6..1c43653 100644
+--- a/scripts/changes.test.ts
++++ b/scripts/changes.test.ts
+@@ -27,7 +27,9 @@ async function panel(statuses: Record<string, Answer<{ files: string[] }>[]> = {
+   let now = 1;
+   const sleepers: { at: number, wake: () => void }[] = [];
+   const watches = new Set<(paths: string[]) => void>();
+-  const define = (source: string) => new Function("View", "InputState", "spaces", "panes", "focused", "exec", "readTextFile", "watchFolder", "window", "globalThis", "Date",
++  const keptData = new Map<string, string>();
++  const kept = { getItem: (k: string) => keptData.get(k) ?? null, setItem: (k: string, v: string) => keptData.set(k, v) };
++  const define = (source: string) => new Function("View", "InputState", "spaces", "panes", "focused", "exec", "readTextFile", "watchFolder", "window", "globalThis", "Date", "ScrollHandle", "localStorage",
+     source.replace(/^import .*;\n/gm, "").replace("export default class", "return class"))(
+     class {},
+     { new: () => ({ on() {}, value: () => "", set_value() {} }) },
+@@ -58,6 +60,7 @@ async function panel(statuses: Record<string, Answer<{ files: string[] }>[]> = {
+       return Object.assign(promise, { cancel() { watches.delete(deliver); deliver([]); } });
+     },
+     () => ({ active: at.active }), vm, { now: () => now },
++    { new: () => ({ scroll_to_item() {} }) }, kept,
+   );
+   const Changes = define(source), view = new Changes();
+   const ticks: ((cx: unknown) => void)[] = [];

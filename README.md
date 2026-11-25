@@ -54,9 +54,9 @@ one was checked.
 
 | herdr-jay | Herdr app | Herdr core | core patches | Checked on macOS | Checked on Windows |
 |---|---|---|---|---|---|
-| `main` (now) | v0.1.16 (`034f8b8`) | v0.1.21 (`1b0393f`) | core: 1 (who sent messages to whom); app: 32 (drag onto a space, a terminal's own icon, refused drop targets, a place in a space and reordering agents, `tab.new` without a shell, linked mods reload, the sent event, background work shown as working, the Agents right-click menu, web pages in mods, `layout.zoom`, a mod pane knows its own pane, a mod pane narrower than half, text in mod panels can be selected and copied, license notices for the web element, an app opened from a terminal no longer sends as it, panels remember what you saw, a hidden web page no longer takes drops, the Agents menu's 壓縮 queued and once per agent, omp's 壓縮 ends without a turn; [docs/patches.md](docs/patches.md)) | 2026-11-16 | 2026-11-18 on GitHub's Windows Server 2025 (built by docs/windows.md, mods checked, a web page shown; no person at the keys yet) |
+| `main` (now) | v0.1.18 (`9a9ae13`) | v0.1.22 (`6e29846`) | core: 1 (who sent messages to whom); app: 33 (drag onto a space, a terminal's own icon, refused drop targets, a place in a space and reordering agents, `tab.new` without a shell, linked mods reload, the sent event, background work shown as working, the Agents right-click menu, web pages in mods, `layout.zoom`, a mod pane knows its own pane, a mod pane narrower than half, text in mod panels can be selected and copied, license notices for the web element, an app opened from a terminal no longer sends as it, panels remember what you saw, a hidden web page no longer takes drops, the Agents menu's 壓縮 queued and once per agent, omp's 壓縮 ends without a turn, the panels' tests; [docs/patches.md](docs/patches.md)) | 2026-11-26 | 2026-11-26 built and tested on a real Windows PC (Rust and herdr-jay tests; mods check and a person at the keys not yet) |
 
-The app needs at least the core in its `distribution/core-version` (v0.1.16: core 0.1.11).
+The app needs at least the core in its `distribution/core-version` (v0.1.18: core 0.1.11).
 Neovim: **v0.12.6** (the Linux server builds this tag from source; anything ≥ 0.11 works with nvim-jay).
 Neovim：server 從原始碼 build v0.12.6；0.11 以上都能用。
 pyright (optional, Python go-to-definition on the server): **1.1.414**, npm's package on the server's Node
@@ -69,6 +69,7 @@ listed here (and in the tag's message):
 
 | Tag | Herdr app / core | Checked on macOS | Checked on Windows |
 |---|---|---|---|
+| `for-herdr-v0.1.18-r1` | v0.1.18 / v0.1.22 | 2026-11-26 | 2026-11-26 built and tested (not yet used by a person) |
 | `for-herdr-v0.1.16-r1` | v0.1.16 / v0.1.21 | 2026-11-17 | not yet |
 | `for-herdr-v0.1.15-r1` | v0.1.15 / v0.1.20 | 2026-11-12 | not yet |
 | `for-herdr-v0.1.13` (old, no `-r`) | v0.1.13 | yes | no Windows support |
@@ -76,7 +77,7 @@ listed here (and in the tag's message):
 `for-herdr-v0.1.15-r1` was tagged before the folders got Herdr's names: it has `mods/` and `patches/<repo>/<tag>/`;
 checked out, follow the docs inside it. On Windows use `main` until a tag's Windows column has a date.
 
-tag 一旦打上就不移動；同一版 Herdr 有修正就加 `-r`。`-r1` 還是舊的資料夾（`mods/`、`patches/`），切過去要照它裡面的文件。每個 tag 在哪些系統驗過看上表：`for-herdr-v0.1.16-r1`、`for-herdr-v0.1.15-r1` 目前只驗過 Mac，Windows 實測通過後會在這裡寫上（要修的話會是 `-r2`）。
+tag 一旦打上就不移動；同一版 Herdr 有修正就加 `-r`。`-r1` 還是舊的資料夾（`mods/`、`patches/`），切過去要照它裡面的文件。每個 tag 在哪些系統驗過看上表：`for-herdr-v0.1.18-r1` 在真的 Windows 上 build 和測試過了，還沒人實際操作；`for-herdr-v0.1.16-r1`、`for-herdr-v0.1.15-r1` 只驗過 Mac，Windows 實測通過後會在這裡寫上（要修的話會是 `-r2`）。
 
 Never run plain `hc update`, and don't press Install / Update on Herdr's core screen or run "Update herdr-core":
 they install the official core over yours.

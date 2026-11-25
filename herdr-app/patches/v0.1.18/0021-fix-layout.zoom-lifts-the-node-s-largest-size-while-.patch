@@ -1,0 +1,82 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: jayweihung <3034830+jayweihung@users.noreply.github.com>
+Date: Mon, 16 Nov 2026 03:04:59 +0800
+Subject: [PATCH 21/33] fix: layout.zoom lifts the node's largest size while
+ zoomed, so it fills its row
+
+---
+ src/window.rs | 15 +++++++++------
+ 1 file changed, 9 insertions(+), 6 deletions(-)
+
+diff --git a/src/window.rs b/src/window.rs
+index f6bac2e..50033b2 100644
+--- a/src/window.rs
++++ b/src/window.rs
+@@ -435,7 +435,7 @@ pub struct AppWindow {
+     picked_theme: Option<crate::layout::ThemeChoice>,
+     /// layout.zoom: the node shown alone in its row or column, and the siblings that hid for it
+     /// (never saved: quitting, or a layout that changes, shows them again).
+-    zoom_hid: Option<(String, Vec<String>, Option<Span>)>,
++    zoom_hid: Option<(String, Vec<String>, Option<Span>, Option<f32>)>,
+     /// Whether the shown layout's file read and parsed (or is simply
+     /// missing): a broken one is never written over.
+     layout_file_ok: bool,
+@@ -2025,7 +2025,7 @@ impl AppWindow {
+         changed |= mods::publish_panes(Value::Array(panes));
+         changed |= mods::publish_focused(focused.unwrap_or(Value::Null));
+         changed |= mods::publish_floats(self.float_placements());
+-        changed |= mods::publish_layout(&self.chrome, self.zoom_hid.as_ref().map(|(id, _, _)| id.as_str()));
++        changed |= mods::publish_layout(&self.chrome, self.zoom_hid.as_ref().map(|(id, _, _, _)| id.as_str()));
+         if changed {
+             self.refresh_snapshot_mods(cx);
+         }
+@@ -3700,7 +3700,7 @@ impl AppWindow {
+                     return self.fail(format!("no node {id:?} in the shown layout"));
+                 }
+                 let mut again = false;
+-                if let Some((was, hid, size)) = self.zoom_hid.take() {
++                if let Some((was, hid, size, max)) = self.zoom_hid.take() {
+                     for h in hid {
+                         if let Some(n) = self.chrome.find_mut(&h) {
+                             n.hidden = false;
+@@ -3708,6 +3708,7 @@ impl AppWindow {
+                     }
+                     if let Some(n) = self.chrome.find_mut(&was) {
+                         n.size = size;
++                        n.max = max;
+                     }
+                     again = was == id;
+                 }
+@@ -3722,12 +3723,13 @@ impl AppWindow {
+                         hid.push(c.id.clone());
+                     }
+                 }
+-                // Alone, it fills the row or column whatever size it had.
++                // Alone, it fills the row or column whatever size (or largest size) it had.
+                 if !hid.is_empty()
+                     && let Some(n) = self.chrome.find_mut(&id)
+                 {
+                     let size = n.size.replace(Span::Weight { weight: 1.0 });
+-                    self.zoom_hid = Some((id, hid, size));
++                    let max = n.max.take();
++                    self.zoom_hid = Some((id, hid, size, max));
+                 }
+             }
+             "layout.resize" => {
+@@ -3897,7 +3899,7 @@ impl AppWindow {
+     /// The layout as it is without layout.zoom's hiding (what is saved).
+     fn unzoomed(&self) -> Node {
+         let mut n = self.chrome.clone();
+-        if let Some((id, hid, size)) = &self.zoom_hid {
++        if let Some((id, hid, size, max)) = &self.zoom_hid {
+             for h in hid {
+                 if let Some(x) = n.find_mut(h) {
+                     x.hidden = false;
+@@ -3905,6 +3907,7 @@ impl AppWindow {
+             }
+             if let Some(x) = n.find_mut(id) {
+                 x.size = size.clone();
++                x.max = *max;
+             }
+         }
+         n

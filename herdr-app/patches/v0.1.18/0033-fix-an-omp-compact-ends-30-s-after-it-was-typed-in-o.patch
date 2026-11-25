@@ -1,0 +1,107 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: jayweihung <3034830+jayweihung@users.noreply.github.com>
+Date: Fri, 20 Nov 2026 15:41:04 +0800
+Subject: [PATCH 33/33] fix: an omp compact ends 30 s after it was typed in
+ (omp's status doesn't move while it compacts, so no turn ends it)
+
+---
+ defaults/AGENTS.md           |  7 ++++---
+ defaults/mods/agents/main.js | 18 ++++++++++--------
+ scripts/agents.test.ts       | 19 +++++++++++++++++++
+ 3 files changed, 33 insertions(+), 11 deletions(-)
+
+diff --git a/defaults/AGENTS.md b/defaults/AGENTS.md
+index 191d639..5a2af9f 100644
+--- a/defaults/AGENTS.md
++++ b/defaults/AGENTS.md
+@@ -177,9 +177,10 @@ the highlighted line shows where it will land.
+   pin, close. Typed commands go only to an agent that waits (idle or done).
+   Compact while it works is queued and typed in once its turn ends; one per
+   agent until it finishes, in shared `"compact/<address>"`:
+-  `{ state: "queued" | "sent", at, text, sent?, turn? }` (null when none). A
+-  mod with its own compact button sets and honors the same key, so pressing
+-  in both is still one compact.
++  `{ state: "queued" | "sent", at, text, quiet?, sent?, turn? }` (null when
++  none; `quiet`: omp, whose status doesn't move while it compacts, counts as
++  done 30 s after the send). A mod with its own compact button sets and honors
++  the same key, so pressing in both is still one compact.
+   Another mod adds items with shared `"agents.menu"`:
+   `{ <mod>: { at, items: [{ id, label }] } }` (`at` in ms; entries older than
+   10 minutes are left out, so say it again now and then). Picking one focuses
+diff --git a/defaults/mods/agents/main.js b/defaults/mods/agents/main.js
+index 2d7a9b7..c9f40b4 100644
+--- a/defaults/mods/agents/main.js
++++ b/defaults/mods/agents/main.js
+@@ -108,11 +108,12 @@ export const sendTo = (a, text) => ["send", a.address, text];
+ // another mod that sees it (the kit mod) puts it in shared "agents.busy" (address -> what runs); it counts as working.
+ export const withBusy = (a, busy) => (a.status === "done" && busy?.[a.address] ? { ...a, status: "working" } : a);
+ // One /compact per agent per cycle, shared with the kit mod (its context.js has the same; keep the two the same):
+-// shared "compact/<address>" = { state: "queued" | "sent", at, text, sent?, turn? } while one waits or runs, else null.
+-// A queued one is typed in once the agent waits (idle, done); a sent one ends when a turn ends after it (the core's
+-// turn goes up each time it stops working: /compact works, then stops), or the kit mod sees kit context say
+-// "compacted", or after COMPACT_SENT ms.
+-export const COMPACT_SENT = 180000, COMPACT_QUEUED = 1800000;
++// shared "compact/<address>" = { state: "queued" | "sent", at, text, quiet?, sent?, turn? } while one waits or runs,
++// else null. A queued one is typed in once the agent waits (idle, done); a sent one ends when a turn ends after it (the
++// core's turn goes up each time it stops working: Claude Code's and Codex's /compact work, then stop), or the kit mod
++// sees kit context say "compacted", or after COMPACT_SENT ms. quiet: an agent whose status doesn't move while it
++// compacts (omp: it stays done), so no turn ends: it counts as done COMPACT_QUIET ms after it was typed in.
++export const COMPACT_SENT = 180000, COMPACT_QUEUED = 1800000, COMPACT_QUIET = 30000;
+ export const compactKey = (address) => `compact/${address}`;
+ // one of these (null, or another mod's mistake, is none: a press replaces it)
+ const isCompact = (e) => (e?.state === "queued" || e?.state === "sent") && Number.isFinite(e.at);
+@@ -124,7 +125,8 @@ export function compactStep(e, status, turn, now = Date.now()) {
+   if (since > ttl) return "timeout";
+   const waits = status === "idle" || status === "done";
+   if (!sent) return waits ? "send" : null;
+-  return waits && Number.isFinite(turn) && Number.isFinite(e.turn) && turn > e.turn ? "done" : null;
++  const turned = Number.isFinite(turn) && Number.isFinite(e.turn) && turn > e.turn;
++  return waits && (turned || (e.quiet && since >= COMPACT_QUIET)) ? "done" : null;
+ }
+ // one is queued or running: another press only says so
+ export const compactLive = (e, now = Date.now()) => isCompact(e) && compactStep(e, null, null, now) === null;
+@@ -341,7 +343,7 @@ export default class Agents extends View {
+   compact(a, text, name) {
+     const key = compactKey(a.address), now = Date.now();
+     if (compactLive(shared(key), now)) return void notify({ title: "已經在壓縮了", body: name, level: "info", timeout: 3000 });
+-    const job = { state: "queued", at: now, text };
++    const job = { state: "queued", at: now, text, quiet: toolOf(a) === "omp" };
+     setShared(key, job);
+     if (a.status === "idle" || a.status === "done") return this.compactNext(a, job, "send", name, terminals().find((x) => x.address === a.address)?.turn);
+     notify({ title: "已排隊，這輪結束後壓縮", body: name, level: "info", timeout: 4000 });
+@@ -360,7 +362,7 @@ export default class Agents extends View {
+       return hc(sendTo(a, e.text)).then((r) => (r?.code === 0 ? notify({ title: "壓縮中…", body: name, level: "info", timeout: 3000 }) : failed(r)), () => failed(null));
+     }
+     setShared(key, null);
+-    if (step === "done") notify({ title: "壓縮好了", body: name, level: "success", timeout: 3000 });
++    if (step === "done") notify({ title: "壓縮好了", body: e.quiet ? `${name}（它不說何時壓縮完：送出 30 秒後當作好了）` : name, level: "success", timeout: 3000 });
+     else if (step === "timeout") notify({ title: e.state === "sent" ? "壓縮沒等到結束" : "排隊的壓縮取消了", level: "warning", timeout: 6000,
+       body: `${name}：${e.state === "sent" ? "3 分鐘還沒看到它壓縮完，不再等（看一下它的畫面）" : "等了 30 分鐘它還沒停下來，沒有送出"}` });
+   }
+diff --git a/scripts/agents.test.ts b/scripts/agents.test.ts
+index 5287485..ed01555 100644
+--- a/scripts/agents.test.ts
++++ b/scripts/agents.test.ts
+@@ -410,3 +410,22 @@ test("pressing 壓縮 again, here or in the kit mod, sends one /compact per agen
+   expect(sends).toHaveLength(2);
+   expect(notes).toEqual(["已排隊，這輪結束後壓縮", "已經在壓縮了", "壓縮中…", "已經在壓縮了", "壓縮好了", "壓縮中…"]);
+ });
++
++test("an omp compact (its status doesn't move while it compacts: quiet) counts as done 30 s after it was typed in", () => {
++  const { compactStep } = new Function("View", `${source}; return { compactStep };`)(class {});
++  const sent = { state: "sent", at: 1000, text: "/compact", sent: 5000, turn: 3, quiet: true };
++  expect(compactStep(sent, "done", 3, 5000 + 29999)).toBe(null);
++  expect(compactStep(sent, "done", 3, 5000 + 30000)).toBe("done");
++  expect(compactStep(sent, "working", 3, 5000 + 30000)).toBe(null);
++  expect(compactStep({ ...sent, quiet: false }, "done", 3, 5000 + 30000)).toBe(null); // Claude Code, Codex: a turn ends it
++});
++
++test("pressing 壓縮 for omp marks it quiet; Claude Code and Codex not", () => {
++  const store = new Map<string, any>();
++  const globals = { shared: (k: string) => store.get(k) ?? null, setShared: (k: string, v: unknown) => store.set(k, v), notify() {}, hc: async () => ({ code: 0 }), terminals: () => [] };
++  const { agents } = harness([], globals);
++  for (const [address, app, quiet] of [["t1", "pi", true], ["t2", "codex", false], ["t3", "claude-code", false]] as const) {
++    agents.compact({ address, app, program: {}, status: "working" }, "/compact", "x");
++    expect(store.get(`compact/${address}`).quiet).toBe(quiet);
++  }
++});

@@ -12,6 +12,15 @@ which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/key
 Each mod also keeps its own `CHANGES.md` (shown in the mod as its version and 改動紀錄): when a change to a mod is
 user-visible, add a bullet under a new or current version at the top of that mod's `CHANGES.md`.
 
+## 2026-11-26, Herdr app v0.1.18 and core v0.1.22; built on a real Windows PC
+
+Needs: **core** and **app** (rebuild both on the new tags with the new patch folders: `herdr-app/patches/v0.1.18`, `herdr-core/patches/v0.1.22`; on a Linux server, its core too). **mods**: as the entry below.
+
+- The same changes as before on the new official releases: core 1 patch (who sent messages to whom), app 33 (the 32 from v0.1.16, renumbered from `0027` on, and `0030` that makes the agents and changes panels' tests load the patched panels). See [docs/patches.md](docs/patches.md).
+- First build on a real Windows PC (Rust 1.95.0, Zig 0.16.0): the app's Windows build needed `wry` listed for Windows too (it was listed for macOS only); now in `0022`. The kit mod's tests skip the sh scripts meant for Mac and Linux machines there and run its PowerShell reader with Windows PowerShell 5.1.
+- docs/windows.md: clone with `core.autocrlf=false` (with Git for Windows' default `autocrlf=true`, `git am` of the patches fails).
+- 換到官方 app v0.1.18、core v0.1.22（補丁內容一樣，app 編號從 0027 起有變）；第一次在真的 Windows 上 build 和測試，補上 Windows 少的 wry。
+
 ## 2026-11-26, Windows fixes: agent-page reorder, kit relaunch reason, trend writes and update
 
 Needs: **mods** (Windows: copy agent-page, kit and trend again; trend with the new block in docs/trend.md, which keeps the agent's reports).

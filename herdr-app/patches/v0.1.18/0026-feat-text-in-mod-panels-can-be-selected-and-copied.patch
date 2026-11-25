@@ -1,0 +1,726 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: jayweihung <3034830+jayweihung@users.noreply.github.com>
+Date: Mon, 16 Nov 2026 07:20:08 +0800
+Subject: [PATCH 26/33] feat: text in mod panels can be selected and copied
+
+---
+ defaults/AGENTS.md                            |  13 +-
+ docs/commands.md                              |   2 +-
+ src/commands.rs                               |   2 +-
+ src/window.rs                                 |  37 ++++
+ src/window/floats.rs                          |  11 +-
+ src/window/movable.rs                         |  11 +-
+ src/window/titlebar.rs                        |   5 +-
+ .../crates/base/src/selectable_text.rs        |  67 ++++---
+ .../crates/base/src/text_selection.rs         |  11 +-
+ .../gpui-kit/crates/shell/src/materialize.rs  | 181 +++++++++++++++---
+ .../materialize/components/virtual_list.rs    |   5 +-
+ .../gpui-kit/crates/shell/src/tests/render.rs | 103 ++++++++++
+ 12 files changed, 385 insertions(+), 63 deletions(-)
+
+diff --git a/defaults/AGENTS.md b/defaults/AGENTS.md
+index 77861a8..8790881 100644
+--- a/defaults/AGENTS.md
++++ b/defaults/AGENTS.md
+@@ -668,7 +668,8 @@ The main ones:
+   `terminal.show {terminal?, pane?}`, `terminal.search` (screen and scrollback;
+   find bar state stays with that terminal), `terminal.select_all {terminal?}` (selects the whole
+   screen and scrollback for copying; only the alternate screen in vim and similar apps;
+-  Cmd+A on macOS, no default on Linux/Windows), `terminal.copy`, `terminal.paste` (copied
++  Cmd+A on macOS, no default on Linux/Windows), `terminal.copy` (as a key, text selected
++  in a mod comes first), `terminal.paste` (copied
+   files, such as Finder's or a clipboard manager's image, as if dropped; an image
+   alone as `terminal.paste_image` pastes it), `terminal.paste_image` (Ctrl+V: an
+   image, into a terminal on another machine: copied there, its path pasted; on
+@@ -1190,7 +1191,15 @@ ends outside the window without a release event, cancel on the next move
+ that reports no left button.
+ `.when(cond, (el) => …)`, `.children([...])`. Controls from `gpui-base`
+ (`Button`, `Checkbox`, `Switch`, `InputState` + `Input`) are unstyled: style
+-them. Text states (`InputState`, `TextareaState`, `EditorState`) take the
++them. Plain text (`div().child("…")`) can be selected with the mouse and copied
++with `terminal.copy` (Cmd+C / Ctrl+Shift+C): drag over it, double-click a word,
++triple-click a line; one drag spans the text of one view in reading order. A
++press that doesn't drag still clicks the element under it, and a drag that
++selects is not a click. Labels of controls (`Button`, tabs, checkboxes,
++selects) stay plain, and so does text inside an element that handles the left
++press itself (`.on_mouse_down("left", …)`) or starts a drag (`.on_drag`);
++`truncate()` text that is cut off can't be selected.
++Text states (`InputState`, `TextareaState`, `EditorState`) take the
+ keyboard with `focus()` and give it back with `blur()`. Herdr then hands the
+ keyboard to the dialog or pane, and the field stays usable. `release()` frees
+ the state. Text: `TextView.markdown(id, text)` renders Markdown.
+diff --git a/docs/commands.md b/docs/commands.md
+index ebdc275..ce669e3 100644
+--- a/docs/commands.md
++++ b/docs/commands.md
+@@ -353,7 +353,7 @@ Clear a terminal's selection (default: the focused one).
+ 
+ ## `terminal.copy`
+ 
+-Copy the focused terminal's selection. With nothing selected, that key goes to the program.
++Copy the focused terminal's selection; as a key, text selected in a mod comes first. With nothing selected, that key goes to the program.
+ 
+ No arguments.
+ 
+diff --git a/src/commands.rs b/src/commands.rs
+index 0d43f8a..f7973f9 100644
+--- a/src/commands.rs
++++ b/src/commands.rs
+@@ -69,7 +69,7 @@ pub const COMMANDS: &[Command] = &[
+     cmd("terminal.select", &[opt("terminal"), opt("at"), opt("mode")], "Start a terminal selection (default: the focused one), replacing the old selection. at defaults to \"cursor\" or takes {row, col}: zero-based cells, rows from the top of the history including the active screen. mode is \"cell\" (default), \"word\" or \"line\" (like double/triple click). Mods read the inclusive endpoints from focused().selection or terminals(); selection.end is the moving end."),
+     cmd("terminal.adjust_selection", &[opt("terminal"), req("direction")], "Move the selection's moving end: left, right, up, down, page_up, page_down, home, end, line_start or line_end. The view follows the moving end. Fails if there is no selection. Defaults to the focused terminal."),
+     cmd("terminal.clear_selection", &[opt("terminal")], "Clear a terminal's selection (default: the focused one)."),
+-    cmd("terminal.copy", &[], "Copy the focused terminal's selection. With nothing selected, that key goes to the program."),
++    cmd("terminal.copy", &[], "Copy the focused terminal's selection; as a key, text selected in a mod comes first. With nothing selected, that key goes to the program."),
+     cmd("terminal.scroll", &[opt("lines"), opt("pages"), opt("to"), opt("terminal")], "Scroll a terminal's view of its history (default: the focused one). Give exactly one of: lines (a whole number; negative goes up, toward history), pages (a number, fractions allowed; one page is the terminal's rows), to: \"top\" (oldest history) or \"bottom\" (the live screen). This scrolls Herdr's view, not the program."),
+     cmd("terminal.paste", &[], "Paste into the focused terminal (copied files as if dropped; an image alone as terminal.paste_image pastes it)."),
+     cmd("terminal.paste_image", &[], "Ctrl+V: the clipboard's image as a file on the focused terminal's machine, when that's another one; on Windows, paste clipboard text; otherwise Ctrl+V goes to the terminal."),
+diff --git a/src/window.rs b/src/window.rs
+index 41c1d25..d4ea523 100644
+--- a/src/window.rs
++++ b/src/window.rs
+@@ -5880,6 +5880,13 @@ impl Render for AppWindow {
+                 }
+                 // Nothing selected: the copy chord goes to the program (#216).
+                 if a.id() == "terminal.copy" {
++                    // Text dragged over in a mod is the newest selection: any
++                    // press, a terminal's too, clears it before starting another.
++                    let text = gpui_base::TextSelection::selected_text(w, cx).trim().to_owned();
++                    if !text.is_empty() {
++                        cx.write_to_clipboard(ClipboardItem::new_string(text));
++                        return;
++                    }
+                     if !this.copy_key(w, cx) {
+                         cx.propagate();
+                     }
+@@ -7653,6 +7660,36 @@ export default class Probe extends View {
+         });
+     }
+ 
++    /// Text dragged over in a mod is what the copy key copies, and moving
++    /// the pointer afterwards (button up) does not stretch it.
++    #[test]
++    fn the_copy_key_copies_text_selected_in_a_mod() {
++        in_own_process("copy_mod_text");
++    }
++
++    #[gpui::test]
++    fn copy_mod_text(cx: &mut gpui::TestAppContext) {
++        use gpui::{point, px};
++        use serde_json::json;
++        if !running_alone("copy_mod_text") {
++            return;
++        }
++        let probe = "import { View, div } from \"gpui-kit\";\nexport default class P extends View { render() { return div().size_full().text_size(14).child(\"copy me please\"); } }";
++        let (view, cx) = open_window(cx, "copy-probe", probe, json!({ "id": "probe", "type": "block", "content": { "mod": "copy-probe" } }));
++        cx.run_until_parked();
++        cx.update(|window, cx| window.draw(cx).clear(cx));
++        let origin = view.update(cx, |this, _| this.bounds.borrow()["probe"].origin);
++        let (from, to) = (origin + point(px(1.), px(8.)), origin + point(px(400.), px(8.)));
++        cx.simulate_mouse_down(from, gpui::MouseButton::Left, gpui::Modifiers::default());
++        cx.simulate_mouse_move(to, Some(gpui::MouseButton::Left), gpui::Modifiers::default());
++        cx.simulate_mouse_up(to, gpui::MouseButton::Left, gpui::Modifiers::default());
++        cx.simulate_mouse_move(origin + point(px(1.), px(300.)), None, gpui::Modifiers::default());
++        cx.run_until_parked();
++        cx.update(|window, cx| window.draw(cx).clear(cx));
++        cx.dispatch_action(gpui_shell::action::ShellAction::new("terminal.copy"));
++        assert_eq!(cx.update(|_, cx| cx.read_from_clipboard().and_then(|item| item.text())).as_deref(), Some("copy me please"));
++    }
++
+     /// Mods see window().active follow the focus, losing it too: a probe mod
+     /// notes every value it renders with while the window is focused and
+     /// blurred, and the poll that checks the focus runs in between.
+diff --git a/src/window/floats.rs b/src/window/floats.rs
+index 6f36f5b..87a4b66 100644
+--- a/src/window/floats.rs
++++ b/src/window/floats.rs
+@@ -378,9 +378,16 @@ impl AppWindow {
+                 |_, _, _| {},
+                 move |_, _, window, _| {
+                     let t = this.clone();
+-                    window.on_mouse_event(move |ev: &MouseMoveEvent, phase, _, cx| {
++                    window.on_mouse_event(move |ev: &MouseMoveEvent, phase, window, cx| {
+                         if phase == DispatchPhase::Capture {
+-                            let _ = t.update(cx, |this, cx| this.float_move(ev.position, ev.pressed_button == Some(MouseButton::Left), cx));
++                            let moving = t.update(cx, |this, cx| {
++                                this.float_move(ev.position, ev.pressed_button == Some(MouseButton::Left), cx);
++                                this.float_drag.as_ref().is_some_and(|d| d.moving)
++                            });
++                            // A press on a mod's text moves the float, as before: no selection.
++                            if moving.unwrap_or(false) && gpui_base::TextSelection::has_selection(window, cx) {
++                                gpui_base::TextSelection::clear(window, cx);
++                            }
+                         }
+                     });
+                     let t = this.clone();
+diff --git a/src/window/movable.rs b/src/window/movable.rs
+index 563fae1..cebcd44 100644
+--- a/src/window/movable.rs
++++ b/src/window/movable.rs
+@@ -193,9 +193,16 @@ impl AppWindow {
+                 |_, _, _| {},
+                 move |_, _, window, _| {
+                     let t = this.clone();
+-                    window.on_mouse_event(move |ev: &MouseMoveEvent, phase, _, cx| {
++                    window.on_mouse_event(move |ev: &MouseMoveEvent, phase, window, cx| {
+                         if phase == DispatchPhase::Capture {
+-                            let _ = t.update(cx, |this, cx| this.window_move(ev.position, ev.pressed_button == Some(MouseButton::Left), cx));
++                            let moving = t.update(cx, |this, cx| {
++                                this.window_move(ev.position, ev.pressed_button == Some(MouseButton::Left), cx);
++                                this.win_drag.as_ref().is_some_and(|d| d.moving)
++                            });
++                            // A press on a mod's text moves the window, as before: no selection.
++                            if moving.unwrap_or(false) && gpui_base::TextSelection::has_selection(window, cx) {
++                                gpui_base::TextSelection::clear(window, cx);
++                            }
+                         }
+                     });
+                     let t = this.clone();
+diff --git a/src/window/titlebar.rs b/src/window/titlebar.rs
+index b138937..234ada6 100644
+--- a/src/window/titlebar.rs
++++ b/src/window/titlebar.rs
+@@ -120,7 +120,7 @@ impl AppWindow {
+     }
+ 
+     /// The root's pointer moves: a press on a drag node that moved far enough moves the window.
+-    pub(super) fn drag_window(&mut self, ev: &MouseMoveEvent, window: &mut Window, cx: &App) {
++    pub(super) fn drag_window(&mut self, ev: &MouseMoveEvent, window: &mut Window, cx: &mut App) {
+         let Some(from) = self.drag_from else { return };
+         // A press that started a drag inside the window (a mod's `on_drag`) is the drag's.
+         if ev.pressed_button != Some(MouseButton::Left) || cx.has_active_drag() {
+@@ -130,6 +130,9 @@ impl AppWindow {
+         let d = ev.position - from;
+         if d.x.abs() > px(DRAG_START) || d.y.abs() > px(DRAG_START) {
+             self.drag_from = None;
++            // The press may have begun on a mod's text: moving wins, so no
++            // selection is left behind (or keeps following the pointer).
++            gpui_base::TextSelection::clear(window, cx);
+             #[cfg(windows)]
+             win::start_move(window);
+             #[cfg(not(windows))]
+diff --git a/vendor/gpui-kit/crates/base/src/selectable_text.rs b/vendor/gpui-kit/crates/base/src/selectable_text.rs
+index f53b611..5bf76c2 100644
+--- a/vendor/gpui-kit/crates/base/src/selectable_text.rs
++++ b/vendor/gpui-kit/crates/base/src/selectable_text.rs
+@@ -3,12 +3,12 @@ use std::ops::Range;
+ use gpui::{
+     App, BorderStyle, Bounds, Corners, Edges, Element, ElementId, GlobalElementId, Hitbox,
+     HitboxBehavior, Hsla, InspectorElementId, IntoElement, LayoutId, PaintQuad, Pixels, Point,
+-    SharedString, StyledText, TextStyleRefinement, Window, transparent_black,
++    SharedString, StyledText, Subscription, TextStyleRefinement, Window, transparent_black,
+ };
+ 
+-use crate::{TextSelection, TextSelectionHandle, TextSelectionRegistration, TextSelectionRun};
++use crate::{GlobalState, TextSelectionHandle, TextSelectionRegistration, TextSelectionRun};
+ 
+-/// Plain text that participates in the window-scoped [`TextSelection`].
++/// Plain text that participates in the window-scoped [`crate::TextSelection`].
+ ///
+ /// Use [`Self::new`] for an independent run, or [`Self::with_handle`] when
+ /// several elements form one selectable document.
+@@ -21,7 +21,10 @@ pub struct SelectableText {
+     handle: Option<TextSelectionHandle>,
+     text: SharedString,
+     styled_text: StyledText,
+-    document_order: u64,
++    // HERDR: `None` takes the next paint-order slot, as a selectable
++    // `TextView` does, so runs and text views in one surface select in
++    // reading order instead of all sharing order 0.
++    document_order: Option<u64>,
+     text_style: Option<TextStyleRefinement>,
+     selection_color: Option<Hsla>,
+ }
+@@ -47,15 +50,17 @@ impl SelectableText {
+             handle,
+             styled_text: StyledText::new(text.clone()),
+             text,
+-            document_order: 0,
++            document_order: None,
+             text_style: None,
+             selection_color: None,
+         }
+     }
+ 
+     /// Places this run in reading order among the others sharing its handle.
++    ///
++    /// Without one, the run takes its place in paint order.
+     pub fn document_order(mut self, order: u64) -> Self {
+-        self.document_order = order;
++        self.document_order = Some(order);
+         self
+     }
+ 
+@@ -157,10 +162,17 @@ impl Element for SelectableText {
+         let handle = self.handle.clone().unwrap_or_else(|| {
+             window.with_element_state(
+                 global_id.expect("SelectableText must have a stable element id"),
+-                |retained: Option<TextSelectionHandle>, _| {
+-                    let handle =
+-                        retained.unwrap_or_else(|| TextSelectionHandle::new(self.text.clone(), cx));
+-                    (handle.clone(), handle)
++                |retained: Option<(TextSelectionHandle, Subscription)>, window| {
++                    // HERDR: an owned run repaints its window when its
++                    // selection changes. Under a cached view nothing else
++                    // would, and a drag would paint no highlight until
++                    // something unrelated redrew.
++                    let retained = retained.unwrap_or_else(|| {
++                        let handle = TextSelectionHandle::new(self.text.clone(), cx);
++                        let refresh = handle.refresh_window_on_change(window, cx);
++                        (handle, refresh)
++                    });
++                    (retained.0.clone(), retained)
+                 },
+             )
+         });
+@@ -181,19 +193,13 @@ impl Element for SelectableText {
+         global_id: Option<&GlobalElementId>,
+         inspector_id: Option<&InspectorElementId>,
+         bounds: Bounds<Pixels>,
+-        handle: &mut Self::RequestLayoutState,
++        _: &mut Self::RequestLayoutState,
+         window: &mut Window,
+         cx: &mut App,
+     ) -> Self::PrepaintState {
+         self.styled_text
+             .prepaint(global_id, inspector_id, bounds, &mut (), window, cx);
+-        let hitbox = window.insert_hitbox(bounds, HitboxBehavior::Normal);
+-        let registration = TextSelectionRegistration::new(hitbox.clone(), bounds)
+-            .with_document_order(self.document_order)
+-            .with_text_bounds(vec![bounds])
+-            .with_rendered_element(handle, window, cx);
+-        handle.register(registration, window, cx);
+-        hitbox
++        window.insert_hitbox(bounds, HitboxBehavior::Normal)
+     }
+ 
+     fn paint(
+@@ -202,22 +208,35 @@ impl Element for SelectableText {
+         inspector_id: Option<&InspectorElementId>,
+         bounds: Bounds<Pixels>,
+         handle: &mut Self::RequestLayoutState,
+-        _: &mut Self::PrepaintState,
++        hitbox: &mut Self::PrepaintState,
+         window: &mut Window,
+         cx: &mut App,
+     ) {
++        // HERDR: registered while painting, where a `TextView` registers, so
++        // the paint-order slot below counts both kinds in one sequence.
++        let document_order = self.document_order.unwrap_or_else(|| {
++            GlobalState::init(cx);
++            GlobalState::global(cx).next_selection_document_order()
++        });
++        let registration = TextSelectionRegistration::new(hitbox.clone(), bounds)
++            .with_document_order(document_order)
++            .with_text_bounds(vec![bounds])
++            .with_rendered_element(handle, window, cx);
++        handle.register(registration, window, cx);
+         let layout = self.styled_text.layout().clone();
+-        let selected_text_before = TextSelection::selected_text(window, cx);
++        // HERDR: no before/after `TextSelection::selected_text` here. It
++        // walks every participant, twice per run, so a surface of plain text
++        // runs paid for it squared on every paint, and the `refresh` it
++        // guarded does nothing while a frame is drawing. A change of
++        // selection repaints through the subscription above (or, for a
++        // shared handle, through its owner).
+         let projection = handle.update_runs(
+             &[
+                 TextSelectionRun::new(self.text.clone(), layout.clone(), bounds)
+-                    .with_document_order(self.document_order),
++                    .with_document_order(document_order),
+             ],
+             cx,
+         );
+-        if selected_text_before != TextSelection::selected_text(window, cx) {
+-            window.refresh();
+-        }
+         let color = self
+             .selection_color
+             .unwrap_or_else(|| crate::Theme::global(cx).tokens.colors.selection);
+diff --git a/vendor/gpui-kit/crates/base/src/text_selection.rs b/vendor/gpui-kit/crates/base/src/text_selection.rs
+index 6b4ac48..5bc6528 100644
+--- a/vendor/gpui-kit/crates/base/src/text_selection.rs
++++ b/vendor/gpui-kit/crates/base/src/text_selection.rs
+@@ -1348,7 +1348,16 @@ impl WindowSelectionState {
+         selection: &TextSelectionHandle,
+         registration: TextSelectionRegistration,
+     ) -> Option<TextSelectionRegistration> {
+-        if self.is_active() {
++        // HERDR: a click on text keeps its point (for shift-click) with
++        // nothing selected. Geometry then has no selection to move either,
++        // and publishing for every run of every repainted view, each publish
++        // walking every participant, costs the square of the runs on screen.
++        if self.is_active()
++            && (self.is_selecting
++                || self.touch.active
++                || self.refresh_held_cursor
++                || self.snapshot().is_some())
++        {
+             return Some(registration);
+         }
+         self.participants.borrow_mut().insert(
+diff --git a/vendor/gpui-kit/crates/shell/src/materialize.rs b/vendor/gpui-kit/crates/shell/src/materialize.rs
+index 4fc68d7..62b8a9f 100644
+--- a/vendor/gpui-kit/crates/shell/src/materialize.rs
++++ b/vendor/gpui-kit/crates/shell/src/materialize.rs
+@@ -73,6 +73,102 @@ thread_local! {
+     static FACTORY_MATERIALIZE_ERRORS: RefCell<Vec<Option<anyhow::Error>>> = const { RefCell::new(Vec::new()) };
+ }
+ 
++// HERDR: whether a string child being built here is ordinary text a person can
++// select and copy. Set by each node for its own children (see
++// `keeps_text_selectable`); a run of text reads its parent's answer.
++thread_local! {
++    static SELECTABLE_TEXT: Cell<bool> = const { Cell::new(true) };
++}
++
++/// Sets whether string children are selectable until dropped, then puts the
++/// previous answer back, unwinding included.
++struct SelectableTextScope(bool);
++
++impl SelectableTextScope {
++    fn enter(selectable: bool) -> Self {
++        Self(SELECTABLE_TEXT.with(|s| s.replace(selectable)))
++    }
++}
++
++impl Drop for SelectableTextScope {
++    fn drop(&mut self) {
++        SELECTABLE_TEXT.with(|s| s.set(self.0));
++    }
++}
++
++/// Runs `build` with string children selectable or not.
++fn with_selectable_text<T>(selectable: bool, build: impl FnOnce() -> T) -> T {
++    let _scope = SelectableTextScope::enter(selectable);
++    build()
++}
++
++/// HERDR: whether text under this node stays selectable.
++///
++/// Layout containers keep it. A control owns its label (a button, a tab, a
++/// checkbox, a select: pressing there is using the control), and so does an
++/// element that handles the left press itself, starts a drag or is a dock's
++/// tab or button, because a press-and-move there is that element's gesture,
++/// not a selection.
++/// Registered and module components draw their children their own way, so
++/// theirs stay plain too.
++fn keeps_text_selectable(component: &Component, behavior: &Behavior) -> bool {
++    match component {
++        Component::Div | Component::HFlex | Component::VFlex => {
++            behavior.drag.is_none()
++                && behavior.dock_commands.is_empty()
++                && !behavior
++                    .on_mouse_down
++                    .iter()
++                    .any(|(button, _)| *button == MouseButton::Left)
++        }
++        Component::Collapsible
++        | Component::Accordion(_)
++        | Component::AccordionItem
++        | Component::AccordionPanel
++        | Component::Table(_)
++        | Component::TableHeader(_)
++        | Component::TableBody(_)
++        | Component::TableRow(..)
++        | Component::TableHead(..)
++        | Component::TableCell(..)
++        | Component::TableCaption(_)
++        | Component::Resizable(..)
++        | Component::ResizablePanel
++        | Component::DockArea(_)
++        | Component::DockContent
++        | Component::Popover(_)
++        | Component::HoverCard(_)
++        | Component::Popup(_) => true,
++        _ => false,
++    }
++}
++
++/// HERDR: true when the press behind a mouse click dragged out a text
++/// selection: that press was a selection, and the element it ended on must not
++/// also hear a click. A press that barely moved still clicks, and the stray
++/// character or word its jitter selected is cleared, so a click looks and acts
++/// as it did before text could be selected.
++pub(crate) fn click_was_a_selection(
++    event: &gpui::ClickEvent,
++    window: &mut Window,
++    cx: &mut App,
++) -> bool {
++    /// How far a press may wander and still be a click, in either direction.
++    const CLICK_SLOP: f32 = 4.;
++    let gpui::ClickEvent::Mouse(click) = event else {
++        return false;
++    };
++    if !gpui_base::TextSelection::has_selection(window, cx) {
++        return false;
++    }
++    let moved = click.up.position - click.down.position;
++    if moved.x.abs() > gpui::px(CLICK_SLOP) || moved.y.abs() > gpui::px(CLICK_SLOP) {
++        return true;
++    }
++    gpui_base::TextSelection::clear(window, cx);
++    false
++}
++
+ /// Runs `build`, turning the first registered-component failure inside it into
+ /// an `Err`.
+ fn with_error_frame(build: impl FnOnce() -> AnyElement) -> anyhow::Result<AnyElement> {
+@@ -105,16 +201,20 @@ fn materialize_factory_subtree(
+     window: &mut Window,
+     cx: &mut App,
+ ) -> anyhow::Result<AnyElement> {
++    // HERDR: only registered components build from factories; their slots
++    // keep plain text, as their eager children do.
+     with_error_frame(|| {
+-        materialize_node(
+-            runtime,
+-            Some(snapshot),
+-            snapshot.arena(),
+-            root,
+-            inherited,
+-            window,
+-            cx,
+-        )
++        with_selectable_text(false, || {
++            materialize_node(
++                runtime,
++                Some(snapshot),
++                snapshot.arena(),
++                root,
++                inherited,
++                window,
++                cx,
++            )
++        })
+     })
+ }
+ 
+@@ -821,6 +921,9 @@ fn materialize_node(
+         KEEP_INLINE.with(|o| o.set(true));
+     }
+     let inherited = refinement.text.color.unwrap_or(inherited);
++    let selectable_children =
++        SELECTABLE_TEXT.with(Cell::get) && keeps_text_selectable(&component, &behavior);
++    let children_scope = SelectableTextScope::enter(selectable_children);
+ 
+     // `SmallVec` rather than `Vec`: this runs per node, per frame, and the
+     // overwhelming majority of nodes have a handful of children or none. A
+@@ -866,6 +969,8 @@ fn materialize_node(
+     } else {
+         SmallVec::new()
+     };
++    // The node itself (a run of text above all) answers to its parent.
++    drop(children_scope);
+     // Every component that reads a slot reports its own leftovers, because only
+     // it knows which names it read.
+     if !matches!(
+@@ -891,24 +996,26 @@ fn materialize_node(
+     warn_unhonoured_input(&component, &behavior);
+ 
+     match component {
+-        Component::Registered(component) => materialize_registered_component(
+-            runtime,
+-            snapshot,
+-            arena,
+-            node,
+-            element_id(id, behavior.key.clone()),
+-            component,
+-            inherited,
+-            Box::new(RegisteredMaterializeParts {
+-                refinement,
+-                behavior,
+-                children,
+-                slots,
+-                slot_specs,
+-            }),
+-            window,
+-            cx,
+-        ),
++        Component::Registered(component) => with_selectable_text(false, || {
++            materialize_registered_component(
++                runtime,
++                snapshot,
++                arena,
++                node,
++                element_id(id, behavior.key.clone()),
++                component,
++                inherited,
++                Box::new(RegisteredMaterializeParts {
++                    refinement,
++                    behavior,
++                    children,
++                    slots,
++                    slot_specs,
++                }),
++                window,
++                cx,
++            )
++        }),
+         component => materialize_component(
+             runtime, snapshot, arena, node, id, component, inherited, refinement, behavior, states,
+             children, slots, slot_specs, window, cx,
+@@ -1203,7 +1310,22 @@ fn materialize_component(
+             // holding it.
+             warn_unhonoured_a11y(&behavior, "text", &[]);
+             warn_without_surface("text", &refinement, &states, &children);
+-            SharedString::from(value).into_any_element()
++            // HERDR: text a person reads is text they can select and copy.
++            // Laid out and painted exactly like the plain string (same text
++            // style, `truncate`, wrapping, `line_clamp`); it adds a hitbox
++            // that blocks nothing, so presses, clicks and hover still reach
++            // the elements around it. Its identity is its place in the
++            // description, as an unkeyed element's is, so a selection lives
++            // through re-renders that keep the shape.
++            if SELECTABLE_TEXT.with(Cell::get) {
++                gpui_base::SelectableText::new(
++                    gpui::ElementId::NamedInteger("gpui-shell-text".into(), id as u64),
++                    value,
++                )
++                .into_any_element()
++            } else {
++                SharedString::from(value).into_any_element()
++            }
+         }
+         Component::Button(id) => {
+             warn_ignored_key(&behavior, "Button");
+@@ -4074,6 +4196,9 @@ fn dispatch_click(
+     let Some(runtime) = runtime.upgrade() else {
+         return;
+     };
++    if click_was_a_selection(event, window, cx) {
++        return;
++    }
+     runtime.dispatch_click(callback, event, window, cx);
+ }
+ 
+diff --git a/vendor/gpui-kit/crates/shell/src/materialize/components/virtual_list.rs b/vendor/gpui-kit/crates/shell/src/materialize/components/virtual_list.rs
+index b4e5e58..42410e6 100644
+--- a/vendor/gpui-kit/crates/shell/src/materialize/components/virtual_list.rs
++++ b/vendor/gpui-kit/crates/shell/src/materialize/components/virtual_list.rs
+@@ -366,7 +366,10 @@ fn clickable(
+     if let Some(callback) = handlers.click {
+         let runtime = Rc::downgrade(runtime);
+         let key = key.clone();
+-        row = row.on_click(move |_, window, cx| {
++        row = row.on_click(move |event, window, cx| {
++            if crate::materialize::click_was_a_selection(event, window, cx) {
++                return;
++            }
+             if let Some(runtime) = runtime.upgrade() {
+                 runtime.dispatch_item_key(callback, &key, window, cx);
+             }
+diff --git a/vendor/gpui-kit/crates/shell/src/tests/render.rs b/vendor/gpui-kit/crates/shell/src/tests/render.rs
+index 1460efc..27b1e8f 100644
+--- a/vendor/gpui-kit/crates/shell/src/tests/render.rs
++++ b/vendor/gpui-kit/crates/shell/src/tests/render.rs
+@@ -2361,6 +2361,109 @@ export default class ClickableFlexes extends View {
+     }
+ }
+ 
++// HERDR: a view's plain text can be dragged over, selected and copied; a press
++// that does not drag still clicks what it lands on; controls and press-owning
++// elements keep their labels plain.
++#[gpui::test]
++fn plain_text_selects_and_copies_while_clicks_still_click(cx: &mut TestAppContext) {
++    cx.update(crate::init);
++    let runtime = ShellRuntime::new_isolated().expect("runtime");
++    cx.update(|cx| runtime.set_global(cx));
++    let source = r#"
++import { View, div } from "gpui-kit";
++import { v_flex, Button } from "gpui-base";
++
++export default class Selectable extends View {
++  init() { this.rowClicks = 0; this.buttonClicks = 0; this.presses = 0; }
++  render(cx) {
++    return v_flex()
++      .w(300)
++      .text_size(14)
++      .child(div().h(40).child("alpha beta"))
++      .child(div().h(40).child("gamma delta"))
++      .child(div().id("row").h(40).cursor_pointer()
++        .on_click((_e, cx) => { this.rowClicks += 1; cx.notify(); })
++        .child(div().child(`row clicks ${this.rowClicks}`)))
++      .child(Button.new("button").h(40).w(300)
++        .on_click((_e, cx) => { this.buttonClicks += 1; cx.notify(); })
++        .child(`button clicks ${this.buttonClicks}`))
++      .child(div().id("pressed").h(40)
++        .on_mouse_down("left", (_e, cx) => { this.presses += 1; cx.notify(); })
++        .child(`presses ${this.presses}`))
++      .child(div().w(40).h(40).truncate().child("a line far too long for its box"));
++  }
++}
++"#;
++    let view_type = runtime.load_source("selectable.js", source).expect("load");
++    let runtime_for_view = Rc::clone(&runtime);
++    let script_view = Rc::new(RefCell::new(None));
++    let (_root, context) = cx.add_window_view({
++        let script_view = Rc::clone(&script_view);
++        move |window, cx| {
++            let object = runtime_for_view
++                .instantiate(&view_type, window, cx)
++                .expect("instantiate");
++            let view = cx.new(|_| ScriptView::new(runtime_for_view, object));
++            *script_view.borrow_mut() = Some(view.clone());
++            crate::root::ShellRoot::new(view.into(), window, cx)
++        }
++    });
++    let script_view = script_view.borrow().clone().expect("script view");
++    let tree = |context: &mut VisualTestContext| {
++        context.update(|_, cx| {
++            script_view
++                .read(cx)
++                .snapshot()
++                .map(crate::RenderSnapshot::debug_tree)
++                .unwrap_or_default()
++        })
++    };
++    let drag = |context: &mut VisualTestContext, from: (f32, f32), to: (f32, f32)| {
++        let (from, to) = (point(px(from.0), px(from.1)), point(px(to.0), px(to.1)));
++        context.simulate_mouse_down(from, gpui::MouseButton::Left, Modifiers::default());
++        context.simulate_mouse_move(to, Some(gpui::MouseButton::Left), Modifiers::default());
++        context.simulate_mouse_up(to, gpui::MouseButton::Left, Modifiers::default());
++        context.run_until_parked();
++        context.update(|window, cx| window.draw(cx).clear(cx));
++        context.update(|window, cx| gpui_base::TextSelection::selected_text(window, cx))
++    };
++    context.update(|window, cx| window.draw(cx).clear(cx));
++
++    // One run, then two in reading order (what the copy key copies).
++    assert_eq!(drag(context, (1., 10.), (290., 10.)), "alpha beta");
++    assert_eq!(drag(context, (1., 10.), (290., 50.)), "alpha beta\ngamma delta");
++
++    // A plain click on a clickable row's text clicks the row, and selects nothing.
++    context.simulate_click(point(px(10.), px(90.)), Modifiers::default());
++    context.run_until_parked();
++    context.update(|window, cx| window.draw(cx).clear(cx));
++    assert!(tree(context).contains("row clicks 1"), "{}", tree(context));
++    assert!(!context.update(|window, cx| gpui_base::TextSelection::has_selection(window, cx)));
++
++    // A press that wobbles a pixel is still a click.
++    assert_eq!(drag(context, (10., 90.), (12., 90.)), "");
++    assert!(tree(context).contains("row clicks 2"), "{}", tree(context));
++
++    // Dragging over the row's text selects it, and is not a click.
++    assert_eq!(drag(context, (1., 90.), (290., 90.)), "row clicks 2");
++    assert!(tree(context).contains("row clicks 2"), "{}", tree(context));
++
++    // A button's label is the button's: a drag over it selects nothing and,
++    // released on the button, still presses it, as it always did.
++    assert_eq!(drag(context, (1., 130.), (290., 130.)), "");
++    assert!(tree(context).contains("button clicks 1"), "{}", tree(context));
++    context.simulate_click(point(px(150.), px(140.)), Modifiers::default());
++    context.run_until_parked();
++    assert!(tree(context).contains("button clicks 2"), "{}", tree(context));
++
++    // An element that handles the press itself keeps its text plain.
++    assert_eq!(drag(context, (1., 170.), (290., 170.)), "");
++    assert!(tree(context).contains("presses 1"), "{}", tree(context));
++
++    // Cut-off text keeps its ellipsis and offers nothing half-selected.
++    assert_eq!(drag(context, (1., 210.), (39., 210.)), "");
++}
++
+ #[gpui::test]
+ fn a_full_color_image_survives_script_render_and_materialize(cx: &mut TestAppContext) {
+     cx.update(crate::init);

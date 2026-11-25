@@ -3,7 +3,8 @@
 Build Herdr from the official source (plus jay's text patches), then copy two mod folders.
 This repo holds only text; the build runs the official projects' own `just install` (PowerShell installers).
 If your company blocks scripts, every `just install` below has a **by hand** version.
-Commands are for **PowerShell**. Checked against Herdr app v0.1.16 and core v0.1.21. Not yet run on a real Windows PC.
+Commands are for **PowerShell**. Checked against Herdr app v0.1.18 and core v0.1.22: built and tested on a real Windows PC
+(2026-11-26: Rust 1.95.0, Zig 0.16.0, by hand `cargo build`; the Rust tests and herdr-jay's tests passed). A person at the keys: not yet.
 從官方原始碼 build Herdr（加上 jay 的文字補丁），再複製兩個 mod 資料夾。指令都在 **PowerShell** 打。
 公司擋腳本的話，每個 `just install` 下面都有「手動」做法。
 
@@ -162,22 +163,22 @@ Install the core **before** the app: an app that finds no core offers to downloa
 Set-Location "$env:USERPROFILE\src"
 git clone -c core.autocrlf=false --recurse-submodules --shallow-submodules https://github.com/herdrdev/herdr-core.git
 Set-Location herdr-core
-git checkout v0.1.21
-git rev-parse --short HEAD                          # must be 1b0393f (README versions table)
+git checkout v0.1.22
+git rev-parse --short HEAD                          # must be 6e29846 (README versions table)
 git submodule update --init --recursive
 ```
 
 A fresh clone gets the right commit. An older clone: run `git fetch --tags --force` before `git checkout`.
 舊的 clone 要先 `git fetch --tags --force`。
 
-**jay's patches / jay 的修改** — one for core v0.1.21: `0001`, the record of who sent messages to whom (the Kit panel's
+**jay's patches / jay 的修改** — one for core v0.1.22: `0001`, the record of who sent messages to whom (the Kit panel's
 關係 tab draws it; [patches.md](patches.md)). The block below applies whatever the folder holds.
 `$j` = the herdr-jay folder from step 0:
 
 ```powershell
 Set-Location "$env:USERPROFILE\src\herdr-core"
 $j = "$env:USERPROFILE\src\herdr-jay"
-$pd = "$j\herdr-core\patches\v0.1.21"                # 0001 today
+$pd = "$j\herdr-core\patches\v0.1.22"                # 0001 today
 $ps = @(Get-ChildItem "$pd\*.patch" -ErrorAction SilentlyContinue | Sort-Object Name).FullName
 if ($ps) { git -c user.name=me -c user.email=me@local am -3 $ps } else { "no patches" }
 ```
@@ -195,7 +196,7 @@ It builds `herdr-core.exe`, downloads Microsoft's ConPTY (`conpty\conpty.dll` + 
 hash-checked), installs into `%LOCALAPPDATA%\Programs\herdr-core`, adds that to PATH, and makes `hc.exe` (a hard link)
 if you had no `hc`. No admin needed.
 
-**Check** (new PowerShell): `hc --version` → `hc 0.1.21`.
+**Check** (new PowerShell): `hc --version` → `hc 0.1.22`.
 `Test-Path "$env:LOCALAPPDATA\Programs\herdr-core\conpty\conpty.dll"` → `True` = Microsoft's ConPTY in use.
 
 **Never run plain `hc update`** (without `--from`): it replaces this build with the official one. Update as in [step 8](#8-updating--更新).
@@ -231,11 +232,11 @@ Later updates by hand, while it runs: `hc update --from target\release\herdr-cor
 Set-Location "$env:USERPROFILE\src"
 git clone -c core.autocrlf=false --recurse-submodules --shallow-submodules https://github.com/herdrdev/herdr-app.git
 Set-Location herdr-app
-git checkout v0.1.16
-git rev-parse --short HEAD                          # must be 034f8b8 (README versions table)
+git checkout v0.1.18
+git rev-parse --short HEAD                          # must be 9a9ae13 (README versions table)
 git submodule update --init --recursive
 $j = "$env:USERPROFILE\src\herdr-jay"
-$pd = "$j\herdr-app\patches\v0.1.16"                # 32 patches (docs/patches.md), among them web pages in mods, layout.zoom and selectable text
+$pd = "$j\herdr-app\patches\v0.1.18"                # 33 patches (docs/patches.md), among them web pages in mods, layout.zoom and selectable text
 $ps = @(Get-ChildItem "$pd\*.patch" -ErrorAction SilentlyContinue | Sort-Object Name).FullName
 if ($ps) { git -c user.name=me -c user.email=me@local am -3 $ps } else { "no patches" }
 ```
@@ -262,7 +263,7 @@ Copy-Item -Force target\release\herdr-app.exe $a
 Add it to PATH: [Add to PATH](#add-a-folder-to-path) with the first line `$add = "$env:LOCALAPPDATA\Programs\herdr-app"`. No Start-menu entry this way: right-click
 `herdr-app.exe` in Explorer → **Pin to Start**, and open Herdr from that pin (below: "from the Start menu").
 
-**Check**: `herdr-app --version | Out-Host` → `herdr-app 0.1.16`. Then open **Herdr** once from the Start menu:
+**Check**: `herdr-app --version | Out-Host` → `herdr-app 0.1.18`. Then open **Herdr** once from the Start menu:
 it creates its home (`%USERPROFILE%\.config\herdr-app`, or `HERDR_APP_HOME` if you set it) with `keys.json`, `settings.json` and `mods\`.
 先從開始選單打開 Herdr 一次，它會建立設定目錄。
 
@@ -463,7 +464,7 @@ About 15 minutes. What each step does is explained in [docs/nvim-jay.md](nvim-ja
 the screen and of `:messages` in nvim, note the step number, go on.
 大約 15 分鐘；哪一步失敗就拍照（含 nvim 的 `:messages`），記下第幾步，繼續下一步。
 
-1. New PowerShell: `nvim --version`, `hc --version`, `git --version` → NVIM ≥ 0.11, `hc 0.1.21`, a git version.
+1. New PowerShell: `nvim --version`, `hc --version`, `git --version` → NVIM ≥ 0.11, `hc 0.1.22`, a git version.
 2. In Herdr make a space for a git project (`ctrl-shift-n`, pick the folder); in a tab there run `claude`
    (no `cd` first; nvim-jay's steps below are written for Claude Code). With that pane focused: `ctrl-shift-i` → nvim on the right in that pane's folder, file tree beside it, and
    `Test-Path "$h\mods\nvim-jay\.init.lua"` is True (`$h` as in §5 step 2).
@@ -579,7 +580,7 @@ Gerrit review tab that closes with nvim and 0007 linked mods that reload: run th
 v0.1.21 got its `0001` (who sent to whom) and the app `0008` (its event): run **all** the blocks, core, server and app;
 2026-11-16: the app got `0009`…`0022`, among them web pages in mods and `layout.zoom`: run the **app** blocks only; later that day the app moved to
 **v0.1.16** with 27 patches, `0026` text in mod panels can be selected and copied: run the **app** blocks only, with
-`$tag = "v0.1.16"`; the core stays v0.1.21; `0027` notices and `0028` an app opened from a terminal no longer sends as it, `0029` panels remember what you saw, `0030` a hidden web page no longer takes drops, `0031` the Agents menu's 壓縮 queued and once per agent, `0032` omp's 壓縮 ends without a turn: the **app** blocks again). Order: **core** checkout block → its build block → [8.3](#83-core-on-the-linux-server)
+`$tag = "v0.1.16"`; the core stays v0.1.21; `0027` notices and `0028` an app opened from a terminal no longer sends as it, `0029` panels remember what you saw, `0030` a hidden web page no longer takes drops, `0031` the Agents menu's 壓縮 queued and once per agent, `0032` omp's 壓縮 ends without a turn: the **app** blocks again; 2026-11-26: app **v0.1.18** (33 patches, the same changes renumbered from `0027` on) and core **v0.1.22** (its `0001` as before): run **all** the blocks). Order: **core** checkout block → its build block → [8.3](#83-core-on-the-linux-server)
 (server) → **app** checkout block (`$repo = "herdr-app"`, the app version) → its build block.
 In the first line replace `<version from the README table>` with that version (e.g. `v0.1.21`).
 Paste each block with **Ctrl+V as one block** (not right-click, not line by line).

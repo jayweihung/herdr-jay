@@ -1,0 +1,277 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: jayweihung <3034830+jayweihung@users.noreply.github.com>
+Date: Fri, 20 Nov 2026 15:09:35 +0800
+Subject: [PATCH 32/33] feat: the agents menu's compact is queued while the
+ agent works, says compacting on its row and menu until it finishes, and goes
+ once per agent (shared compact/<address>)
+
+---
+ defaults/AGENTS.md           |  5 ++
+ defaults/mods/agents/main.js | 93 +++++++++++++++++++++++++++++++-----
+ scripts/agents.test.ts       | 68 +++++++++++++++++++++++++-
+ 3 files changed, 153 insertions(+), 13 deletions(-)
+
+diff --git a/defaults/AGENTS.md b/defaults/AGENTS.md
+index 8790881..191d639 100644
+--- a/defaults/AGENTS.md
++++ b/defaults/AGENTS.md
+@@ -175,6 +175,11 @@ the highlighted line shows where it will land.
+ - **An agent's right-click menu** in the `agents` list: compact, start over
+   (`/clear` or `/new`), stop (`hc interrupt`, while it works), continue,
+   pin, close. Typed commands go only to an agent that waits (idle or done).
++  Compact while it works is queued and typed in once its turn ends; one per
++  agent until it finishes, in shared `"compact/<address>"`:
++  `{ state: "queued" | "sent", at, text, sent?, turn? }` (null when none). A
++  mod with its own compact button sets and honors the same key, so pressing
++  in both is still one compact.
+   Another mod adds items with shared `"agents.menu"`:
+   `{ <mod>: { at, items: [{ id, label }] } }` (`at` in ms; entries older than
+   10 minutes are left out, so say it again now and then). Picking one focuses
+diff --git a/defaults/mods/agents/main.js b/defaults/mods/agents/main.js
+index 3c38ef5..2d7a9b7 100644
+--- a/defaults/mods/agents/main.js
++++ b/defaults/mods/agents/main.js
+@@ -102,16 +102,45 @@ const TOOLS = { "claude-code": "claude", claude: "claude", codex: "codex", omp:
+ const TOOL_CMDS = { claude: { compact: "/compact", clear: "/clear" }, codex: { compact: "/compact", clear: "/new" }, omp: { compact: "/compact", clear: "/new" } };
+ export const toolOf = (a) => TOOLS[String(a?.app ?? "").toLowerCase()] ?? TOOLS[String(a?.program?.key ?? "").toLowerCase()] ?? null;
+ // hc send, plainly: the menu offers it only while the agent waits, and `--if idle` would refuse one the core
+-// still calls done (the list shows a done agent you've looked at as idle)
++// still calls done (the list shows a done agent you've looked at as idle; hc's --if knows only idle and working)
+ export const sendTo = (a, text) => ["send", a.address, text];
++// An agent whose turn ended while work of its own still runs (a background command, a sub-agent) isn't done yet:
++// another mod that sees it (the kit mod) puts it in shared "agents.busy" (address -> what runs); it counts as working.
++export const withBusy = (a, busy) => (a.status === "done" && busy?.[a.address] ? { ...a, status: "working" } : a);
++// One /compact per agent per cycle, shared with the kit mod (its context.js has the same; keep the two the same):
++// shared "compact/<address>" = { state: "queued" | "sent", at, text, sent?, turn? } while one waits or runs, else null.
++// A queued one is typed in once the agent waits (idle, done); a sent one ends when a turn ends after it (the core's
++// turn goes up each time it stops working: /compact works, then stops), or the kit mod sees kit context say
++// "compacted", or after COMPACT_SENT ms.
++export const COMPACT_SENT = 180000, COMPACT_QUEUED = 1800000;
++export const compactKey = (address) => `compact/${address}`;
++// one of these (null, or another mod's mistake, is none: a press replaces it)
++const isCompact = (e) => (e?.state === "queued" || e?.state === "sent") && Number.isFinite(e.at);
++// what to do about it now: "send", "done", "timeout" (say so), "drop" (left from long ago: clear quietly), or null
++export function compactStep(e, status, turn, now = Date.now()) {
++  if (!isCompact(e)) return null;
++  const sent = e.state === "sent", since = now - (sent ? e.sent ?? e.at : e.at), ttl = sent ? COMPACT_SENT : COMPACT_QUEUED;
++  if (since > ttl + 600000) return "drop";
++  if (since > ttl) return "timeout";
++  const waits = status === "idle" || status === "done";
++  if (!sent) return waits ? "send" : null;
++  return waits && Number.isFinite(turn) && Number.isFinite(e.turn) && turn > e.turn ? "done" : null;
++}
++// one is queued or running: another press only says so
++export const compactLive = (e, now = Date.now()) => isCompact(e) && compactStep(e, null, null, now) === null;
+ // the items: [label, what, off (why it can't be picked now, or ""), ask (picked once more to do it)]
+-export function menuItems(a, more = {}, now = Date.now()) {
++// job: this agent's compact (shared "compact/<address>"); a: as the list shows it (withBusy)
++export function menuItems(a, more = {}, now = Date.now(), job = null) {
+   if (!a) return [];
+   const cmds = TOOL_CMDS[toolOf(a)], waits = a.status === "idle" || a.status === "done";
+   const busy = a.status === "working" ? "工作中" : a.status === "blocked" ? "等你回答" : "";
+   const typed = (label, what, ask = "") => [label, what, !cmds ? "不支援" : waits ? "" : busy || "還沒好", ask];
++  // compact while it works too: queued, typed in once this turn ends
++  const live = compactLive(job, now);
++  const compact = live ? [job.state === "sent" ? "壓縮中…" : "已排隊，這輪結束後壓縮", "compact", "", ""]
++    : [a.status === "working" && cmds ? "壓縮（這輪結束後）" : "壓縮", "compact", !cmds ? "不支援" : waits || a.status === "working" ? "" : busy || "還沒好", ""];
+   const list = [
+-    typed("壓縮", "compact"),
++    compact,
+     typed("清空重來", "clear", "再按一次：清空這個對話，重新開始"),
+     ["停下來", "stop", a.status === "working" ? "" : "沒在工作", ""],
+     ["繼續", "continue", waits ? "" : busy || "還沒好", ""],
+@@ -237,8 +266,9 @@ export default class Agents extends View {
+   agentMenu(t) {
+     // the name its row shows (the list passes it), so the menu and its notice read the same
+     const nameOf = (a) => props().name || a.title || a.program?.name || a.address;
+-    const a = agents().find((x) => x.address === props().agentMenu);
+-    const list = menuItems(a, shared("agents.menu"));
++    // as the list shows it: a done agent whose own work still runs is working (its compact waits for the turn's end)
++    const found = agents().find((x) => x.address === props().agentMenu), a = found && withBusy(found, shared("agents.busy"));
++    const list = menuItems(a, shared("agents.menu"), Date.now(), a ? shared(compactKey(a.address)) : null);
+     if (!a) return v_flex().w_full().p(10).bg(t.popover).text_size(12.8).text_color(t.dim).child("這個 agent 已經不在了");
+     const pick = (i, cx) => {
+       const it = list[i];
+@@ -293,7 +323,7 @@ export default class Agents extends View {
+     };
+     const cmds = TOOL_CMDS[toolOf(a)] ?? {};
+     const send = (args, done) => hc(args).then((r) => say(r, done), () => say(null, done));
+-    if (what === "compact") return send(sendTo(a, cmds.compact), "送出壓縮");
++    if (what === "compact") return this.compact(a, cmds.compact, name);
+     if (what === "clear") return send(sendTo(a, cmds.clear), "送出清空");
+     if (what === "continue") return send(sendTo(a, "繼續"), "送出「繼續」");
+     if (what === "stop") return send(["interrupt", a.address], "叫它停下來");
+@@ -306,6 +336,35 @@ export default class Agents extends View {
+     }
+   }
+ 
++  // 壓縮: one per agent per cycle (shared "compact/<address>", the kit mod's too). Typed in now if it waits, else
++  // queued: the list types it in once this turn ends. Pressed again meanwhile, it only says so.
++  compact(a, text, name) {
++    const key = compactKey(a.address), now = Date.now();
++    if (compactLive(shared(key), now)) return void notify({ title: "已經在壓縮了", body: name, level: "info", timeout: 3000 });
++    const job = { state: "queued", at: now, text };
++    setShared(key, job);
++    if (a.status === "idle" || a.status === "done") return this.compactNext(a, job, "send", name, terminals().find((x) => x.address === a.address)?.turn);
++    notify({ title: "已排隊，這輪結束後壓縮", body: name, level: "info", timeout: 4000 });
++  }
++
++  // a compact's next step (compactStep): typed in (marked sent first, so no other copy or mod types it too), ended,
++  // or given up
++  compactNext(a, e, step, name, turn) {
++    const key = compactKey(a.address);
++    if (step === "send") {
++      setShared(key, { ...e, state: "sent", sent: Date.now(), turn: Number.isFinite(turn) ? turn : null });
++      const failed = (r) => {
++        if (shared(key)?.at === e.at) setShared(key, null);
++        notify({ title: "沒有送出壓縮", body: (r?.stderr || r?.stdout || "hc 沒有回應").trim().slice(0, 300), level: "warning" });
++      };
++      return hc(sendTo(a, e.text)).then((r) => (r?.code === 0 ? notify({ title: "壓縮中…", body: name, level: "info", timeout: 3000 }) : failed(r)), () => failed(null));
++    }
++    setShared(key, null);
++    if (step === "done") notify({ title: "壓縮好了", body: name, level: "success", timeout: 3000 });
++    else if (step === "timeout") notify({ title: e.state === "sent" ? "壓縮沒等到結束" : "排隊的壓縮取消了", level: "warning", timeout: 6000,
++      body: `${name}：${e.state === "sent" ? "3 分鐘還沒看到它壓縮完，不再等（看一下它的畫面）" : "等了 30 分鐘它還沒停下來，沒有送出"}` });
++  }
++
+   peek(addr) {
+     run("terminal.peek", { terminal: addr });
+   }
+@@ -367,16 +426,15 @@ export default class Agents extends View {
+     if (props()?.agentMenu) return this.agentMenu(t);
+     const collapsed = narrow();
+     const sort = sortOf();
+-    // An agent whose turn ended while work of its own still runs (a background command, a sub-agent) isn't done
+-    // yet: another mod that sees it (the kit mod) puts it in shared "agents.busy" (address -> what runs).
+     const busy = shared("agents.busy") ?? {};
+     // An agent waiting for a person outside its own dialog (an OK it asked for and stopped on), or waiting long: another
+     // mod puts it in shared "agents.waiting" (address -> { since, hot }); the list shows it as needing you, red when hot.
+     const waiting = shared("agents.waiting") ?? {};
++    const jobs = [];
+     let list = agents().map((a) => {
+-      const w = waiting[a.address];
+-      if (w && a.status !== "working") return { ...a, status: "blocked", hot: Boolean(w.hot) };
+-      return a.status === "done" && busy[a.address] ? { ...a, status: "working" } : a;
++      const b = withBusy(a, busy), w = waiting[a.address], job = shared(compactKey(a.address));
++      if (job) jobs.push([b, job]);
++      return w && a.status !== "working" ? { ...a, status: "blocked", hot: Boolean(w.hot) } : b;
+     });
+     this.listed = new Map(list.map((a) => [a.address, a.status]));
+     const all = terminals();
+@@ -384,6 +442,14 @@ export default class Agents extends View {
+     const shown = focused()?.agent;
+     const now = Date.now();
+     this.track(list, now);
++    // compacts: a queued one typed in once its agent waits, a sent one ended once a turn ended after it
++    if (jobs.length) {
++      const turns = new Map(all.map((x) => [x.address, x.turn]));
++      for (const [a, job] of jobs) {
++        const step = compactStep(job, a.status, turns.get(a.address), now);
++        if (step) this.compactNext(a, job, step, a.title || a.program?.name || a.address, turns.get(a.address));
++      }
++    }
+     // A kept sub-agent (one with a pane) is in agents() too: where a tree shows
+     // it, it gets no row of its own, unless it's pinned.
+     const nested = new Set(collapsed ? [] : list.flatMap((a) => this.tree(all, a.address).map((s) => s.t.address)));
+@@ -479,6 +545,8 @@ export default class Agents extends View {
+           .child(h_flex().w(14).flex_none().items_center().justify_center().child(this.status(t, a, true)));
+       }
+       const when = this.since(a);
++      // its compact, queued or running (until it ends: compactStep)
++      const job = shared(compactKey(a.address)), compacting = compactLive(job, now);
+       const idle = a.status === "idle" && !a.focused;
+       const isPinned = a.pinned;
+       const pin = div()
+@@ -538,7 +606,8 @@ export default class Agents extends View {
+         .when(Boolean(machine), el => el.child(div().text_size(10).text_color(t.dim).child(machine)))
+         .when(subs.length > 0, el => el.child(fold(a, subs)))
+         .when(this.hovered === a.address, el => el.child(pin))
+-        .when(this.hovered !== a.address && Boolean(when), el => el.child(div().flex_none().text_size(11).text_color(t.dim).child(duration(now - when))))
++        .when(compacting, el => el.child(div().flex_none().text_size(11).text_color(t.working).child(job.state === "sent" ? "壓縮中…" : "排隊壓縮")))
++        .when(!compacting && this.hovered !== a.address && Boolean(when), el => el.child(div().flex_none().text_size(11).text_color(t.dim).child(duration(now - when))))
+         .child(this.status(t, a, byPriority && !isPinned));
+     };
+ 
+diff --git a/scripts/agents.test.ts b/scripts/agents.test.ts
+index 71f1178..5287485 100644
+--- a/scripts/agents.test.ts
++++ b/scripts/agents.test.ts
+@@ -4,7 +4,8 @@ import { readFile } from "node:fs/promises";
+ const source = (await readFile(new URL("../defaults/mods/agents/main.js", import.meta.url), "utf8"))
+   .replace('import * as host from "herdr";', "const host = {};").replace(/^import .*;\n/gm, "").replace("export default class Agents", "class Agents").replace(/^export (?=const |function )/gm, "");
+ 
+-function harness(pins: string[], globals: Record<string, unknown> = {}) {
++function harness(pins: string[], extra: Record<string, unknown> = {}) {
++  const globals = extra;
+   const data = new Map([["pins", JSON.stringify(pins)]]);
+   const writes: unknown[] = [];
+   const storage = { getItem: (k: string) => data.get(k) ?? null, setItem: (k: string, v: string) => data.set(k, v), removeItem: (k: string) => data.delete(k) };
+@@ -344,3 +345,68 @@ test("a title's leading emoji stays, a status glyph before it goes", () => {
+   expect(row("🔴")).toBe("🔴");
+   expect(row("🔴 claude")).toBe("🔴 claude");
+ });
++
++test("a compact: queued while the agent works, typed in once it waits, ended by a turn after it or a timeout", () => {
++  const { compactStep, compactLive } = new Function("View", `${source}; return { compactStep, compactLive };`)(class {});
++  const queued = { state: "queued", at: 1000, text: "/compact" };
++  expect(compactStep(null, "idle", 3, 2000)).toBe(null);
++  expect(compactStep(queued, "working", 3, 2000)).toBe(null);
++  expect(compactStep(queued, "blocked", 3, 2000)).toBe(null);
++  expect(compactStep(queued, "idle", 3, 2000)).toBe("send");
++  expect(compactStep(queued, "done", 3, 2000)).toBe("send");
++  expect(compactStep(queued, "working", 3, 1000 + 1800001)).toBe("timeout");
++  const sent = { ...queued, state: "sent", sent: 5000, turn: 3 };
++  expect(compactStep(sent, "done", 3, 6000)).toBe(null); // typed in, not started yet
++  expect(compactStep(sent, "working", 4, 6000)).toBe(null); // compacting
++  expect(compactStep(sent, "done", 4, 6000)).toBe("done");
++  expect(compactStep({ ...sent, turn: null }, "done", 4, 6000)).toBe(null); // no turn known: only the timeout ends it
++  expect(compactStep(sent, "done", 3, 5000 + 180001)).toBe("timeout");
++  expect(compactStep(sent, "done", 3, 5000 + 180000 + 600001)).toBe("drop"); // left from long ago (a restart)
++  expect([compactLive(null, 6000), compactLive(queued, 6000), compactLive(sent, 6000), compactLive(sent, 5000 + 180001)]).toEqual([false, true, true, false]);
++});
++
++test("the menu's 壓縮: offered while it works (queued), says what its compact is doing, not while it needs you", () => {
++  const { menuItems, withBusy } = new Function("View", `${source}; return { menuItems, withBusy };`)(class {});
++  const claude = { address: "t1", app: "claude-code", program: { key: "claude" } };
++  const item = (a: any, job: any = null) => menuItems(a, {}, 2000, job)[0].slice(0, 3);
++  expect(item({ ...claude, status: "idle" })).toEqual(["壓縮", "compact", ""]);
++  expect(item({ ...claude, status: "working" })).toEqual(["壓縮（這輪結束後）", "compact", ""]);
++  expect(item({ ...claude, status: "blocked" })).toEqual(["壓縮", "compact", "等你回答"]);
++  expect(item({ address: "t2", status: "idle", program: { key: "shell" } })[2]).toBe("不支援");
++  expect(item({ ...claude, status: "working" }, { state: "queued", at: 1000 })).toEqual(["已排隊，這輪結束後壓縮", "compact", ""]);
++  expect(item({ ...claude, status: "working" }, { state: "sent", at: 1000, sent: 1500 })).toEqual(["壓縮中…", "compact", ""]);
++  // done while its own work still runs (shared agents.busy): working, so its compact is queued
++  expect(withBusy({ ...claude, status: "done" }, { t1: "Bash" }).status).toBe("working");
++  expect(withBusy({ ...claude, status: "done" }, {}).status).toBe("done");
++});
++
++test("pressing 壓縮 again, here or in the kit mod, sends one /compact per agent per cycle", async () => {
++  const store = new Map<string, any>(), sends: unknown[][] = [], notes: string[] = [];
++  const globals = {
++    shared: (k: string) => store.get(k) ?? null, setShared: (k: string, v: unknown) => store.set(k, v),
++    notify: (n: any) => notes.push(n.title), hc: async (args: unknown[]) => { sends.push(args); return { code: 0 }; },
++    terminals: () => [{ address: "t1", turn: 7 }],
++  };
++  const { agents } = harness([], globals);
++  const claude = { address: "t1", app: "claude-code", program: { key: "claude" } };
++  // working: queued, nothing typed yet; again: only says so
++  agents.compact({ ...claude, status: "working" }, "/compact", "api");
++  agents.compact({ ...claude, status: "working" }, "/compact", "api");
++  expect(sends).toEqual([]);
++  expect(notes).toEqual(["已排隊，這輪結束後壓縮", "已經在壓縮了"]);
++  // the kit mod's press finds it too (same key)
++  expect(store.get("compact/t1").state).toBe("queued");
++  // its turn ends: typed in once, marked sent with the turn it was sent at
++  const job = store.get("compact/t1");
++  await agents.compactNext({ ...claude, status: "done" }, job, "send", "api", 7);
++  expect(sends).toEqual([["send", "t1", "/compact"]]);
++  expect(store.get("compact/t1")).toMatchObject({ state: "sent", turn: 7 });
++  agents.compact({ ...claude, status: "idle" }, "/compact", "api");
++  expect(sends).toHaveLength(1);
++  // a turn ended after it: done, and the next press is a new cycle (idle: typed in at once)
++  agents.compactNext({ ...claude, status: "idle" }, store.get("compact/t1"), "done", "api", 8);
++  expect(store.get("compact/t1")).toBe(null);
++  await agents.compact({ ...claude, status: "idle" }, "/compact", "api");
++  expect(sends).toHaveLength(2);
++  expect(notes).toEqual(["已排隊，這輪結束後壓縮", "已經在壓縮了", "壓縮中…", "已經在壓縮了", "壓縮好了", "壓縮中…"]);
++});

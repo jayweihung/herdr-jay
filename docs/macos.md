@@ -2,7 +2,7 @@
 
 Build Herdr from the official source (plus jay's text patches), then install two mods (and the kit mod if you use kit).
 jay's own Mac is built from these same public sources and patches. Checked on Apple Silicon with only the Command Line Tools
-(no full Xcode), Herdr app v0.1.16 and core v0.1.21. Intel Macs are fine too: the official releases are
+(no full Xcode), Herdr app v0.1.18 and core v0.1.22. Intel Macs are fine too: the official releases are
 Apple-Silicon-only, so building from source is the way there.
 從官方原始碼 build Herdr（加上 jay 的文字補丁），再裝兩個 mod（有用 kit 再加 kit 的 mod）。jay 自己的 Mac 就是這樣裝的。
 
@@ -67,23 +67,23 @@ Install the core **before** the app.
 cd ~/src
 git clone --recurse-submodules https://github.com/herdrdev/herdr-core.git
 cd herdr-core
-git checkout v0.1.21
+git checkout v0.1.22
 git rev-parse --short HEAD
 git submodule update --init --recursive
 ```
 
-`git rev-parse` must print `1b0393f` (README versions table). An older clone: `git fetch --tags --force` before
+`git rev-parse` must print `6e29846` (README versions table). An older clone: `git fetch --tags --force` before
 `git checkout`.
 
-**jay's patches** — one for core v0.1.21: `0001`, the record of who sent messages to whom (the Kit panel's 關係 tab;
+**jay's patches** — one for core v0.1.22: `0001`, the record of who sent messages to whom (the Kit panel's 關係 tab;
 [patches.md](patches.md)). The one v0.1.19 needed (skip Ghostty's Xcode framework) is in the official source since v0.1.20 (#182).
 
 ```sh
-ls ~/src/herdr-jay/herdr-core/patches/v0.1.21/
+ls ~/src/herdr-jay/herdr-core/patches/v0.1.22/
 ```
 
 It shows `0001-….patch` today; apply the folder's `.patch` files before `just install`:
-`git -c user.name=me -c user.email=me@local am -3 ~/src/herdr-jay/herdr-core/patches/v0.1.21/*.patch`
+`git -c user.name=me -c user.email=me@local am -3 ~/src/herdr-jay/herdr-core/patches/v0.1.22/*.patch`
 
 ```sh
 just install
@@ -92,7 +92,7 @@ just install
 It builds a release, installs `~/.local/share/herdr-core/…/Herdr Core.app` (ad-hoc signed), links
 `~/.local/bin/herdr-core` and `~/.local/bin/hc`, and restarts the core server (running terminals are kept).
 
-**Check**: `hc --version` → `hc 0.1.21`; `hc server status --json` shows `"version":"0.1.21"`.
+**Check**: `hc --version` → `hc 0.1.22`; `hc server status --json` shows `"version":"0.1.22"`.
 
 **Never run plain `hc update`**, and never "Update herdr-core" / Install on Herdr's core screen: they replace your
 build with the official one. Update as in [step 8](#8-updating--更新).
@@ -108,13 +108,13 @@ Run from a terminal that has `~/.local/bin` on PATH (step 1): the installer writ
 cd ~/src
 git clone --recurse-submodules https://github.com/herdrdev/herdr-app.git
 cd herdr-app
-git checkout v0.1.16
+git checkout v0.1.18
 git rev-parse --short HEAD
 git submodule update --init --recursive
-git -c user.name=me -c user.email=me@local am -3 ~/src/herdr-jay/herdr-app/patches/v0.1.16/*.patch
+git -c user.name=me -c user.email=me@local am -3 ~/src/herdr-jay/herdr-app/patches/v0.1.18/*.patch
 ```
 
-`git rev-parse` must print `034f8b8` (an older clone: `git fetch --tags --force` first). `git am` applies the 32 app
+`git rev-parse` must print `9a9ae13` (an older clone: `git fetch --tags --force` first). `git am` applies the 33 app
 patches ([patches.md](patches.md): dragging agents onto spaces, web pages in mods, selectable text in panels, …); if it
 fails: `git am --abort`, check the tag, try again.
 `git am` 套上 32 個 app patch（見 [patches.md](patches.md)：把 agent 拖到 space、mod 裡的網頁、面板文字可以複製……）。

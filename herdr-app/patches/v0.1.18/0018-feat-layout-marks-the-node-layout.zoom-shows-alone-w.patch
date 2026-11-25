@@ -1,0 +1,69 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: jayweihung <3034830+jayweihung@users.noreply.github.com>
+Date: Mon, 16 Nov 2026 02:49:49 +0800
+Subject: [PATCH 18/33] feat: layout() marks the node layout.zoom shows alone
+ with zoomed: true
+
+---
+ defaults/herdr.d.ts |  3 ++-
+ src/mods.rs         | 19 +++++++++++++++++--
+ src/window.rs       |  2 +-
+ 3 files changed, 20 insertions(+), 4 deletions(-)
+
+diff --git a/defaults/herdr.d.ts b/defaults/herdr.d.ts
+index 9e53477..86a8ddd 100644
+--- a/defaults/herdr.d.ts
++++ b/defaults/herdr.d.ts
+@@ -286,7 +286,8 @@ export function focused(): ({ space: string; tab: string; pane: string | null; t
+  *  Root `terminal_menu?: string` chooses a terminal right-click menu mod (default: "menu").
+  *  Unknown names warn and fall back to "menu". This replaces the menu, not its items.
+  *  Opens a pointer popup with mod.json overlay width/height (default 220×260).
+- *  Root `link_handlers?: string[]` selects terminal link mods in order. */
++ *  Root `link_handlers?: string[]` selects terminal link mods in order.
++ *  The node layout.zoom shows alone has `zoomed: true` (not in the file). */
+ export function layout(): unknown;
+ 
+ /** The names of every layout in layouts/ (main first). */
+diff --git a/src/mods.rs b/src/mods.rs
+index ef3b6a2..37b1918 100644
+--- a/src/mods.rs
++++ b/src/mods.rs
+@@ -646,8 +646,23 @@ fn publish(key: &'static str, set: impl FnOnce(&mut Snapshot) -> (Value, Value))
+     changed
+ }
+ 
+-pub fn publish_layout(layout: &Node) -> bool {
+-    let v = serde_json::to_value(layout).unwrap_or(Value::Null);
++/// `zoomed`: the node layout.zoom shows alone, marked `"zoomed": true` (it isn't in the file).
++pub fn publish_layout(layout: &Node, zoomed: Option<&str>) -> bool {
++    fn mark(v: &mut Value, id: &str) -> bool {
++        match v {
++            Value::Object(o) if o.get("id").and_then(Value::as_str) == Some(id) => {
++                o.insert("zoomed".into(), Value::Bool(true));
++                true
++            }
++            Value::Object(o) => o.values_mut().any(|c| mark(c, id)),
++            Value::Array(a) => a.iter_mut().any(|c| mark(c, id)),
++            _ => false,
++        }
++    }
++    let mut v = serde_json::to_value(layout).unwrap_or(Value::Null);
++    if let Some(id) = zoomed {
++        mark(&mut v, id);
++    }
+     publish("layout", |s| (std::mem::replace(&mut s.layout, v.clone()), v))
+ }
+ pub fn publish_machines(v: Value) -> bool {
+diff --git a/src/window.rs b/src/window.rs
+index 73355ef..af6b574 100644
+--- a/src/window.rs
++++ b/src/window.rs
+@@ -2025,7 +2025,7 @@ impl AppWindow {
+         changed |= mods::publish_panes(Value::Array(panes));
+         changed |= mods::publish_focused(focused.unwrap_or(Value::Null));
+         changed |= mods::publish_floats(self.float_placements());
+-        changed |= mods::publish_layout(&self.chrome);
++        changed |= mods::publish_layout(&self.chrome, self.zoom_hid.as_ref().map(|(id, _)| id.as_str()));
+         if changed {
+             self.refresh_snapshot_mods(cx);
+         }

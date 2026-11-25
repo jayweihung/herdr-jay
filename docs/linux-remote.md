@@ -69,9 +69,11 @@ cargo build --release --locked --target x86_64-unknown-linux-musl -p herdr-core
 Test-Path target\x86_64-unknown-linux-musl\release\herdr-core    # must be True
 ```
 
-(Checked on macOS with the same command: a static x86-64 Linux program. Not yet tried on Windows: if the link step
-fails, bring the error to jay.) ARM server: `aarch64-unknown-linux-musl` in all three places.
-（在 Mac 上用同樣指令試過可以；Windows 還沒實測，失敗就把錯誤訊息拿給 jay。）
+(Used this way on a company Windows PC, and on macOS. Zig makes a file link while it builds the Linux library: on an
+account that may not make links it stops with `unable to symlink … libghostty-vt.so.0: PermissionDenied`; turn on
+Windows' Developer Mode (Settings → System → For developers; once, needs an admin) and build again. Any other error:
+bring it to jay.) ARM server: `aarch64-unknown-linux-musl` in all three places.
+（公司的 Windows PC 就是這樣編的。出現 `unable to symlink … PermissionDenied` 是這個帳號不能建連結：開 Windows 的「開發人員模式」再編；其他錯誤拿給 jay。）
 
 **Copy and restart** (from the PC; `<user>@<server>` as in step 1). The new file goes next to the old one first, so a
 broken copy never replaces a working core:

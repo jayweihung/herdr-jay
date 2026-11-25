@@ -4,7 +4,9 @@ Build Herdr from the official source (plus jay's text patches), then copy two mo
 This repo holds only text; the build runs the official projects' own `just install` (PowerShell installers).
 If your company blocks scripts, every `just install` below has a **by hand** version.
 Commands are for **PowerShell**. Checked against Herdr app v0.1.18 and core v0.1.22: built and tested on a real Windows PC
-(2026-11-26: Rust 1.95.0, Zig 0.16.0, by hand `cargo build`; the Rust tests and herdr-jay's tests passed). A person at the keys: not yet.
+(2026-11-26: Rust 1.95.0, Zig 0.16.0, by hand `cargo build`; herdr-jay's tests and the app's Rust tests passed; the core's
+Rust tests failed in 7 places there exactly as on the official tag without patches: code page 950, no desktop session,
+no `cat`). A person at the keys: not yet.
 從官方原始碼 build Herdr（加上 jay 的文字補丁），再複製兩個 mod 資料夾。指令都在 **PowerShell** 打。
 公司擋腳本的話，每個 `just install` 下面都有「手動」做法。
 

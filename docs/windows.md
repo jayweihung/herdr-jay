@@ -512,6 +512,7 @@ Here: install and Windows.
 | Build: `libclang` not found | LLVM missing or `LIBCLANG_PATH` unset | step 1, LLVM row; new PowerShell |
 | Build: `link.exe` not found | Build Tools without C++ | step 1, Build Tools row (C++ workload + Windows SDK) |
 | Build: Zig errors | wrong Zig | `zig version` must be `0.16.0` |
+| `git am`: `patch does not apply` / `corrupt patch` on a clean checkout of the right tag | the clone was made with Git's `core.autocrlf=true` (`git config core.autocrlf` says `true`): files and patches have CRLF | in that repo and in herdr-jay: `git config core.autocrlf false; git rm -r --cached -q .; git reset --hard -q` (only with no changes of your own there), then the block again |
 | Build: path too long / file not found deep in `vendor` | 260-char limit | step 0: `core.longpaths`, short folder |
 | Build: download / TLS errors | network blocked | step 0 host list to IT; `HTTPS_PROXY` |
 | `SSL certificate problem: unable to get local issuer certificate` | company TLS inspection | `git config --global http.sslBackend schannel` |

@@ -3911,6 +3911,25 @@ test("kit 0.17 (agent popup): a tab kit open started: 這個分頁的 on top (�
   const o = await M.header.loadAgent(null, "/x", "t1", "claude");
   assert.deepEqual([kitCalls("tab").length, o.noTab, o.tabShow], [0, undefined, undefined]);
 });
+test("kit 0.17 (relaunch.js): a tab kit open started is resumed through kit open (kit tab list has it), so it keeps its copy; the line by hand too", async (M) => {
+  fresh();
+  const RL = M.common.RELAUNCH, t = fakeTerm("claude", `ok\nsession {"sessionId":"${SID}","status":"idle"}\ntranscript\n`);
+  H.answer = tabKit(H.answer, () => [{ tab: "t3", tool: "claude", agent: null, live: true }]);
+  H.store["kit.api.v1"] = API_22();
+  H.agents = [{ address: "t3", app: "claude-code", status: "idle", tab_name: "api", focused: false }];
+  H.store[RL] = { t3: { state: "queued", at: Date.now(), tool: "claude", name: "api（t3）", what: "MCP" } };
+  await relaunchStep(M);
+  assert.deepEqual([t.sent, H.store[RL].t3.tab], [[["send", "/exit"]], true]);
+  skew += 1600; await relaunchStep(M);
+  t.front = "shell"; t.screen = `Resume this session with:\nclaude --model opus --resume ${SID}\n% `;
+  await relaunchStep(M);
+  assert.deepEqual(t.sent.at(-1), ["send", `env -u CLAUDE_CODE_CHILD_SESSION kit open claude --tab-env HC_TERMINAL_ID -- --model opus --resume ${SID}`]);
+  // the printed line is another conversation's: 接不回 with the kit open line to type
+  H.store[RL] = { t3: { state: "queued", at: Date.now(), tool: "claude", name: "api（t3）", what: "MCP" } };
+  t.front = "tool"; t.sent = []; await relaunchStep(M);
+  t.front = "shell"; t.screen = "claude --resume 99999999-aaaa-bbbb-cccc-dddddddddddd\n% "; await relaunchStep(M);
+  assert.equal(H.store[RL].t3.cmd, `kit open claude --tab-env HC_TERMINAL_ID -- --resume ${SID}`);
+});
 
 // ---------- run ----------
 const M = await loadMod();

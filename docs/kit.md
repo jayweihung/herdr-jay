@@ -201,6 +201,15 @@ merge if it exists):
   - 在一般資料夾開的 agent：只有「加到這個資料夾」「從資料夾拿掉」（`kit add --dir <資料夾>`）。加的東西只有在這個資料夾（含子資料夾）開的 agent 讀得到，整個帳號、別的資料夾、別的 agent 都不受影響。整個帳號的東西會列出來（標 `Kit · 整個帳號`），但這裡不能改。kit 會在資料夾裡放一個 `.agentkit` 記下加了哪些，再寫進各工具在專案裡會讀的地方（`CLAUDE.md`、`AGENTS.md`、`.claude/skills`、`.agents/skills`、`.mcp.json`、`.codex/config.toml`）。在子資料夾開的 agent 按，會加到上面已經有 `.agentkit` 的那個資料夾。
   - 在家目錄 `~` 開的 agent：只有「加到整個帳號」「從帳號拿掉」（`kit add`／`kit rm`）。這台電腦上你帳號的 Claude Code、Codex、omp（有裝的）和每個 agent、每個資料夾都會有或都沒有。
   - 只想給某一個 agent：請點 `kit run` 開的 agent，用它視窗裡的「加上」「拿掉」。
+  - **不用先開 agent：在 space 上按右鍵**（要 Herdr app 補丁 0035，見 [patches.md](patches.md)）：左邊 Spaces 清單的 space 按右鍵，
+    選單在「Close」上面多一項「Kit：~/ai」（那個 space 的資料夾，家目錄換成 `~`）；資料夾就是家目錄、或 space 沒設資料夾（那台的家目錄）的寫
+    「Kit：整個帳號」；別台主機的 space 前面加主機名字，例如「Kit：server 的整個帳號」「Kit：server 的 /home/me/ai」（別台的家目錄這裡不知道，
+    是不是家目錄由那台的 kit 判斷）。按了跳出跟上面一樣的清單，標題是那一行字：資料夾的只能「加到這個資料夾」「從資料夾拿掉」
+    （`kit add|rm --dir <space 的資料夾>`），整個帳號的只能「加到整個帳號」「從帳號拿掉」（`kit add|rm`，不帶 `--dir`），都在那個 space 的主機上跑。
+    清單是在那裡開新 agent 會讀到的（標題「在這裡開的 agent 會讀到的」）；沒有「這次用了」「同步」「這個分頁的」（這些跟某個 agent 有關）。
+    加上、拿掉後跟 agent 的 Kit 視窗一樣，在那裡開著的 agent 會重新載入或問要不要重開。用的是 space 設的資料夾（新分頁開在哪），
+    不是裡面的終端機現在 `cd` 到哪。Mac、Windows 一樣（選單是 Herdr 內建的 JS；Windows 的 kit 是 `kit.cmd`）。
+    沒有補丁的 Herdr 沒有這一項，其他都照舊。
   - 資料夾的 MCP：Claude Code 不會每次問（kit 在 `.claude/settings.local.json` 允許它）；Codex 只在信任的資料夾讀，kit 會在 `~/.codex/config.toml` 信任這個資料夾；omp 讀資料夾的 `.mcp.json`，但只在這個資料夾本身開時（子資料夾裡開的讀不到）。Codex 在子資料夾開也讀得到，是因為 kit 在 `~/.codex/config.toml` 最上面加了 `project_root_markers`。
 - **這次用了**（kit 0.6.10 起）：「這個 agent 在用的」上面一行寫這次對話到現在用了哪些 skill、MCP（不是 kit 管的也列），用過的那一列標「這次用了 N 次」，在你最後一則訊息之後用的再標「剛剛」。規則每次對話一開始就全部帶，不另外標。Claude、Codex、omp 都可以；⟳ 重新看。從 agent 自己的紀錄檔讀（`kit used`），只拿名字。
 - **看用途**：每一列名字下面是一行說明（太長會被截掉）；點一下那一列（名字或說明）展開完整說明，可以選取複製，再點一下收起。規則的說明是規則檔第一行的 `# ` 標題，MCP 的是它 yaml 裡的 `description:`。有中文說明（kit 0.6.9 的 `kit describe`，翻一次存在倉裡）就顯示中文，展開時下面附原文；原文改了會改回顯示原文，等再翻。只有面板看中文，agent 還是讀原本的說明，不多花 token。
@@ -799,6 +808,7 @@ Agents 面板上方有兩個分頁：「定義」是上面那些做好的 agent�
 | 視窗按鈕的清單 | `kit list --json --dir <資料夾> --pid <行程>` |
 | 加到整個帳號／從帳號拿掉 | `kit add` ／ `kit rm` |
 | 加到這個資料夾／從資料夾拿掉 | `kit add --dir <資料夾>` ／ `kit rm --dir <資料夾>` |
+| space 右鍵「Kit：~/ai」／「Kit：整個帳號」的清單 | 在那個 space 的主機上 `kit list --json --dir <space 的資料夾>` ／ `kit list --json`；加上、拿掉同上兩行 |
 | 安裝／升級（skill 需要的程式） | `kit install-tool <程式> [--min 版本]` |
 | 安裝／更新（skill 自己的套件） | `kit install-deps <skill> [npm\|pip]` |
 | 窗格上方的 context 35%（每 15 秒，閒置時每分鐘） | `kit context --pid <pid> --tool <claude\|codex\|omp> --dir <資料夾>` |

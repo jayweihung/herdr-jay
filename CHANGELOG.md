@@ -12,6 +12,18 @@ which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/key
 Each mod also keeps its own `CHANGES.md` (shown in the mod as its version and 改動紀錄): when a change to a mod is
 user-visible, add a bullet under a new or current version at the top of that mod's `CHANGES.md`.
 
+## 2026-11-27, kit mod 1.21: 「Kit：~/ai」 in a space's right-click menu (app patch 0035)
+
+Needs: **app** (rebuild with `herdr-app/patches/v0.1.18`, now 35 patches), **mods**. Without the new app the mod works
+as before.
+
+- App patch `0035`: a space's right-click menu takes items from other mods (shared `spaces.menu`, like the Agents menu's
+  `agents.menu`); picking one opens that mod as a popup with `{ space, folder, machine }`.
+- Kit mod 1.21: the item 「Kit：~/ai」 (the space's folder; 「Kit：整個帳號」 at home; 「Kit：server 的…」 on another machine)
+  opens the Kit popup for that folder's layer (`kit add|rm --dir`) or the account, on the space's machine, without an
+  agent there. docs/kit.md §1. Mac and Windows alike.
+- space 按右鍵多「Kit：~/ai」：不用開 agent 就能改那個資料夾（或整個帳號）用的規則、技能、MCP。
+
 ## 2026-11-27, kit mod 1.20: the Kit popup, Agents and 自動重開接回 use each tab's own copy
 
 Needs: **mods**. **kit** 0.17.0 on the machines where you want it (older kits: the mod works as before).

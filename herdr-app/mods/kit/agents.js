@@ -10,8 +10,10 @@
 // so the panel reads it again. Everything goes through kit:
 //   kit agents --json                              every agent and what it uses, what there is to add
 //   kit agent <name> add|rm rule|skill|mcp <item>  change an agent (its file in the source)
-//   kit run <name> --tool claude|codex|omp         open it (in a new tab)
-//   kit place <name> <folder> --json               give it its own folder in a space, then a tab there (place.js):
+//   kit run <name> --tool claude|codex|omp         open it (in a new tab); kit 0.17.0 (api 1.22) here: kit open <tool>
+//                                                  --agent <name> --tab-env HC_TERMINAL_ID instead (the tab its own copy)
+//   kit place <name> <folder> --json               give it its own folder in a space, then a tab there (place.js; kit
+//                                                  0.17.0 there: kit open in a new tab in the space's folder instead):
 //                                                  its card dragged onto a space (a newer Herdr), or 放到 space… (only an
 //                                                  older Herdr, which can't drag: the drag says where better)
 // Each agent has a logo (bots.js): a cute animal-robot head, `bot: <animal>` or `bot: <animal> <color>` in its file's
@@ -24,10 +26,11 @@ import { v_flex, h_flex, Editor } from "gpui-base";
 import { theme, run, shared, setShared, readTextFile, writeTextFile, closeOverlay, openOverlay, props, spaces, focused, layout, agents, terminals, settings, panes, hc } from "herdr";
 import { AGENTS_DATA, AGENTS_LOAD, AGENTS_MSG, CTX, NOTE, NODES, fs, stop, isWindows, shortDir, spin, waiting, find, textBlock, copyOnRight, btn,
   busyNow, dropStaleBusy, giveBusy, markRepoStale, kit, kitJson, localKit, apiState, apiKnown, checkApi, apiCard, messageBox, problemCard, newEditor,
-  localGet, localSet, kitAction, loadNewest, loadingNow, LIMIT_SENT, DATA, PUSH_CHECK, KIT_TAB, checkLine, OUTDATED, outdatedLine, loadChanges, versionLabel, changesOpen, changesBox } from "./common.js";
+  localGet, localSet, kitAction, loadNewest, loadingNow, LIMIT_SENT, DATA, PUSH_CHECK, KIT_TAB, checkLine, OUTDATED, outdatedLine, loadChanges, versionLabel, changesOpen, changesBox,
+  apiAtLeast, tabList } from "./common.js";
 import { ANIMALS, COLORS } from "./bot-models.js";
 import { readBot, withBot, pickBot, botIcon, botProblem, LiveBot } from "./bots.js";
-import { canDrag, draggable, dropLoop, requestPlace, takeAsks, placeClosed, placeDir, liveNow } from "./place.js";
+import { canDrag, draggable, dropLoop, requestPlace, takeAsks, placeClosed, placeDir, liveNow, openArgv } from "./place.js";
 import { graphData, graphView, edgeList, alertsView, legendView, layoutOf, nudgeText, LONG_WAIT } from "./graph.js";
 import { logTick, eventLog, downMachines } from "./events.js";
 import { SAID, SUBS, BG, STEPS, saidTick, saidNow, asks } from "./said.js";
@@ -47,6 +50,7 @@ async function loadAgents() {
   const { data, error } = kitJson(await kit(["agents", "--json"], 60000), "kit agents --json");
   if (error) return { error: error.message, code: error.code, at: Date.now() };
   const agents = await Promise.all((data.agents ?? []).map(async (a) => ({ ...a, bot: readBot(await readTextFile(a.path).catch(() => null)) })));
+  if (apiAtLeast(null, 22)) await tabList(null).catch(() => null);   // kit 0.17: the tabs each agent runs in here, for the cards' drag (place.js)
   return { ...data, agents, at: Date.now() };
 }
 // its logo: the one its file names, else the one its name picks
@@ -253,7 +257,8 @@ export class Agents {
     return { ...(sp ? { space: sp.id } : {}), ...(folder ? { folder } : {}) };
   }
 
-  // kit run <agent> in a new tab (kit syncs first, then starts the tool)
+  // kit run <agent> in a new tab (kit syncs first, then starts the tool); kit 0.17 (api 1.22): kit open --agent, the tab
+  // with its own copy (place.js openArgv)
   openAgent(name, cx) {
     if (this.opening) return;
     const where = this.place();
@@ -270,7 +275,8 @@ export class Agents {
       const tool = tools.includes(this.tool) ? this.tool : "claude";
       const kitArgs = [...argv, "run", name, "--tool", tool];
       // kit.cmd is a batch file: start it through cmd so the terminal can run it
-      const full = isWindows() && /\.(cmd|bat)$/i.test(argv[0]) ? ["cmd.exe", "/d", "/c", ...kitArgs] : kitArgs;
+      const full = apiAtLeast(null, 22) ? openArgv(tool, name, isWindows())
+        : isWindows() && /\.(cmd|bat)$/i.test(argv[0]) ? ["cmd.exe", "/d", "/c", ...kitArgs] : kitArgs;
       try {
         await run("tab.new", { name: `${name}（${TOOL_NAMES[tool] ?? tool}）`, argv: full, ...where });
         setShared(AGENTS_MSG, { ok: true, label: "開啟", text: `在新分頁開了 ${name}（${TOOL_NAMES[tool] ?? tool}）`, at: Date.now() });

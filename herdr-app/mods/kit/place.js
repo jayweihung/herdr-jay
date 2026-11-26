@@ -1,5 +1,10 @@
 // Put an agent in a space, from the Agents panel (agents.js): its card dragged onto a space (Herdr's drag API, a newer
-// Herdr only: on_drag / nextDrop), or 放到 space… and a space picked (every Herdr). On the space's machine:
+// Herdr only: on_drag / nextDrop), or 放到 space… and a space picked (every Herdr). On the space's machine, with kit
+// 0.17.0 there (api 1.22):
+//   tab.new { space, folder, argv: kit open <tool> --agent <agent> --tab-env HC_TERMINAL_ID }   a new tab in the space's
+//                                                                     own folder, with its own copy of what the agent has
+//                                                                     (kit tab: gone when the tab closes, tabTick)
+// and "already there" is a tab kit tab list --json has for that agent, still running, in that space. An older kit:
 //   kit place <agent> <space folder>/<agent> --tool <tool> --json   that folder becomes the agent (kit 0.5.0, api 1.3):
 //                                                                     its rules, skills, MCP, prompt and tool limits
 //   tab.new { space, folder, argv, icon }                            a new tab there runs the command kit gave (claude,
@@ -16,14 +21,15 @@
 // (PLACE_ASK) and runs it itself only when no button took it; whichever copy runs it holds the lock in owner.mine, and
 // its close gives the lock back and says the tab wasn't opened (placeClosed).
 import * as host from "herdr";
-import { run, notify, home, shared, setShared, agents, terminals, spaces } from "herdr";
-import { AGENTS_DATA, AGENTS_MSG, PLACE_ASK, kit, kitJson, isWindows, busyNow, takeBusy, giveBusy, markChanged } from "./common.js";
+import { run, notify, home, shared, setShared, agents, terminals, spaces, machines } from "herdr";
+import { AGENTS_DATA, AGENTS_MSG, PLACE_ASK, kit, kitJson, isWindows, busyNow, takeBusy, giveBusy, markChanged, apiAtLeast, tabList, TABS } from "./common.js";
 import { pickBot, botFile } from "./bots.js";
 
 export const PLACE_TTL = 180000;
 export const ASK_WAIT = 1500;    // a window's place no button took by then: the window runs it itself
 export const ASK_OLD = 10000;    // an ask older than this is dropped, never run (its window is long gone)
 export const CLOSED_TEXT = "視窗關了，分頁沒開：再放一次（kit place 可以重跑）";
+const TAB_API = 22;   // kit 0.17.0: kit open --tab, kit tab
 const TOOLS = ["claude", "codex", "omp"];
 const NAME = /^[a-z0-9][a-z0-9-]*$/;   // kit's names
 
@@ -78,6 +84,12 @@ export function herdrArgv(cmd) {
   const a = (cmd ?? []).map(String);
   return /(^|[\\/])codex(\.exe|\.cmd)?$/i.test(a[0] ?? "") && !a.includes("--no-daemon") ? [a[0], "--no-daemon", ...a.slice(1)] : a;
 }
+// kit 0.17 (api 1.22): the tool through kit open, in a tab of its own (HC_TERMINAL_ID, Herdr's id of the new terminal,
+// names its copy); agent: what the tab starts with. win: kit.cmd (a Windows machine), through cmd as kit run's (agents.js)
+export function openArgv(tool, agent = null, win = false) {
+  const a = ["open", tool, ...(agent ? ["--agent", agent] : []), "--tab-env", "HC_TERMINAL_ID", ...(tool === "codex" ? ["--", "--no-daemon"] : [])];
+  return win ? ["cmd.exe", "/d", "/c", "kit.cmd", ...a] : ["kit", ...a];
+}
 export function openTab(args, icon) {
   if (icon) {
     try { return run("tab.new", { ...args, icon }); }
@@ -112,9 +124,17 @@ export function liveNow() {
     .map((t) => ({ address: t.address, space: t.labels?.["herdr.space"] ?? null, tab: t.labels?.["herdr.tab"] ?? null }));
   return { agents: [...known, ...quiet], cwds: new Map(terms.map((t) => [t?.address, t?.cwd])) };
 }
-// the ids of the spaces where that agent already runs
+// kit 0.17: that agent's tab in this space, from kit tab list there (tabs: its tabs; live: its tool still runs) mapped to
+// the Herdr terminals of the space (a tab's id is its terminal's on that machine) -> { tab, address }, else null
+export function tabHere(space, agent, tabs, live = liveNow()) {
+  const ids = new Set((tabs ?? []).filter((x) => x?.agent === agent && x.live).map((x) => String(x.tab)));
+  const a = ids.size ? live.agents.find((x) => x?.space === space?.id && ids.has(String(x.address).split("/").pop())) : null;
+  return a ? { tab: a.tab, address: a.address } : null;
+}
+// the ids of the spaces where that agent already runs (kit 0.17 there: by the last kit tab list read, TABS)
 export function openSpaces(agent, live = liveNow()) {
-  return (spaces() ?? []).filter((s) => s?.id && openHere(s, placeDir(s, agent), live)).map((s) => s.id);
+  return (spaces() ?? []).filter((s) => s?.id && (apiAtLeast(s.machine ?? null, TAB_API) ? tabHere(s, agent, TABS.get(s.machine ?? ""), live)
+    : openHere(s, placeDir(s, agent), live))).map((s) => s.id);
 }
 
 // kit's error codes (kit place --json) in plain words
@@ -147,28 +167,52 @@ function sayer(agent, where, label) {
 // owner.mine and the place in owner.placeRun while it runs, so owner's close can give it back: placeClosed).
 // -> false when another action holds the lock (said so)
 // task: the agent's first message (tab.new's task), e.g. a question the Gerrit panel asks a gerrit agent it had to open
+// the one already there: its tab shown, the first message (task) sent to it
+function showThere(there, agent, where, label, task, say) {
+  try { run("tab.select", { id: there.tab }); } catch { /* the tab went away meanwhile: still said */ }
+  const text = `${agent} 已經在 ${where} 開著了（${there.address}）：一個 space 只開一個 ${agent}，切到那一格。`;
+  setShared(AGENTS_MSG, { ok: true, label, text, at: Date.now() });   // (no toast: the tab it shows says enough)
+  // the first message goes to the one already there (Herdr's own hc reaches the running core)
+  if (task && typeof host.hc === "function") Promise.resolve(host.hc(["send", there.address, String(task)])).then((out) => {
+    if (out?.code !== 0) say(false, `切到那一格了，但問題沒送出：${String(out?.stderr || out?.stdout || `exit ${out?.code}`).trim().slice(0, 200)}`);
+  }, (e) => say(false, `切到那一格了，但問題沒送出：${e?.message ?? e}`));
+}
+// dropped at a place among the space's tabs (space.at, 1 = first): the new tab, opened last, goes there
+function moveTab(space, opened) {
+  if (Number.isInteger(space.at) && space.at >= 1 && opened?.tab) {
+    try { run("tab.move", { id: opened.tab, index: space.at }); } catch { /* it stays last */ }
+  }
+}
+// kit 0.17 there: the agent's running tab in this space shown, else a new tab in the space's folder through kit open
+async function openInTab(agent, space, tool, task, say, label) {
+  const where = space?.name || "這個 space", machine = space?.machine ?? null;
+  const got = await tabList(machine);
+  if (!got) { say(false, `讀不到${machine ? ` ${machine} 上` : "這台"}的 kit tab list，沒開：再試一次`); return; }
+  const there = tabHere(space, agent, got.tabs);
+  if (there) { showThere(there, agent, where, label, task, say); return; }
+  const argv = openArgv(tool, agent, machine ? got.via === "cmd" : isWindows());
+  let opened;
+  try { opened = openTab({ name: agent, space: space.id, ...(space.folder ? { folder: space.folder } : {}), argv, ...(task ? { task: String(task) } : {}) }, await agentIcon(agent)); }
+  catch (e) { say(false, `開不了分頁：${e?.message ?? e}`); return; }
+  moveTab(space, opened);
+  say(true, [`在 ${where} 開了 ${agent}（kit open）：這個分頁有自己一份 ${agent} 的規則、技能、MCP，分頁關掉就清掉。`,
+    "之後在它的 Kit 清單按「加到這個分頁」或「拿掉」，只改這個分頁。"].join("\n"));
+}
+
 export function placeAgent(agent, space, tool, cx, label = "放到 space", owner = {}, task = null) {
   const where = space?.name || "這個 space", machine = space?.machine ?? null;
-  const say = sayer(agent, where, label);
-  const there = openHere(space, placeDir(space, agent));
-  if (there) {
-    try { run("tab.select", { id: there.tab }); } catch { /* the tab went away meanwhile: still said */ }
-    const text = `${agent} 已經在 ${where} 開著了（${there.address}）：一個 space 只開一個 ${agent}，切到那一格。`;
-    setShared(AGENTS_MSG, { ok: true, label, text, at: Date.now() });   // (no toast: the tab it shows says enough)
-    // the first message goes to the one already there (Herdr's own hc reaches the running core)
-    if (task && typeof host.hc === "function") Promise.resolve(host.hc(["send", there.address, String(task)])).then((out) => {
-      if (out?.code !== 0) say(false, `切到那一格了，但問題沒送出：${String(out?.stderr || out?.stdout || `exit ${out?.code}`).trim().slice(0, 200)}`);
-    }, (e) => say(false, `切到那一格了，但問題沒送出：${e?.message ?? e}`));
-    return true;
-  }
+  const say = sayer(agent, where, label), tabs = apiAtLeast(machine, TAB_API);
+  const there = !tabs && openHere(space, placeDir(space, agent));
+  if (there) { showThere(there, agent, where, label, task, say); return true; }
   const id = takeBusy(`放 ${agent}`, PLACE_TTL);
   if (!id) { say(false, "另一個 kit 動作還在跑，等它跑完再試一次。"); return false; }
   owner.mine = id;
   owner.placeRun = { agent, where, label };
   const dir = placeDir(space, agent);
-  notify({ title: `把 ${agent} 放到 ${where}…`, body: `kit place ${agent} ${dir}${machine ? `（在 ${machine}）` : ""}`, level: "info", timeout: 3000 });
+  notify({ title: `把 ${agent} 放到 ${where}…`, body: tabs ? `kit open ${tool} --agent ${agent}${machine ? `（在 ${machine}）` : ""}` : `kit place ${agent} ${dir}${machine ? `（在 ${machine}）` : ""}`, level: "info", timeout: 3000 });
   cx.spawn(async (cx) => {
     try {
+      if (tabs) { await openInTab(agent, space, tool, task, say, label); return; }
       const r = await kit(["place", agent, dir, "--tool", tool, "--json"], PLACE_TTL, machine);
       const { data, error } = kitJson(r, "kit place");
       if (error) { say(false, placeError(error, r, machine)); return; }
@@ -178,10 +222,7 @@ export function placeAgent(agent, space, tool, cx, label = "放到 space", owner
       let opened;
       try { opened = openTab({ name: agent, space: space.id, folder, argv: cmd, ...(task ? { task: String(task) } : {}) }, icon); }
       catch (e) { say(false, `資料夾做好了（${folder}），但開不了分頁：${e?.message ?? e}`); return; }
-      // dropped at a place among the space's tabs (space.at, 1 = first): the new tab, opened last, goes there
-      if (Number.isInteger(space.at) && space.at >= 1 && opened?.tab) {
-        try { run("tab.move", { id: opened.tab, index: space.at }); } catch { /* it stays last */ }
-      }
+      moveTab(space, opened);
       const warns = (Array.isArray(data.warnings) ? data.warnings : []).filter((w) => typeof w === "string");
       say(true, [`在 ${folder} 開了 ${agent}：在那裡開的 ${cmd[0]} 就是它。`,
         "之後在它的 Kit 清單按「加到這個資料夾」或「從資料夾拿掉」，只改這個資料夾。", ...warns.map((w) => `⚠ ${w}`)].join("\n"));
@@ -261,4 +302,46 @@ export function dropLoop(owner, cx) {
       }
     } catch { /* this copy closed */ } finally { owner.dropping = false; }
   });
+}
+
+// ---------- kit 0.17 (api 1.22): a tab's own copy (kit open --tab) goes with its tab ----------
+// Herdr tells no mod that a terminal closed, so every pane header's tick (1.5 s) compares each machine's terminals with
+// its last look (this computer always; another machine only while its layout is ready: one away has no terminals).
+// One gone TAB_AGAIN or longer: kit tab rm <its id> there, once kit tab list says its tool no longer runs (looked at
+// every TAB_AGAIN; a terminal that only seemed gone, back meanwhile, keeps its copy, and one whose tool still runs
+// after TAB_WAIT is left to the next start's keep). Once per machine per load of the mod (Herdr started): kit tab keep <its terminals>, for the tabs closed
+// while Herdr wasn't running (kit keeps those named and those whose tool runs). Module state: one per version.
+const TAB_AGAIN = 5000, TAB_WAIT = 60000;
+const SEEN = new Map(), GONE = new Map(), KEPT = new Set(), TAB_NEXT = new Map();   // machine ("" this computer) -> …
+export function tabTick(cx, now = Date.now()) {
+  let terms = [], ms = [];
+  try { terms = terminals() ?? []; ms = machines?.() ?? []; } catch { return; }
+  const there = [null, ...ms.filter((m) => m?.name && m.layout === "ready").map((m) => m.name)];
+  for (const m of there) {
+    const k = m ?? "";
+    if (!apiAtLeast(m, TAB_API)) continue;   // an older kit there, or not known yet
+    const ids = new Set(terms.map((x) => String(x?.address ?? "")).filter((a) => a && (a.includes("/") ? a.split("/")[0] : "") === k).map((a) => a.split("/").pop()));
+    const was = SEEN.get(k), gone = GONE.get(k) ?? new Map();
+    SEEN.set(k, ids); GONE.set(k, gone);
+    for (const id of was ?? []) if (!ids.has(id) && !gone.has(id)) gone.set(id, now);
+    for (const id of [...gone.keys()]) if (ids.has(id)) gone.delete(id);   // back: it only seemed gone
+    if ((TAB_NEXT.get(k) ?? 0) > now) continue;
+    if (!KEPT.has(k) && ids.size) {
+      KEPT.add(k); TAB_NEXT.set(k, now + TAB_AGAIN);
+      cx.spawn(async () => { await kit(["tab", "keep", ...ids], 30000, m).catch(() => null); });
+    } else if ([...gone.values()].some((since) => now - since >= TAB_AGAIN)) {
+      TAB_NEXT.set(k, now + TAB_AGAIN);
+      cx.spawn(async () => {
+        const got = await tabList(m).catch(() => null);
+        if (!got) return;
+        const have = new Map(got.tabs.map((x) => [x.tab, x])), rm = [];
+        for (const [id, since] of gone) {
+          if (now - since < TAB_AGAIN) continue;
+          const x = have.get(id);
+          if (!x || !x.live) { if (x) rm.push(id); gone.delete(id); } else if (Date.now() - since > TAB_WAIT) gone.delete(id);
+        }
+        if (rm.length) await kit(["tab", "rm", ...rm], 30000, m).catch(() => null);
+      });
+    }
+  }
 }

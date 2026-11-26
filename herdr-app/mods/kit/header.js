@@ -34,6 +34,7 @@ import { toolOf, ctxArgs, askZero, zeroNumbers, sendText, sendArgs, removal, ctx
   compactKey, compactStep, compactLive, compactedAfter, compactWords, reloadKey, relaunchWords } from "./context.js";
 import { unsentTick } from "./repo.js";
 import { relaunchTick, relaunchRetry } from "./relaunch.js";
+import { tabTick } from "./place.js";
 
 const CTX_STALE = 15000, CTX_IDLE = 60000;   // how often to ask how full the context is: working / not
 const STALE = 60000, LOAD_TTL = 90000;   // look again after a minute; a load longer than this is taken as lost
@@ -327,6 +328,7 @@ export class Header {
   tick(cx) {
     reloadTick();
     relaunchTick();
+    tabTick(cx);   // kit 0.17: a closed tab's own copy goes (place.js)
     const p = this.me();
     if (!p?.terminal || !p.program?.agent) return;
     checkPage(cx);

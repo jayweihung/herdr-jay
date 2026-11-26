@@ -3787,6 +3787,81 @@ test("kit 0.17 (context.js): a tab's resume through kit open; what was taken off
   assert.equal(X.ruleText("rm", [{ name: "r" }], { tab: true }), "kit 剛從這個分頁拿掉規則 r：之後不用再照它做");
   assert.equal(X.goneText("mcp", ["m"], "/p"), "kit 剛從這個資料夾拿掉 MCP m：之後不要再用它的工具", "a folder: as before");
 });
+test("kit 0.17 (place.js): an agent put in a space opens through kit open in a new tab in the space's folder; its running tab there (kit tab list) is shown instead; the drag refuses that space; kit.cmd there: through cmd", async (M) => {
+  const P = M.place;
+  assert.deepEqual(P.openArgv("claude", "hello"), ["kit", "open", "claude", "--agent", "hello", "--tab-env", "HC_TERMINAL_ID"]);
+  assert.deepEqual(P.openArgv("codex", "hello", true), ["cmd.exe", "/d", "/c", "kit.cmd", "open", "codex", "--agent", "hello", "--tab-env", "HC_TERMINAL_ID", "--", "--no-daemon"]);
+  let tabs = [];
+  const start = () => { fresh(); fakeKit({ api: "1.22", agents: AGENTS }); H.answer = tabKit(H.answer, () => tabs); H.store["kit.api.v1"] = API_22("winbox"); };
+  const s1 = { id: "s1", machine: null, name: "web", folder: "/Users/amy/web" };
+  start();
+  assert.equal(P.placeAgent("reviewer", s1, "codex", cx), true); await settle();
+  assert.equal(kitCalls("place").length, 0, "no kit place");
+  assert.deepEqual(H.runs.find((r) => r[0] === "tab.new")[1], { name: "reviewer", space: "s1", folder: "/Users/amy/web",
+    argv: ["kit", "open", "codex", "--agent", "reviewer", "--tab-env", "HC_TERMINAL_ID", "--", "--no-daemon"], icon: logoPath(M, "reviewer") });
+  assert.equal(H.notes.at(-1).level, "success"); assert.match(H.notes.at(-1).body, /分頁關掉就清掉/);
+  assert.equal(H.store["kit.busy"] ?? null, null, "the lock is given back");
+  // running there (kit tab list: reviewer, live, t9 is in s1): shown, nothing opened; one not running: a new tab
+  start();
+  tabs = [{ tab: "t9", tool: "claude", agent: "reviewer", dir: "/Users/amy/web", made: 1, live: true, items: 2 }, { tab: "t8", agent: "reviewer", live: true }];
+  H.agents = [{ address: "t9", space: "s1", tab: "tb9" }, { address: "t8", space: "s2", tab: "tb8" }];
+  P.placeAgent("reviewer", s1, "claude", cx); await settle();
+  assert.deepEqual(H.runs, [["tab.select", { id: "tb9" }]]);
+  assert.match(H.store["kit.agents.msg"].text, /reviewer 已經在 web 開著了（t9）/);
+  H.spaces = [s1, { id: "s2", name: "api", folder: "/Users/amy/api" }, { id: "s3", name: "x", folder: "/Users/amy/x" }];
+  assert.deepEqual(P.openSpaces("reviewer"), ["s1", "s2"], "the drag: by the last kit tab list read");
+  assert.deepEqual(P.openSpaces("writer"), []);
+  start(); tabs = [{ tab: "t9", agent: "reviewer", live: false }]; H.agents = [{ address: "t9", space: "s1", tab: "tb9" }];
+  P.placeAgent("reviewer", s1, "claude", cx); await settle();
+  assert.equal(H.runs[0][0], "tab.new", "its tool no longer runs: a new one");
+  // another machine whose kit is kit.cmd (Windows); a space without a folder: the machine's home (tab.new's own)
+  start(); tabs = [];
+  const base = H.answer;
+  H.answer = (argv, on) => (on === "winbox" && argv[0] === "sh" ? { code: 127, stdout: "", stderr: "kit: not found" } : base(argv, on));
+  P.placeAgent("reviewer", { id: "w/s1", machine: "winbox", name: "win", folder: "" }, "claude", cx); await settle();
+  assert.deepEqual(kitCalls("tab").filter((c) => c.argv[0] === "kit.cmd").map((c) => [c.on, ...tabArgs(c)]), [["winbox", "tab", "list", "--json"]], "sh found no kit there: kit.cmd");
+  assert.deepEqual(H.runs.find((r) => r[0] === "tab.new")[1].argv, ["cmd.exe", "/d", "/c", "kit.cmd", "open", "claude", "--agent", "reviewer", "--tab-env", "HC_TERMINAL_ID"]);
+  assert.equal("folder" in H.runs.find((r) => r[0] === "tab.new")[1], false);
+  // 開啟 in the Agents panel: kit open too (this computer, kit api 1.22 here); an older kit: kit run as before
+  for (const [api, want] of [["1.22", ["kit", "open", "claude", "--agent", "reviewer", "--tab-env", "HC_TERMINAL_ID"]], ["1.3", ["kit", "run", "reviewer", "--tool", "claude"]]]) {
+    start(); H.store["kit.api.v1"] = { "": { ok: true, kind: "ok", api, at: Date.now() } };
+    H.spaces = [{ id: "s1", name: "web", folder: "/Users/amy/web", active: true }];
+    const v = view(M, { role: "agents" }); await settle();
+    v.part.openAgent("reviewer", cx); await settle();
+    assert.deepEqual(H.runs.find((r) => r[0] === "tab.new")[1].argv, want, api);
+  }
+});
+test("kit 0.17 (place.js tabTick): kit tab keep <its terminals> once per machine; a closed tab's copy: kit tab rm once its tool no longer runs; one that comes back, a machine away, an older kit: nothing", async (M) => {
+  fresh();
+  let tabs = [];
+  H.answer = tabKit(() => ({ code: 0, stdout: "", stderr: "" }), () => tabs);
+  H.store["kit.api.v1"] = { ...API_22("away"), old: { ok: true, kind: "ok", api: "1.18", at: Date.now() } };
+  H.machines = [{ name: null, layout: "ready" }, { name: "old", layout: "ready" }, { name: "away", layout: "unavailable" }];
+  H.terminals = [{ address: "t1" }, { address: "t2" }, { address: "t3" }, { address: "old/t5" }, { address: "away/t6" }];
+  const calls = () => kitCalls("tab").map((c) => [c.on, ...tabArgs(c)]);
+  const step = async (ms = 0) => { skew += ms; M.place.tabTick(cx); await settle(); };
+  await step();
+  assert.deepEqual(calls(), [[null, "tab", "keep", "t1", "t2", "t3"]], "this computer only: the old kit and the machine away are not asked");
+  await step(6000);
+  assert.equal(calls().length, 1, "once");
+  // t2 closed, its tool still dying: looked at again; then gone: kit tab rm. t3 gone a moment and back: kept
+  H.terminals = H.terminals.filter((x) => x.address !== "t2" && x.address !== "t3");
+  tabs = [{ tab: "t2", live: true }, { tab: "t3", live: false }];
+  await step();
+  assert.equal(calls().length, 1, "just gone: not yet");
+  H.terminals.push({ address: "t3" });
+  await step(6000);
+  assert.deepEqual(calls().slice(1), [[null, "tab", "list", "--json"]], "t2 still runs: not taken; t3 came back");
+  tabs = [{ tab: "t2", live: false }, { tab: "t3", live: false }];
+  await step(6000);
+  assert.deepEqual(calls().slice(2), [[null, "tab", "list", "--json"], [null, "tab", "rm", "t2"]]);
+  await step(6000);
+  assert.equal(calls().length, 4, "nothing more");
+  // a terminal that was never a kit tab: looked up once, forgotten
+  H.terminals = H.terminals.filter((x) => x.address !== "t1"); tabs = [];
+  await step(6000); await step(6000);
+  assert.deepEqual(calls().slice(4), [[null, "tab", "list", "--json"]]);
+});
 test("kit 0.17 (agent popup): a tab kit open started: 這個分頁的 on top (拿掉: kit rm --tab, then told), 加到這個分頁 in 還沒用的 (kit add --tab, then the relaunch ask when kit says it needs a restart); a tab kit doesn't know: said; the header asks kit tab show", async (M) => {
   const target = { key: "|/x|t1", term: "t1", machine: null, cwd: "/x", title: "Claude Code", app: "claude-code" }, key = "kit.msg.agent:|/x|t1";
   const sk = (kind, name, status = "unused") => ({ kind, name, status, source: "lib", description: `${name} desc` });

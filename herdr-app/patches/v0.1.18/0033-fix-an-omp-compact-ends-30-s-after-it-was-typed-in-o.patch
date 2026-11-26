@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: jayweihung <3034830+jayweihung@users.noreply.github.com>
 Date: Fri, 20 Nov 2026 15:41:04 +0800
-Subject: [PATCH 33/34] fix: an omp compact ends 30 s after it was typed in
+Subject: [PATCH 33/35] fix: an omp compact ends 30 s after it was typed in
  (omp's status doesn't move while it compacts, so no turn ends it)
 
 ---

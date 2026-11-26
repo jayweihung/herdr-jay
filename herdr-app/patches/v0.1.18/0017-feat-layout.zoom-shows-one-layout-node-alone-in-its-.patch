@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: jayweihung <3034830+jayweihung@users.noreply.github.com>
 Date: Mon, 16 Nov 2026 02:45:06 +0800
-Subject: [PATCH 17/34] feat: layout.zoom shows one layout node alone in its
+Subject: [PATCH 17/35] feat: layout.zoom shows one layout node alone in its
  row or column, like pane.zoom (never saved)
 
 ---

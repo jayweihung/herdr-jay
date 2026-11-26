@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: jayweihung <3034830+jayweihung@users.noreply.github.com>
 Date: Mon, 16 Nov 2026 05:47:26 +0800
-Subject: [PATCH 25/34] feat: pane.split share gives a mod pane less (or more)
+Subject: [PATCH 25/35] feat: pane.split share gives a mod pane less (or more)
  than half
 
 ---

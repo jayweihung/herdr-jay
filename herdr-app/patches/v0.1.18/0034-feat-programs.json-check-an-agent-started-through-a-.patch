@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: jayweihung <3034830+jayweihung@users.noreply.github.com>
 Date: Fri, 27 Nov 2026 00:07:51 +0800
-Subject: [PATCH 34/34] feat: programs.json check: an agent started through a
+Subject: [PATCH 34/35] feat: programs.json check: an agent started through a
  launcher (run: kit open claude ...) counts as installed when check is, not
  run's first word
 

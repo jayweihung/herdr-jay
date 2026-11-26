@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: jayweihung <3034830+jayweihung@users.noreply.github.com>
 Date: Mon, 16 Nov 2026 18:06:20 +0800
-Subject: [PATCH 27/34] fix: the app drops an hc identity it was started with
+Subject: [PATCH 27/35] fix: the app drops an hc identity it was started with
  (opened from a terminal in Herdr), so a mod's hc runs as the app, not that
  terminal
 

@@ -5,7 +5,7 @@ A tab-bar button **熱門** and a panel, like Gerrit's (macOS and Windows):
 - **The list costs no tokens.** Every 10 minutes launchd (macOS) or Task Scheduler (Windows) runs
   [`fetch.js`](../herdr-app/mods/trend/fetch.js) with node:
   [last30days](https://github.com/mvanhorn/last30days-skill) `--discover` (global: Hacker News, Digg when `digg-pp-cli`
-  is on PATH; Reddit left out with `EXCLUDE_SOURCES=reddit`, its search only gets 403) without any model, into
+  is on PATH; Reddit left out with `EXCLUDE_SOURCES=reddit`, its search only gets 403; `jobs` too, its job-board guesses cost proxy traffic and mostly found none) without any model, into
   `~/.config/herdr-app/trend/trends.json`. The panel only reads it.
   清單不花 token：launchd 每 10 分鐘跑 last30days 的 discover（不叫模型），面板只讀結果。
 - **The button**: how many topics you haven't seen (opening the panel counts them as seen), a ring while fetching, a
@@ -140,7 +140,7 @@ Windows 一樣：複製 mod，用工作排程器每 10 分鐘跑；公司電腦�
 | Digg | `npx -y @mvanhorn/printing-press-library@0.1.27 install digg --cli-only` (needs Go: `brew install go`); goes to `~/.local/bin` (Windows: put the folder it says on PATH) |
 | Reddit (last30days' own search) | Left out (`EXCLUDE_SOURCES=reddit` in `fetch.js`): Reddit answers unauthenticated searches with 403, from home and from a residential proxy alike (tried 2026-11-16); the panel's Reddit rows come from its page instead. For last30days' cross-site check: a ScrapeCreators key (`setup --github` in last30days, 10,000 free calls, then paid) with `LAST30DAYS_REDDIT_BACKEND=scrapecreators`, and take reddit out of `EXCLUDE_SOURCES` |
 | X | `AUTH_TOKEN` + `CT0` (x.com cookies: risks the account, jay's was suspended on 2026-11-16 after tries with last30days' bird), or `X_BEARER_TOKEN` / `XAI_API_KEY` (paid, no account), stored with `printf '%s\n' "$T" \| python3 …/last30days.py setup --store-key AUTH_TOKEN` into `~/.config/last30days/.env` |
-| A proxy | one line `http://user:pass@host:port` in `<Herdr home>/trend/proxy` (private: `chmod 600`): last30days' requests and `fetch.js`'s own (PTT, HN, the topic searches without a browser, YouTube's search) go through it; not the Chrome pages (Reddit, Dcard, Threads: Chrome's `--proxy-server` takes no password) |
+| A proxy | one line `http://user:pass@host:port` in `<Herdr home>/trend/proxy` (private: `chmod 600`): last30days' requests and `fetch.js`'s own (PTT, HN, the topic searches without a browser, YouTube's search) go through it, except HN's official APIs (`hn.algolia.com`, `hacker-news.firebaseio.com`: no IP blocks, and 2/3 of the proxy's bytes) and our own site's backend; not the Chrome pages (Reddit, Dcard, Threads: Chrome's `--proxy-server` takes no password). Stock and finance sources (PTT's stock topics, Polymarket) stay on it |
 
 ## My topics, stars, 排列 and sites in 熱門 / 熱門的主題、收藏、排列、來源
 

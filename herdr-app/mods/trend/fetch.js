@@ -9,7 +9,8 @@
 //   topics.json   my topics: what HN, PTT, Reddit and Dcard's searches found for each line of topics.txt (yours)
 // <last30days.py>: the skill's scripts/last30days.py in your kit source.
 // A proxy goes in <Herdr home>/trend/proxy, one line http://user:pass@host:port (keep it private: chmod 600 on macOS):
-// last30days' requests and this script's own (the sites' searches and pages read without a browser) go through it;
+// last30days' requests and this script's own (the sites' searches and pages read without a browser) go through it,
+// except HN's APIs and our own site (NO_PROXY, below);
 // not the Chrome pages (Reddit, Dcard, Threads): a proxy didn't get past Reddit's 403, and Chrome's --proxy-server
 // takes no password.
 // PYTHON: the Python to run it with (default python3; on Windows python). CHROME: the Chrome or Edge for the pages
@@ -39,12 +40,18 @@ if (!VIDEOS_ONLY && !TOPICS_ONLY && !LIST_ONLY && !PUSH_ONLY && !CAPTIONS_ONLY &
 
 // EXCLUDE_SOURCES=reddit: last30days' own Reddit search only gets 403 (Reddit's rows come from its page, below), and
 // every try is one more hit from the house's IP / last30days 自己的 Reddit 搜尋只會 403，不讓它打
-const env = { ...process.env, PYTHONDONTWRITEBYTECODE: "1", EXCLUDE_SOURCES: "reddit" };   // no __pycache__ in the kit source (kit check: text files only)
+// jobs: its job-board guesses were 2.5 GB a month of proxy traffic and mostly found no board (measured 2026-11-26)
+const env = { ...process.env, PYTHONDONTWRITEBYTECODE: "1", EXCLUDE_SOURCES: "reddit,jobs" };   // no __pycache__ in the kit source (kit check: text files only)
 let proxy = "";
 try { proxy = fs.readFileSync(path.join(out, "proxy"), "utf8").split("\n")[0].trim().replace(/^[A-Z_]+=/, ""); } catch {}   // a NAME=url line too
 if (proxy) {
-  Object.assign(env, { HTTPS_PROXY: proxy, HTTP_PROXY: proxy, NO_PROXY: "localhost,127.0.0.1" });
-  require("http").setGlobalProxyFromEnv({ HTTPS_PROXY: proxy, HTTP_PROXY: proxy, NO_PROXY: "localhost,127.0.0.1" });   // this script's fetch()
+  // Direct, not through the paid proxy: HN's official APIs (no IP blocks; last30days' comment trees were 2/3 of the
+  // proxy's bytes, measured 2026-11-26) and our own site's backend (push.js). Stock and finance sources stay on it.
+  let site = "";
+  try { site = new URL(fs.readFileSync(path.join(out, "sync-origin"), "utf8").split("\n")[0].trim()).hostname; } catch {}
+  const NO_PROXY = ["localhost", "127.0.0.1", "hn.algolia.com", "hacker-news.firebaseio.com", site].filter(Boolean).join(",");
+  Object.assign(env, { HTTPS_PROXY: proxy, HTTP_PROXY: proxy, NO_PROXY });
+  require("http").setGlobalProxyFromEnv({ HTTPS_PROXY: proxy, HTTP_PROXY: proxy, NO_PROXY });   // this script's fetch()
 }
 
 let error = null;

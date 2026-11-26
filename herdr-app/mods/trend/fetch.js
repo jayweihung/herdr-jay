@@ -15,7 +15,7 @@
 // takes no password.
 // PYTHON: the Python to run it with (default python3; on Windows python). CHROME: the Chrome or Edge for the pages
 // read in a browser (Reddit, Dcard, Threads).
-// 每 10 分鐘抓一次全網熱門（不叫模型、不花 token）。代理寫在 trend/proxy 一行：last30days 和這支程式自己的請求走它。
+// 每 10 分鐘跑一次、全網熱門每 30 分鐘抓（不叫模型、不花 token）。代理寫在 trend/proxy 一行：last30days 和這支程式自己的請求走它。
 const { spawn, spawnSync } = require("child_process");
 const fs = require("fs");
 const path = require("path");
@@ -41,7 +41,8 @@ if (!VIDEOS_ONLY && !TOPICS_ONLY && !LIST_ONLY && !PUSH_ONLY && !CAPTIONS_ONLY &
 // EXCLUDE_SOURCES=reddit: last30days' own Reddit search only gets 403 (Reddit's rows come from its page, below), and
 // every try is one more hit from the house's IP / last30days 自己的 Reddit 搜尋只會 403，不讓它打
 // jobs: its job-board guesses were 2.5 GB a month of proxy traffic and mostly found no board (measured 2026-11-26)
-const env = { ...process.env, PYTHONDONTWRITEBYTECODE: "1", EXCLUDE_SOURCES: "reddit,jobs" };   // no __pycache__ in the kit source (kit check: text files only)
+// polymarket: blocked in Taiwan (the ISP's block page), through the proxy's Taiwan exits too: 6.6 GB a month of failures
+const env = { ...process.env, PYTHONDONTWRITEBYTECODE: "1", EXCLUDE_SOURCES: "reddit,jobs,polymarket" };   // no __pycache__ in the kit source (kit check: text files only)
 let proxy = "";
 try { proxy = fs.readFileSync(path.join(out, "proxy"), "utf8").split("\n")[0].trim().replace(/^[A-Z_]+=/, ""); } catch {}   // a NAME=url line too
 if (proxy) {
@@ -57,6 +58,9 @@ if (proxy) {
 let error = null;
 const l30 = process.argv[2];
 if (VIDEOS_ONLY || TOPICS_ONLY || PLAYER !== null) {}
+// last30days every 30 minutes, not every run (10): it is most of the proxy's bytes; last.log is written by every try
+// 全網熱門每 30 分鐘才跑一次（每次都寫 last.log）：代理流量大多是它
+else if (Date.now() - (fs.statSync(path.join(out, "last.log"), { throwIfNoEntry: false })?.mtimeMs ?? 0) < 29 * 60000) {}
 else if (!l30 || !fs.existsSync(l30)) error = `找不到 last30days.py：排程給的路徑是「${l30 ?? ""}」（docs/trend.md「安裝」）`;
 else {
   const tmp = path.join(out, "trends.json.tmp");

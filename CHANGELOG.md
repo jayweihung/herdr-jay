@@ -12,6 +12,18 @@ which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/key
 Each mod also keeps its own `CHANGES.md` (shown in the mod as its version and 改動紀錄): when a change to a mod is
 user-visible, add a bullet under a new or current version at the top of that mod's `CHANGES.md`.
 
+## 2026-11-27, programs.json `check`; each tab its own through kit
+
+Needs: **app** (rebuild with `herdr-app/patches/v0.1.18`, now 34 patches). **kit** 0.17.0, only if you want the new-tab
+menu to start agents through kit (docs/kit.md → Install → Each tab its own).
+
+- App patch `0034`: `programs.json` entries take `check`, the program that must be installed, when `run` starts the
+  agent through a launcher (`run: ["kit", "open", "claude", …], check: "claude"`); `knownAgents()` returns it and judges
+  `installed` by it (default: `run`'s first word, as before).
+- docs/kit.md: the `programs.json` lines that start Claude Code, Codex and omp through `kit open --tab-env
+  HC_TERMINAL_ID`, so each tab has its own rules, skills, MCP, plugins and Claude's memory.
+- app 補丁 0034：programs.json 可以寫 `check`（判斷有沒有裝看它）；kit.md 加上經過 `kit open` 開、每個分頁自己一份的設定。
+
 ## 2026-11-26, Herdr app v0.1.18 and core v0.1.22; built on a real Windows PC
 
 Needs: **core** and **app** (rebuild both on the new tags with the new patch folders: `herdr-app/patches/v0.1.18`, `herdr-core/patches/v0.1.22`; on a Linux server, its core too). **mods**: as the entry below.

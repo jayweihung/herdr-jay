@@ -113,6 +113,32 @@ the mod doesn't know shows a card 「不認得的 role」 naming it: check the s
 **Remove / 拿掉**: pick a layout without kit (or take kit's blocks out of yours; the pane header back to
 `{ "mod": "pane" }`), then delete `mods/kit`.
 
+### Each tab its own: start agents through kit (kit 0.17.0) / 每個分頁自己一份
+
+With kit 0.17.0 or newer on every machine where agents run, Herdr's new-tab menu can start Claude Code, Codex and omp
+through `kit open`: each tab then has its own rules, skills, MCP, plugins and Claude's memory, also when several tabs
+are in one folder (`kit add --tab <tab> …` adds to one; `kit tab show <tab>` lists the tab's, the folder's and the
+account's). Add to `programs.json` in Herdr's home (macOS `~/.config/herdr-app/programs.json`; Windows `$h` as above;
+merge if it exists):
+裝了 kit 0.17.0 以上，新分頁選單改經過 `kit open` 開，每個分頁就有自己的一份（同一個資料夾開好幾個也是）。在 Herdr 的
+`programs.json` 加這段（已經有就合併）：
+
+```json
+{ "programs": {
+    "claude": { "run": ["kit", "open", "claude", "--tab-env", "HC_TERMINAL_ID"], "check": "claude" },
+    "codex": { "run": ["kit", "open", "codex", "--tab-env", "HC_TERMINAL_ID", "--", "--no-daemon"], "check": "codex" },
+    "omp": { "name": "omp", "icon": "icons/pi.svg", "tint": true, "match": ["omp"],
+             "run": ["kit", "open", "omp", "--tab-env", "HC_TERMINAL_ID"], "check": "omp" } } }
+```
+
+- `check` needs the app with patch `0034` (`herdr-app/patches/v0.1.18`): without it the menu takes kit for the agent
+  and lists all three as installed. 要有 app 的 0034 補丁，選單才看 `check` 判斷有沒有裝。
+- The menu starts these on remote machines' spaces too: every machine you open agents on needs kit 0.17.0
+  (`kit self-update`). 別台機器的 space 也照這個開，那台也要 kit 0.17.0。
+- A tab's copy stays until `kit tab rm <tab>` (or `kit tab keep`: every tab whose tool no longer runs goes);
+  the Kit panel will do it when a tab closes. 分頁那份要 `kit tab rm` 才清（之後 Kit 面板會在分頁關掉時清）。
+- Remove: take the three `run` / `check` lines out again. 不要了就把這三段拿掉。
+
 ## 1. agent 視窗上的 Kit 按鈕
 
 每個 agent（Claude Code、Codex、omp）視窗的標題列右邊有一顆按鈕，寫著它在用幾個東西：

@@ -105,7 +105,7 @@ export class AgentPopup {
   get msg() { return shared(MSG(this.where)) ?? null; }
   // ask its pane header to look again (role "space": look again itself)
   want(cx = null) {
-    if (this.solo) { this.ownWant = Date.now(); if (cx) this.tickOwn(cx); return; }
+    if (this.solo) { this.ownWant = (this.ownWant ?? 0) + 1; if (cx) this.tickOwn(cx); return; }   // a count: two in one ms are two
     if (!this.target?.key) return;
     setShared(AGENT_WANT, { ...(shared(AGENT_WANT) ?? {}), [this.target.key]: Date.now() });
   }
@@ -113,8 +113,8 @@ export class AgentPopup {
   tickOwn(cx) {
     const m = this.target.machine ?? null;
     if (this.ownBusy || !apiKnown(m)?.ok) return;
-    if (this.own && this.ownGen === changesOn(m) && !(this.ownWant > this.ownStarted)) return;
-    this.ownBusy = true; this.ownGen = changesOn(m); this.ownStarted = Date.now();
+    if (this.own && this.ownGen === changesOn(m) && this.ownWant === this.ownAsked) return;
+    this.ownBusy = true; this.ownGen = changesOn(m); this.ownAsked = this.ownWant;
     cx.spawn(async (cx) => {
       try { this.own = await loadAgent(m, this.target.cwd, null); } catch (e) { this.own = { error: String(e?.message ?? e), machine: m, at: Date.now() }; }
       this.ownBusy = false; cx.notify();

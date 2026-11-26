@@ -1,0 +1,189 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: jayweihung <3034830+jayweihung@users.noreply.github.com>
+Date: Fri, 27 Nov 2026 02:17:37 +0800
+Subject: [PATCH 35/35] feat: a space's right-click menu takes items from other
+ mods (spaces.menu), opened as a popup with the space, its folder and machine
+
+Like the agents list's agents.menu: shared "spaces.menu" = { <mod>: { at, items: [{ id, label, labels?, width?, height?, props? }] } }; labels gives a space its own label. scripts/menu.test.ts, in just test.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ defaults/AGENTS.md         |  8 +++++++
+ defaults/herdr.d.ts        |  3 ++-
+ defaults/mods/menu/main.js | 28 ++++++++++++++++++++-----
+ justfile                   |  2 +-
+ scripts/menu.test.ts       | 43 ++++++++++++++++++++++++++++++++++++++
+ 5 files changed, 77 insertions(+), 7 deletions(-)
+ create mode 100644 scripts/menu.test.ts
+
+diff --git a/defaults/AGENTS.md b/defaults/AGENTS.md
+index 84db73f..9cabc6b 100644
+--- a/defaults/AGENTS.md
++++ b/defaults/AGENTS.md
+@@ -186,6 +186,14 @@ the highlighted line shows where it will land.
+   10 minutes are left out, so say it again now and then). Picking one focuses
+   the agent's pane and sets shared `"agents.menu.pick"` to
+   `{ mod, id, terminal, pane, at }`; that mod does it and sets it to null.
++- **A space's right-click menu** (the `spaces` list, through `menu`) takes
++  items from other mods the same way, shared `"spaces.menu"`:
++  `{ <mod>: { at, items: [{ id, label, labels?, width?, height?, props? }] } }`
++  (`labels`: `{ <space id>: label }` in place of `label` for those spaces;
++  entries older than 10 minutes are left out). They sit before Close. Picking
++  one opens that mod as a popup at the pointer (`width`/`height` if given)
++  with props `{ ...props, space, folder, machine }`: the space's id, its
++  `folder` as `spaces()` gives it (empty: its machine's home) and `machine`.
+ - **Agent navigation order** belongs to the mods. A mod displaying agents calls
+   `setAgentOrder(list.map(a => a.address))` on render so `agent.next`,
+   `agent.prev` and `agent.select {index}` (1 = first) use that order. Herdr
+diff --git a/defaults/herdr.d.ts b/defaults/herdr.d.ts
+index 926bb38..e883d1d 100644
+--- a/defaults/herdr.d.ts
++++ b/defaults/herdr.d.ts
+@@ -495,7 +495,8 @@ export type HandleLink = (click: LinkClick) => "handled" | "pass" | Promise<"han
+  * The exported View may implement async close(cx) for bounded final cleanup. */
+ export function props(): any;
+ 
+-/** Reads a value every mod can see (persisted). */
++/** Reads a value every mod can see (persisted). Herdr's own menus read some: "agents.menu" and
++ *  "spaces.menu" take items from other mods (defaults/AGENTS.md). */
+ export function shared(key: string): unknown;
+ 
+ /** Sets a shared value; every mod re-renders so it can react. */
+diff --git a/defaults/mods/menu/main.js b/defaults/mods/menu/main.js
+index e3b8453..7da4b27 100644
+--- a/defaults/mods/menu/main.js
++++ b/defaults/mods/menu/main.js
+@@ -1,11 +1,25 @@
+ // Context menus (Herdr's items). Opened as a popup with
+ // props { tab: "pane" | "tab" | "space" | "global", target }.
+ // ↑/↓ move, Enter runs, Esc closes. An item is [label, command, args];
+-// a command "worktree" opens the worktree dialog instead.
++// a command "worktree" opens the worktree dialog instead, "mod" another mod (args: its openOverlay).
+ 
+ import { View, div, svg } from "gpui-kit";
+ import { v_flex, h_flex } from "gpui-base";
+-import { run, props, closeOverlay, openOverlay, theme, keys, terminals, spaces, panes, exec } from "herdr";
++import { run, props, closeOverlay, openOverlay, theme, keys, terminals, spaces, panes, exec, shared } from "herdr";
++
++// What other mods add to a space's menu, like the agents list's "agents.menu": shared "spaces.menu" =
++// { <mod>: { at, items: [{ id, label, labels?, width?, height?, props? }] } } (at: ms, said again at least every few
++// minutes; older ones are left out, the mod may be gone). labels: { <space id>: label } for those spaces. Picking one
++// opens that mod as a popup at the pointer with props { ...props, space, folder, machine } (folder as spaces() has it).
++const MENU_TTL = 600000;
++const size = (k, n) => (Number.isFinite(n) && n > 0 ? { [k]: n } : {});
++export function modItems(more, s, now = Date.now()) {
++  return Object.entries(more ?? {}).filter(([, m]) => m && now - (m.at ?? 0) < MENU_TTL && Array.isArray(m.items))
++    .flatMap(([mod, m]) => m.items.filter((i) => i?.id && i?.label).map((i) => [String(i.labels?.[s.id] ?? i.label), "mod", {
++      mod, kind: "popup", ...size("width", i.width), ...size("height", i.height),
++      props: { ...(i.props && typeof i.props === "object" ? i.props : {}), space: s.id, folder: s.folder, machine: s.machine ?? null },
++    }]));
++}
+ 
+ // Where a space is now: its first terminal's live folder, else where it was made.
+ function place(s) {
+@@ -21,7 +35,7 @@ async function checkout(folder, on) {
+   return common.stdout.trim() === `${top.stdout.trim()}/.git` ? "main" : "linked";
+ }
+ 
+-function items(p, git) {
++function items(p, git, more = shared("spaces.menu"), now = Date.now()) {
+   p = p ?? {};
+   const tg = p.target ?? {};
+   switch (p.tab) {
+@@ -61,13 +75,16 @@ function items(p, git) {
+         ["New tab", "tab.new", { space: tg.space }],
+         ["Close", "tab.close", { id: tg.id }],
+       ];
+-    case "space":
++    case "space": {
++      const s = spaces().find((x) => x.id === tg.id);
+       return [
+         ["Rename", "space.rename", { id: tg.id }],
+         ...(git ? [["New worktree", "worktree", { space: tg.id, action: "new" }], ["Open worktree", "worktree", { space: tg.id, action: "open" }]] : []),
+         ...(git === "linked" ? [["Remove worktree", "worktree", { space: tg.id, action: "remove" }]] : []),
++        ...(s ? modItems(more, s, now) : []),
+         ["Close", "space.close", { id: tg.id }],
+       ];
++    }
+     default:
+       return [
+         ["New space", "space.new", {}],
+@@ -114,6 +131,7 @@ export default class Menu extends View {
+     if (!it) return;
+     closeOverlay(props()?.overlay);
+     if (it[1] === "worktree") openOverlay({ mod: "worktree", kind: "dialog", ...(it[2].action === "open" ? { width: 560, height: 480 } : { width: 440, height: 260 }), props: it[2] });
++    else if (it[1] === "mod") openOverlay(it[2]);
+     else run(it[1], it[2]);
+   }
+ 
+@@ -139,7 +157,7 @@ export default class Menu extends View {
+       .children(
+         list.map((it, i) =>
+           v_flex()
+-            .when(i > 0 && (it[1].endsWith(".close") || it[1] === "app.help" || (it[1] === "app.theme" && list[i - 1][1] !== "app.theme")), el => el.child(div().mx(7).my(4).h(1).bg(t.border)))
++            .when(i > 0 && (it[1].endsWith(".close") || it[1] === "app.help" || (it[1] === "app.theme" && list[i - 1][1] !== "app.theme") || (it[1] === "mod" && list[i - 1][1] !== "mod")), el => el.child(div().mx(7).my(4).h(1).bg(t.border)))
+             .child(h_flex()
+             .id(`mi-${i}`)
+             .h(31)
+diff --git a/justfile b/justfile
+index 60edfe5..8953e23 100644
+--- a/justfile
++++ b/justfile
+@@ -43,7 +43,7 @@ build:
+     cargo build --locked
+ 
+ test:
+-    bun test scripts/changes.test.ts scripts/files.test.ts scripts/machine-add.test.ts scripts/picker.test.ts scripts/palette.test.ts scripts/agents.test.ts scripts/spaces.test.ts scripts/mod-storage.test.ts scripts/worktree.test.ts scripts/settings.test.ts scripts/tabs.test.ts
++    bun test scripts/changes.test.ts scripts/files.test.ts scripts/machine-add.test.ts scripts/picker.test.ts scripts/palette.test.ts scripts/agents.test.ts scripts/menu.test.ts scripts/spaces.test.ts scripts/mod-storage.test.ts scripts/worktree.test.ts scripts/settings.test.ts scripts/tabs.test.ts
+     cargo test --locked
+ 
+ docs-generate: build
+diff --git a/scripts/menu.test.ts b/scripts/menu.test.ts
+new file mode 100644
+index 0000000..54c445f
+--- /dev/null
++++ b/scripts/menu.test.ts
+@@ -0,0 +1,43 @@
++import { test, expect } from "bun:test";
++import { readFile } from "node:fs/promises";
++
++const source = (await readFile(new URL("../defaults/mods/menu/main.js", import.meta.url), "utf8"))
++  .replace(/^import .*;\n/gm, "").replace("export default class Menu", "class Menu").replace(/^export /gm, "");
++
++const SPACES = [{ id: "s1", folder: "/Users/amy/ai", machine: null }, { id: "box/s2", folder: "", machine: "box" }];
++const KIT = { id: "kit", label: "Kit…", labels: { s1: "Kit：~/ai" }, width: 440, height: 560, props: { role: "space" } };
++function menu(more: unknown = null) {
++  const opened: unknown[] = [], runs: unknown[] = [];
++  const { items, Menu } = new Function("View", "spaces", "shared", "props", "closeOverlay", "openOverlay", "run", `${source}; return { items, Menu };`)(
++    class {}, () => SPACES, (k: string) => (k === "spaces.menu" ? more : null), () => ({ tab: "space", target: { id: "box/s2" } }),
++    () => {}, (o: unknown) => opened.push(o), (...a: unknown[]) => runs.push(a),
++  );
++  return { items, Menu, opened, runs };
++}
++
++test("a space's menu: items other mods add (shared spaces.menu) before Close, with that space's label", () => {
++  const { items } = menu();
++  const more = { kit: { at: 1000, items: [KIT] } };
++  const labels = (id: string, m: unknown = more, now = 2000) => items({ tab: "space", target: { id } }, null, m, now).map((i: unknown[]) => i[0]);
++  expect(labels("s1")).toEqual(["Rename", "Kit：~/ai", "Close"]);
++  expect(labels("box/s2")).toEqual(["Rename", "Kit…", "Close"]);
++  // said 10 minutes ago or more (the mod may be gone), or not an item: left out
++  expect(labels("s1", more, 1000 + 600000)).toEqual(["Rename", "Close"]);
++  expect(labels("s1", { kit: { at: 1000, items: [{ label: "no id" }, null] }, other: null })).toEqual(["Rename", "Close"]);
++  // a space that is gone: only Herdr's own
++  expect(labels("gone")).toEqual(["Rename", "Close"]);
++  // no size given: the popup's own; an item's props can't replace the space
++  const bare = items({ tab: "space", target: { id: "s1" } }, null, { x: { at: 1000, items: [{ id: "a", label: "A", props: { space: "other", n: 1 } }] } }, 2000)[1][2];
++  expect(bare).toEqual({ mod: "x", kind: "popup", props: { space: "s1", n: 1, folder: "/Users/amy/ai", machine: null } });
++});
++
++test("picking a mod's item opens that mod with the space, its folder and machine; Herdr's own still run", () => {
++  const { Menu, opened, runs } = menu({ kit: { at: Date.now(), items: [KIT] } });
++  const m = new Menu();
++  m.git = null;
++  m.choose(1, null);
++  expect(opened).toEqual([{ mod: "kit", kind: "popup", width: 440, height: 560, props: { role: "space", space: "box/s2", folder: "", machine: "box" } }]);
++  expect(runs).toEqual([]);
++  m.choose(0, null);
++  expect(runs).toEqual([["space.rename", { id: "box/s2" }]]);
++});

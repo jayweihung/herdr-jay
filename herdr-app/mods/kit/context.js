@@ -144,9 +144,10 @@ export function reloadTargets(list, machine, dir) {
   return (list ?? []).filter((x) => x.tool && !x.user && (x.machine ?? null) === (machine ?? null) && (!d || n(x.cwd) === d || n(x.cwd).startsWith(d + "/")));
 }
 // A rule is read when a conversation starts: an open agent gets it as a message instead (jay: take effect without
-// closing it), any tool. names: [{ name, path }] (path: where the rule is on that machine; null when not known)
+// closing it), any tool. names: [{ name, path }] (path: where the rule is on that machine; null when not known).
+// dir: the folder (kit add --dir), { tab: true } for a tab's own (kit add --tab), null for the account
 export function ruleText(verb, names, dir) {
-  const where = dir ? "這個資料夾" : "整個帳號", list = names.map((x) => x.name).join("、");
+  const where = dir?.tab ? "這個分頁" : dir ? "這個資料夾" : "整個帳號", list = names.map((x) => x.name).join("、");
   if (verb === "rm") return `kit 剛從${where}拿掉規則 ${list}：之後不用再照它做`;
   const paths = names.map((x) => x.path).filter(Boolean);
   return `kit 剛把規則 ${list} 加到${where}（這個對話開始時還沒有）：${paths.length ? `請先讀 ${paths.join("、")}，` : ""}之後照它做`;
@@ -159,7 +160,7 @@ export function reloadNeed(tool, kinds, hooks = false, cm = null) {
 // What was taken off (kit rm, or what a kit sync took off) is never a reason to close a conversation (jay): the open agent
 // is told in a message, any tool. names: the item names
 export function goneText(kind, names, dir) {
-  const where = dir ? "這個資料夾" : "整個帳號", list = names.join("、");
+  const where = dir?.tab ? "這個分頁" : dir ? "這個資料夾" : "整個帳號", list = names.join("、");
   if (kind === "skill") return `kit 剛從${where}拿掉技能 ${list}：之後不要再用它`;
   if (kind === "mcp") return `kit 剛從${where}拿掉 MCP ${list}：之後不要再用它的工具`;
   return `kit 剛從${where}拿掉外掛 ${list}：之後不要再用它的技能和指令`;
@@ -270,6 +271,9 @@ export function statusId(text) {
 }
 // what is typed in the shell: Claude without CLAUDE_CODE_CHILD_SESSION (else its conversation is not saved from then on)
 export const resumeTyped = (tool, cmd) => (tool === "claude" ? `env -u CLAUDE_CODE_CHILD_SESSION ${cmd}` : cmd);
+// a tab kit open started (kit 0.17, in kit tab list): the same resume through kit open, so the tab keeps its own copy:
+// claude --model x --resume <id> -> kit open claude --tab-env HC_TERMINAL_ID -- --model x --resume <id>
+export const tabResume = (tool, cmd) => (cmd ? `kit open ${tool} --tab-env HC_TERMINAL_ID -- ${String(cmd).trim().split(/\s+/).slice(1).join(" ")}` : cmd);
 // the line people type themselves when it was not done (its id known)
 export const resumeByHand = (tool, id) => (!id ? null : tool === "claude" ? `claude --resume ${id}` : tool === "codex" ? `codex resume ${id}` : tool === "omp" ? `omp --resume ${id}` : null);
 // hc get --json: the program has ended and its shell is in front again

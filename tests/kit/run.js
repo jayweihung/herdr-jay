@@ -3766,6 +3766,77 @@ async function realRepo(M, exe, home, env) {
   return "; a source of its own: listed as unsent, sent by 送出 → 確定送出";
 }
 
+// ---------- kit 0.17 (api 1.22): each tab its own copy (kit open --tab, kit tab) ----------
+const API_22 = (...machines) => Object.fromEntries(["", ...machines].map((m) => [m, { ok: true, kind: "ok", api: "1.22", at: Date.now() }]));
+const tabArgs = (c) => c.argv.slice(c.argv[0] === "sh" ? 4 : 1);
+// a kit answering kit tab list --json with tabs() (on: the machine) and kit tab show with show(id) (null: no_tab); else base
+function tabKit(base, tabs = () => [], show = () => null) {
+  return (argv, on) => {
+    const a = argv[0] === "sh" ? argv.slice(4) : argv.slice(1);
+    if (a[0] === "tab" && a[1] === "list") return { code: 0, stdout: `${JSON.stringify({ kit: "0.17.0", api: "1.22", tabs: tabs(on) })}\n`, stderr: "" };
+    if (a[0] === "tab" && a[1] === "show") { const d = show(a[2]); return d ? { code: 0, stdout: `${JSON.stringify(d)}\n`, stderr: "" } : kitError("no_tab", `沒有分頁 ${a[2]}`); }
+    return base(argv, on);
+  };
+}
+test("kit 0.17 (context.js): a tab's resume through kit open; what was taken off a tab said as the tab's", ({ context: X }) => {
+  assert.equal(X.tabResume("claude", `claude --model opus --resume ${SID}`), `kit open claude --tab-env HC_TERMINAL_ID -- --model opus --resume ${SID}`);
+  assert.equal(X.tabResume("codex", "codex resume x"), "kit open codex --tab-env HC_TERMINAL_ID -- resume x");
+  assert.equal(X.tabResume("omp", null), null);
+  assert.equal(X.resumeTyped("claude", X.tabResume("claude", "claude --resume x")), "env -u CLAUDE_CODE_CHILD_SESSION kit open claude --tab-env HC_TERMINAL_ID -- --resume x");
+  assert.equal(X.goneText("skill", ["s"], { tab: true }), "kit 剛從這個分頁拿掉技能 s：之後不要再用它");
+  assert.equal(X.ruleText("rm", [{ name: "r" }], { tab: true }), "kit 剛從這個分頁拿掉規則 r：之後不用再照它做");
+  assert.equal(X.goneText("mcp", ["m"], "/p"), "kit 剛從這個資料夾拿掉 MCP m：之後不要再用它的工具", "a folder: as before");
+});
+test("kit 0.17 (agent popup): a tab kit open started: 這個分頁的 on top (拿掉: kit rm --tab, then told), 加到這個分頁 in 還沒用的 (kit add --tab, then the relaunch ask when kit says it needs a restart); a tab kit doesn't know: said; the header asks kit tab show", async (M) => {
+  const target = { key: "|/x|t1", term: "t1", machine: null, cwd: "/x", title: "Claude Code", app: "claude-code" }, key = "kit.msg.agent:|/x|t1";
+  const sk = (kind, name, status = "unused") => ({ kind, name, status, source: "lib", description: `${name} desc` });
+  let show = { kit: "0.17.0", api: "1.22", tab: "t1", tool: "claude", agent: "hello", dir: "/x", made: 1, live: true,
+    items: [{ kind: "skill", name: "kit-hello", from: "agent", below: null, restart: false }, { kind: "rule", name: "zh", from: "tab", below: "account", restart: true }],
+    folder: { dir: null, items: [] }, account: [{ kind: "rule", name: "zh" }] };
+  const items = [sk("skill", "kit-hello"), sk("mcp", "m"), sk("skill", "calm"), sk("rule", "zh", "used")];
+  fresh();
+  const t = fakeTerm("claude", `ok\nsession {"sessionId":"${SID}","status":"idle"}\ntranscript\n`);
+  H.answer = tabKit((argv, on) => (argv[0] === "kit" && argv[1] === "list" ? { code: 0, stdout: `${JSON.stringify({ ...KIT_LIST, items })}\n`, stderr: "" } : t && fakeTermAnswer(argv, on)), () => [], () => show);
+  function fakeTermAnswer(argv) { return argv[0] === "sh" ? { code: 0, stdout: t.probe, stderr: "" } : { code: 0, stdout: "", stderr: "" }; }
+  H.store["kit.api.v1"] = API_22();
+  H.agents = [{ address: "t1", app: "claude-code", status: "idle", tab_name: "api" }];
+  H.terminals = [{ address: "t1", cwd: "/x" }];
+  // the header's read: kit list and kit tab show for its terminal
+  const d = await M.header.loadAgent(null, "/x", "t1", "claude");
+  assert.deepEqual(kitCalls("tab").map(tabArgs), [["tab", "show", "t1", "--json"]]);
+  assert.equal(d.tabShow.agent, "hello");
+  H.store["kit.agent.data.v1"] = { [target.key]: d };
+  H.store["kit.agent.v1"] = { [target.key]: { started: Date.now(), at: Date.now() } };
+  const v = view(M, { role: "agent", target }); await settle();
+  let shown = render(v);
+  assert.match(shown, /這個分頁的（關掉就清掉）[\s\S]*kit-hello[\s\S]*hello 帶的[\s\S]*整個帳號也有[\s\S]*另外也讀到的/);
+  assert.ok("rmtab-skill-kit-hello" in H.clicks && "addtab-mcp-m" in H.clicks && "addtab-skill-calm" in H.clicks);
+  assert.ok(!("addtab-skill-kit-hello" in H.clicks), "the tab's own is not in 還沒用的");
+  // 加到這個分頁 an MCP: kit add --tab, then (kit tab show: restart) the relaunch ask for this agent
+  show = { ...show, items: [...show.items, { kind: "mcp", name: "m", from: "tab", below: null, restart: true }] };
+  H.clicks["addtab-mcp-m"]({}, cx); await settle();
+  assert.deepEqual(kitCalls("add").map(tabArgs), [["add", "--tab", "t1", "mcp", "m"]]);
+  assert.match(H.store[key].text, /已加到這個分頁：m[\s\S]*t1（Claude Code）要重開才讀得到/);
+  assert.deepEqual(H.store[M.common.RELAUNCH_ASK].rows, [{ address: "t1", tool: "claude", name: "api（t1）", what: "MCP" }]);
+  // 拿掉 the agent's skill: kit rm --tab, then told (no closing)
+  render(v); H.clicks["rmtab-skill-kit-hello"]({}, cx); await settle();
+  assert.deepEqual(kitCalls("rm").map(tabArgs), [["rm", "--tab", "t1", "skill", "kit-hello"]]);
+  assert.deepEqual(t.sent.at(-1), ["send", "kit 剛從這個分頁拿掉技能 kit-hello：之後不要再用它"]);
+  assert.match(H.store[key].text, /t1 已告訴它拿掉了/);
+  // a tab kit doesn't know (kit tab show: no_tab): one line, no tab buttons
+  show = null;
+  const n = await M.header.loadAgent(null, "/x", "t1", "claude");
+  assert.equal(n.noTab, true);
+  H.store["kit.agent.data.v1"] = { [target.key]: n };
+  shown = render(v);
+  assert.match(shown, /這個分頁沒經過 kit 開/); assert.doesNotMatch(shown, /這個分頁的（關掉就清掉）/);
+  assert.ok(!Object.keys(H.clicks).some((k) => k.startsWith("addtab-")));
+  // an older kit: no kit tab show at all
+  H.store["kit.api.v1"] = { "": { ok: true, kind: "ok", api: "1.18", at: Date.now() } }; H.calls = [];
+  const o = await M.header.loadAgent(null, "/x", "t1", "claude");
+  assert.deepEqual([kitCalls("tab").length, o.noTab, o.tabShow], [0, undefined, undefined]);
+});
+
 // ---------- run ----------
 const M = await loadMod();
 let fail = 0;

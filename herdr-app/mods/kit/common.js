@@ -404,10 +404,11 @@ const TIMED_OUT = /took longer than/;
 // a change there (markChanged, or any other kit command finished) isn't shared after it: the change generation moved.
 // Module state: one per version, shared by every copy. Actions (add, rm, sync, push, collect …) are never shared.
 const READS = new Set(["list", "used", "status", "statusline", "agents", "api", "context", "usage", "outdated", "--version"]);
+const isRead = (args) => READS.has(args[0]) || (args[0] === "tab" && (args[1] === "list" || args[1] === "show"));   // kit tab rm / keep change
 const UNDER_WAY = new Map(), CHANGES = new Map();   // key -> its run; machine -> change generation
 const changedOn = (machine) => CHANGES.set(machine ?? "", (CHANGES.get(machine ?? "") ?? 0) + 1);
 export function kit(args, timeout = 60000, machine = null) {
-  if (!READS.has(args[0])) return runKit(args, timeout, machine).finally(() => changedOn(machine));
+  if (!isRead(args)) return runKit(args, timeout, machine).finally(() => changedOn(machine));
   const key = JSON.stringify([machine ?? "", CHANGES.get(machine ?? "") ?? 0, timeout, args]);
   if (!UNDER_WAY.has(key)) UNDER_WAY.set(key, runKit(args, timeout, machine).finally(() => UNDER_WAY.delete(key)));
   return UNDER_WAY.get(key);
@@ -440,6 +441,8 @@ export const KIT_ERRORS = ["usage", "not_init", "busy", "no_source", "not_git", 
   "not_allowed", "download_failed", "no_skill",
   // kit 0.5.0 (api 1.3): kit new mcp --config (a pasted MCP setup), kit place (an agent's own folder)
   "bad_config", "several_servers", "not_found", "no_name", "bad_name", "exists", "no_agent", "no_parent", "other_agent", "not_empty", "bad_dir",
+  // kit 0.17.0 (api 1.22): kit tab show (no such tab), kit add --tab (the folder or the account has it already)
+  "no_tab", "below",
   "error"];
 // kit's answer (from kit()) -> { data } or { error: { code, message } }; what: the command, for a message of our own
 export function kitJson(r, what) {
@@ -456,6 +459,18 @@ export function kitJson(r, what) {
   if (r?.missing || r?.timedOut) return { error: { code: r.timedOut ? "timeout" : "missing", message: String(r.err ?? "") } };
   return { error: { code: "error", message: r?.code === 0 ? `${what} 的輸出讀不懂（kit 太舊？請打 kit self-update）`
     : clean(r?.err || r?.out || "") || `${what} 失敗（${r?.code}）` } };
+}
+
+// kit 0.17 (api 1.22): the tabs kit open started there (kit tab list --json: { tab, tool, agent, dir, made, live, items };
+// a tab's id is its Herdr terminal's on that machine) -> { tabs, via } (via: runKit's, "cmd" for kit.cmd), null when it
+// can't be read. The last answer per machine stays in TABS (the Agents cards' drag reads it: no kit call per render).
+export const TABS = new Map();   // machine ("" this computer) -> tabs
+export async function tabList(machine = null) {
+  const r = await kit(["tab", "list", "--json"], 30000, machine), { data } = kitJson(r, "kit tab list --json");
+  if (!data) return null;
+  const tabs = (Array.isArray(data.tabs) ? data.tabs : []).filter((x) => x && typeof x.tab === "string");
+  TABS.set(machine ?? "", tabs);
+  return { tabs, via: r.via ?? null };
 }
 
 // ---------- is kit new enough: kit api ----------

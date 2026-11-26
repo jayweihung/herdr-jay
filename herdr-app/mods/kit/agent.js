@@ -1,5 +1,6 @@
 // Role "agent" of the kit mod (see main.js): a popup for one agent, opened by the Kit button in its pane header (role
-// "header", header.js): what it uses (the set kit run started it with, kit's for the account, its folder's own), what
+// "header", header.js): what it uses (a tab's own copy when kit open started it, kit 0.17: kit add|rm --tab; the set kit
+// run started it with, kit's for the account, its folder's own), what
 // kit has that it doesn't use yet, and the buttons that change that (kit add / rm, --dir for its folder; kit
 // install-tool / install-deps for what a skill or an MCP needs; an MCP's unset ${VAR}s; what kit sync blocked and 收進
 // kit: kit collect / kit new --from, then kit add). All on the agent's machine.
@@ -12,13 +13,16 @@ import { AGENT_CACHE, AGENT_DATA, AGENT_WANT, MSG, fs, mono, stop, shortDir, spi
   busyNow, dropStaleBusy, giveBusy, apiState, checkApi, apiCard, messageBox, problemCard, versionCard, localGet, localSet,
   kitAction, markChanged, squeeze, groupRows, kit, apiAtLeast, partsLine, RELAUNCH_AUTO, RELAUNCH_ASK, reloadOne } from "./common.js";
 import { POPUP_H, agentPid, loadAgent } from "./header.js";
-import { toolOf, usedArgs, usedOf, usedLine, KIND_NAME, RELOAD_TEXT } from "./context.js";
+import { toolOf, usedArgs, usedOf, usedLine, KIND_NAME, RELOAD_TEXT, reloadPlan, reloadLine } from "./context.js";
 import { offerRelaunch, agentName } from "./relaunch.js";
 import { versionText, oldReason, oldSummary } from "./versions.js";
 
 const LONG = 600000, SHORT = 120000; // how long kit sync and install, and the other actions, may take
 const LOAD_TTL = 90000;
 const USED_RETRY = 10000;   // kit used with no answer: asked again this often while the popup is open
+// a row's add / rm under way, then done (rowAct's want): its words
+const WORDS = { used: ["加入中…", "✓ 已加到整個帳號"], unused: ["拿掉中…", "✓ 已從帳號拿掉"], dir: ["加入中…", "✓ 已加到這個資料夾"], nodir: ["拿掉中…", "✓ 已從資料夾拿掉"],
+  tab: ["加入中…", "✓ 已加到這個分頁"], notab: ["拿掉中…", "✓ 已從分頁拿掉"] };
 // what this agent reads of kit's: the account's (used, required) and its folder's (kit add --dir)
 const usingOf = (d) => {
   const dir = new Set(d?.here?.folder?.items ?? []);
@@ -146,14 +150,48 @@ export class AgentPopup {
   }
   // a row's add / rm: its button says 加入中… while kit runs, then ✓ 已… until the list (asked again) shows it, so it
   // never looks like it can be pressed again. want: "used" | "unused" (the account), "dir" | "nodir" (this folder)
-  rowAct(i, want, label, args, cx, okText) {
+  // then(cx): after it, once the list is marked out of date
+  rowAct(i, want, label, args, cx, okText, then = null) {
     const k = `${i.kind}:${i.name}`, machine = this.target?.machine ?? null;
-    const started = kitAction(this, cx, { label, args, ttl: SHORT, okText, machine, msg: MSG(this.where), after: () => {
+    const started = kitAction(this, cx, { label, args, ttl: SHORT, okText, machine, msg: MSG(this.where), after: (cx) => {
       const ok = shared(MSG(this.where))?.ok === true;
       this.pend = { ...(this.pend ?? {}), [k]: ok ? { done: want, at: Date.now() } : null };
       markChanged(machine);
+      then?.(cx);
     } });
     if (started) this.pend = { ...(this.pend ?? {}), [k]: { doing: want } };
+  }
+  // kit 0.17 (api 1.22): add / rm for this tab only (kit add|rm --tab <its id>), then this agent catches up: what kit says
+  // needs a restart (kit tab show's restart, read again after an add) gets the relaunch ask (relaunch.js), what was taken
+  // off a message (as for the account's: never a reason to close it). Said in the line over kit's words.
+  tabAct(i, verb, cx) {
+    const machine = this.target?.machine ?? null, msg = MSG(this.where), id = this.data?.tabShow?.tab;
+    const label = verb === "add" ? `加到這個分頁 ${i.name}` : `從分頁拿掉 ${i.name}`;
+    const okText = verb === "add" ? `已加到這個分頁：${i.name}。只有這個分頁有，分頁關掉就清掉。` : `已從這個分頁拿掉 ${i.name}。`;
+    this.rowAct(i, verb === "add" ? "tab" : "notab", label, [verb, "--tab", id, i.kind, i.name], cx, okText, (cx) => {
+      if (shared(msg)?.ok !== true) return;
+      cx.spawn(async (cx) => {
+        let line;
+        try { line = await this.tabCatchUp(i, verb); } catch (e) { line = `這個 agent 沒有跟上：${e?.message ?? e}`; }
+        const m = shared(msg);
+        if (m && line) setShared(msg, { ...m, text: `${m.text}\n${line}` });
+        cx.notify();
+      });
+    });
+  }
+  async tabCatchUp(i, verb) {
+    const tg = this.target ?? {}, tool = toolOf(tg.app, tg.program?.key);
+    const a = (agents() ?? []).find((x) => x.address === tg.term);
+    if (!a || !tool) return "";
+    if (verb === "rm") {
+      const status = a.status === "done" && (shared("agents.busy") ?? {})[a.address] ? "working" : a.status, row = { name: a.address, tool, done: null };
+      for (const x of reloadPlan(tool, { gone: [{ kind: i.kind, name: i.name }], dir: { tab: true } }).texts) row[x.kind === "rule" ? "rule" : "told"] = await reloadOne(a.address, status, x.text);
+      return reloadLine([row]);
+    }
+    const d = await loadAgent(tg.machine ?? null, tg.cwd, tg.term, tool);
+    if (!(d?.tabShow?.items ?? []).find((x) => x.kind === i.kind && x.name === i.name)?.restart) return "";
+    const how = (await offerRelaunch([{ address: a.address, tool, name: agentName(a), what: KIND_NAME[i.kind] ?? i.kind }]))[a.address];
+    return reloadLine([{ name: a.address, tool, done: null, relaunch: how ?? null }]);
   }
   // one at a time (kit api 1.18: nothing changes until asked): a row whose newest this machine has not got gets 同步這個
   // (kit sync --only, then this agent catches up as with 全部同步); a held one (kit hold): 換成新版 or 取消固定
@@ -174,7 +212,8 @@ export class AgentPopup {
     const k = `${i.kind}:${i.name}`, p = this.pend?.[k];
     if (!p) return null;
     if (p.done) {
-      const now = { used: i.status === "used", unused: i.status !== "used", dir: inDir, nodir: !inDir }[p.done];
+      const inTab = Boolean(this.tabHas?.has(k));
+      const now = { used: i.status === "used", unused: i.status !== "used", dir: inDir, nodir: !inDir, tab: inTab, notab: !inTab }[p.done];
       // ✓ stays until a list read AFTER the action says otherwise: kit list can take longer than a minute, and the row
       // went back to 加到… though kit had added it (jay: "按下去不理我")
       if (now || ((this.data?.at ?? 0) > p.at && Date.now() - p.at > 60000)) { this.pend[k] = null; return null; }
@@ -274,8 +313,20 @@ export class AgentPopup {
       .child(div().flex_1().min_w(0).text_color(t.muted).child("kit 的改動要重開才讀得到時：直接自動重開接回，不問"))
       .child(btn(t, z, "rl-ask", "改回先問", { tiny: true, on: (cx) => { setShared(RELAUNCH_AUTO, null); cx.notify(); } })));
     const kindName = { rule: "規則", skill: "技能", mcp: "MCP", plugin: "外掛" };
+    // 0. kit 0.17 (api 1.22): the tab's own copy (kit open --tab; kit tab show), on top, the only part kit run's set
+    //    gives way to (the tab started from that agent has its things as its own). A tab kit doesn't know: said so.
+    const tab = d.tabShow ?? null;
+    this.tabHas = new Set((tab?.items ?? []).map((x) => `${x.kind}:${x.name}`));
+    if (tab) {
+      const info = (x) => items.find((i) => i.kind === x.kind && i.name === x.name) ?? { kind: x.kind, name: x.name };
+      const rows = (tab.items ?? []).filter((x) => hit(info(x)));
+      body.child(div().font_semibold().child("這個分頁的（關掉就清掉）"));
+      body.child(div().text_size(z - 1.5).text_color(t.muted).child(`只有這個分頁有${tab.agent ? `（一開始是 agent ${tab.agent} 帶的）` : ""}；要加，在下面「還沒用的」按「加到這個分頁」。`));
+      body.child(rows.length ? v_flex().gap(2).children(rows.map((x) => this.tabRow(t, z, x, info(x)))) : div().pl(18).text_size(z - 1.5).text_color(t.dim).child("沒有"));
+      body.child(div().mt(4).border_t(1).border_color(t.border));
+    } else if (d.noTab) body.child(div().text_size(z - 1.5).text_color(t.muted).child("這個分頁沒經過 kit 開"));
     // 1. what kit run started it with: only this agent has it, for this run
-    if (ag) {
+    if (ag && !tab) {
       body.child(div().font_semibold().child(`這次啟動帶的（agent ${ag.name}）`));
       body.child(div().text_size(z - 1.5).text_color(t.muted).child(`用 kit run 開的：只有這個 agent 有，關掉就沒了。要改它，到 Agents 改 ${ag.name}。`));
       for (const [kind, key] of [["rule", "rules"], ["skill", "skills"], ["mcp", "mcp"]]) {
@@ -287,7 +338,7 @@ export class AgentPopup {
       body.child(div().mt(4).border_t(1).border_color(t.border));
     }
     // 2. what it reads besides: kit's for the whole account (can be taken off) and its folder's / account's own (look only)
-    body.child(h_flex().gap(8).items_baseline().child(div().font_semibold().child(ag ? "另外也讀到的" : "這個 agent 在用的"))
+    body.child(h_flex().gap(8).items_baseline().child(div().font_semibold().child(ag || tab ? "另外也讀到的" : "這個 agent 在用的"))
       .when(latest, (el) => el.child(div().text_size(z - 1.5).text_color(t.muted).child("全部最新"))));
     // what this conversation used so far (kit used): rules are always read, so only skills and MCP
     if (!this.ro && apiAtLeast(this.target?.machine ?? null, 10)) body.child(div().text_size(z - 1.5).text_color(t.muted)
@@ -317,7 +368,7 @@ export class AgentPopup {
     //    kit's own first, then what kit collect took, one group per URL it came from (closed until clicked; open while
     //    searching); a URL with one thing is a plain row
     if (this.ro) return body;
-    const more = items.filter((i) => i.kind !== "agent" && i.status === "unused" && !mine(i) && hit(i));
+    const more = items.filter((i) => i.kind !== "agent" && i.status === "unused" && !mine(i) && !this.tabHas.has(`${i.kind}:${i.name}`) && hit(i));
     const news = more.filter((i) => i.new).length;
     if (more.length) {
       const folded = !f0 && (this.folded.paneMore ?? more.length > 8);   // closed when long, like the lists above: each row costs render time
@@ -344,7 +395,8 @@ export class AgentPopup {
            "標「整個帳號」「團隊必備」的是整個帳號的，這裡不能改：要改，請在家目錄（~）開的 agent 改。"]
         : [`這裡改的是整個帳號：${machine} 上你這個帳號的 Claude Code、Codex、omp（有裝的）和每個 agent、每個資料夾都會有或都沒有。`,
            "只想給某個資料夾：請在那個資料夾開的 agent 改。"])
-      .child("正在跑的要開新的對話才會讀到。"));
+      .child("正在跑的要開新的對話才會讀到。")
+      .when(Boolean(tab), (el) => el.child("「加到這個分頁」只有這個分頁有、分頁關掉就清掉，不改資料夾和整個帳號。")));
     if (!items.length && !here.length && !ag) body.child(div().text_color(t.muted).child("來源裡還沒有東西。"));
     return body;
   }
@@ -444,6 +496,27 @@ export class AgentPopup {
       .when(Boolean(sub) && open, (el) => el.child(div().text_size(z - 1.5).text_color(t.muted).child(textBlock(`desc-text-${key}`, orig ? `${sub}\n\n原文：${orig}` : sub))));
   }
 
+  // one of the tab's own (kit tab show's item x; i: kit list's row for its description): 拿掉 takes it off this tab only
+  tabRow(t, z, x, i) {
+    const busy = Boolean(this.busy), tab = this.data?.tabShow;
+    const badge = (text, color) => div().flex_none().px(5).rounded(4).text_size(z - 2.5).text_color(t.background).bg(color).child(text);
+    const head = h_flex().gap(5).items_center().min_w(0)
+      .child(copyOnRight(div().min_w(0).truncate().font_semibold().child(x.name), x.name))
+      .child(badge(KIND_NAME[x.kind] ?? x.kind, t.dim));
+    if (x.from === "agent") head.child(badge(`${tab?.agent ?? "agent"} 帶的`, t.accent));
+    if (x.below) head.child(badge(x.below === "folder" ? "資料夾也有" : "整個帳號也有", t.muted));
+    this.usedBadge(t, z, head, i);
+    const pend = this.pendOf(i, false), action = h_flex().flex_none().gap(4).items_center();
+    if (pend) action.child(pend.doing
+      ? h_flex().gap(4).items_center().px(8).h(24).rounded(6).bg(t.raised).text_size(z - 1.5).text_color(t.muted).child(spin(z - 3, t.muted)).child(WORDS[pend.doing][0])
+      : div().text_size(z - 1.5).text_color(t.done).child(WORDS[pend.done][1]));
+    else action.child(btn(t, z, `rmtab-${x.kind}-${x.name}`, "拿掉", { tiny: true, off: busy, on: (cx) => this.tabAct(i, "rm", cx) }).tooltip("只從這個分頁拿掉"));
+    const sub = x.below ? "下面一層也有，開的時候不帶" : i.description_zh || i.description || "沒有說明";
+    return h_flex().id(`tabrow-${x.kind}-${x.name}`).gap(8).items_center().px(8).py(5).rounded(6).hover((s) => s.bg(t.hover))
+      .child(v_flex().flex_1().min_w(0).child(this.descCol(t, z, `tab-${x.kind}-${x.name}`, head, sub, i.description_zh || i.description || sub)))
+      .child(action);
+  }
+
   // one of kit's things: for this folder (加到這個資料夾 / 從資料夾拿掉) and for the account (加到整個帳號 / 從帳號拿掉;
   // required ones cannot be taken off)
   row(t, z, i, from = false) {
@@ -466,7 +539,6 @@ export class AgentPopup {
     const fd = f ? shortDir(f.dir) : "";
     const action = h_flex().flex_none().gap(4).items_center();
     const pend = this.pendOf(i, inDir);
-    const WORDS = { used: ["加入中…", "✓ 已加到整個帳號"], unused: ["拿掉中…", "✓ 已從帳號拿掉"], dir: ["加入中…", "✓ 已加到這個資料夾"], nodir: ["拿掉中…", "✓ 已從資料夾拿掉"] };
     if (pend) action.child(pend.doing
       ? h_flex().gap(4).items_center().px(8).h(24).rounded(6).bg(t.raised).text_size(z - 1.5).text_color(t.muted).child(spin(z - 3, t.muted)).child(WORDS[pend.doing][0])
       : div().text_size(z - 1.5).text_color(t.done).child(WORDS[pend.done][1]));
@@ -475,16 +547,19 @@ export class AgentPopup {
     // than the folder the agent runs in.
     // not added before what it needs is installed (jay): kit can install it, so 安裝／裝套件 under the row comes first
     const first = i.status === "unused" && !inDir && [...(i.needs ?? []), ...(i.packages ?? [])].some((x) => !x.ok && x.install && !x.bad);
+    // kit 0.17: a tab kit open started gets 加到這個分頁 first (the folder's and the account's then not the main button)
+    const canTab = Boolean(this.data?.tabShow) && !pend && !this.ro && !first && i.status === "unused" && !inDir && !this.tabHas?.has(`${i.kind}:${i.name}`);
+    if (canTab) action.child(btn(t, z, `addtab-${i.kind}-${i.name}`, "加到這個分頁", { small: true, kind: "primary", off: busy, on: (cx) => this.tabAct(i, "add", cx) }));
     if (pend || this.ro) { /* its 加入中… / ✓ above; look only: nothing */ } else if (first) {
       action.child(div().text_size(z - 1.5).text_color(t.dim).child("先裝好才能加"));
-    } else if (canDir && i.kind === "plugin") {   // a plugin: the whole account only
-      action.child(div().text_size(z - 1.5).text_color(t.dim).child(i.status === "unused" ? "只能加到整個帳號" : "整個帳號的"));
+    } else if (canDir && i.kind === "plugin") {   // a plugin: the whole account only (or this tab)
+      if (!canTab) action.child(div().text_size(z - 1.5).text_color(t.dim).child(i.status === "unused" ? "只能加到整個帳號" : "整個帳號的"));
     } else if (canDir) {
       if (inDir) action.child(btn(t, z, `rmdir-${i.kind}-${i.name}`, "拿掉", { tiny: true, off: busy, on: (cx) => this.rowAct(i, "nodir", `從資料夾拿掉 ${i.name}`, dirArgs("rm"), cx, `已從 ${fd} 拿掉 ${i.name}。在 ${fd} 開新的對話就不會有了。`) }).tooltip("從這個資料夾拿掉"));
-      else if (i.status === "unused") action.child(btn(t, z, `adddir-${i.kind}-${i.name}`, "加到這個資料夾", { small: true, kind: "primary", off: busy, on: (cx) => this.rowAct(i, "dir", `加到這個資料夾 ${i.name}`, dirArgs("add"), cx, `已加到 ${fd}：${i.name}。在 ${fd}（含子資料夾）開新的對話才會讀到，別的地方不受影響。`) }));
+      else if (i.status === "unused") action.child(btn(t, z, `adddir-${i.kind}-${i.name}`, "加到這個資料夾", { small: true, kind: canTab ? undefined : "primary", off: busy, on: (cx) => this.rowAct(i, "dir", `加到這個資料夾 ${i.name}`, dirArgs("add"), cx, `已加到 ${fd}：${i.name}。在 ${fd}（含子資料夾）開新的對話才會讀到，別的地方不受影響。`) }));
     } else if (i.status === "required") action.child(div().text_size(z - 1.5).text_color(t.dim).child("拿不掉"));
     else if (i.status === "used") action.child(btn(t, z, `rm-${i.kind}-${i.name}`, "拿掉", { tiny: true, off: busy, on: (cx) => this.rowAct(i, "unused", `從帳號拿掉 ${i.name}`, ["rm", i.kind, i.name], cx, `已從整個帳號拿掉 ${i.name}。開新的對話就不會有了。`) }).tooltip("從整個帳號拿掉"));
-    else if (!inDir) action.child(btn(t, z, `add-${i.kind}-${i.name}`, "加到整個帳號", { small: true, kind: "primary", off: busy, on: (cx) => this.rowAct(i, "used", `加到整個帳號 ${i.name}`, ["add", i.kind, i.name], cx, `已加到整個帳號：${i.name}。每個資料夾開新的對話都會讀到。`) }));
+    else if (!inDir) action.child(btn(t, z, `add-${i.kind}-${i.name}`, "加到整個帳號", { small: true, kind: canTab ? undefined : "primary", off: busy, on: (cx) => this.rowAct(i, "used", `加到整個帳號 ${i.name}`, ["add", i.kind, i.name], cx, `已加到整個帳號：${i.name}。每個資料夾開新的對話都會讀到。`) }));
     const sub = [from && i.from ? `收自 ${i.from}` : "", i.description_zh || i.description || "沒有說明", i.source].filter(Boolean).join(" · ");
     const row = h_flex().gap(8).items_center()
       .child(v_flex().flex_1().min_w(0).gap(1)

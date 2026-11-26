@@ -7,6 +7,7 @@
 // rules, skills, MCP; one click opens the "agent" popup, agent.js) and how full its context is.
 // This header is the one place that asks kit about an agent:
 //   kit list --json --dir <its folder> --pid <its process>      on the pane's machine
+//   kit tab show <its terminal> --json                         kit 0.17 (api 1.22): the tab's own copy (kit open --tab)
 // and keeps the answer in shared state (AGENT_CACHE, AGENT_DATA in common.js) for the popup to show; the popup's ⟳
 // and anything that changed what the agent uses ask for a fresh one (AGENT_WANT).
 // How full the context is comes from
@@ -77,7 +78,15 @@ export async function loadAgent(machine, cwd, term, tool = null) {
   const locks = await collectedFrom(data.sources, machine).catch(() => ({}));
   const items = (data.items ?? []).map((i) => ((i.kind === "skill" || i.kind === "plugin") && locks[i.source]?.[i.name] ? { ...i, from: locks[i.source][i.name] } : i));
   const view = data.here?.user === "root" ? await rootView(machine) : undefined;
-  return { ...data, items, machine, at, view };
+  return { ...data, items, machine, at, view, ...(await tabShow(machine, term)) };
+}
+// kit 0.17 (api 1.22): the tab's own copy, when kit open started it (its id is the terminal's on that machine) ->
+// { tabShow } (kit tab show --json), { noTab: true } (kit has no such tab: not started through kit open), or nothing
+// (an older kit, or the ask failed: as before)
+async function tabShow(machine, term) {
+  if (!term || !apiAtLeast(machine, 22)) return {};
+  const { data, error } = kitJson(await kit(["tab", "show", String(term).split("/").pop(), "--json"], 30000, machine), "kit tab show --json");
+  return data ? { tabShow: data } : error?.code === "no_tab" ? { noTab: true } : {};
 }
 // An agent run as root: kit list can't see root's kit, but the machine may keep a copy root's cron writes (root's
 // kit list --json --dir /root) that this account can read. -> { list, age (s, by that machine's clock) } | { age } | { none: why }
@@ -105,6 +114,7 @@ function summary(d) {
   const names = { rule: new Set(), skill: new Set(), mcp: new Set() };
   for (const i of d.items ?? []) if ((i.status === "used" || i.status === "required") && names[i.kind]) names[i.kind].add(i.name);
   for (const i of d.here?.items ?? []) names[i.kind]?.add(`${i.scope}:${i.path ?? i.name}`);
+  for (const i of d.tabShow?.items ?? []) if (!i.below) names[i.kind]?.add(i.name);   // the tab's own (kit open --tab)
   const ag = d.here?.agent;
   if (ag) for (const [k, key] of [["rule", "rules"], ["skill", "skills"], ["mcp", "mcp"]]) for (const n of ag[key] ?? []) names[k].add(n);
   const news = (d.items ?? []).filter((i) => i.new && i.kind !== "agent").length;

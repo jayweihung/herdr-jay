@@ -3,7 +3,8 @@
 [kit](../../../docs/kit.md) (a separate tool for the rules, skills and MCP your coding agents use) inside
 [Herdr](https://github.com/herdrdev/herdr-app): a Kit button and the context cell on every agent pane, the repository
 panel and the Agents panel. It runs the `kit` command (kit 0.3.0 or later) and nothing else; the agents' logos it
-draws itself (Zdog).
+draws itself (Zdog). With kit 0.17.0 each tab started through `kit open` has its own copy: the Kit popup shows and
+changes it, the Agents panel opens agents that way, and a closed tab's copy goes (`kit tab rm`).
 在 Herdr 裡用 kit：每個 agent 視窗上的 Kit 按鈕、倉庫面板、Agents 面板（每個 agent 有一個動物機器人 logo）。
 
 What it does, what it needs, install, the roles for your own layout: **[docs/kit.md](../../../docs/kit.md)**

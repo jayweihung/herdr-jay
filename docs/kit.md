@@ -135,8 +135,12 @@ merge if it exists):
   and lists all three as installed. 要有 app 的 0034 補丁，選單才看 `check` 判斷有沒有裝。
 - The menu starts these on remote machines' spaces too: every machine you open agents on needs kit 0.17.0
   (`kit self-update`). 別台機器的 space 也照這個開，那台也要 kit 0.17.0。
-- A tab's copy stays until `kit tab rm <tab>` (or `kit tab keep`: every tab whose tool no longer runs goes);
-  the Kit panel will do it when a tab closes. 分頁那份要 `kit tab rm` 才清（之後 Kit 面板會在分頁關掉時清）。
+- A tab's copy goes when its tab closes: the kit mod runs `kit tab rm <tab>` on that tab's machine once its tool no
+  longer runs, and when Herdr starts `kit tab keep <the terminals there>` once per machine (for tabs closed while Herdr
+  wasn't running). 分頁關掉，kit mod 就在那台 `kit tab rm` 清掉它那份；Herdr 一開，每台跑一次 `kit tab keep`（Herdr 沒開時關掉的分頁）。
+- With kit 0.17.0 the Kit mod uses these tabs too: the Kit popup's 「這個分頁的」, the Agents panel's 開啟 and drag
+  (`kit open --agent`), and 自動重開接回 (resumed through `kit open`). Below: §1 and §3.
+  Kit mod 也跟著用：Kit 視窗的「這個分頁的」、Agents 的開啟和拖到 space（`kit open --agent`）、自動重開接回（經過 `kit open` 接回）。
 - Remove: take the three `run` / `check` lines out again. 不要了就把這三段拿掉。
 
 ## 1. agent 視窗上的 Kit 按鈕
@@ -210,7 +214,12 @@ merge if it exists):
     要換按「換成新版」，「取消固定」讓它之後跟著「全部同步」。
   - 「這次對話開始後改過（11/21 版），重開接回同一個對話才會讀到」：規則、MCP、外掛在對話一開始就讀了（omp 的外掛只有 hook 要重開；其餘打 `/reload-plugins`）。技能是「這次對話用的是舊版，開新對話才會讀到新的」（用過才算）。
   清單最上面一行總結：「全部最新」；按「同步」就能全部變新的時寫「5 項舊版：按同步」；有同步也救不了的（這次對話已經用過舊版的技能）時寫「3 項舊版：2 項按同步，1 項開新對話才會讀到」，全部都是這種時寫「2 項舊版：開新對話才會讀到」。那台的 kit 比 api 1.14 舊時只寫一次「那台的 kit 太舊，更新後才看得到版本」。root 的唯讀清單只寫版本，不標舊版。
-- 「這次啟動帶的」：用 `kit run`（或 Agents 的「開啟」）開的 agent 才有，只有這個 agent 有，關掉就沒了。要改，到 Agents 改那個 agent。這時下面的標題會變成「另外也讀到的」。
+- **「這個分頁的（關掉就清掉）」**（kit 0.17.0，`kit api` 1.22 起）：經過 `kit open --tab` 開的分頁（Herdr 新分頁選單照上面的 `programs.json`、Agents 的開啟和拖到 space），清單最上面多這一段，是 `kit tab show <分頁> --json` 的「分頁自己的」：只有這個分頁有，分頁關掉就清掉。標「<agent> 帶的」是一開始從那個 agent 開帶進來的；標「資料夾也有」「整個帳號也有」的開的時候不帶（下面那層本來就讀得到）。
+  - 每一列的「拿掉」= `kit rm --tab <分頁> <種類> <名字>`，拿掉後跟整個帳號的一樣送一則訊息叫它不要再用（不關掉它）。
+  - 「還沒用的」每一列多一個「加到這個分頁」= `kit add --tab <分頁> <種類> <名字>`（這時資料夾、整個帳號的按鈕變成一般顏色）。kit 說要重開才讀得到的（`restart`：Claude 的技能以外都是），照樣跳「要重開才讀得到」小視窗問一次，重開接回時經過 `kit open`，分頁那份還在。
+  - 下面「另外也讀到的」是資料夾和整個帳號的，跟以前一樣。
+  - kit 不認得這個分頁（不是經過 `kit open` 開的）：最上面寫一行「這個分頁沒經過 kit 開」，其他照舊。kit 比 0.17.0 舊：照舊，沒有這一段。
+- 「這次啟動帶的」：用 `kit run`（或 kit 0.17.0 以前 Agents 的「開啟」）開的 agent 才有，只有這個 agent 有，關掉就沒了。要改，到 Agents 改那個 agent。這時下面的標題會變成「另外也讀到的」。經過 `kit open` 開的分頁改看上面的「這個分頁的」。
 - **skill 需要的程式**：skill 要的程式（例如 archify 要 Node.js 18 以上）這台沒有或太舊時，那一項下面會出現「⚠ 需要 Node.js 18 以上（這台沒有）［安裝］」（太舊是［升級］）。按下去先顯示 kit 會執行的指令（例如 `brew install node`），按「確定安裝」才執行（就是 `kit install-tool node --min 18`）；那種裝法失敗，kit 會換配方裡的下一種。kit 沒有這台能用的裝法時，只寫「請自己裝」。怎麼看出來、怎麼加新的程式，看 kit 的說明（「skill 需要的程式」）。
 - **skill 自己的套件**：skill 要先 `npm install` 或 `pip install` 才能跑時，下面會出現「⚠ 需要先裝它自己的 npm 套件［安裝］」或「⚠ 需要先裝它自己的 Python 套件［安裝］」（skill 改過、要重裝時是［更新］）。按下去先顯示要執行的指令，按「確定安裝」才裝（就是 `kit install-deps <skill> npm|pip`）：裝在 kit 自己的資料夾（Python 是自己的 venv），不跑套件自己的安裝程式。kit 不接受的寫法（`requirements.txt` 的某一行、不是 npm registry 上的版本）只寫「kit 不裝：」和原因，沒有［安裝］。
 - `同步` = `kit sync`（拿來源的新版、裝上團隊必備的），而且讓**這個 agent** 也跟上：同步完再讀一次這個 agent 的清單，看每一項舊版：
@@ -321,6 +330,7 @@ Kit 面板（或 context 細項的「拿掉」）改了什麼，同一台電腦�
 - 先問一次（每次 kit 改動問一次，不是每個 agent 問）：跳出一個小視窗「好／以後都直接做／這次不要」。Herdr 的通知沒有按鈕，所以用視窗。「以後都直接做」記在 Herdr 的共用狀態（`kit.relaunch.auto`，Herdr 重開還在，換電腦不跟著走）；要改回先問，到那個 agent 的 Kit 視窗按「改回先問」。
 - 什麼時候做：狀態是閒置或做完、沒有背景工作（`agents.busy`、`hc get` 的子 agent、Claude 的 `sessions/<pid>.json` 不是 busy）、沒有排隊或進行中的壓縮、你沒在那一格（那格是 focused 而且 Herdr 在前面就等）。30 分鐘還沒等到就取消並通知。
 - 怎麼做：打它自己的結束指令（Claude `/exit` 再按 Enter 選單、Codex `/quit`、omp `/exit`），等那一格回到 shell，讀畫面上它印的接回指令（`claude <原本的旗標> --resume <id>`、`codex resume <id>`、`omp --resume <id>`），跟關之前找到的對話 id 對過（Claude：`sessions/<pid>.json`；omp：它開著的對話檔；Codex：先打 `/status` 看 Session 那行）才打進去。Claude 前面加 `env -u CLAUDE_CODE_CHILD_SESSION`。Codex 開起來跳「有新版」選單就按 Esc。
+  經過 `kit open` 開的分頁（kit 0.17.0：`kit tab list` 有它）改打 `kit open <工具> --tab-env HC_TERMINAL_ID -- <接回指令後面的參數>`（例如 `kit open claude --tab-env HC_TERMINAL_ID -- --resume <id>`），分頁那份照樣在；接不回時給的指令也是這種。
 - 你看到的：標題列寫「等它停下來就重開接回」→「套用 kit 的改動中… 關掉 → 接回同一個對話」→「已接回」幾秒，加一則通知「<agent> 已接回同一個對話，新的 MCP 已經可以用」。Herdr 不能在一格上面蓋一層提示，所以寫在標題列。它停下來了、但你在那一格時寫「你在這格：切到別格就重開接回」（Herdr 讀不到最後一次按鍵的時間，所以等你切走）。
 - 接回後程式先問問題（Claude 的「Allow external CLAUDE.md file imports?」、信任資料夾）：不替你回答，標題列寫「接回了，在等你回答它的問題」，通知寫它問什麼；你回答、出現平常的輸入框後就算接回。
 - 問要不要重開的小視窗跳出來時，Kit 視窗和用量視窗會自己關掉：Herdr 的小視窗一定在彈出視窗下面，不關會被擋住一半。
@@ -608,6 +618,8 @@ mod 只用這些欄位，每個都先檢查：`kit`（版本）、`api`（`major
 - 看它用了哪些規則、skill、MCP，「拿掉」或從「加上…」裡加（就是 `kit agent <名字> add|rm ...`，改的是來源裡的 agent 檔）。
 - 改完一樣回倉庫，按清單上面黃色那條的「送出」。
 - 選 Claude、Codex 或 omp，按「開啟」，會在新分頁用 `kit run <名字> --tool ...` 開起來。這只影響這次開的 agent，不改你的設定檔。
+  這台是 kit 0.17.0（`kit api` 1.22）以上時改用 `kit open <工具> --agent <名字> --tab-env HC_TERMINAL_ID`（Codex 加 `-- --no-daemon`）：
+  新分頁一開始有那個 agent 的規則、技能、MCP、提示，之後在它的 Kit 視窗「這個分頁的」加或拿掉，分頁關掉就清掉。
 - 「編輯檔案」可以直接改 agent 檔（提示、說明）。
 - 上面的大頭是即時畫的：點進來、換 logo 或點它一下，它會轉頭、眨眼打招呼。
 - 「換 logo…」：選動物、顏色（「原色」是那隻動物自己的顏色），或按「隨機」。選了就寫進 agent 檔開頭的
@@ -616,6 +628,13 @@ mod 只用這些欄位，每個都先檢查：`kit`（版本）、`api`（`major
 - logo 是 mod 用 Zdog 自己畫的，不用裝任何東西。清單上的小圖是 SVG，每種組合只寫一次，存在 `~/.config/herdr-app/data/kit/bots/`。
 
 ### 把 agent 放到 space（kit 0.5.0 以上）
+
+**kit 0.17.0（`kit api` 1.22）以上**（看的是那個 space 的機器）：不建資料夾、不跑 `kit place`，直接在那個 space 開新分頁跑
+`kit open <工具> --agent <agent> --tab-env HC_TERMINAL_ID`（Codex 加 `-- --no-daemon`；那台的 kit 是 `kit.cmd` 時經過
+`cmd.exe /d /c kit.cmd`），開在 space 自己的資料夾（沒有就是那台的家目錄）。這個分頁有自己一份那個 agent 的東西，分頁關掉就清掉。
+「一個 space 只開一個」改看那台的 `kit tab list --json`：那個 agent 的分頁、工具還在跑（`live`）、而且那個終端機在這個 space，
+就切到那一格（`task` 照樣用 `hc send` 送給它）。拖的時候變淡的 space 照最近一次讀到的 `kit tab list`（這台在 Agents 面板每次重讀時一起讀；
+別台在放過一次之後才知道）。下面是比較舊的 kit 的做法，拖、按鈕、位置、logo、別的 mod 叫它放都一樣。
 
 讓一個 space 裡有一個「就是這個 agent」的資料夾：在那裡開的 `claude`、`codex`、`omp` 就是它（它的規則、skill、MCP、提示、
 工具限制），不用每次 `kit run`。
@@ -799,8 +818,10 @@ Agents 面板上方有兩個分頁：「定義」是上面那些做好的 agent�
 | 送出 → 確定送出 | `kit push --to <來源> --dry-run --json` → 再一次 `--dry-run --json`（檔案清單要一樣）→ `kit push --to <來源> --json` |
 | Agents 清單 | `kit agents --json` |
 | agent 的加上／拿掉 | `kit agent <名字> add\|rm <種類> <東西>` |
-| 開啟 | `kit run <名字> --tool <工具>` |
-| 把 agent 拖到 space ／ 放到 space… | 在那個 space 的機器上 `kit place <名字> <space 的資料夾>/<名字> --tool <工具> --json`，再在那個 space 開新分頁跑 kit 給的指令 |
+| 開啟 | `kit run <名字> --tool <工具>`；kit 0.17.0 起 `kit open <工具> --agent <名字> --tab-env HC_TERMINAL_ID`（新分頁） |
+| 把 agent 拖到 space ／ 放到 space… | 在那個 space 的機器上 `kit place <名字> <space 的資料夾>/<名字> --tool <工具> --json`，再在那個 space 開新分頁跑 kit 給的指令；kit 0.17.0 起先看那台的 `kit tab list --json`，沒開著就在那個 space 開新分頁跑 `kit open <工具> --agent <名字> --tab-env HC_TERMINAL_ID` |
+| agent 視窗「這個分頁的」 | `kit tab show <分頁> --json`（標題列讀清單時一起讀）；拿掉 `kit rm --tab <分頁> <種類> <名字>`，加到這個分頁 `kit add --tab <分頁> <種類> <名字>` |
+| 分頁關掉 ／ Herdr 開起來 | 那台 `kit tab list --json`，工具不在跑了才 `kit tab rm <分頁>`；每台一次 `kit tab keep <那台的終端機>` |
 | ＋ 新增 → 貼上設定：看看會變成什麼 | `kit new mcp [名字] --config <暫存檔> --to <來源> --look`（貼的內容在檔案裡，不在參數裡） |
 | ＋ 新增 → 貼上設定：建立 | `kit new mcp [名字] --config <暫存檔> --to <來源>` |
 | 裝套件（MCP 固定版本的套件） | `kit install-deps mcp <名字>` |
@@ -809,7 +830,7 @@ Agents 面板上方有兩個分頁：「定義」是上面那些做好的 agent�
 
 `herdr-app/mods/kit/`: `main.js` picks the part by `props.role`; `repo.js` (repo, repo-toggle, editor), `agent.js`
 (agent), `agents.js` (agents, agents-toggle), `place.js` (an agent put in a space: the drag payload, the drop loop,
-`kit place` then `tab.new`), `header.js` (header, context), `layout.js` (where kit sits in a
+`kit place` then `tab.new`, or with kit 0.17 `tab.new` running `kit open`; a closed tab's `kit tab rm`), `header.js` (header, context), `layout.js` (where kit sits in a
 layout: 放進上排 / 更新版面), `machines.js` (the repository's 各機器 tab: every machine's kit, what it lacks by
 `FEATURES`, the self-reported accounts of `kit-machines.json`, the sources against the approved commits), `context.js` (what the context window and chip compute, from plain values), `versions.js` (an item's version in words and why an agent's copy is old, from plain values), `common.js`
 (running kit, `kit api`, the shared state keys, the layout's node ids, one kit action at a time, the shared UI

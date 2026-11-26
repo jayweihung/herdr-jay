@@ -12,6 +12,16 @@ which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/key
 Each mod also keeps its own `CHANGES.md` (shown in the mod as its version and 改動紀錄): when a change to a mod is
 user-visible, add a bullet under a new or current version at the top of that mod's `CHANGES.md`.
 
+## 2026-11-27, kit mod 1.20: the Kit popup, Agents and 自動重開接回 use each tab's own copy
+
+Needs: **mods**. **kit** 0.17.0 on the machines where you want it (older kits: the mod works as before).
+
+- The Kit popup of a tab started through `kit open`: 「這個分頁的（關掉就清掉）」 on top (`kit tab show`; 拿掉 / 加到這個分頁:
+  `kit rm|add --tab`). Agents' 開啟 and drag to a space: `kit open <tool> --agent <name> --tab-env HC_TERMINAL_ID` in a
+  new tab (the space's running one, by `kit tab list`, is shown instead). A closed tab's copy goes (`kit tab rm`; `kit tab
+  keep` when Herdr starts). 自動重開接回 resumes such a tab through `kit open`. docs/kit.md §1, §3.
+- Kit 視窗、Agents 的開啟和拖到 space、自動重開接回都改用每個分頁自己那份；分頁關掉就清掉。
+
 ## 2026-11-27, programs.json `check`; each tab its own through kit
 
 Needs: **app** (rebuild with `herdr-app/patches/v0.1.18`, now 34 patches). **kit** 0.17.0, only if you want the new-tab

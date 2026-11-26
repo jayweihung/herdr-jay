@@ -1,0 +1,31 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: jayweihung <3034830+jayweihung@users.noreply.github.com>
+Date: Thu, 26 Nov 2026 18:59:12 +0800
+Subject: [PATCH 7/9] style: collapse the queue's due check for clippy
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ crates/herdr-core/src/queue.rs | 10 ++++++----
+ 1 file changed, 6 insertions(+), 4 deletions(-)
+
+diff --git a/crates/herdr-core/src/queue.rs b/crates/herdr-core/src/queue.rs
+index c70a37f..95bf330 100644
+--- a/crates/herdr-core/src/queue.rs
++++ b/crates/herdr-core/src/queue.rs
+@@ -76,10 +76,12 @@ impl Core {
+             if t.queued.len() != before {
+                 touched.push(*id);
+             }
+-            if t.state == "live" && !busy && !t.queued.iter().any(|q| q.state == "sent") {
+-                if let Some(q) = t.queued.iter().find(|q| q.state == "queued") {
+-                    due.push((*id, q.key.clone(), q.text.clone()));
+-                }
++            if t.state == "live"
++                && !busy
++                && !t.queued.iter().any(|q| q.state == "sent")
++                && let Some(q) = t.queued.iter().find(|q| q.state == "queued")
++            {
++                due.push((*id, q.key.clone(), q.text.clone()));
+             }
+         }
+         for id in touched {

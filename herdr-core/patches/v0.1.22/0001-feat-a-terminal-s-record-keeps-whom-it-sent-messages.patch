@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: jayweihung <3034830+jayweihung@users.noreply.github.com>
 Date: Sat, 14 Nov 2026 17:27:39 +0800
-Subject: [PATCH 1/2] feat: a terminal's record keeps whom it sent messages to
+Subject: [PATCH 1/9] feat: a terminal's record keeps whom it sent messages to
 
 hc send from inside a terminal adds { to, count, last_ms, text } to the
 sender's record (one entry per receiver, the latest last, at most 32; text

@@ -1,0 +1,23 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: jayweihung <3034830+jayweihung@users.noreply.github.com>
+Date: Thu, 26 Nov 2026 19:02:41 +0800
+Subject: [PATCH 9/9] docs: schema README names hc doc
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ schema/README.md | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/schema/README.md b/schema/README.md
+index 5cb7e7b..7f9471b 100644
+--- a/schema/README.md
++++ b/schema/README.md
+@@ -193,7 +193,7 @@ serialized JSON. Documents persist atomically in `docs.json` in core state,
+ survive restart and handover, and disappear when that state is wiped. Core
+ never interprets their contents. A broken document file is warned about and
+ renamed to `docs.json.bad`; the core starts with empty documents rather than
+-making terminals unavailable. These methods are API-only, with no CLI verb.
++making terminals unavailable. `hc doc get|set` reads and writes them from a shell.
+ 
+ Unfiltered event subscribers receive changes as:
+ 

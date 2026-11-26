@@ -1,0 +1,79 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: jayweihung <3034830+jayweihung@users.noreply.github.com>
+Date: Thu, 26 Nov 2026 18:51:02 +0800
+Subject: [PATCH 5/9] style: rustfmt hc doc and hc send --queue
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ crates/herdr-core/src/cli.rs     |  5 ++++-
+ crates/herdr-core/src/cli/doc.rs |  7 +++++--
+ crates/herdr-core/src/queue.rs   | 11 +++++++++--
+ 3 files changed, 18 insertions(+), 5 deletions(-)
+
+diff --git a/crates/herdr-core/src/cli.rs b/crates/herdr-core/src/cli.rs
+index aa573d2..350827f 100644
+--- a/crates/herdr-core/src/cli.rs
++++ b/crates/herdr-core/src/cli.rs
+@@ -363,7 +363,10 @@ fn run(cmd: Option<Cmd>, json: bool, asked: bool) -> Result<Option<Out>, RpcErro
+             p.caller = Some(caller());
+             let r = call("terminal.send", to(&p))?;
+             if r["queued"] == true {
+-                let human = format!("queued: it goes in once it stops working (now {})", r["status"].as_str().unwrap_or("no status"));
++                let human = format!(
++                    "queued: it goes in once it stops working (now {})",
++                    r["status"].as_str().unwrap_or("no status")
++                );
+                 return Ok(Some(Out { json: r, human }));
+             }
+             let started = match r["started"].as_bool() {
+diff --git a/crates/herdr-core/src/cli/doc.rs b/crates/herdr-core/src/cli/doc.rs
+index 5c1110b..efaf328 100644
+--- a/crates/herdr-core/src/cli/doc.rs
++++ b/crates/herdr-core/src/cli/doc.rs
+@@ -36,12 +36,15 @@ pub(super) fn doc(action: DocCmd, call: impl Fn(&str, Value) -> Result<Value, Rp
+             let text = if value == "-" { String::from_utf8_lossy(&piped(1 << 20)?).into_owned() } else { value };
+             let value: Value = serde_json::from_str(&text)
+                 .map_err(|e| RpcError::new("usage", format!("not JSON: {e}"), "quote it: hc doc set n '{\"a\":1}'"))?;
+-            let set = |version: u64| call("doc.set", json!({ "name": name, "on": on, "value": value, "version": version }));
++            let set =
++                |version: u64| call("doc.set", json!({ "name": name, "on": on, "value": value, "version": version }));
+             let r = match version {
+                 Some(v) => set(v)?,
+                 // No version given: last writer wins; one retry covers a write landing in between.
+                 None => {
+-                    let now = || call("doc.get", json!({ "name": name, "on": on })).map(|r| r["version"].as_u64().unwrap_or(0));
++                    let now = || {
++                        call("doc.get", json!({ "name": name, "on": on })).map(|r| r["version"].as_u64().unwrap_or(0))
++                    };
+                     match set(now()?) {
+                         Err(e) if e.kind == "conflict" => set(now()?)?,
+                         r => r?,
+diff --git a/crates/herdr-core/src/queue.rs b/crates/herdr-core/src/queue.rs
+index 43f9bd4..c70a37f 100644
+--- a/crates/herdr-core/src/queue.rs
++++ b/crates/herdr-core/src/queue.rs
+@@ -16,7 +16,13 @@ impl Core {
+         let mut st = self.lock();
+         let Some(t) = st.reg.terminals.get_mut(&id) else { return };
+         t.queued.retain(|q| q.key != key);
+-        t.queued.push(Queued { key: key.into(), text: text.into(), at_ms: now_ms(), state: "queued".into(), turn: None });
++        t.queued.push(Queued {
++            key: key.into(),
++            text: text.into(),
++            at_ms: now_ms(),
++            state: "queued".into(),
++            turn: None,
++        });
+         self.queued_changed(&mut st, id);
+         drop(st);
+         self.changed.notify_waiters();
+@@ -64,7 +70,8 @@ impl Core {
+             let before = t.queued.len();
+             let turn = t.turn;
+             t.queued.retain(|q| {
+-                q.state != "sent" || (q.turn.is_some_and(|n| turn <= n) || busy) && now.saturating_sub(q.at_ms) < SENT_FOR
++                q.state != "sent"
++                    || (q.turn.is_some_and(|n| turn <= n) || busy) && now.saturating_sub(q.at_ms) < SENT_FOR
+             });
+             if t.queued.len() != before {
+                 touched.push(*id);

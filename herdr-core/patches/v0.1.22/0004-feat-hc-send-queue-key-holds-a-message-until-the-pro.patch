@@ -1,0 +1,443 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: jayweihung <3034830+jayweihung@users.noreply.github.com>
+Date: Thu, 26 Nov 2026 18:39:40 +0800
+Subject: [PATCH 4/9] feat: hc send --queue --key holds a message until the
+ program stops working
+
+The core types it in once the terminal is no longer working or blocked (one
+entry per key; queuing the key again replaces it) and keeps it as sent until
+the turn it started ends, in the record's queued list with a queued event, so
+every panel can show the same compacting state. A program that never reports
+status gets it at once.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ crates/herdr-core/src/SKILL.md     |  3 ++
+ crates/herdr-core/src/api.rs       | 10 +++-
+ crates/herdr-core/src/api/types.rs | 11 ++++
+ crates/herdr-core/src/cli.rs       |  4 ++
+ crates/herdr-core/src/lib.rs       |  1 +
+ crates/herdr-core/src/queue.rs     | 83 ++++++++++++++++++++++++++++++
+ crates/herdr-core/src/remote.rs    |  1 +
+ crates/herdr-core/src/server.rs    |  1 +
+ crates/herdr-core/src/terminals.rs | 20 +++++++
+ crates/herdr-core/tests/queue.rs   | 35 +++++++++++++
+ schema/hc.openrpc.json             | 78 ++++++++++++++++++++++++++++
+ 11 files changed, 246 insertions(+), 1 deletion(-)
+ create mode 100644 crates/herdr-core/src/queue.rs
+ create mode 100644 crates/herdr-core/tests/queue.rs
+
+diff --git a/crates/herdr-core/src/SKILL.md b/crates/herdr-core/src/SKILL.md
+index 1817b3d..b7ad8d0 100644
+--- a/crates/herdr-core/src/SKILL.md
++++ b/crates/herdr-core/src/SKILL.md
+@@ -61,6 +61,7 @@ hc ls                              # all live terminals, not just yours
+ hc get review                      # one terminal's observed state/status
+ hc send review "Focus on the first bug"
+ hc send --wait review "Recheck the fix"
++hc send --queue --key compact review "/compact"   # typed once it stops working; one per key
+ hc read --lines 100 review          # screen plus history; waits return status only
+ hc interrupt review                # stop its current turn, not the process
+ ```
+@@ -218,6 +219,8 @@ hc exec --on vps --cwd /srv/app git diff    # short command, exact output, no te
+ hc file read --on vps /srv/app/src/x.rs --offset 200 --limit 100
+ hc file edit --on vps /srv/app/src/x.rs --old 'exact text' --new 'replacement'
+ hc file write --on vps /srv/app/src/y.rs < content.txt
++hc doc get --on vps notice/build              # a core's named JSON document
++hc doc set --on vps notice/build '{"ok":true}'
+ ```
+ 
+ `exec` ends the command and everything it started after 60 s by default
+diff --git a/crates/herdr-core/src/api.rs b/crates/herdr-core/src/api.rs
+index 06889e5..717fbd0 100644
+--- a/crates/herdr-core/src/api.rs
++++ b/crates/herdr-core/src/api.rs
+@@ -486,6 +486,14 @@ async fn terminal_send(core: Ctx<'_>, p: SendParams) -> Result<SendResult, RpcEr
+     let timeout = wait_timeout(core, p.timeout)?; // checked before anything is typed
+     let id = resolve(core, &p.terminal)?;
+     let text = core.tagged(p.caller.as_deref(), id, &p.text, false);
++    if p.queue {
++        core.queue_send(id, p.key.as_deref().unwrap_or("send"), &text);
++        let st = core.lock();
++        let t = st.reg.terminals.get(&id);
++        let status = t.and_then(|t| t.status.as_ref()).map(|s| s.state.clone());
++        let turn = t.map_or(0, |t| t.turn);
++        return Ok(SendResult { status, turn, started: None, wait: None, queued: true });
++    }
+     let sent = core.send(id, &text, p.force, p.only_if.map(|w| word(&w)).as_deref()).await?;
+     if let Some(child) = p.caller.as_deref().and_then(crate::terminals::parse_id) {
+         let mut st = core.lock();
+@@ -524,7 +532,7 @@ async fn terminal_send(core: Ctx<'_>, p: SendParams) -> Result<SendResult, RpcEr
+         None
+     };
+     core.flush_observed().await?;
+-    Ok(SendResult { status: sent.status, turn: sent.turn, started: sent.started, wait })
++    Ok(SendResult { status: sent.status, turn: sent.turn, started: sent.started, wait, queued: false })
+ }
+ 
+ async fn machine_exec(core: Ctx<'_>, p: ExecParams) -> Result<ExecResult, RpcError> {
+diff --git a/crates/herdr-core/src/api/types.rs b/crates/herdr-core/src/api/types.rs
+index ce42234..c843bb6 100644
+--- a/crates/herdr-core/src/api/types.rs
++++ b/crates/herdr-core/src/api/types.rs
+@@ -499,6 +499,14 @@ pub struct SendParams {
+     #[arg(long)]
+     #[serde(default)]
+     pub wait: bool,
++    /// Don't type now: hold it until the program stops working, then type it (one per --key).
++    #[arg(long, conflicts_with_all = ["wait", "only_if"])]
++    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
++    pub queue: bool,
++    /// With queue: queuing the same key again replaces the earlier one (default: send).
++    #[arg(long, requires = "queue")]
++    #[serde(skip_serializing_if = "Option::is_none")]
++    pub key: Option<String>,
+     /// With wait: seconds before it checks in (default: config, else 180).
+     #[arg(long, value_parser = cli_seconds)]
+     pub timeout: Option<f64>,
+@@ -520,6 +528,9 @@ pub struct SendResult {
+     /// With `wait`: how that turn ended.
+     #[serde(skip_serializing_if = "Option::is_none")]
+     pub wait: Option<crate::wait::WaitResult>,
++    /// With `queue`: held, not typed yet (it shows in the record's `queued`).
++    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
++    pub queued: bool,
+ }
+ 
+ #[derive(clap::Args, Serialize, Deserialize, JsonSchema)]
+diff --git a/crates/herdr-core/src/cli.rs b/crates/herdr-core/src/cli.rs
+index 88bc3b5..aa573d2 100644
+--- a/crates/herdr-core/src/cli.rs
++++ b/crates/herdr-core/src/cli.rs
+@@ -362,6 +362,10 @@ fn run(cmd: Option<Cmd>, json: bool, asked: bool) -> Result<Option<Out>, RpcErro
+         Cmd::Send(mut p) => {
+             p.caller = Some(caller());
+             let r = call("terminal.send", to(&p))?;
++            if r["queued"] == true {
++                let human = format!("queued: it goes in once it stops working (now {})", r["status"].as_str().unwrap_or("no status"));
++                return Ok(Some(Out { json: r, human }));
++            }
+             let started = match r["started"].as_bool() {
+                 Some(true) => "it started working",
+                 Some(false) => "it did not start working",
+diff --git a/crates/herdr-core/src/lib.rs b/crates/herdr-core/src/lib.rs
+index 00eda4a..a83f9bf 100644
+--- a/crates/herdr-core/src/lib.rs
++++ b/crates/herdr-core/src/lib.rs
+@@ -20,6 +20,7 @@ pub mod paths;
+ pub mod picker;
+ pub mod platform;
+ pub mod put;
++mod queue;
+ pub mod relay;
+ pub mod releases;
+ pub mod remote;
+diff --git a/crates/herdr-core/src/queue.rs b/crates/herdr-core/src/queue.rs
+new file mode 100644
+index 0000000..43f9bd4
+--- /dev/null
++++ b/crates/herdr-core/src/queue.rs
+@@ -0,0 +1,83 @@
++//! Sends that wait until the program stops working (`hc send --queue --key k`):
++//! one per key, typed in when it is no longer working or blocked, then kept as
++//! `sent` until that turn ends, so every panel can show "compacting" the same way.
++
++use crate::runtime::{Core, now_ms};
++use crate::terminals::Queued;
++use std::sync::Arc;
++use std::time::Duration;
++
++/// A sent entry no turn ever ended for (a program that never reports) goes after this.
++const SENT_FOR: u64 = 10 * 60 * 1000;
++
++impl Core {
++    /// Queue `text` for `id` under `key`, replacing that key's earlier entry.
++    pub fn queue_send(&self, id: u32, key: &str, text: &str) {
++        let mut st = self.lock();
++        let Some(t) = st.reg.terminals.get_mut(&id) else { return };
++        t.queued.retain(|q| q.key != key);
++        t.queued.push(Queued { key: key.into(), text: text.into(), at_ms: now_ms(), state: "queued".into(), turn: None });
++        self.queued_changed(&mut st, id);
++        drop(st);
++        self.changed.notify_waiters();
++    }
++
++    fn queued_changed(&self, st: &mut crate::runtime::State, id: u32) {
++        let Some(t) = st.reg.terminals.get(&id) else { return };
++        let queued = serde_json::to_value(&t.queued).unwrap_or_default();
++        self.save(st);
++        self.emit(st, "queued", id, serde_json::json!({ "queued": queued }));
++    }
++
++    /// Forever: on every change, end finished entries and type in what is due.
++    pub async fn send_queued(self: Arc<Self>) {
++        loop {
++            let changed = self.changed.notified();
++            for (id, key, text) in self.due() {
++                // Typed like any send (waits for a person's draft); a refusal leaves it queued for the next change.
++                if let Ok(sent) = self.send(id, &text, false, None).await {
++                    let mut st = self.lock();
++                    let Some(t) = st.reg.terminals.get_mut(&id) else { continue };
++                    if sent.status.is_none() {
++                        t.queued.retain(|q| q.key != key); // it never reports a turn ending: done once typed
++                    } else if let Some(q) = t.queued.iter_mut().find(|q| q.key == key) {
++                        q.state = "sent".into();
++                        q.turn = Some(sent.turn);
++                        q.at_ms = now_ms();
++                    }
++                    self.queued_changed(&mut st, id);
++                }
++            }
++            let _ = tokio::time::timeout(Duration::from_secs(15), changed).await;
++        }
++    }
++
++    /// Entries to type in now, after dropping sent ones whose turn ended.
++    fn due(&self) -> Vec<(u32, String, String)> {
++        let mut st = self.lock();
++        let now = now_ms();
++        let mut due = Vec::new();
++        let mut touched = Vec::new();
++        for (id, t) in st.reg.terminals.iter_mut().filter(|(_, t)| !t.queued.is_empty()) {
++            let word = t.status.as_ref().map(|s| s.state.as_str());
++            let busy = matches!(word, Some("working" | "blocked"));
++            let before = t.queued.len();
++            let turn = t.turn;
++            t.queued.retain(|q| {
++                q.state != "sent" || (q.turn.is_some_and(|n| turn <= n) || busy) && now.saturating_sub(q.at_ms) < SENT_FOR
++            });
++            if t.queued.len() != before {
++                touched.push(*id);
++            }
++            if t.state == "live" && !busy && !t.queued.iter().any(|q| q.state == "sent") {
++                if let Some(q) = t.queued.iter().find(|q| q.state == "queued") {
++                    due.push((*id, q.key.clone(), q.text.clone()));
++                }
++            }
++        }
++        for id in touched {
++            self.queued_changed(&mut st, id);
++        }
++        due
++    }
++}
+diff --git a/crates/herdr-core/src/remote.rs b/crates/herdr-core/src/remote.rs
+index ef3f862..77e4b6b 100644
+--- a/crates/herdr-core/src/remote.rs
++++ b/crates/herdr-core/src/remote.rs
+@@ -594,6 +594,7 @@ fn apply(record: &mut Value, kind: &str, data: &Value) {
+         "size" => set(record, &["cols", "rows"]),
+         "foreground" => record["foreground"] = data.clone(),
+         "sent" => set(record, &["sent"]),
++        "queued" => set(record, &["queued"]),
+         _ => {}
+     }
+ }
+diff --git a/crates/herdr-core/src/server.rs b/crates/herdr-core/src/server.rs
+index f51105b..cf42b85 100644
+--- a/crates/herdr-core/src/server.rs
++++ b/crates/herdr-core/src/server.rs
+@@ -87,6 +87,7 @@ pub fn serve() -> io::Result<()> {
+         crate::remote::start_all(&core);
+         tokio::spawn(core.clone().watch_foreground());
+         tokio::spawn(core.clone().save_when_due());
++        tokio::spawn(core.clone().send_queued());
+         tokio::spawn(core.clone().expire_image_answers());
+         let term = platform::termination();
+         tokio::pin!(term);
+diff --git a/crates/herdr-core/src/terminals.rs b/crates/herdr-core/src/terminals.rs
+index f106c1a..ec4e2da 100644
+--- a/crates/herdr-core/src/terminals.rs
++++ b/crates/herdr-core/src/terminals.rs
+@@ -142,6 +142,25 @@ pub struct Terminal {
+     /// last: one entry per receiver, so a panel can draw who talks to whom.
+     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+     pub sent: Vec<Sent>,
++    /// Sends waiting for it to stop working (`hc send --queue`), one per key.
++    #[serde(default, skip_serializing_if = "Vec::is_empty")]
++    pub queued: Vec<Queued>,
++}
++
++/// A send waiting for the program to stop working, then the turn it started.
++#[derive(Serialize, Deserialize, JsonSchema, Clone, Debug, PartialEq)]
++pub struct Queued {
++    /// One entry per key: queuing the same key again replaces it.
++    pub key: String,
++    /// What gets typed in.
++    pub text: String,
++    /// When it was queued, or typed in once sent.
++    pub at_ms: u64,
++    /// `queued`, then `sent` until the turn it started ends.
++    pub state: String,
++    /// The turn it went in at (sent only).
++    #[serde(default, skip_serializing_if = "Option::is_none")]
++    pub turn: Option<u64>,
+ }
+ 
+ /// Receivers a terminal remembers sending to; the oldest goes first.
+@@ -346,6 +365,7 @@ impl Registry {
+                 foreground: None,
+                 afar: Default::default(),
+                 sent: Vec::new(),
++                queued: Vec::new(),
+                 template: new.template.map(|t| t.name),
+                 first_message: None,
+                 holder: None,
+diff --git a/crates/herdr-core/tests/queue.rs b/crates/herdr-core/tests/queue.rs
+new file mode 100644
+index 0000000..74bbbae
+--- /dev/null
++++ b/crates/herdr-core/tests/queue.rs
+@@ -0,0 +1,35 @@
++#![cfg(unix)] // Windows: tests/windows.rs
++
++mod common;
++
++use common::*;
++
++fn session() -> Session {
++    let mut s = Session::new();
++    s.env.push(("HC_QUIET_MS".into(), "0".into()));
++    s.env.push(("HC_STARTED_MS".into(), "1500".into()));
++    s
++}
++
++#[test]
++fn a_queued_send_waits_until_work_stops_keeps_one_per_key_and_clears_when_its_turn_ends() {
++    let s = session();
++    let body = "r state=working; w a; r state=done; IFS= read -r line; echo \"got $line\"; r state=working; w b; r state=done; sleep 100";
++    let t = s.json(&["run", "--bg", "sh", "-c", &script(&s, body)])["address"].as_str().unwrap().to_string();
++    wait_until("working", || get(&s, &t)["status"]["state"] == "working");
++
++    let r = s.json(&["send", "--queue", "--key", "compact", &t, "/compact one"]);
++    assert_eq!(r["queued"], true, "{r}");
++    s.json(&["send", "--queue", "--key", "compact", &t, "/compact two"]);
++    let queued = get(&s, &t)["queued"].clone();
++    assert_eq!(queued.as_array().map(Vec::len), Some(1), "one per key: {queued}");
++    assert_eq!((queued[0]["text"].as_str(), queued[0]["state"].as_str()), (Some("/compact two"), Some("queued")));
++
++    touch(&s, "a"); // it stops working: the queued text goes in
++    wait_until("typed", || text(&s, &t).contains("got /compact two"));
++    wait_until("sent", || get(&s, &t)["queued"][0]["state"] == "sent");
++    assert!(!text(&s, &t).contains("/compact one"), "the replaced one never went in");
++
++    touch(&s, "b"); // the turn it started ends: the entry goes
++    wait_until("cleared", || get(&s, &t).get("queued").is_none());
++}
+diff --git a/schema/hc.openrpc.json b/schema/hc.openrpc.json
+index 2078698..02cab8e 100644
+--- a/schema/hc.openrpc.json
++++ b/schema/hc.openrpc.json
+@@ -731,6 +731,45 @@
+         ],
+         "type": "object"
+       },
++      "Queued": {
++        "description": "A send waiting for the program to stop working, then the turn it started.",
++        "properties": {
++          "at_ms": {
++            "description": "When it was queued, or typed in once sent.",
++            "format": "uint64",
++            "minimum": 0,
++            "type": "integer"
++          },
++          "key": {
++            "description": "One entry per key: queuing the same key again replaces it.",
++            "type": "string"
++          },
++          "state": {
++            "description": "`queued`, then `sent` until the turn it started ends.",
++            "type": "string"
++          },
++          "text": {
++            "description": "What gets typed in.",
++            "type": "string"
++          },
++          "turn": {
++            "description": "The turn it went in at (sent only).",
++            "format": "uint64",
++            "minimum": 0,
++            "type": [
++              "integer",
++              "null"
++            ]
++          }
++        },
++        "required": [
++          "key",
++          "text",
++          "at_ms",
++          "state"
++        ],
++        "type": "object"
++      },
+       "ReadResult": {
+         "properties": {
+           "complete": {
+@@ -895,6 +934,13 @@
+               "null"
+             ]
+           },
++          "queued": {
++            "description": "Sends waiting for it to stop working (`hc send --queue`), one per key.",
++            "items": {
++              "$ref": "#/components/schemas/Queued"
++            },
++            "type": "array"
++          },
+           "reason": {
+             "description": "Why its program ended or is pending (`spawn_pending` means its initial\nspawn timed out, but the holder may still be starting it):\nexited, killed, server_stop, host_shutdown (Windows\nis ending the session, including logout), signaled (a kept program\ndied by signal without an exit code), holder_lost (its holder\ndied), stopped_by_restart (nothing ran it any more after a restart).",
+             "type": [
+@@ -1028,6 +1074,10 @@
+       },
+       "SendResult": {
+         "properties": {
++          "queued": {
++            "description": "With `queue`: held, not typed yet (it shows in the record's `queued`).",
++            "type": "boolean"
++          },
+           "started": {
+             "description": "Whether it went `working` within a few seconds; null when it doesn't\nreport status, so nobody can tell.",
+             "type": [
+@@ -1415,6 +1465,13 @@
+               "null"
+             ]
+           },
++          "queued": {
++            "description": "Sends waiting for it to stop working (`hc send --queue`), one per key.",
++            "items": {
++              "$ref": "#/components/schemas/Queued"
++            },
++            "type": "array"
++          },
+           "reason": {
+             "description": "Why its program ended or is pending (`spawn_pending` means its initial\nspawn timed out, but the holder may still be starting it):\nexited, killed, server_stop, host_shutdown (Windows\nis ending the session, including logout), signaled (a kept program\ndied by signal without an exit code), holder_lost (its holder\ndied), stopped_by_restart (nothing ran it any more after a restart).",
+             "type": [
+@@ -2714,6 +2771,27 @@
+             "description": "Only type if the status is exactly this."
+           }
+         },
++        {
++          "description": "With queue: queuing the same key again replaces the earlier one (default: send).",
++          "name": "key",
++          "required": false,
++          "schema": {
++            "description": "With queue: queuing the same key again replaces the earlier one (default: send).",
++            "type": [
++              "string",
++              "null"
++            ]
++          }
++        },
++        {
++          "description": "Don't type now: hold it until the program stops working, then type it (one per --key).",
++          "name": "queue",
++          "required": false,
++          "schema": {
++            "description": "Don't type now: hold it until the program stops working, then type it (one per --key).",
++            "type": "boolean"
++          }
++        },
+         {
+           "description": "The terminal: `t7`, a name, or `machine/t7`.",
+           "name": "terminal",

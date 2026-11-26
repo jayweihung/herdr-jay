@@ -1,0 +1,90 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: jayweihung <3034830+jayweihung@users.noreply.github.com>
+Date: Thu, 26 Nov 2026 18:51:48 +0800
+Subject: [PATCH 6/9] docs: command reference for hc doc and hc send --queue
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ docs/commands.md | 55 ++++++++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 55 insertions(+)
+
+diff --git a/docs/commands.md b/docs/commands.md
+index 71c3770..0027696 100644
+--- a/docs/commands.md
++++ b/docs/commands.md
+@@ -39,6 +39,8 @@ No terminal
+   file read|write|edit [--on m] <path>
+                               a file here or there: print it, write what is piped
+                               in, or replace exact text (--old X --new Y)
++  doc get|set [--on m] <name> [json|-]
++                              a core's named JSON document: print it, or write it
+ 
+ More
+   templates                   list templates
+@@ -101,6 +103,57 @@ Options:
+   -h, --help               Print help
+ ```
+ 
++## hc doc
++
++```text
++Named JSON documents a core keeps (doc get|set), here or on a machine
++
++Usage: hc doc [OPTIONS] <COMMAND>
++
++Commands:
++  get   Print a document's value (null when never written) and its version
++  set   Write JSON (the argument, or what is piped in with -) as the document; null deletes it
++  help  Print this message or the help of the given subcommand(s)
++
++Options:
++      --json  JSON output even in a terminal
++  -h, --help  Print help
++```
++
++## hc doc get
++
++```text
++Print a document's value (null when never written) and its version
++
++Usage: hc doc get [OPTIONS] <NAME>
++
++Arguments:
++  <NAME>  
++
++Options:
++      --json     JSON output even in a terminal
++      --on <ON>  Another machine's core
++  -h, --help     Print help
++```
++
++## hc doc set
++
++```text
++Write JSON (the argument, or what is piped in with -) as the document; null deletes it
++
++Usage: hc doc set [OPTIONS] <NAME> <VALUE>
++
++Arguments:
++  <NAME>   
++  <VALUE>  The JSON value, or - to read it from what is piped in
++
++Options:
++      --json               JSON output even in a terminal
++      --on <ON>            Another machine's core
++      --version <VERSION>  Only if the document is still at this version (from doc get); default: whatever it is now
++  -h, --help               Print help
++```
++
+ ## hc events
+ 
+ ```text
+@@ -534,6 +587,8 @@ Options:
+       --json               JSON output even in a terminal
+       --if <STATUS>        Only type if the status is exactly this [possible values: idle, working]
+       --wait               Then wait for the turn this send started
++      --queue              Don't type now: hold it until the program stops working, then type it (one per --key)
++      --key <KEY>          With queue: queuing the same key again replaces the earlier one (default: send)
+       --timeout <TIMEOUT>  With wait: seconds before it checks in (default: config, else 180)
+   -h, --help               Print help
+ ```

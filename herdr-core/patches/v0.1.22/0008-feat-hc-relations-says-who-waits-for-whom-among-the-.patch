@@ -1,0 +1,1539 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: jayweihung <3034830+jayweihung@users.noreply.github.com>
+Date: Thu, 26 Nov 2026 18:59:13 +0800
+Subject: [PATCH 8/9] feat: hc relations says who waits for whom among the
+ agents running now
+
+A terminal's record keeps its status words of the last day (history,
+at most 40). terminal.relations reads every machine's records (or one
+machine's, with on) and returns the waits between agents (with the
+reminder to type), chains of waits that end stuck or loop, agents
+working in one folder, agents waiting for a person, and idle ones
+nobody waits for, so every app shows the same judgement.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ crates/herdr-core/src/SKILL.md      |   1 +
+ crates/herdr-core/src/api.rs        |  19 +
+ crates/herdr-core/src/api/types.rs  |   8 +
+ crates/herdr-core/src/cli.rs        |   8 +
+ crates/herdr-core/src/cli/output.rs |  29 ++
+ crates/herdr-core/src/help.txt      |   1 +
+ crates/herdr-core/src/lib.rs        |   1 +
+ crates/herdr-core/src/relations.rs  | 657 ++++++++++++++++++++++++++++
+ crates/herdr-core/src/remote.rs     |  10 +
+ crates/herdr-core/src/runtime.rs    |   5 +
+ crates/herdr-core/src/status.rs     |  44 +-
+ crates/herdr-core/src/terminals.rs  |   5 +
+ crates/herdr-core/tests/m7.rs       |  21 +
+ docs/commands.md                    |  14 +
+ schema/hc.openrpc.json              | 390 +++++++++++++++++
+ 15 files changed, 1212 insertions(+), 1 deletion(-)
+ create mode 100644 crates/herdr-core/src/relations.rs
+
+diff --git a/crates/herdr-core/src/SKILL.md b/crates/herdr-core/src/SKILL.md
+index b7ad8d0..503f794 100644
+--- a/crates/herdr-core/src/SKILL.md
++++ b/crates/herdr-core/src/SKILL.md
+@@ -64,6 +64,7 @@ hc send --wait review "Recheck the fix"
+ hc send --queue --key compact review "/compact"   # typed once it stops working; one per key
+ hc read --lines 100 review          # screen plus history; waits return status only
+ hc interrupt review                # stop its current turn, not the process
++hc relations                       # who waits for whom, stuck chains, two in one folder
+ ```
+ 
+ In human-readable output, `ls` shows the `where` label or the current folder;
+diff --git a/crates/herdr-core/src/api.rs b/crates/herdr-core/src/api.rs
+index 717fbd0..41d4ae5 100644
+--- a/crates/herdr-core/src/api.rs
++++ b/crates/herdr-core/src/api.rs
+@@ -88,6 +88,9 @@ methods! { Ctx<'_>;
+     "terminal.list" => terminal_list, ListParams => ListResult,
+         "Live terminals (all with `all`), optionally filtered by labels.",
+         errors [];
++    "terminal.relations" => terminal_relations, RelationsParams => crate::relations::Relations,
++        "Who waits for whom among the agents running now (from `sent`, `parent` and `history`): waits with a reminder to type, chains of waits that end stuck or loop, agents working in one folder, agents waiting for a person, idle ones nobody waits for.",
++        errors ["machine_unknown"];
+     "terminal.get" => terminal_get, TerminalParams => Public,
+         "One terminal's facts, live or finished.",
+         errors ["not_found", "machine_unknown"];
+@@ -317,6 +320,22 @@ async fn terminal_list(core: Ctx<'_>, p: ListParams) -> Result<ListResult, RpcEr
+     Ok(ListResult { terminals, hidden_finished, machines })
+ }
+ 
++async fn terminal_relations(core: Ctx<'_>, p: RelationsParams) -> Result<crate::relations::Relations, RpcError> {
++    let to = match &p.on {
++        Some(on) => crate::remote::machine_named(core, on)?,
++        None => None,
++    };
++    let terminals = match to {
++        // Its list, addresses as seen here: an older core there works too (without history).
++        Some(m) => crate::remote::forward(core, &m, "terminal.list", json!({})).await?["terminals"]
++            .as_array()
++            .cloned()
++            .unwrap_or_default(),
++        None => terminal_list(core, ListParams { all: false, labels: Vec::new() }).await?.terminals,
++    };
++    Ok(crate::relations::of(&terminals, now_ms()))
++}
++
+ async fn terminal_get(core: Ctx<'_>, p: TerminalParams) -> Result<Public, RpcError> {
+     let id = resolve(core, &p.terminal)?;
+     core.saw(p.caller.as_deref(), id);
+diff --git a/crates/herdr-core/src/api/types.rs b/crates/herdr-core/src/api/types.rs
+index c843bb6..6f611ed 100644
+--- a/crates/herdr-core/src/api/types.rs
++++ b/crates/herdr-core/src/api/types.rs
+@@ -341,6 +341,14 @@ pub struct ListResult {
+     pub machines: Vec<crate::remote::MachineView>,
+ }
+ 
++#[derive(clap::Args, Serialize, Deserialize, JsonSchema)]
++pub struct RelationsParams {
++    /// Another machine's terminals (see `hc machine ls`); omitted: this machine's and every added one's.
++    #[arg(long, value_name = "MACHINE")]
++    #[serde(default, skip_serializing_if = "Option::is_none")]
++    pub on: Option<String>,
++}
++
+ #[derive(clap::Args, Serialize, Deserialize, JsonSchema)]
+ pub struct LabelParams {
+     /// The terminal: `t7`, a name, or `machine/t7`.
+diff --git a/crates/herdr-core/src/cli.rs b/crates/herdr-core/src/cli.rs
+index 350827f..a1a3b77 100644
+--- a/crates/herdr-core/src/cli.rs
++++ b/crates/herdr-core/src/cli.rs
+@@ -43,6 +43,8 @@ enum Cmd {
+     Run(RunParams),
+     /// List live terminals.
+     Ls(ListParams),
++    /// Who waits for whom among the agents running now, stuck chains, two in one folder.
++    Relations(crate::api::RelationsParams),
+     /// Show one terminal.
+     Get(TerminalParams),
+     /// End a terminal's program (hangup, then escalate).
+@@ -440,6 +442,11 @@ fn run(cmd: Option<Cmd>, json: bool, asked: bool) -> Result<Option<Out>, RpcErro
+             }
+             Out { json, human }
+         }
++        Cmd::Relations(p) => {
++            let r = call("terminal.relations", to(&p))?;
++            let human = relations(&r);
++            Out { json: r, human }
++        }
+         Cmd::Get(mut p) => {
+             (p.terminal, p.caller) = (pick(p.terminal)?, Some(caller()));
+             let r = call("terminal.get", to(&p))?;
+@@ -815,6 +822,7 @@ pub const COMMANDS: &[(&str, &str)] = &[
+     ("run", "terminal.run"),
+     ("ls", "terminal.list"),
+     ("get", "terminal.get"),
++    ("relations", "terminal.relations"),
+     ("kill", "terminal.kill"),
+     ("rm", "terminal.rm"),
+     ("label", "terminal.label"),
+diff --git a/crates/herdr-core/src/cli/output.rs b/crates/herdr-core/src/cli/output.rs
+index 04dc44b..2001303 100644
+--- a/crates/herdr-core/src/cli/output.rs
++++ b/crates/herdr-core/src/cli/output.rs
+@@ -232,6 +232,35 @@ pub(super) fn table(r: &Value) -> String {
+ }
+ 
+ /// How a machine's line is: "connected", "unreachable since 14:02 (why)", ...
++/// `hc relations` for a person: one line per wait, chain, clash, block and idle one.
++pub(super) fn relations(r: &Value) -> String {
++    let list = |k: &str| r[k].as_array().cloned().unwrap_or_default();
++    let s = |v: &Value| v.as_str().unwrap_or_default().to_string();
++    let path = |v: &Value| v.as_array().into_iter().flatten().map(s).collect::<Vec<_>>();
++    let min = |v: &Value| v.as_u64().unwrap_or(0) / 60_000;
++    let mut lines = Vec::new();
++    lines.extend(
++        list("waits")
++            .iter()
++            .map(|w| format!("{} waits for {} ({}): {}", s(&w["from"]), s(&w["to"]), s(&w["state"]), s(&w["text"]))),
++    );
++    lines.extend(list("chains").iter().map(|c| format!("stuck ({}): {}", s(&c["why"]), path(&c["path"]).join(" -> "))));
++    lines.extend(
++        list("clashes").iter().map(|c| format!("one folder: {} in {}", path(&c["nodes"]).join(", "), s(&c["dir"]))),
++    );
++    lines.extend(list("blocked").iter().map(|b| {
++        let kind = Some(s(&b["kind"])).filter(|k| !k.is_empty()).unwrap_or("you".into());
++        format!("{} waits for {kind} ({} min): {}", s(&b["address"]), min(&b["for"]), s(&b["ask"]))
++    }));
++    lines.extend(
++        list("idle").iter().map(|i| format!("{} idle {} min, nobody waits for it", s(&i["address"]), min(&i["for"]))),
++    );
++    if lines.is_empty() {
++        return format!("{} agents, nobody waits", list("nodes").len());
++    }
++    lines.join("\n")
++}
++
+ pub(super) fn line_state(m: &Value) -> String {
+     let since = m["since_ms"].as_u64().map(|ms| {
+         let ago = crate::runtime::now_ms().saturating_sub(ms) / 1000;
+diff --git a/crates/herdr-core/src/help.txt b/crates/herdr-core/src/help.txt
+index a104b91..5308145 100644
+--- a/crates/herdr-core/src/help.txt
++++ b/crates/herdr-core/src/help.txt
+@@ -6,6 +6,7 @@ Usage: hc <command> [options]
+ Terminals
+   run <cmd|template> [task]   run it and wait like a shell (--bg: don't wait)
+   ls                          list live terminals (--all: finished too)
++  relations [--on m]          who waits for whom, stuck chains, two in one folder
+   get <t>                     show one terminal
+   attach [t]                  put this terminal on it (ctrl+\ detaches)
+   read <t>                    print its screen and history
+diff --git a/crates/herdr-core/src/lib.rs b/crates/herdr-core/src/lib.rs
+index a83f9bf..48dd40a 100644
+--- a/crates/herdr-core/src/lib.rs
++++ b/crates/herdr-core/src/lib.rs
+@@ -21,6 +21,7 @@ pub mod picker;
+ pub mod platform;
+ pub mod put;
+ mod queue;
++pub mod relations;
+ pub mod relay;
+ pub mod releases;
+ pub mod remote;
+diff --git a/crates/herdr-core/src/relations.rs b/crates/herdr-core/src/relations.rs
+new file mode 100644
+index 0000000..b42c439
+--- /dev/null
++++ b/crates/herdr-core/src/relations.rs
+@@ -0,0 +1,657 @@
++//! Who waits for whom among the agents running now, read from their records
++//! (`sent`, `parent`, `history`), so every app shows the same judgement.
++//! Deciding only: records in, the result out.
++//!
++//! Left to the apps, since only they know it: workspaces, the names a person
++//! gave, what a person is looking at, notes, usage limits, sub-agents.
++
++use schemars::JsonSchema;
++use serde::Serialize;
++use serde_json::Value;
++use std::collections::BTreeSet;
++
++const MIN: u64 = 60_000;
++/// Waiting for you longer than this is waiting too long.
++pub const LONG_WAIT: u64 = 10 * MIN;
++/// Idle longer than this, with nobody waiting for it: it could be closed.
++pub const IDLE_CLOSE: u64 = 30 * MIN;
++/// How long after a message the receiver must have stopped for that to count as not answering it.
++const SETTLE: u64 = 1500;
++/// A sender working this long past the receiver's stop had the answer in reach: not waiting.
++const MOVED_ON: u64 = 60_000;
++
++#[derive(Serialize, JsonSchema, Debug, Default)]
++pub struct Relations {
++    /// Live terminals whose program reports a status, as `terminal.list` orders them.
++    pub nodes: Vec<Node>,
++    /// Messages (`hc send` from inside one) and who started whom, between nodes.
++    pub edges: Vec<Edge>,
++    /// The same with one end on a node, the other not.
++    pub outside: Vec<Edge>,
++    /// `from` messaged `to` last and has stopped; `to` hasn't answered.
++    pub waits: Vec<Wait>,
++    /// Waits following each other to one that is stuck, or round to the start.
++    pub chains: Vec<Chain>,
++    /// Two or more working at once in one folder (or one inside the other) on one machine.
++    pub clashes: Vec<Clash>,
++    /// Every node waiting for a person (blocked).
++    pub blocked: Vec<Blocked>,
++    /// Blocked for over 10 minutes.
++    pub long_waits: Vec<LongWait>,
++    /// Idle for over 30 minutes, nobody waits for it and it started nobody running now.
++    pub idle: Vec<Idle>,
++}
++
++#[derive(Serialize, JsonSchema, Debug, Clone, Default)]
++pub struct Node {
++    pub address: String,
++    /// The machine part of its address; empty here.
++    pub machine: String,
++    /// Its name, else its title, else its address.
++    pub name: String,
++    /// Its status word.
++    pub status: String,
++    /// What a blocked one waits for (permission, question, auth), when it said.
++    pub kind: String,
++    /// When its word last changed (ms since the epoch); 0 if not known.
++    pub since: u64,
++    /// The folder it works in now, else the one it started in.
++    pub cwd: String,
++}
++
++#[derive(Serialize, JsonSchema, Debug, Clone)]
++pub struct Edge {
++    pub from: String,
++    pub to: String,
++    /// `send`, or `parent` (from started to).
++    pub kind: String,
++    /// How many messages (0 for parent).
++    pub count: u64,
++    /// The last message's time, or when the child was created.
++    pub at: u64,
++    /// The last message's first line.
++    pub text: String,
++}
++
++#[derive(Serialize, JsonSchema, Debug, Clone)]
++pub struct Wait {
++    pub from: String,
++    pub to: String,
++    /// When the message went in.
++    pub at: u64,
++    pub text: String,
++    /// How `to` stands: working (on it), blocked (needs a person) or silent (stopped, no answer).
++    pub state: String,
++    /// When `to` stopped (0 while working).
++    pub since: u64,
++    /// How long ago the message went in (ms).
++    pub waited: u64,
++    /// What to type into `to` to remind it to answer.
++    pub nudge: String,
++}
++
++#[derive(Serialize, JsonSchema, Debug, Clone)]
++pub struct Chain {
++    /// Each one waits for the next.
++    pub path: Vec<String>,
++    pub end: String,
++    /// blocked or silent (how the last stands), or loop (it comes back to itself).
++    pub why: String,
++}
++
++#[derive(Serialize, JsonSchema, Debug, Clone)]
++pub struct Clash {
++    pub nodes: Vec<String>,
++    /// The outermost of their folders.
++    pub dir: String,
++}
++
++#[derive(Serialize, JsonSchema, Debug, Clone)]
++pub struct Blocked {
++    pub address: String,
++    /// For how long (ms); 0 if not known.
++    #[serde(rename = "for")]
++    pub for_ms: u64,
++    pub kind: String,
++    /// What it asks: the message it reported with its status, at most 160 characters.
++    pub ask: String,
++    /// Waiting too long (over 10 minutes).
++    pub hot: bool,
++}
++
++#[derive(Serialize, JsonSchema, Debug, Clone)]
++pub struct LongWait {
++    pub address: String,
++    #[serde(rename = "for")]
++    pub for_ms: u64,
++    pub kind: String,
++}
++
++#[derive(Serialize, JsonSchema, Debug, Clone)]
++pub struct Idle {
++    pub address: String,
++    #[serde(rename = "for")]
++    pub for_ms: u64,
++}
++
++/// One status word from a record's history.
++struct Was<'a> {
++    address: &'a str,
++    state: &'a str,
++    at: u64,
++}
++
++fn text(v: &Value) -> &str {
++    v.as_str().unwrap_or_default()
++}
++
++/// The relations among `records` (as `terminal.list` gives them) at `now`.
++pub fn of(records: &[Value], now: u64) -> Relations {
++    let log: Vec<Was> = records
++        .iter()
++        .flat_map(|r| {
++            let history = r["history"].as_array().map(Vec::as_slice).unwrap_or_default();
++            history.iter().map(|w| Was {
++                address: text(&r["address"]),
++                state: text(&w["state"]),
++                at: w["at_ms"].as_u64().unwrap_or(0),
++            })
++        })
++        .collect();
++    let nodes: Vec<Node> = records
++        .iter()
++        .filter(|r| r["state"] == "live" && r["status"]["state"].is_string())
++        .map(|r| {
++            let address = text(&r["address"]);
++            let began = log.iter().filter(|w| w.address == address).map(|w| w.at).max().unwrap_or(0);
++            let named = [&r["name"], &r["title"]].into_iter().map(text).find(|s| !s.is_empty());
++            let cwd = Some(text(&r["foreground"]["cwd"])).filter(|s| !s.is_empty()).unwrap_or(text(&r["cwd"]));
++            Node {
++                address: address.into(),
++                machine: address.split_once('/').map_or("", |(m, _)| m).into(),
++                name: named.unwrap_or(address).into(),
++                status: text(&r["status"]["state"]).into(),
++                kind: text(&r["status"]["kind"]).into(),
++                since: r["status_ms"].as_u64().unwrap_or(0).max(began),
++                cwd: cwd.into(),
++            }
++        })
++        .collect();
++    let mut lines = Vec::new();
++    for r in records {
++        let address = text(&r["address"]);
++        for s in r["sent"].as_array().into_iter().flatten() {
++            if !text(&s["to"]).is_empty() && text(&s["to"]) != address {
++                lines.push(Edge {
++                    from: address.into(),
++                    to: text(&s["to"]).into(),
++                    kind: "send".into(),
++                    count: s["count"].as_u64().filter(|c| *c > 0).unwrap_or(1),
++                    at: s["last_ms"].as_u64().unwrap_or(0),
++                    text: text(&s["text"]).into(),
++                });
++            }
++        }
++        if let Some(parent) = r["parent"].as_str().filter(|p| *p != address) {
++            let at = r["created_ms"].as_u64().unwrap_or(0);
++            lines.push(Edge {
++                from: parent.into(),
++                to: address.into(),
++                kind: "parent".into(),
++                count: 0,
++                at,
++                text: String::new(),
++            });
++        }
++    }
++    let has = |a: &str| nodes.iter().any(|n| n.address == a);
++    let (edges, rest): (Vec<Edge>, Vec<Edge>) = lines.into_iter().partition(|l| has(&l.from) && has(&l.to));
++    let outside: Vec<Edge> = rest.into_iter().filter(|l| has(&l.from) != has(&l.to)).collect();
++    let waits = waits_of(&nodes, &edges, &outside, &log, now);
++    let chains = chains_of(&waits);
++    let clashes = clashes_of(&nodes);
++    // No `down` here: an offline machine's terminals aren't in the list at all.
++    let live = || nodes.iter().filter(|n| n.since > 0);
++    let long_waits = live()
++        .filter(|n| n.status == "blocked" && now.saturating_sub(n.since) >= LONG_WAIT)
++        .map(|n| LongWait { address: n.address.clone(), for_ms: now.saturating_sub(n.since), kind: n.kind.clone() })
++        .collect();
++    let blocked = nodes
++        .iter()
++        .filter(|n| n.status == "blocked")
++        .map(|n| {
++            let record = records.iter().find(|r| r["address"] == n.address.as_str()).expect("a node is a record");
++            let msg = text(&record["status"]["msg"]).split_whitespace().collect::<Vec<_>>().join(" ");
++            let for_ms = if n.since > 0 { now.saturating_sub(n.since) } else { 0 };
++            let (kind, ask) = (n.kind.clone(), ask(&msg).chars().take(160).collect());
++            Blocked { address: n.address.clone(), for_ms, kind, ask, hot: n.since > 0 && for_ms >= LONG_WAIT }
++        })
++        .collect();
++    let waited: BTreeSet<&str> = waits.iter().map(|w| w.to.as_str()).collect();
++    let parents: BTreeSet<&str> = edges.iter().filter(|e| e.kind == "parent").map(|e| e.from.as_str()).collect();
++    // The panel also leaves out the one a person is looking at, one waiting for the
++    // owner's OK, at a usage limit, or whose last words ask something: the core knows none of these.
++    let idle = live()
++        .filter(|n| n.status == "idle" && now.saturating_sub(n.since) >= IDLE_CLOSE)
++        .filter(|n| !waited.contains(n.address.as_str()) && !parents.contains(n.address.as_str()))
++        .map(|n| Idle { address: n.address.clone(), for_ms: now.saturating_sub(n.since) })
++        .collect();
++    Relations { nodes, edges, outside, waits, chains, clashes, blocked, long_waits, idle }
++}
++
++/// What it asks, without the program's own lead word ("answer: ...").
++fn ask(msg: &str) -> &str {
++    for lead in ["answer", "allow", "approve"] {
++        if let Some(rest) = msg.get(..lead.len()).filter(|s| s.eq_ignore_ascii_case(lead)).map(|_| &msg[lead.len()..])
++            && let Some(rest) = rest.trim_start().strip_prefix(':')
++        {
++            return rest.trim_start();
++        }
++    }
++    msg
++}
++
++/// A message that says it wants no answer: 「不用回」「不用再回」「不必回」, [FYI].
++pub fn no_reply(text: &str) -> bool {
++    ["不用回", "不用再回", "不必回", "不必再回"].iter().any(|w| text.contains(w))
++        || text.to_lowercase().contains("[fyi]")
++}
++
++/// A waits for B: A messaged B more times than B messaged A (an answer evens them
++/// out), the last one after B's last, and A has stopped (it isn't working on
++/// something else, and hasn't moved on since B stopped).
++fn waits_of(nodes: &[Node], edges: &[Edge], outside: &[Edge], log: &[Was], now: u64) -> Vec<Wait> {
++    let node = |a: &str| nodes.iter().find(|n| n.address == a);
++    let last = |a: &str, b: &str| edges.iter().find(|e| e.kind == "send" && e.from == a && e.to == b);
++    let first_stop = |b: &str, at: u64| {
++        log.iter().filter(|x| x.address == b && x.state != "working" && x.at > at).map(|x| x.at).min()
++    };
++    let worked_after = |a: &str, at: u64| log.iter().any(|x| x.address == a && x.state == "working" && x.at > at);
++    let sent_after =
++        |a: &str, at: u64| edges.iter().chain(outside).any(|e| e.kind == "send" && e.from == a && e.at > at);
++    let mut out = Vec::new();
++    for e in edges.iter().filter(|e| e.kind == "send") {
++        let (Some(a), Some(b)) = (node(&e.from), node(&e.to)) else { continue };
++        let back = last(&e.to, &e.from);
++        if back.is_some_and(|x| x.at >= e.at || x.count >= e.count) || a.status == "working" || no_reply(&e.text) {
++            continue;
++        }
++        let state = match b.status.as_str() {
++            "working" => "working",
++            "blocked" => "blocked",
++            _ if b.since > e.at + SETTLE => "silent",
++            _ => "working", // stopped before the message settled in: still on it
++        };
++        if state == "silent" {
++            // A moved on after B's first stop since the message (worked again, messaged
++            // anyone, or kept working well past it): it got what it needed some other way.
++            let stopped = first_stop(&e.to, e.at + SETTLE).unwrap_or(b.since);
++            if worked_after(&e.from, stopped + SETTLE)
++                || sent_after(&e.from, stopped + SETTLE)
++                || a.since > stopped + MOVED_ON
++            {
++                continue;
++            }
++        }
++        let mut w = Wait {
++            from: e.from.clone(),
++            to: e.to.clone(),
++            at: e.at,
++            text: e.text.clone(),
++            state: state.into(),
++            since: if state == "working" { 0 } else { b.since },
++            waited: now.saturating_sub(e.at),
++            nudge: String::new(),
++        };
++        w.nudge = nudge_text(nodes, &w);
++        out.push(w);
++    }
++    out
++}
++
++/// What is typed into one that stopped without answering. No <hc> tag, so its
++/// reply hook doesn't take it for a message from another agent.
++pub fn nudge_text(nodes: &[Node], w: &Wait) -> String {
++    let name = nodes.iter().find(|n| n.address == w.from).map_or(w.from.as_str(), |n| n.name.as_str());
++    let first: String = w.text.chars().take(80).collect();
++    let quoted = if first.is_empty() { String::new() } else { format!("（開頭：「{first}」）") };
++    format!(
++        "[Herdr 提醒] 你還沒回 {name} 傳給你的訊息{quoted}。要回就用 hc send 回給它（位址在那則訊息開頭的 from 裡）；只是通知、不用回的話，不必理會這則。"
++    )
++}
++
++/// Following each one's newest wait to one that waits for nobody (blocked or
++/// silent: stuck; working: fine, left out) or one already on the way (loop).
++/// The longest first, none inside another; a loop once.
++fn chains_of(waits: &[Wait]) -> Vec<Chain> {
++    let mut sorted: Vec<&Wait> = waits.iter().collect();
++    sorted.sort_by_key(|w| w.at);
++    // Kept in the order each one first waits; its newest wait wins.
++    let mut next: Vec<(&str, &Wait)> = Vec::new();
++    for w in sorted {
++        match next.iter_mut().find(|(from, _)| *from == w.from) {
++            Some(entry) => entry.1 = w,
++            None => next.push((&w.from, w)),
++        }
++    }
++    let next_of = |a: &str| next.iter().find(|(from, _)| *from == a).map(|(_, w)| *w);
++    let waited_on: BTreeSet<&str> = waits.iter().map(|w| w.to.as_str()).collect();
++    let mut found = Vec::new();
++    for (start, first) in &next {
++        let mut path = vec![start.to_string()];
++        let (mut why, mut w) = (None, Some(*first));
++        while let Some(at) = w {
++            if path.contains(&at.to) {
++                why = Some("loop");
++                break;
++            }
++            path.push(at.to.clone());
++            w = next_of(&at.to);
++            if w.is_none() {
++                why = (at.state != "working").then_some(at.state.as_str());
++            }
++        }
++        if let Some(why) = why {
++            found.push(Chain { end: path.last().cloned().unwrap_or_default(), path, why: why.into() });
++        }
++    }
++    found.sort_by_key(|c| std::cmp::Reverse(c.path.len()));
++    let joined = |c: &Chain| c.path.join(">");
++    let key = |c: &Chain| {
++        let mut path = c.path.clone();
++        if c.why == "loop" {
++            path.sort();
++        }
++        path.join(">")
++    };
++    let mut seen = BTreeSet::new();
++    let mut kept = Vec::new();
++    for (i, c) in found.iter().enumerate() {
++        let others = || found.iter().enumerate().filter(move |(j, _)| *j != i).map(|(_, o)| o);
++        let k = key(c);
++        if seen.contains(&k)
++            || others().any(|o| o.path.len() > c.path.len() && joined(o).ends_with(&joined(c)))
++            || (c.why != "loop"
++                && waited_on.contains(c.path[0].as_str())
++                && others().any(|o| o.path.contains(&c.path[0])))
++        {
++            continue;
++        }
++        seen.insert(k);
++        kept.push(c.clone());
++    }
++    kept
++}
++
++/// A home folder: everyone starts there, not a shared project.
++fn is_home(d: &str) -> bool {
++    let d = d.strip_suffix(['/', '\\']).unwrap_or(d);
++    let one = |rest: Option<&str>, seps: &[char]| rest.is_some_and(|r| !r.is_empty() && !r.contains(seps));
++    let windows = d.len() > 3 && d.as_bytes()[0].is_ascii_alphabetic() && d.as_bytes()[1] == b':' && {
++        let rest = d[2..].strip_prefix(['/', '\\']).and_then(|r| r.strip_prefix("Users"));
++        one(rest.and_then(|r| r.strip_prefix(['/', '\\'])), &['/', '\\'])
++    };
++    d == "/root" || one(d.strip_prefix("/Users/"), &['/']) || one(d.strip_prefix("/home/"), &['/']) || windows
++}
++
++fn norm(d: &str) -> String {
++    d.replace('\\', "/").trim_end_matches('/').to_lowercase()
++}
++
++/// Working at the same time in one folder on one machine (or one inside the other's).
++fn clashes_of(nodes: &[Node]) -> Vec<Clash> {
++    struct Group<'a> {
++        machine: &'a str,
++        key: String,
++        dir: &'a str,
++        nodes: Vec<String>,
++    }
++    let mut groups: Vec<Group> = Vec::new();
++    for n in nodes.iter().filter(|n| n.status == "working" && !n.cwd.is_empty() && !is_home(&n.cwd)) {
++        let d = norm(&n.cwd);
++        let inside =
++            |g: &Group| g.key == d || d.starts_with(&format!("{}/", g.key)) || g.key.starts_with(&format!("{d}/"));
++        match groups.iter_mut().find(|g| g.machine == n.machine && inside(g)) {
++            Some(g) => {
++                g.nodes.push(n.address.clone());
++                if d.len() < g.key.len() {
++                    (g.key, g.dir) = (d, &n.cwd);
++                }
++            }
++            None => groups.push(Group { machine: &n.machine, key: d, dir: &n.cwd, nodes: vec![n.address.clone()] }),
++        }
++    }
++    groups.into_iter().filter(|g| g.nodes.len() > 1).map(|g| Clash { nodes: g.nodes, dir: g.dir.into() }).collect()
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use serde_json::json;
++
++    /// Agents ("a:idle b:working") and what else their records say (the panel's
++    /// agents and terminals, in one record each here); a record without an agent
++    /// reports no status.
++    fn records(agents: &str, terms: &[Value]) -> Vec<Value> {
++        let mut out: Vec<Value> = agents
++            .split_whitespace()
++            .map(|x| {
++                let (a, s) = x.split_once(':').unwrap();
++                json!({"address": a, "state": "live", "status": {"state": s}})
++            })
++            .collect();
++        for t in terms {
++            match out.iter_mut().find(|r| r["address"] == t["address"]) {
++                Some(r) => r.as_object_mut().unwrap().extend(t.as_object().unwrap().clone()),
++                None => {
++                    let mut t = t.clone();
++                    t["state"] = "live".into();
++                    out.push(t);
++                }
++            }
++        }
++        out
++    }
++
++    fn msg(to: &str, at: u64) -> Value {
++        json!({"to": to, "count": 1, "last_ms": at, "text": "x"})
++    }
++
++    fn history(words: &[(&str, u64)]) -> Value {
++        words.iter().map(|(s, at)| json!({"state": s, "at_ms": at})).collect()
++    }
++
++    /// `records` with one record's fields replaced.
++    fn with(terms: &[Value], address: &str, fields: Value) -> Vec<Value> {
++        let mut terms = terms.to_vec();
++        match terms.iter_mut().find(|t| t["address"] == address) {
++            Some(t) => t.as_object_mut().unwrap().extend(fields.as_object().unwrap().clone()),
++            None => {
++                let mut t = fields;
++                t["address"] = address.into();
++                terms.push(t);
++            }
++        }
++        terms
++    }
++
++    fn wait<'a>(r: &'a Relations, from: &str, to: &str) -> Option<&'a str> {
++        r.waits.iter().find(|w| w.from == from && w.to == to).map(|w| w.state.as_str())
++    }
++
++    #[test]
++    fn lines_between_agents_and_to_the_rest() {
++        let agents = "t1:working t2:idle box/t7:blocked t9:idle";
++        let terms = [
++            json!({"address": "t1", "sent": [{"to": "t2", "count": 4, "last_ms": 1000, "text": "看一下 parser"}, {"to": "box/t7", "count": 1, "last_ms": 500, "text": "deploy?"}]}),
++            json!({"address": "t2", "sent": [{"to": "t1", "count": 1, "last_ms": 2000, "text": "好了"}, {"to": "t9", "count": 2, "last_ms": 900, "text": "docs"}]}),
++            json!({"address": "box/t7", "parent": "t1", "created_ms": 100}),
++            json!({"address": "t3", "sent": [{"to": "t1", "count": 1, "last_ms": 1, "text": "a shell"}]}),
++        ];
++        let r = of(&records(agents, &terms), 2_001_000);
++        let e = |x: &Vec<Edge>| x.iter().map(|x| format!("{}>{}:{}", x.from, x.to, x.kind)).collect::<Vec<_>>();
++        // No spaces in the core: t9 is shown too.
++        assert_eq!(e(&r.edges), ["t1>t2:send", "t1>box/t7:send", "t2>t1:send", "t2>t9:send", "t1>box/t7:parent"]);
++        assert_eq!(e(&r.outside), ["t3>t1:send"], "a terminal that isn't an agent");
++        assert_eq!((r.nodes[2].machine.as_str(), r.nodes[0].machine.as_str()), ("box", ""));
++    }
++
++    #[test]
++    fn who_waits_for_whom_chains_to_the_end_and_loops_and_a_reply_ends_the_wait() {
++        // a asked b (b stopped after it: no answer); c asked d (d works on it); e asked f, f asked g, g needs you
++        let agents = "a:idle b:idle c:idle d:working e:idle f:idle g:blocked h:idle";
++        let terms = [
++            json!({"address": "a", "sent": [msg("b", 1000)]}),
++            json!({"address": "b", "status_ms": 9000}),
++            json!({"address": "c", "sent": [msg("d", 1000)]}),
++            json!({"address": "d", "status_ms": 500}),
++            json!({"address": "e", "sent": [msg("f", 1000)]}),
++            json!({"address": "f", "sent": [msg("g", 2000)], "status_ms": 2100}),
++            json!({"address": "g", "status_ms": 5000}),
++            json!({"address": "h", "sent": [msg("a", 900)]}), // h asked a before a asked b
++        ];
++        let at = |terms: &[Value], agents: &str, now: u64| of(&records(agents, terms), now);
++        let g = at(&terms, agents, 60000);
++        let states: Vec<_> =
++            [("a", "b"), ("c", "d"), ("e", "f"), ("f", "g"), ("h", "a")].map(|(f, t)| wait(&g, f, t)).into();
++        assert_eq!(states, [Some("silent"), Some("working"), Some("working"), Some("blocked"), Some("working")]);
++        let chains: Vec<_> = g.chains.iter().map(|c| (c.path.join(">"), c.why.as_str())).collect();
++        assert_eq!(chains, [("h>a>b".to_string(), "silent"), ("e>f>g".to_string(), "blocked")]);
++        let ab = g.waits.iter().find(|w| w.from == "a").unwrap();
++        assert!(
++            ab.nudge.starts_with("[Herdr 提醒] 你還沒回 a 傳給你的訊息（開頭：「x」）。要回就用 hc send"),
++            "{}",
++            ab.nudge
++        );
++        assert!(!ab.nudge.contains("<hc"), "no tag: not taken for an agent's message");
++
++        // b answers a: no wait any more
++        let answered = with(&terms, "b", json!({"sent": [msg("a", 9500)], "status_ms": 9600}));
++        assert_eq!(wait(&at(&answered, agents, 60000), "a", "b"), None);
++        // a message that says it wants no answer: nobody waits
++        for text in ["收到，不用再回。", "[FYI] deploy done", "報告如下（不必回）"] {
++            let fyi = with(&terms, "a", json!({"sent": [{"to": "b", "count": 1, "last_ms": 1000, "text": text}]}));
++            assert_eq!(wait(&at(&fyi, agents, 60000), "a", "b"), None, "{text}");
++        }
++        assert!(!no_reply("你要回我嗎"));
++
++        // b's status_ms from before; its history knows it stopped after the message
++        let stale = with(&terms, "b", json!({"status_ms": 10}));
++        assert_eq!(wait(&at(&stale, agents, 60000), "a", "b"), Some("working"), "without history: can't tell");
++        let logged = with(&stale, "b", json!({"history": history(&[("idle", 9000)])}));
++        assert_eq!(wait(&at(&logged, agents, 60000), "a", "b"), Some("silent"));
++
++        // a question and its answer: the one who answered waits for nothing; asking again waits again
++        let qa = [
++            json!({"address": "p", "sent": [{"to": "q", "count": 1, "last_ms": 1000}], "status_ms": 20000}),
++            json!({"address": "q", "sent": [{"to": "p", "count": 1, "last_ms": 9000}], "status_ms": 9500}),
++        ];
++        assert!(at(&qa, "p:idle q:idle", 60000).waits.is_empty(), "answered: nobody waits");
++        let again = with(&qa, "p", json!({"sent": [{"to": "q", "count": 2, "last_ms": 21000}]}));
++        let waits: Vec<_> =
++            at(&again, "p:idle q:idle", 60000).waits.iter().map(|w| format!("{}>{}", w.from, w.to)).collect();
++        assert_eq!(waits, ["p>q"], "asked again");
++
++        // a got its answer some other way: it worked again after b stopped (or messaged someone)
++        let worked = with(&terms, "a", json!({"history": history(&[("working", 12000), ("idle", 15000)])}));
++        assert_eq!(wait(&at(&worked, agents, 60000), "a", "b"), None, "worked after b stopped");
++        let finished = with(&terms, "a", json!({"status_ms": 12000}));
++        assert_eq!(wait(&at(&finished, agents, 60000), "a", "b"), Some("silent"), "only finished its turn");
++        let told = with(&terms, "a", json!({"sent": [msg("b", 1000), msg("zz", 12000)]}));
++        assert_eq!(wait(&at(&told, agents, 60000), "a", "b"), None, "messaged someone (off this list) after b stopped");
++        // b worked on other things later: what counts is its first stop after a's message
++        let blog = history(&[("idle", 9000), ("working", 20000), ("idle", 30000)]);
++        let later = with(&told, "b", json!({"status_ms": 30000, "history": blog}));
++        assert_eq!(wait(&at(&later, agents, 60000), "a", "b"), None, "moved on after b's first stop");
++        let stayed = with(&later, "a", json!({"sent": [msg("b", 1000)]}));
++        assert_eq!(wait(&at(&stayed, agents, 60000), "a", "b"), Some("silent"), "didn't move on: still waits");
++        // a was still working when b stopped and went on for minutes: it had b's answer on b's screen
++        let busy = with(&terms, "a", json!({"status_ms": 9000 + 5 * 60000}));
++        assert_eq!(wait(&at(&busy, agents, 600000), "a", "b"), None, "kept working past b's stop");
++        let brief = with(&terms, "a", json!({"status_ms": 9000 + 20000}));
++        assert_eq!(wait(&at(&brief, agents, 600000), "a", "b"), Some("silent"), "stopped 20 s after b");
++        let early = with(&terms, "a", json!({"status_ms": 9000}));
++        assert_eq!(wait(&at(&early, agents, 60000), "a", "b"), Some("silent"), "stopped with b");
++
++        // a sent, but works on something else now: not waiting
++        let working = at(&terms, &agents.replace("a:idle", "a:working"), 60000);
++        assert!(!working.waits.iter().any(|w| w.from == "a"));
++        // the same moment both ways: each answered the other
++        let both = [
++            json!({"address": "x", "sent": [msg("y", 1000)], "status_ms": 3000}),
++            json!({"address": "y", "sent": [msg("x", 1000)], "status_ms": 3000}),
++        ];
++        assert!(at(&both, "x:idle y:idle", 60000).waits.is_empty());
++        let round = [
++            json!({"address": "x", "sent": [msg("y", 1000)], "status_ms": 5000}),
++            json!({"address": "y", "sent": [msg("z", 1100)], "status_ms": 5000}),
++            json!({"address": "z", "sent": [msg("x", 1200)], "status_ms": 5000}),
++        ];
++        let loops: Vec<_> = at(&round, "x:idle y:idle z:idle", 60000).chains.into_iter().map(|c| c.why).collect();
++        assert_eq!(loops, ["loop"], "one loop, shown once");
++    }
++
++    #[test]
++    fn two_working_in_one_folder_but_not_home_folders_worktrees_or_other_machines() {
++        let n = |address: &str, cwd: &str, status: &str, machine: &str| Node {
++            address: address.into(),
++            cwd: cwd.into(),
++            status: status.into(),
++            machine: machine.into(),
++            ..Default::default()
++        };
++        let w = |address, cwd| n(address, cwd, "working", "");
++        let nodes = |c: Vec<Clash>| c.into_iter().map(|c| (c.nodes, c.dir)).collect::<Vec<_>>();
++        let one =
++            clashes_of(&[w("a", "/w/app"), w("b", "/w/app/src"), w("c", "/w/app-wt"), n("d", "/w/app", "idle", "")]);
++        assert_eq!(nodes(one), [(vec!["a".to_string(), "b".into()], "/w/app".to_string())]);
++        let home = clashes_of(&[
++            w("a", "/Users/amy"),
++            w("b", "/Users/amy"),
++            w("c", "C:\\Users\\amy\\"),
++            w("d", "c:/users/amy"),
++        ]);
++        assert!(home.is_empty(), "home");
++        assert!(clashes_of(&[w("a", "/srv/x"), n("b", "/srv/x", "working", "box")]).is_empty(), "another machine");
++        let windows = clashes_of(&[w("a", "C:\\w\\App"), w("b", "c:/w/app/lib")]);
++        assert_eq!(windows.into_iter().map(|c| c.nodes).collect::<Vec<_>>(), [["a", "b"]], "Windows paths");
++        assert!(is_home("/root/") && is_home("/home/amy") && !is_home("/home/amy/src") && !is_home("/Users/"));
++    }
++
++    #[test]
++    fn waiting_for_you_with_what_it_asks_too_long_and_idle_nobody_waits_for() {
++        let now = 100 * MIN;
++        let agents = "t1:blocked t2:blocked t3:blocked t4:idle t5:done t6:idle t7:idle box/t8:idle t10:idle t11:idle";
++        let terms = [
++            json!({"address": "t1", "status_ms": now - MIN, "status": {"state": "blocked", "kind": "permission"}}),
++            json!({"address": "t2", "status_ms": now - 5 * MIN, "status": {"state": "blocked", "kind": "question", "msg": "answer:  要選 A 還是 B？\n(A · B)"}}),
++            json!({"address": "t3", "status_ms": now - 15 * MIN}),
++            json!({"address": "t4", "status_ms": now - 40 * MIN}),
++            json!({"address": "t5", "status_ms": now - 45 * MIN}),
++            json!({"address": "t6", "status_ms": now - 50 * MIN}),
++            json!({"address": "t7", "status_ms": now - 50 * MIN, "sent": [{"to": "t6", "count": 1, "last_ms": now - 60 * MIN}]}),
++            json!({"address": "box/t8", "status_ms": now - 90 * MIN}),
++            json!({"address": "t10", "status_ms": now - 90 * MIN}),
++            json!({"address": "t11", "status_ms": now - 90 * MIN, "parent": "t10"}),
++        ];
++        let r = of(&records(agents, &terms), now);
++        let blocked: Vec<_> =
++            r.blocked.iter().map(|b| (b.address.as_str(), b.kind.as_str(), b.ask.as_str(), b.hot)).collect();
++        assert_eq!(
++            blocked,
++            [
++                ("t1", "permission", "", false),
++                ("t2", "question", "要選 A 還是 B？ (A · B)", false),
++                ("t3", "", "", true)
++            ]
++        );
++        assert_eq!(r.blocked[1].for_ms, 5 * MIN);
++        assert_eq!(r.long_waits.iter().map(|x| x.address.as_str()).collect::<Vec<_>>(), ["t3"]);
++        // t5: done (news, not 可以關了); t6: t7 waits for it; t10: started t11; t11: idle
++        // (the panel also leaves out an offline machine's and the one you look at: the core can't tell)
++        let idle: Vec<_> = r.idle.iter().map(|x| x.address.as_str()).collect();
++        assert_eq!(idle, ["t4", "t7", "box/t8", "t11"]);
++        assert_eq!(ask("Approve : rm -rf x"), "rm -rf x");
++        assert_eq!(ask("answers"), "answers");
++    }
++}
+diff --git a/crates/herdr-core/src/remote.rs b/crates/herdr-core/src/remote.rs
+index 77e4b6b..5cc914b 100644
+--- a/crates/herdr-core/src/remote.rs
++++ b/crates/herdr-core/src/remote.rs
+@@ -841,6 +841,16 @@ fn named(core: &Core, st: &State, prefix: &str) -> Result<Option<To>, RpcError>
+     }
+ }
+ 
++/// The machine `on` names, or `None` for this core.
++pub fn machine_named(core: &Core, on: &str) -> Result<Option<Machine>, RpcError> {
++    let st = core.lock();
++    match named(core, &st, on)? {
++        Some(To::Machine(m)) => Ok(Some(m)),
++        Some(To::Peer { name, .. }) => Err(crate::machines::unknown(&st.machines, &name)),
++        None => Ok(None),
++    }
++}
++
+ /// Where a call goes: here (`None`), or elsewhere with the params to send,
+ /// addresses as they are seen there.
+ pub fn route(core: &Core, method: &str, params: &Value) -> Result<Option<(To, Value)>, RpcError> {
+diff --git a/crates/herdr-core/src/runtime.rs b/crates/herdr-core/src/runtime.rs
+index 9e28716..0b24742 100644
+--- a/crates/herdr-core/src/runtime.rs
++++ b/crates/herdr-core/src/runtime.rs
+@@ -542,13 +542,18 @@ impl Core {
+                 let (turn, was, since) = (rec.turn, rec.status.as_ref().map(|s| s.state.clone()), rec.status_ms);
+                 let facts = |t: &crate::terminals::Terminal| (t.status.clone(), t.records.clone(), t.reported);
+                 let heard = facts(rec);
++                let history = rec.history.clone();
+                 for r in &reports {
+                     crate::status::apply(rec, r);
+                 }
+                 let now = rec.status.as_ref().map(|s| s.state.clone());
+                 rec.turn = turn + (was.as_deref() == Some("working") && now.as_deref() != Some("working")) as u64;
++                // Its history gets the final word only, like the turn.
++                rec.history = history;
+                 if now == was {
+                     rec.status_ms = since;
++                } else if let Some(state) = now.clone() {
++                    crate::status::remember(rec, state, rec.status_ms.unwrap_or_default());
+                 }
+                 // Only a changed final word/turn proves new activity in a crash replay.
+                 // A repeated done, or done -> idle, entirely during downtime can remain unobservable.
+diff --git a/crates/herdr-core/src/status.rs b/crates/herdr-core/src/status.rs
+index 8505388..5e3cc46 100644
+--- a/crates/herdr-core/src/status.rs
++++ b/crates/herdr-core/src/status.rs
+@@ -8,6 +8,16 @@ use schemars::JsonSchema;
+ use serde::{Deserialize, Serialize};
+ 
+ const MAX_RECORDS: usize = 256;
++/// How many status words a terminal remembers, and for how long.
++const MAX_HISTORY: usize = 40;
++const HISTORY_MS: u64 = 24 * 3600 * 1000;
++
++/// A status word and when it began.
++#[derive(Serialize, Deserialize, JsonSchema, Clone, Debug, PartialEq)]
++pub struct Word {
++    pub state: String,
++    pub at_ms: u64,
++}
+ 
+ /// One 7501 record. Words are the program's own; nothing is translated.
+ #[derive(Serialize, Deserialize, JsonSchema, Clone, Debug, PartialEq)]
+@@ -91,10 +101,22 @@ fn word(t: &Terminal) -> Option<String> {
+ 
+ fn stamp(t: &mut Terminal, was: Option<String>) {
+     if word(t) != was {
+-        t.status_ms = Some(crate::runtime::now_ms());
++        let now = crate::runtime::now_ms();
++        t.status_ms = Some(now);
++        if let Some(state) = word(t) {
++            remember(t, state, now);
++        }
+     }
+ }
+ 
++/// A new word in its history: older than a day, or past the limit, goes.
++pub fn remember(t: &mut Terminal, state: String, at_ms: u64) {
++    t.history.retain(|w| at_ms.saturating_sub(w.at_ms) < HISTORY_MS);
++    t.history.push(Word { state, at_ms });
++    let over = t.history.len().saturating_sub(MAX_HISTORY);
++    t.history.drain(..over);
++}
++
+ pub fn apply(t: &mut Terminal, r: &StatusReport) -> Change {
+     let (was_working, was_word) = (working(t), word(t));
+     let was = stuck(t).map(String::from);
+@@ -208,6 +230,26 @@ mod tests {
+         assert!(t.status_ms > Some(1), "exiting clears the word");
+     }
+ 
++    #[test]
++    fn the_history_keeps_each_new_word_for_a_day_up_to_its_limit() {
++        let mut t = terminal();
++        for state in ["working", "working", "done", "working"] {
++            apply(&mut t, &report(state, ""));
++        }
++        apply(&mut t, &report("idle", "sub"));
++        let words: Vec<&str> = t.history.iter().map(|w| w.state.as_str()).collect();
++        assert_eq!(words, ["working", "done", "working"], "a new word only, root records only");
++        reset(&mut t);
++        assert_eq!(t.history.len(), 3, "no word is not a word");
++        let day_later = t.history[0].at_ms + HISTORY_MS;
++        remember(&mut t, "idle".into(), day_later);
++        assert_eq!(t.history.len(), 1, "a day old goes");
++        for n in 0..MAX_HISTORY as u64 + 5 {
++            remember(&mut t, n.to_string(), HISTORY_MS * 2 + n);
++        }
++        assert_eq!((t.history.len(), t.history[0].state.as_str()), (MAX_HISTORY, "5"), "the oldest go first");
++    }
++
+     #[test]
+     fn getting_stuck_is_news_even_outside_a_turn() {
+         let mut t = terminal();
+diff --git a/crates/herdr-core/src/terminals.rs b/crates/herdr-core/src/terminals.rs
+index ec4e2da..0b77b76 100644
+--- a/crates/herdr-core/src/terminals.rs
++++ b/crates/herdr-core/src/terminals.rs
+@@ -61,6 +61,10 @@ pub struct Terminal {
+     /// When that word last changed, ms since the epoch; null if it never said.
+     #[serde(default)]
+     pub status_ms: Option<u64>,
++    /// Its words over the last day, oldest first (at most 40), so an app can
++    /// tell when it stopped after something.
++    #[serde(default, skip_serializing_if = "Vec::is_empty")]
++    pub history: Vec<crate::status::Word>,
+     /// Other 7501 records by id (programs reporting on several things).
+     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+     pub records: BTreeMap<String, crate::status::Status>,
+@@ -341,6 +345,7 @@ impl Registry {
+                 identity: new.identity,
+                 status: None,
+                 status_ms: None,
++                history: Vec::new(),
+                 records: BTreeMap::new(),
+                 turn: 0,
+                 first_task_turn: None,
+diff --git a/crates/herdr-core/tests/m7.rs b/crates/herdr-core/tests/m7.rs
+index a3ac315..6b64743 100644
+--- a/crates/herdr-core/tests/m7.rs
++++ b/crates/herdr-core/tests/m7.rs
+@@ -465,3 +465,24 @@ fn a_send_from_a_terminal_is_kept_on_its_record_with_whom_and_what() {
+     s.hc(&["server", "restart"]);
+     assert_eq!(get(&s, &a)["sent"][0]["count"], 2);
+ }
++
++#[test]
++fn a_terminal_that_messaged_another_and_stopped_waits_for_it_in_relations() {
++    let s = session();
++    let a = run(&s, &["sh", "-c", &script(&s, "r state=working; w sent; r state=idle; sleep 100")]);
++    let b = run(&s, &["sh", "-c", &script(&s, "r state=working; sleep 100")]);
++    let state = |t: &str| get(&s, t)["status"]["state"].as_str().map(String::from);
++    wait_until("both working", || state(&a).as_deref() == Some("working") && state(&b).as_deref() == Some("working"));
++    let out = s.cmd().env("HC_TERMINAL_ID", &a).args(["--json", "send", &b, "review x.rs"]).output().unwrap();
++    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
++    touch(&s, "sent");
++    wait_until("a stopped", || state(&a).as_deref() == Some("idle"));
++
++    let r = s.json(&["relations"]);
++    let w = &r["waits"][0];
++    assert_eq!((w["from"].as_str(), w["to"].as_str()), (Some(a.as_str()), Some(b.as_str())), "{r}");
++    assert_eq!((w["state"].as_str(), w["text"].as_str()), (Some("working"), Some("review x.rs")), "b is on it");
++    assert_eq!(r["nodes"].as_array().map(Vec::len), Some(2));
++    let words: Vec<_> = get(&s, &a)["history"].as_array().unwrap().iter().map(|w| w["state"].clone()).collect();
++    assert_eq!(words, ["working", "idle"]);
++}
+diff --git a/docs/commands.md b/docs/commands.md
+index 0027696..75320fd 100644
+--- a/docs/commands.md
++++ b/docs/commands.md
+@@ -16,6 +16,7 @@ Usage: hc <command> [options]
+ Terminals
+   run <cmd|template> [task]   run it and wait like a shell (--bg: don't wait)
+   ls                          list live terminals (--all: finished too)
++  relations [--on m]          who waits for whom, stuck chains, two in one folder
+   get <t>                     show one terminal
+   attach [t]                  put this terminal on it (ctrl+\ detaches)
+   read <t>                    print its screen and history
+@@ -517,6 +518,19 @@ Options:
+   -h, --help           Print help
+ ```
+ 
++## hc relations
++
++```text
++Who waits for whom among the agents running now, stuck chains, two in one folder
++
++Usage: hc relations [OPTIONS]
++
++Options:
++      --json          JSON output even in a terminal
++      --on <MACHINE>  Another machine's terminals (see `hc machine ls`); omitted: this machine's and every added one's
++  -h, --help          Print help
++```
++
+ ## hc rm
+ 
+ ```text
+diff --git a/schema/hc.openrpc.json b/schema/hc.openrpc.json
+index 02cab8e..f924b4d 100644
+--- a/schema/hc.openrpc.json
++++ b/schema/hc.openrpc.json
+@@ -29,6 +29,62 @@
+         ],
+         "type": "object"
+       },
++      "Blocked": {
++        "properties": {
++          "address": {
++            "type": "string"
++          },
++          "ask": {
++            "description": "What it asks: the message it reported with its status, at most 160 characters.",
++            "type": "string"
++          },
++          "for": {
++            "description": "For how long (ms); 0 if not known.",
++            "format": "uint64",
++            "minimum": 0,
++            "type": "integer"
++          },
++          "hot": {
++            "description": "Waiting too long (over 10 minutes).",
++            "type": "boolean"
++          },
++          "kind": {
++            "type": "string"
++          }
++        },
++        "required": [
++          "address",
++          "for",
++          "kind",
++          "ask",
++          "hot"
++        ],
++        "type": "object"
++      },
++      "Chain": {
++        "properties": {
++          "end": {
++            "type": "string"
++          },
++          "path": {
++            "description": "Each one waits for the next.",
++            "items": {
++              "type": "string"
++            },
++            "type": "array"
++          },
++          "why": {
++            "description": "blocked or silent (how the last stands), or loop (it comes back to itself).",
++            "type": "string"
++          }
++        },
++        "required": [
++          "path",
++          "end",
++          "why"
++        ],
++        "type": "object"
++      },
+       "Children": {
+         "enum": [
+           "any",
+@@ -36,6 +92,25 @@
+         ],
+         "type": "string"
+       },
++      "Clash": {
++        "properties": {
++          "dir": {
++            "description": "The outermost of their folders.",
++            "type": "string"
++          },
++          "nodes": {
++            "items": {
++              "type": "string"
++            },
++            "type": "array"
++          }
++        },
++        "required": [
++          "nodes",
++          "dir"
++        ],
++        "type": "object"
++      },
+       "CoreInfo": {
+         "properties": {
+           "id": {
+@@ -123,6 +198,45 @@
+         ],
+         "type": "object"
+       },
++      "Edge": {
++        "properties": {
++          "at": {
++            "description": "The last message's time, or when the child was created.",
++            "format": "uint64",
++            "minimum": 0,
++            "type": "integer"
++          },
++          "count": {
++            "description": "How many messages (0 for parent).",
++            "format": "uint64",
++            "minimum": 0,
++            "type": "integer"
++          },
++          "from": {
++            "type": "string"
++          },
++          "kind": {
++            "description": "`send`, or `parent` (from started to).",
++            "type": "string"
++          },
++          "text": {
++            "description": "The last message's first line.",
++            "type": "string"
++          },
++          "to": {
++            "type": "string"
++          }
++        },
++        "required": [
++          "from",
++          "to",
++          "kind",
++          "count",
++          "at",
++          "text"
++        ],
++        "type": "object"
++      },
+       "Edit": {
+         "properties": {
+           "new": {
+@@ -399,6 +513,23 @@
+         ],
+         "type": "object"
+       },
++      "Idle": {
++        "properties": {
++          "address": {
++            "type": "string"
++          },
++          "for": {
++            "format": "uint64",
++            "minimum": 0,
++            "type": "integer"
++          }
++        },
++        "required": [
++          "address",
++          "for"
++        ],
++        "type": "object"
++      },
+       "IdleOrWorking": {
+         "enum": [
+           "idle",
+@@ -522,6 +653,27 @@
+         ],
+         "type": "object"
+       },
++      "LongWait": {
++        "properties": {
++          "address": {
++            "type": "string"
++          },
++          "for": {
++            "format": "uint64",
++            "minimum": 0,
++            "type": "integer"
++          },
++          "kind": {
++            "type": "string"
++          }
++        },
++        "required": [
++          "address",
++          "for",
++          "kind"
++        ],
++        "type": "object"
++      },
+       "Machine": {
+         "properties": {
+           "host": {
+@@ -687,6 +839,49 @@
+         ],
+         "type": "object"
+       },
++      "Node": {
++        "properties": {
++          "address": {
++            "type": "string"
++          },
++          "cwd": {
++            "description": "The folder it works in now, else the one it started in.",
++            "type": "string"
++          },
++          "kind": {
++            "description": "What a blocked one waits for (permission, question, auth), when it said.",
++            "type": "string"
++          },
++          "machine": {
++            "description": "The machine part of its address; empty here.",
++            "type": "string"
++          },
++          "name": {
++            "description": "Its name, else its title, else its address.",
++            "type": "string"
++          },
++          "since": {
++            "description": "When its word last changed (ms since the epoch); 0 if not known.",
++            "format": "uint64",
++            "minimum": 0,
++            "type": "integer"
++          },
++          "status": {
++            "description": "Its status word.",
++            "type": "string"
++          }
++        },
++        "required": [
++          "address",
++          "machine",
++          "name",
++          "status",
++          "kind",
++          "since",
++          "cwd"
++        ],
++        "type": "object"
++      },
+       "PutBeginResult": {
+         "properties": {
+           "transfer": {
+@@ -798,6 +993,85 @@
+         ],
+         "type": "object"
+       },
++      "Relations": {
++        "properties": {
++          "blocked": {
++            "description": "Every node waiting for a person (blocked).",
++            "items": {
++              "$ref": "#/components/schemas/Blocked"
++            },
++            "type": "array"
++          },
++          "chains": {
++            "description": "Waits following each other to one that is stuck, or round to the start.",
++            "items": {
++              "$ref": "#/components/schemas/Chain"
++            },
++            "type": "array"
++          },
++          "clashes": {
++            "description": "Two or more working at once in one folder (or one inside the other) on one machine.",
++            "items": {
++              "$ref": "#/components/schemas/Clash"
++            },
++            "type": "array"
++          },
++          "edges": {
++            "description": "Messages (`hc send` from inside one) and who started whom, between nodes.",
++            "items": {
++              "$ref": "#/components/schemas/Edge"
++            },
++            "type": "array"
++          },
++          "idle": {
++            "description": "Idle for over 30 minutes, nobody waits for it and it started nobody running now.",
++            "items": {
++              "$ref": "#/components/schemas/Idle"
++            },
++            "type": "array"
++          },
++          "long_waits": {
++            "description": "Blocked for over 10 minutes.",
++            "items": {
++              "$ref": "#/components/schemas/LongWait"
++            },
++            "type": "array"
++          },
++          "nodes": {
++            "description": "Live terminals whose program reports a status, as `terminal.list` orders them.",
++            "items": {
++              "$ref": "#/components/schemas/Node"
++            },
++            "type": "array"
++          },
++          "outside": {
++            "description": "The same with one end on a node, the other not.",
++            "items": {
++              "$ref": "#/components/schemas/Edge"
++            },
++            "type": "array"
++          },
++          "waits": {
++            "description": "`from` messaged `to` last and has stopped; `to` hasn't answered.",
++            "items": {
++              "$ref": "#/components/schemas/Wait"
++            },
++            "type": "array"
++          }
++        },
++        "required": [
++          "nodes",
++          "edges",
++          "outside",
++          "waits",
++          "chains",
++          "clashes",
++          "blocked",
++          "long_waits",
++          "idle"
++        ],
++        "type": "object"
++      },
+       "RemoveResult": {
+         "properties": {
+           "removed": {
+@@ -876,6 +1150,13 @@
+             ],
+             "description": "What runs in it right now and where (null once it has finished)."
+           },
++          "history": {
++            "description": "Its words over the last day, oldest first (at most 40), so an app can\ntell when it stopped after something.",
++            "items": {
++              "$ref": "#/components/schemas/Word"
++            },
++            "type": "array"
++          },
+           "identity": {
+             "default": "",
+             "description": "Which terminal the program believes it runs in (TERM_PROGRAM and\nversion), fixed at start; XTVERSION answers with it.",
+@@ -1414,6 +1695,13 @@
+             ],
+             "description": "What runs in it right now and where (null once it has finished)."
+           },
++          "history": {
++            "description": "Its words over the last day, oldest first (at most 40), so an app can\ntell when it stopped after something.",
++            "items": {
++              "$ref": "#/components/schemas/Word"
++            },
++            "type": "array"
++          },
+           "identity": {
+             "default": "",
+             "description": "Which terminal the program believes it runs in (TERM_PROGRAM and\nversion), fixed at start; XTVERSION answers with it.",
+@@ -1592,6 +1880,56 @@
+         ],
+         "type": "object"
+       },
++      "Wait": {
++        "properties": {
++          "at": {
++            "description": "When the message went in.",
++            "format": "uint64",
++            "minimum": 0,
++            "type": "integer"
++          },
++          "from": {
++            "type": "string"
++          },
++          "nudge": {
++            "description": "What to type into `to` to remind it to answer.",
++            "type": "string"
++          },
++          "since": {
++            "description": "When `to` stopped (0 while working).",
++            "format": "uint64",
++            "minimum": 0,
++            "type": "integer"
++          },
++          "state": {
++            "description": "How `to` stands: working (on it), blocked (needs a person) or silent (stopped, no answer).",
++            "type": "string"
++          },
++          "text": {
++            "type": "string"
++          },
++          "to": {
++            "type": "string"
++          },
++          "waited": {
++            "description": "How long ago the message went in (ms).",
++            "format": "uint64",
++            "minimum": 0,
++            "type": "integer"
++          }
++        },
++        "required": [
++          "from",
++          "to",
++          "at",
++          "text",
++          "state",
++          "since",
++          "waited",
++          "nudge"
++        ],
++        "type": "object"
++      },
+       "WaitResult": {
+         "properties": {
+           "children": {
+@@ -1654,6 +1992,24 @@
+           "children"
+         ],
+         "type": "object"
++      },
++      "Word": {
++        "description": "A status word and when it began.",
++        "properties": {
++          "at_ms": {
++            "format": "uint64",
++            "minimum": 0,
++            "type": "integer"
++          },
++          "state": {
++            "type": "string"
++          }
++        },
++        "required": [
++          "state",
++          "at_ms"
++        ],
++        "type": "object"
+       }
+     }
+   },
+@@ -2163,6 +2519,40 @@
+         }
+       }
+     },
++    {
++      "description": "Who waits for whom among the agents running now (from `sent`, `parent` and `history`): waits with a reminder to type, chains of waits that end stuck or loop, agents working in one folder, agents waiting for a person, idle ones nobody waits for.",
++      "errors": [
++        {
++          "code": -32000,
++          "data": {
++            "kind": "machine_unknown"
++          },
++          "message": "machine_unknown"
++        }
++      ],
++      "name": "terminal.relations",
++      "paramStructure": "by-name",
++      "params": [
++        {
++          "description": "Another machine's terminals (see `hc machine ls`); omitted: this machine's and every added one's.",
++          "name": "on",
++          "required": false,
++          "schema": {
++            "description": "Another machine's terminals (see `hc machine ls`); omitted: this machine's and every added one's.",
++            "type": [
++              "string",
++              "null"
++            ]
++          }
++        }
++      ],
++      "result": {
++        "name": "result",
++        "schema": {
++          "$ref": "#/components/schemas/Relations"
++        }
++      }
++    },
+     {
+       "description": "One terminal's facts, live or finished.",
+       "errors": [

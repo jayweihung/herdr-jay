@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: jayweihung <3034830+jayweihung@users.noreply.github.com>
 Date: Thu, 26 Nov 2026 02:10:09 +0800
-Subject: [PATCH 30/33] test: the agents and changes harnesses take the
+Subject: [PATCH 30/34] test: the agents and changes harnesses take the
  patches' exports, host namespace, ScrollHandle and localStorage
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>

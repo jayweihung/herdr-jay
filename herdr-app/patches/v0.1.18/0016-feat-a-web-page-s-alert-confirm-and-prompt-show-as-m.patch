@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: jayweihung <3034830+jayweihung@users.noreply.github.com>
 Date: Mon, 16 Nov 2026 02:36:53 +0800
-Subject: [PATCH 16/33] feat: a web page's alert, confirm and prompt show as
+Subject: [PATCH 16/34] feat: a web page's alert, confirm and prompt show as
  macos dialogs
 
 ---

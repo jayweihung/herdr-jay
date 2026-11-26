@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: jayweihung <3034830+jayweihung@users.noreply.github.com>
 Date: Mon, 16 Nov 2026 03:04:59 +0800
-Subject: [PATCH 21/33] fix: layout.zoom lifts the node's largest size while
+Subject: [PATCH 21/34] fix: layout.zoom lifts the node's largest size while
  zoomed, so it fills its row
 
 ---

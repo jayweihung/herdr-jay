@@ -1,0 +1,159 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: jayweihung <3034830+jayweihung@users.noreply.github.com>
+Date: Fri, 27 Nov 2026 00:07:51 +0800
+Subject: [PATCH 34/34] feat: programs.json check: an agent started through a
+ launcher (run: kit open claude ...) counts as installed when check is, not
+ run's first word
+
+knownAgents() gives each agent its check (default: run's first word) and judges installed by it.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ defaults/AGENTS.md  |  7 +++++--
+ defaults/herdr.d.ts |  2 +-
+ src/mods.rs         | 14 +++++++++++---
+ src/programs.rs     | 26 +++++++++++++++++++++++++-
+ 4 files changed, 42 insertions(+), 7 deletions(-)
+
+diff --git a/defaults/AGENTS.md b/defaults/AGENTS.md
+index 5a2af9f..84db73f 100644
+--- a/defaults/AGENTS.md
++++ b/defaults/AGENTS.md
+@@ -916,7 +916,10 @@ has 124 programs (agents, editors, runtimes, tools, databases, infra);
+   `"claude": { "run": ["my-claude"] }` or add
+   `"claude-alt": { "name": "Claude (alt)", "icon": "icons/claude.svg", "run": ["my-claude-alt"] }`
+   inside `programs`. Use programs or shell functions, not aliases (the launcher
+-  does not expand them). On macOS both checks and the menu launcher load login profiles before
++  does not expand them). `check`: the program that must be there for it to
++  count as installed, when `run` starts it through a launcher, for example
++  `"claude": { "run": ["kit", "open", "claude", "--tab-env", "HC_TERMINAL_ID", "--"], "check": "claude" }`
++  (default: `run`'s first word). On macOS both checks and the menu launcher load login profiles before
+   running the agent and leaves an interactive login shell when it ends.
+   Codex starts as `codex --no-daemon`: a shared Codex daemon would make later
+   sessions use the first terminal's identity and stop with it.
+@@ -1289,7 +1292,7 @@ All of it is in `herdr.d.ts`. In short:
+   `hc(args)` (`hc read <t>` gives a terminal's text),
+   `home()`, `appHome()`, `playSound("done" | "blocked" | file)`.
+   `knownAgents({ on })`: the agents people can start (programs.json's
+-  `run`), most picked first, each `installed` or not there (asked of the
++  `run`), most picked first, each `installed` or not there (judged by `check`) (asked of the
+   shell agents start in; a remote Unix machine's login/interactive shell when supported);
+   rejects if the check fails (failed checks are not cached); start one with `argv: agent.run`.
+   `pickFolder({ prompt })`: the system's folder picker (here only),
+diff --git a/defaults/herdr.d.ts b/defaults/herdr.d.ts
+index f004d36..926bb38 100644
+--- a/defaults/herdr.d.ts
++++ b/defaults/herdr.d.ts
+@@ -35,7 +35,7 @@ export function writeTextFile(path: string, text: string, expected: string | nul
+  *  first, and whether each is installed: asked of the shell agents start in (on another machine,
+  *  `on`, its login/interactive shell when supported), at most once a minute per machine.
+  *  Rejects if the check fails; failed checks are not cached. Start one with its `run` as `argv`. */
+-export function knownAgents(options?: { on?: string | null }): Promise<(Program & { run: string[]; installed: boolean })[]>;
++export function knownAgents(options?: { on?: string | null }): Promise<(Program & { run: string[]; check: string; installed: boolean })[]>;
+ 
+ /** Opens the system's folder picker (this machine). Resolves with the chosen folder, or null
+  *  when the person cancels. `prompt`: the confirm button's text (default "Open"). */
+diff --git a/src/mods.rs b/src/mods.rs
+index 37b1918..7cba507 100644
+--- a/src/mods.rs
++++ b/src/mods.rs
+@@ -975,7 +975,8 @@ fn run_remote_with_limit(machine: &str, command: &str, args: &[String], cwd: Opt
+ fn known_agents(on: Option<String>, list: Vec<Value>) -> Result<Value, String> {
+     type InstalledCache = std::collections::HashMap<Option<String>, (std::time::Instant, Vec<String>, Vec<String>)>;
+     static SEEN: std::sync::Mutex<Option<InstalledCache>> = std::sync::Mutex::new(None);
+-    let commands: Vec<String> = list.iter().filter_map(|a| a["run"][0].as_str().map(str::to_owned)).collect();
++    let check = |a: &Value| a["check"].as_str().or(a["run"][0].as_str()).map(str::to_owned);
++    let commands: Vec<String> = list.iter().filter_map(check).collect();
+     let cached = SEEN.lock().ok().and_then(|s| s.as_ref()?.get(&on).filter(|(at, checked, _)| at.elapsed().as_secs() < 60 && checked == &commands).map(|(_, _, v)| v.clone()));
+     let have = if let Some(cached) = cached { cached } else {
+         let found = crate::programs::installed(&commands, on.as_deref())?;
+@@ -987,8 +988,7 @@ fn known_agents(on: Option<String>, list: Vec<Value>) -> Result<Value, String> {
+     Ok(Value::Array(
+         list.into_iter()
+             .map(|mut a| {
+-                let run = a["run"][0].as_str().unwrap_or_default().to_owned();
+-                a["installed"] = json!(have.contains(&run));
++                a["installed"] = json!(check(&a).is_some_and(|c| have.contains(&c)));
+                 a
+             })
+             .collect(),
+@@ -2000,6 +2000,14 @@ mod tests {
+         assert_eq!(next[0]["installed"], true);
+         assert_eq!(next[1]["key"], "claude-alt");
+         assert_eq!(next[1]["installed"], true);
++        // started through a launcher: installed when `check` is, whatever `run` starts with
++        let snapshot = vec![
++            json!({"key": "claude", "run": ["printf", "x"], "check": "herdr_issue57_not_installed"}),
++            json!({"key": "codex", "run": ["herdr_issue57_launcher"], "check": "printf"}),
++        ];
++        let launched = std::thread::spawn(move || known_agents(None, snapshot)).join().unwrap().unwrap();
++        assert_eq!(launched[0]["installed"], false);
++        assert_eq!(launched[1]["installed"], true);
+     }
+ 
+     #[test]
+diff --git a/src/programs.rs b/src/programs.rs
+index cc506be..160a1a0 100644
+--- a/src/programs.rs
++++ b/src/programs.rs
+@@ -43,6 +43,10 @@ struct Entry {
+     /// How to start it, for an agent people can start from a menu (`knownAgents()`).
+     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+     run: Vec<String>,
++    /// The program whose presence means it is installed, when `run` starts it through another
++    /// (a launcher such as `kit open claude`); else `run`'s first word.
++    #[serde(default, skip_serializing_if = "Option::is_none")]
++    check: Option<String>,
+ }
+ 
+ impl Entry {
+@@ -58,6 +62,7 @@ impl Entry {
+         if !mine.run.is_empty() {
+             self.run = mine.run;
+         }
++        self.check = mine.check.or(self.check.take());
+     }
+ }
+ 
+@@ -65,7 +70,7 @@ impl Entry {
+ const AGENTS_FIRST: &[&str] = &["claude", "codex", "pi", "opencode", "cursor", "copilot", "amp", "gemini", "grok"];
+ 
+ /// Every agent the table can start (entries with `run`), most picked first:
+-/// `{ key, name, icon, tint, tile, color, run }`.
++/// `{ key, name, icon, tint, tile, color, run, check }`.
+ pub fn startable() -> Vec<Value> {
+     TABLE.with(|t| {
+         let t = t.borrow();
+@@ -76,6 +81,7 @@ pub fn startable() -> Vec<Value> {
+                 let e = &t.programs[k];
+                 let mut v = shown(k, e, None, false, true);
+                 v["run"] = json!(e.run);
++                v["check"] = json!(e.check.as_ref().or(e.run.first()));
+                 v
+             })
+             .collect()
+@@ -415,6 +421,24 @@ mod tests {
+         assert_eq!(installed_result(&commands, result).unwrap(), ["cmd.exe"]);
+     }
+ 
++    #[test]
++    fn check_names_what_must_be_installed_when_run_starts_a_launcher() {
++        let mut claude = Entry { run: vec!["claude".into()], ..Entry::default() };
++        claude.over(Entry { run: vec!["kit".into(), "open".into(), "claude".into()], check: Some("claude".into()), ..Entry::default() });
++        let mut codex = Entry { run: vec!["codex".into()], ..Entry::default() };
++        codex.over(Entry { name: Some("Mine".into()), ..Entry::default() });
++        let mut table = t();
++        table.programs.insert("claude".into(), claude);
++        table.programs.insert("codex".into(), codex);
++        let before = TABLE.with(|x| x.replace(table));
++        let list = startable();
++        TABLE.with(|x| x.replace(before));
++        let of = |k: &str| list.iter().find(|a| a["key"] == k).cloned().unwrap();
++        assert_eq!(of("claude")["run"], json!(["kit", "open", "claude"]));
++        assert_eq!(of("claude")["check"], "claude");
++        assert_eq!(of("codex")["check"], "codex");
++    }
++
+     #[test]
+     fn agents_shells_tools_and_what_interpreters_run() {
+         assert_eq!(key(Some("claude-code"), &["/bin/zsh"]), "claude");

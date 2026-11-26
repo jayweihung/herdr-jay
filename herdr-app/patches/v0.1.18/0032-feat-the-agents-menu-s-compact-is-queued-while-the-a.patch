@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: jayweihung <3034830+jayweihung@users.noreply.github.com>
 Date: Fri, 20 Nov 2026 15:09:35 +0800
-Subject: [PATCH 32/33] feat: the agents menu's compact is queued while the
+Subject: [PATCH 32/34] feat: the agents menu's compact is queued while the
  agent works, says compacting on its row and menu until it finishes, and goes
  once per agent (shared compact/<address>)
 

@@ -407,6 +407,7 @@ const READS = new Set(["list", "used", "status", "statusline", "agents", "api", 
 const isRead = (args) => READS.has(args[0]) || (args[0] === "tab" && (args[1] === "list" || args[1] === "show"));   // kit tab rm / keep change
 const UNDER_WAY = new Map(), CHANGES = new Map();   // key -> its run; machine -> change generation
 const changedOn = (machine) => CHANGES.set(machine ?? "", (CHANGES.get(machine ?? "") ?? 0) + 1);
+export const changesOn = (machine) => CHANGES.get(machine ?? "") ?? 0;   // goes up after each kit change there (not a read)
 export function kit(args, timeout = 60000, machine = null) {
   if (!isRead(args)) return runKit(args, timeout, machine).finally(() => changedOn(machine));
   const key = JSON.stringify([machine ?? "", CHANGES.get(machine ?? "") ?? 0, timeout, args]);

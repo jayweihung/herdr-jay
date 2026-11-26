@@ -25,7 +25,7 @@
 // What it computes (the bar, the numbers, the tips) is in context.js.
 import { div, svg } from "gpui-kit";
 import { h_flex, v_flex, InputState, Input } from "gpui-base";
-import { panes, spaces, agents, terminals, props, run, theme, hc, shared, setShared, openOverlay, closeOverlay, notify, appHome, readTextFile, exec, window } from "herdr";
+import { panes, spaces, agents, terminals, props, run, theme, hc, shared, setShared, openOverlay, closeOverlay, notify, appHome, readTextFile, exec, window, home } from "herdr";
 import * as files from "fs/promises";
 import { collectedFrom, AGENT_CACHE, AGENT_DATA, AGENT_WANT, CTX, NOTE, LIMIT_SENT, EDITORS, localGet, localSet, fs, stop, slash, shortDir, clean, spin, waiting, icon, textBlock,
   copyOnRight, btn, busyNow, takeBusy, giveBusy, markChanged, kit, kitJson, apiState, apiKnown, apiAtLeast, checkApi, apiCard, num, kfmt, reloadAfter, reloadNext, RELAUNCH, RELAUNCH_ASK } from "./common.js";
@@ -260,6 +260,21 @@ function offerMenu(cx) {
   });
 }
 
+// Herdr's space right-click menu (app patch 0035, shared "spaces.menu"): 「Kit：<the space's folder>」, for a space at its
+// machine's home 「Kit：整個帳號」 (another machine's: 「Kit：<machine> 的…」); it opens role "space" (agent.js) for that folder's
+// layer or the account. Said again when a space's label changes and every MENU_AGAIN; a Herdr without the patch never reads it.
+// A space without a folder starts in its machine's home; another machine's home path is not known here, kit says (here.folder.why)
+export const spaceHome = (s) => { const f = slash(s?.folder ?? "").replace(/\/+$/, ""); return !f || (!s?.machine && f.toLowerCase() === slash(home()).replace(/\/+$/, "").toLowerCase()); };
+export function spaceLabel(s) {
+  const what = spaceHome(s) ? "整個帳號" : s.machine ? ` ${s.folder}` : shortDir(s.folder);
+  return `Kit：${s.machine ? `${s.machine} 的${what}` : what}`;
+}
+export function offerSpaceMenu(now = Date.now()) {
+  const labels = Object.fromEntries((spaces() ?? []).map((s) => [s.id, spaceLabel(s)])), all = shared("spaces.menu") ?? {}, m = all.kit;
+  if (m && now - (m.at ?? 0) < MENU_AGAIN && JSON.stringify(m.items?.[0]?.labels) === JSON.stringify(labels)) return;
+  setShared("spaces.menu", { ...all, kit: { at: now, items: [{ id: "kit", label: "Kit…", labels, width: POPUP_W, height: POPUP_H, props: { role: "space" } }] } });
+}
+
 // a pane's agent as agents() lists it (its address is the compact's key), the status Herdr's Agents list shows (done
 // while its own work still runs, agents.busy: working), its core turn, and the name the notices use
 const agentOf = (p) => { try { return (agents() ?? []).find((x) => x.pane === p.pane) ?? null; } catch { return null; } };
@@ -329,6 +344,7 @@ export class Header {
     reloadTick();
     relaunchTick();
     tabTick(cx);   // kit 0.17: a closed tab's own copy goes (place.js)
+    offerSpaceMenu();
     const p = this.me();
     if (!p?.terminal || !p.program?.agent) return;
     checkPage(cx);

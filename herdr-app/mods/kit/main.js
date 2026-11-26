@@ -7,6 +7,7 @@
 //   repo-toggle      the tab-bar button that shows or hides the repository panel                            repo.js
 //   editor           one file of the repository in its own big window                                       repo.js
 //   agent            the popup for one agent (what it uses), opened from its pane header                    agent.js
+//   space            the same popup for a space's folder (or the account), from Herdr's space menu (0035)  agent.js
 //   agents           the agents kit's sources define: what each one uses, open one in a new tab             agents.js
 //   agents-toggle    the tab-bar button that shows or hides the Agents panel                                agents.js
 //   header           a pane's header (the layout's pane frame header): kit's button and the context chip    header.js
@@ -25,7 +26,7 @@ import { Header } from "./header.js";
 import { RelaunchAsk } from "./relaunch.js";
 import { fs } from "./common.js";
 
-const PARTS = { repo: Repo, "repo-toggle": Repo, editor: Repo, agent: AgentPopup, agents: Agents, "agents-toggle": Agents, header: Header, context: Header, "relaunch-ask": RelaunchAsk };
+const PARTS = { repo: Repo, "repo-toggle": Repo, editor: Repo, agent: AgentPopup, space: AgentPopup, agents: Agents, "agents-toggle": Agents, header: Header, context: Header, "relaunch-ask": RelaunchAsk };
 const OLD_NAMES = { panel: "repo", toggle: "repo-toggle", pane: "agent" };
 const own = (o, k) => typeof k === "string" && Object.prototype.hasOwnProperty.call(o, k);
 // the part a copy is: its role (or what an older name means now), "unknown" for a role this mod doesn't have

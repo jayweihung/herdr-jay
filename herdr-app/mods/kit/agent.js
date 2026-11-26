@@ -6,13 +6,16 @@
 // kit: kit collect / kit new --from, then kit add). All on the agent's machine.
 // The header is the one that asks kit (kit list --json --dir --pid); this popup shows that answer (AGENT_DATA) and asks
 // the header for a fresh one (AGENT_WANT).
+// Role "space" is the same popup with no agent: Herdr's space right-click menu (app patch 0035; header.js spaceLabel)
+// opens it with { space, folder, machine } for that folder's layer (kit add|rm --dir) or, at the machine's home, the
+// account (no --dir). It asks kit list itself (no pane header has its key), again after each kit change there.
 import { div } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
 import { theme, shared, setShared, closeOverlay, props, agents } from "herdr";
 import { AGENT_CACHE, AGENT_DATA, AGENT_WANT, MSG, fs, mono, stop, shortDir, spin, waiting, icon, textBlock, copyOnRight, btn,
   busyNow, dropStaleBusy, giveBusy, apiState, checkApi, apiCard, messageBox, problemCard, versionCard, localGet, localSet,
-  kitAction, markChanged, squeeze, groupRows, kit, apiAtLeast, partsLine, RELAUNCH_AUTO, RELAUNCH_ASK, reloadOne } from "./common.js";
-import { POPUP_H, agentPid, loadAgent } from "./header.js";
+  kitAction, markChanged, squeeze, groupRows, kit, apiAtLeast, apiKnown, changesOn, partsLine, RELAUNCH_AUTO, RELAUNCH_ASK, reloadOne } from "./common.js";
+import { POPUP_H, agentPid, loadAgent, spaceHome, spaceLabel } from "./header.js";
 import { toolOf, usedArgs, usedOf, usedLine, KIND_NAME, RELOAD_TEXT, reloadPlan, reloadLine } from "./context.js";
 import { offerRelaunch, agentName } from "./relaunch.js";
 import { versionText, oldReason, oldSummary } from "./versions.js";
@@ -28,6 +31,11 @@ const usingOf = (d) => {
   const dir = new Set(d?.here?.folder?.items ?? []);
   return (d?.items ?? []).filter((i) => i.kind !== "agent" && (i.status === "used" || i.status === "required" || dir.has(`${i.kind}:${i.name}`)));
 };
+// role "space": the space's folder, or the account (no --dir) for one at its machine's home
+const spaceTarget = (p) => {
+  const s = { folder: p?.folder ?? "", machine: p?.machine ?? null }, home = spaceHome(s);
+  return { key: `space:${s.machine ?? ""}|${home ? "" : s.folder}`, machine: s.machine, cwd: home ? null : s.folder, title: spaceLabel(s) };
+};
 
 export class AgentPopup {
   constructor(role) { this.role = role; }
@@ -38,19 +46,22 @@ export class AgentPopup {
     try { this.folded = JSON.parse(localGet("kit.folded") || "{}"); } catch { this.folded = {}; }
     this.shown = new Set();   // rows whose whole description is shown (descCol)
     dropStaleBusy();
-    this.target = props()?.target ?? { key: "" };
+    this.solo = this.role === "space";   // no agent: a space's folder or the account, its own kit list (tickOwn)
+    this.target = this.solo ? spaceTarget(props()) : props()?.target ?? { key: "" };
     this.where = `agent:${this.target.key}`;
     const c = (shared(AGENT_CACHE) ?? {})[this.target.key];
-    if (!c || Date.now() - (c.started ?? 0) > 10000) this.want();
+    if (!this.solo && (!c || Date.now() - (c.started ?? 0) > 10000)) this.want();
     this.openedAt = Date.now();
     // 找: one box over the whole list (name, what it is, where it came from)
     this.filter = "";
     this.input = InputState.new({ placeholder: "找：名字、說明、從哪收的" });
     this.input.on("change", (_e, cx) => { this.filter = this.input.value().trim().toLowerCase(); cx.notify(); });
     checkApi(this.target.machine ?? null, cx);
+    if (this.solo) this.tickOwn(cx);
     this.used = undefined;   // what this conversation used (kit used): undefined not asked yet, null asking or no answer
     // no answer is asked again every USED_RETRY: a Claude just started has no transcript until its first reply
     cx.timer.every(2000, (cx) => {
+      if (this.solo) this.tickOwn(cx);
       if (!this.data) cx.notify();
       if (this.used === undefined || (this.used === null && Date.now() - (this.usedAt ?? 0) > USED_RETRY)) this.loadUsed(cx, this.used === null);
     });   // (also: kit api known later)
@@ -84,17 +95,30 @@ export class AgentPopup {
 
   // read once per render (this.rs): a shared() read is a host call that copies the whole value (every agent's list),
   // and reading it per row took ~15 ms a row in Herdr, past its 50 ms render budget ("could not be re-rendered")
-  get data() { return this.rs ? this.rs.data : (shared(AGENT_DATA) ?? {})[this.target?.key] ?? null; }
+  get data() { return this.rs ? this.rs.data : this.solo ? this.own ?? null : (shared(AGENT_DATA) ?? {})[this.target?.key] ?? null; }
   get busy() { return this.rs ? this.rs.busy : busyNow(); }
   get loading() {
     if (this.rs) return this.rs.loading;
+    if (this.solo) return Boolean(this.ownBusy);
     const c = (shared(AGENT_CACHE) ?? {})[this.target?.key]; return Boolean(c?.busy && Date.now() - (c.started ?? 0) < LOAD_TTL);
   }
   get msg() { return shared(MSG(this.where)) ?? null; }
-  // ask its pane header to look again
-  want() {
+  // ask its pane header to look again (role "space": look again itself)
+  want(cx = null) {
+    if (this.solo) { this.ownWant = Date.now(); if (cx) this.tickOwn(cx); return; }
     if (!this.target?.key) return;
     setShared(AGENT_WANT, { ...(shared(AGENT_WANT) ?? {}), [this.target.key]: Date.now() });
+  }
+  // role "space": kit list there once kit can be used, again after a kit change there (changesOn) or ⟳; one at a time
+  tickOwn(cx) {
+    const m = this.target.machine ?? null;
+    if (this.ownBusy || !apiKnown(m)?.ok) return;
+    if (this.own && this.ownGen === changesOn(m) && !(this.ownWant > this.ownStarted)) return;
+    this.ownBusy = true; this.ownGen = changesOn(m); this.ownStarted = Date.now();
+    cx.spawn(async (cx) => {
+      try { this.own = await loadAgent(m, this.target.cwd, null); } catch (e) { this.own = { error: String(e?.message ?? e), machine: m, at: Date.now() }; }
+      this.ownBusy = false; cx.notify();
+    });
   }
   // add / rm / sync / install on the agent's machine: one at a time, kit's words above the list; then every Kit button
   // on that machine looks again
@@ -238,7 +262,7 @@ export class AgentPopup {
     if (api?.kind && !api.ok) return root.child(apiCard(t, z, api, machine, this.where));
     if (msg) root.child(messageBox(t, z, this.where, msg, () => setShared(MSG(this.where), null), squeeze));
     const d = this.data;
-    if (!d && !this.loading && Date.now() - (this.openedAt ?? 0) > 8000)
+    if (!d && !this.solo && !this.loading && Date.now() - (this.openedAt ?? 0) > 8000)
       return root.child(div().p(14).text_color(t.muted).child("讀不到這個 agent（它可能換了資料夾，或已經關掉）。關掉這個視窗，再按一次它上面的 Kit 按鈕。"));
     if (!d) return root.child(div().p(14).child(waiting(t, z, "讀取中…")));
     if (d.error) return root.child(problemCard(t, z, this.where, d.error, d.code));
@@ -272,7 +296,8 @@ export class AgentPopup {
   }
   paneHeader(t, z) {
     const d = this.data, busy = this.busy, tg = this.target ?? {};
-    const pic = icon(tg.program, 18, t.foreground), canSync = d && !d.error && !d.here?.user;
+    // 同步 catches this agent up (catchUp): none in role "space"
+    const pic = icon(tg.program, 18, t.foreground), canSync = d && !d.error && !d.here?.user && !this.solo;
     return h_flex().flex_none().px(10).py(8).gap(6).items_center().border_b(1).border_color(t.border)
       .child(div().size(32).flex_none().rounded(16).bg(t.raised).flex().items_center().justify_center().child(pic ?? div().text_color(t.muted).child("•")))
       .child(v_flex().flex_1().min_w(0)
@@ -281,7 +306,7 @@ export class AgentPopup {
       .when(Boolean(canSync), (el) => el.child(btn(t, z, "sync", busy === "同步" || this.syncing ? "同步中…" : this.syncWord(d), { small: true, off: Boolean(busy || this.syncing), on: (cx) => this.sync(cx) })
         .tooltip("把這台的規則、技能、MCP、外掛全部換成倉庫最新的（固定的除外）")))
       // pressable while it reads too: a newer read takes over one that hangs
-      .child(btn(t, z, "reload", this.loading ? spin(z - 2, t.dim) : "⟳", { small: true, on: (cx) => { this.want(); this.loadUsed(cx); } }))
+      .child(btn(t, z, "reload", this.loading ? spin(z - 2, t.dim) : "⟳", { small: true, on: (cx) => { this.want(cx); this.loadUsed(cx); } }))
       .child(btn(t, z, "close", "✕", { small: true, on: () => closeOverlay(props()?.overlay) }));
   }
 
@@ -338,10 +363,10 @@ export class AgentPopup {
       body.child(div().mt(4).border_t(1).border_color(t.border));
     }
     // 2. what it reads besides: kit's for the whole account (can be taken off) and its folder's / account's own (look only)
-    body.child(h_flex().gap(8).items_baseline().child(div().font_semibold().child(ag || tab ? "另外也讀到的" : "這個 agent 在用的"))
+    body.child(h_flex().gap(8).items_baseline().child(div().font_semibold().child(ag || tab ? "另外也讀到的" : this.solo ? "在這裡開的 agent 會讀到的" : "這個 agent 在用的"))
       .when(latest, (el) => el.child(div().text_size(z - 1.5).text_color(t.muted).child("全部最新"))));
     // what this conversation used so far (kit used): rules are always read, so only skills and MCP
-    if (!this.ro && apiAtLeast(this.target?.machine ?? null, 10)) body.child(div().text_size(z - 1.5).text_color(t.muted)
+    if (!this.ro && !this.solo && apiAtLeast(this.target?.machine ?? null, 10)) body.child(div().text_size(z - 1.5).text_color(t.muted)
       .child(this.usedBusy && !this.usedQuiet ? "這次對話用了：讀取中…" : this.used ? `${usedLine(this.used)}。規則每次對話都會帶。` : "這次對話用了什麼：還讀不到（剛開、還沒對話的 agent 沒有對話紀錄；每 10 秒再讀一次）"));
     for (const kind of ["rule", "skill", "mcp", "plugin"]) {
       const kitRows = items.filter((i) => i.kind === kind && (i.status === "used" || i.status === "required" || mine(i)) && hit(i));

@@ -21,7 +21,7 @@ const app = found.stdout.trim().split(/\r?\n/)[0];
 const target = { key: "|/tmp|t1", pane: "p1", term: "t1", machine: null, cwd: "/tmp", tool: "claude", title: "Claude Code" };
 const KIT_ROLES = {
   repo: {}, "repo-toggle": { role: "repo-toggle" }, editor: { role: "editor", item: { path: "/tmp/x.md", name: "x", kind: "rule" } },
-  agent: { role: "agent", target }, agents: { role: "agents" }, "agents-toggle": { role: "agents-toggle" },
+  agent: { role: "agent", target }, space: { role: "space", space: "s1", folder: "/tmp", machine: null, overlay: "o1" }, agents: { role: "agents" }, "agents-toggle": { role: "agents-toggle" },
   header: { role: "header", pane: "p1", terminal: "t1" }, context: { role: "context", target }, "relaunch-ask": { role: "relaunch-ask", overlay: "o1" },
   "older name panel": { role: "panel" }, "older name pane": { role: "pane", target }, "a misspelled role": { role: "agnets" },
 };

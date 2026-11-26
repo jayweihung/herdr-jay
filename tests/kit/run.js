@@ -783,7 +783,7 @@ test("context window: the bar, the shares, the footer line, the chip's numbers (
 // roles
 test("roles: each part by props.role, the older names too; no role: a header on a pane, else the repository; a misspelled one: a card", async (M) => {
   const { main } = M;
-  for (const r of ["repo", "repo-toggle", "agent", "editor", "agents", "agents-toggle", "header", "context"]) assert.equal(main.roleOf({ role: r }), r);
+  for (const r of ["repo", "repo-toggle", "agent", "space", "editor", "agents", "agents-toggle", "header", "context"]) assert.equal(main.roleOf({ role: r }), r);
   assert.deepEqual(["panel", "toggle", "pane"].map((r) => main.roleOf({ role: r })), ["repo", "repo-toggle", "agent"]);
   assert.equal(main.roleOf({ pane: "p1", terminal: "t1" }), "header");
   assert.equal(main.roleOf({ role: "header", pane: "p1", terminal: "t1" }), "header");
@@ -3929,6 +3929,52 @@ test("kit 0.17 (relaunch.js): a tab kit open started is resumed through kit open
   t.front = "tool"; t.sent = []; await relaunchStep(M);
   t.front = "shell"; t.screen = "claude --resume 99999999-aaaa-bbbb-cccc-dddddddddddd\n% "; await relaunchStep(M);
   assert.equal(H.store[RL].t3.cmd, `kit open claude --tab-env HC_TERMINAL_ID -- --resume ${SID}`);
+});
+
+test("space menu (app patch 0035): any header offers 「Kit：<folder>」 per space in shared spaces.menu; its popup (role space) reads and changes that folder's layer, or the account at home, on the space's machine", async (M) => {
+  fresh(); fakeKit();
+  H.spaces = [{ id: "s1", folder: "/Users/amy/ai", machine: null }, { id: "s2", folder: "", machine: null }, { id: "s3", folder: "/Users/amy/", machine: null },
+    { id: "box/s4", folder: "", machine: "box" }, { id: "box/s5", folder: "/home/amy/ai", machine: "box" }];
+  view(M, { role: "header", pane: "p1", terminal: "t1" }); await settle();   // no agent in that pane: said all the same
+  const kit = H.store["spaces.menu"].kit;
+  assert.deepEqual(kit.items.map((i) => [i.id, i.label, i.props, i.width, i.height]), [["kit", "Kit…", { role: "space" }, M.header.POPUP_W, M.header.POPUP_H]]);
+  assert.deepEqual(kit.items[0].labels, { s1: "Kit：~/ai", s2: "Kit：整個帳號", s3: "Kit：整個帳號", "box/s4": "Kit：box 的整個帳號", "box/s5": "Kit：box 的 /home/amy/ai" });
+  M.header.offerSpaceMenu(kit.at + 1000); assert.equal(H.store["spaces.menu"].kit, kit, "nothing changed: not said again");
+  H.spaces = H.spaces.slice(1); M.header.offerSpaceMenu(kit.at + 1000);
+  assert.equal(H.store["spaces.menu"].kit.items[0].labels.s1, undefined, "a space gone: said again");
+  // the popup Herdr's space menu opens: kit list --dir that folder (its own ask: no pane header has it), 加到這個資料夾, read again
+  let inDir = false;
+  const sk = { kind: "skill", name: "calm", status: "unused", source: "lib", description: "d" };
+  const plain = H.answer;
+  H.answer = (argv, on) => {
+    const a = argv[0] === "sh" ? argv.slice(4) : argv.slice(1), d = a.indexOf("--dir");
+    if (a[0] === "list") return { code: 0, stdout: `${JSON.stringify({ ...KIT_LIST, items: [sk], here: d < 0 ? null : { items: [], folder: { dir: a[d + 1], why: "", items: inDir ? ["skill:calm"] : [] } } })}\n`, stderr: "" };
+    if (a[0] === "add" && d > 0) inDir = true;
+    return plain(argv, on);
+  };
+  H.store["kit.api.v1"] = API_22("box");
+  const v = view(M, { role: "space", space: "s1", folder: "/Users/amy/ai", machine: null, overlay: "o3" }); await settle();
+  assert.deepEqual(kitCalls("list").map((c) => [c.argv.slice(1), c.on]), [[["list", "--json", "--dir", "/Users/amy/ai"], null]]);
+  let shown = render(v);
+  assert.match(shown, /Kit：~\/ai/); assert.match(shown, /在這裡開的 agent 會讀到的/); assert.doesNotMatch(shown, /這次對話用了|全部同步|讀不到這個 agent/);
+  H.clicks["adddir-skill-calm"]({}, cx); await settle();
+  assert.deepEqual(kitCalls("add").at(-1).argv.slice(1), ["add", "--dir", "/Users/amy/ai", "skill", "calm"]);
+  const mine = () => kitCalls("list").filter((c) => c.argv.includes("--dir")).length;   // (the add's own reload asks kit list too)
+  await tick();
+  assert.equal(mine(), 2, "after a kit change there: read again");
+  assert.match(render(v), /Kit · 這個資料夾/);
+  await tick(); assert.equal(mine(), 2, "nothing changed: not read again");
+  render(v); H.clicks.reload({}, cx); await settle(); assert.equal(mine(), 3, "⟳");
+  // at the machine's home (another machine's: no folder): the account, no --dir; 加到整個帳號 there
+  H.calls = [];
+  const w = view(M, { role: "space", space: "box/s4", folder: "", machine: "box" }); await settle();
+  assert.deepEqual(kitCalls("list").map((c) => [c.argv.slice(4), c.on]), [[["list", "--json"], "box"]]);
+  shown = render(w); assert.match(shown, /Kit：box 的整個帳號/); assert.ok(!("adddir-skill-calm" in H.clicks), "no folder buttons");
+  H.clicks["add-skill-calm"]({}, cx); await settle();
+  assert.deepEqual([kitCalls("add").at(-1).argv.slice(4), kitCalls("add").at(-1).on], [["add", "skill", "calm"], "box"]);
+  H.calls = [];
+  view(M, { role: "space", space: "s3", folder: "/Users/amy/", machine: null }); await settle();
+  assert.deepEqual(kitCalls("list").map((c) => c.argv.slice(1)), [["list", "--json"]], "this computer's home: the account too");
 });
 
 // ---------- run ----------

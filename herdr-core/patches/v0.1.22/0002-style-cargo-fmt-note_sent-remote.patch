@@ -1,0 +1,44 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: jayweihung <3034830+jayweihung@users.noreply.github.com>
+Date: Fri, 27 Nov 2026 02:58:00 +0800
+Subject: [PATCH 2/2] style: cargo fmt (note_sent, remote)
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ crates/herdr-core/src/remote.rs    | 4 +++-
+ crates/herdr-core/src/terminals.rs | 7 ++++++-
+ 2 files changed, 9 insertions(+), 2 deletions(-)
+
+diff --git a/crates/herdr-core/src/remote.rs b/crates/herdr-core/src/remote.rs
+index c9ccd7d..ef3f862 100644
+--- a/crates/herdr-core/src/remote.rs
++++ b/crates/herdr-core/src/remote.rs
+@@ -1062,7 +1062,9 @@ fn map_addresses(v: &mut Value, map: &dyn Fn(&str) -> String) {
+         Value::Object(o) => {
+             for (k, v) in o.iter_mut() {
+                 match v {
+-                    Value::String(s) if ["address", "parent", "terminal", "from", "removed", "to"].contains(&k.as_str()) => {
++                    Value::String(s)
++                        if ["address", "parent", "terminal", "from", "removed", "to"].contains(&k.as_str()) =>
++                    {
+                         *s = map(s)
+                     }
+                     _ => map_addresses(v, map),
+diff --git a/crates/herdr-core/src/terminals.rs b/crates/herdr-core/src/terminals.rs
+index 6eb3f4e..f106c1a 100644
+--- a/crates/herdr-core/src/terminals.rs
++++ b/crates/herdr-core/src/terminals.rs
+@@ -167,7 +167,12 @@ impl Terminal {
+     pub fn note_sent(&mut self, to: &str, text: &str, now_ms: u64) {
+         let line = text.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or_default();
+         let count = self.sent.iter().position(|s| s.to == to).map_or(0, |i| self.sent.remove(i).count);
+-        self.sent.push(Sent { to: to.into(), count: count + 1, last_ms: now_ms, text: line.chars().take(SENT_TEXT).collect() });
++        self.sent.push(Sent {
++            to: to.into(),
++            count: count + 1,
++            last_ms: now_ms,
++            text: line.chars().take(SENT_TEXT).collect(),
++        });
+         if self.sent.len() > MAX_SENT {
+             self.sent.remove(0);
+         }

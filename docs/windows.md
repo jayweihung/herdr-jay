@@ -236,14 +236,26 @@ that core then can't read through the junctions kit makes (`node_modules`, `.ven
 Start it from a scheduled task instead. Which kind depends on whether someone is signed in to that account's desktop:
 改用排程工作開。看這個帳號平常有沒有人登入桌面：
 
-- **Someone is signed in at the desktop / 有人登入桌面** — the account itself, no admin, a task that runs at sign-in:
+- **Someone is signed in at the desktop / 有人登入桌面** — the account itself, no admin, a task that runs when this account
+  signs in. A normal account gets `Access is denied` from `Register-ScheduledTask` (CIM) and from `schtasks /SC ONLOGON`
+  (that trigger is for every user), so give `schtasks` the task as XML, the trigger limited to this account:
+  一般帳號用 `Register-ScheduledTask` 或 `schtasks /SC ONLOGON` 都會被拒，改用 XML 建，觸發只限自己：
 
-  ```powershell
-  $a = New-ScheduledTaskAction -Execute "$env:LOCALAPPDATA\Programs\herdr-core\hc.exe" -Argument 'server restart'
-  $t = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
-  $p = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited
-  Register-ScheduledTask -TaskName herdr-core -Action $a -Trigger $t -Principal $p
-  ```
+```powershell
+$u = "$env:USERDOMAIN\$env:USERNAME"
+$hc = "$env:LOCALAPPDATA\Programs\herdr-core\hc.exe"
+$x = "$env:TEMP\herdr-core-task.xml"
+@"
+<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <Triggers><LogonTrigger><Enabled>true</Enabled><UserId>$u</UserId></LogonTrigger></Triggers>
+  <Principals><Principal id="Author"><UserId>$u</UserId><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals>
+  <Settings><ExecutionTimeLimit>PT0S</ExecutionTimeLimit><DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries><StopIfGoingOnBatteries>false</StopIfGoingOnBatteries></Settings>
+  <Actions Context="Author"><Exec><Command>$hc</Command><Arguments>server restart</Arguments></Exec></Actions>
+</Task>
+"@ | Set-Content -Encoding Unicode $x
+schtasks /Create /TN herdr-core /XML $x; Remove-Item $x
+```
 
   It runs only while that account is signed in; `schtasks /Run` does nothing otherwise (Last Result `267011`, never ran).
 

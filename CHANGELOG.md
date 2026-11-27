@@ -23,7 +23,7 @@ in (kit 0.18.0 has no `kit place`).
 - A folder an older kit placed an agent in (`agent:` in its `.agentkit`) becomes a plain folder at kit 0.18's next
   `kit sync`: its rules, skills and MCP stay, as the folder's own.
 - Gerrit 1.5 and 熱門 1.10 find their kit gerrit / trend agent by `kit tab list --json` (a tab `kit open --agent` started,
-  still running), asked every 15 seconds in the background, not by a folder's `.agentkit`.
+  still running), asked every minute in the background, only of machines with a running agent, not by a folder's `.agentkit`.
 - 把 agent 拖到 space 一律用 `kit open` 開新分頁（要 kit 0.17.0）；以前放過的資料夾，kit 0.18 同步後變普通資料夾。Gerrit、熱門面板改看 `kit tab list` 找它們的 agent。
 
 ## 2026-11-27, kit mod 1.21: 「Kit：~/ai」 in a space's right-click menu (app patch 0035)

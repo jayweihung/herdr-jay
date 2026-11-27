@@ -21,7 +21,7 @@ const AGENTS_KEY = "gerrit.agents.v1"; // addresses of agents this panel opened 
 const KIT_AGENTS = "kit.agents.data.v1";
 const KIT_PLACE_ASK = "kit.place.ask";
 const KIT_TAKEN_WAIT = 8000;   // a place ask the Kit panel hasn't taken by then: nobody will (no Kit button in the layout)
-const KIT_EVERY = 15000;       // how often kit tab list is asked on each machine with terminals (kitTick)
+const KIT_EVERY = 60000;       // how often kit tab list is asked on each machine with a running agent (kitTick)
 // The presets call the gerrit-panel plugin's skills (/gerrit-panel:review); a kit gerrit agent has them as kit skills
 // (gerrit-review). Each tool calls a skill its own way: Claude Code /gerrit-review (a plugin's /gerrit-panel:review),
 // Codex $gerrit-review, omp /skill:gerrit-review (a plugin's /skill:gerrit-panel/review). Codex has no --plugin-dir:
@@ -590,13 +590,13 @@ export default class Gerrit extends View {
     }
     return found;
   }
-  // kit tab list on each machine with terminals (this computer's "" too), every KIT_EVERY, in the background (the 1 s
+  // kit tab list on each machine with a running agent (this computer's "" too; a Windows one starts PowerShell each time), every KIT_EVERY, in the background (the 1 s
   // timer, not the drawing); the panel draws again when its gerrit tabs change. A read that fails keeps the last one.
   // -> the reads started
   kitTick() {
     this.kitTabs ??= new Map();   // machine ("" this computer) -> { ids, at, reading }
     let addrs = [];
-    try { addrs = (terminals() ?? []).map((t) => String(t?.address ?? "")).filter(Boolean); } catch {}
+    try { addrs = (agents() ?? []).map((x) => String(x?.address ?? "")).filter(Boolean); } catch {}
     const reads = [];
     for (const m of new Set(addrs.map((a) => (a.includes("/") ? a.split("/")[0] : "")))) {
       const k = this.kitTabs.get(m);

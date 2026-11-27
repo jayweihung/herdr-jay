@@ -45,7 +45,7 @@ A tab-bar button **熱門** and a panel, like Gerrit's (macOS and Windows):
   3 小時內出現標「新進榜」，上面的鈕可以只看這兩種；不同站或看板講同一件事的合成一張卡，下面列其他站的連結。
 - **Asking costs tokens, only when you ask.** The buttons and the box at the bottom send to a **kit trend agent** in
   this space (`hc send`), as Gerrit's 問 agent does: a tab `kit open --agent trend` started, still running (the panel
-  asks `kit tab list --json` every 15 seconds; kit 0.17.0). With none here, the Kit panel opens one in this space
+  asks `kit tab list --json` every minute on each machine with a running agent; kit 0.17.0). With none here, the Kit panel opens one in this space
   (`kit open --agent trend` in a new tab; the Kit button must be in the layout) and it starts on the question. Pick
   Claude / Codex / omp for the next one it opens. The answer is in the agent's own tab. Drag trend from the Agents panel
   onto a space to keep one there.

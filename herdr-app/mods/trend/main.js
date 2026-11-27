@@ -20,7 +20,7 @@ const STALE = 12 * 3600000;          // a front page not read for 3 times its sl
 const SEEN = "trend.seen.v1";        // the topics shown when the panel was last opened: the button counts the others
 // The Kit panel's (mods/kit): the agents its sources have, and the places it is asked to make. A kit trend agent runs
 // in a tab kit open started (kit 0.17.0): kit tab list --json has it (kitTabIds), asked every KIT_EVERY.
-const KIT_AGENTS = "kit.agents.data.v1", KIT_PLACE_ASK = "kit.place.ask", KIT_TAKEN_WAIT = 8000, KIT_EVERY = 15000;
+const KIT_AGENTS = "kit.agents.data.v1", KIT_PLACE_ASK = "kit.place.ask", KIT_TAKEN_WAIT = 8000, KIT_EVERY = 60000;
 const TOOLS = ["claude", "codex", "omp"], TOOL_NAMES = { claude: "Claude", codex: "Codex", omp: "omp" };
 const toolOf = (x) => {
   const n = String(x ?? "").replace(/\\/g, "/").split("/").pop().replace(/\.(exe|cmd|ps1)$/i, "").toLowerCase();
@@ -787,13 +787,13 @@ export default class Trend extends View {
     }
     return found;
   }
-  // kit tab list on each machine with terminals (this computer's "" too), every KIT_EVERY, in the background (the 1 s
+  // kit tab list on each machine with a running agent (this computer's "" too; a Windows one starts PowerShell each time), every KIT_EVERY, in the background (the 1 s
   // timer, not the drawing); the panel draws again when its trend tabs change. A read that fails keeps the last one.
   // -> the reads started
   kitTick() {
     this.kitTabs ??= new Map();   // machine ("" this computer) -> { ids, at, reading }
     let addrs = [];
-    try { addrs = (terminals() ?? []).map((t) => String(t?.address ?? "")).filter(Boolean); } catch {}
+    try { addrs = (agents() ?? []).map((x) => String(x?.address ?? "")).filter(Boolean); } catch {}
     const reads = [];
     for (const m of new Set(addrs.map((a) => (a.includes("/") ? a.split("/")[0] : "")))) {
       const k = this.kitTabs.get(m);

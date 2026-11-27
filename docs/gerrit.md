@@ -341,7 +341,7 @@ it runs nothing from the change (no build, tests or scripts) and changes nothing
 「深入 Review」不只看改過的檔：還找誰呼叫、類似的程式、測試、架構。面板先像「在 nvim 看」一樣把這一版放到本機資料夾
 （不開 nvim），好了才問 agent；已經下載過就直接問。agent 只讀那個資料夾，不跑裡面的程式、不改檔案。
 
-「問 agent」只列出有 Gerrit 工具的 agent：kit 的 gerrit agent（`kit open --agent gerrit` 開的分頁、還在跑：面板每 15 秒問一次各台的
+「問 agent」只列出有 Gerrit 工具的 agent：kit 的 gerrit agent（`kit open --agent gerrit` 開的分頁、還在跑：面板每分鐘問一次有 agent 在跑的那幾台的
 `kit tab list --json`，要 kit 0.17.0），或面板用 gerrit.json 的 `agent.start` 開的；這個 space 的排前面。別的 agent 不列，免得以為送出去就會做。
 **先選問題**：還沒有 Gerrit agent 也能按，面板會在你現在這個 space 開一個，把問題當第一句話帶進去，開好就回答。kit 來源有
 gerrit agent 就用它（跟從 Kit 面板拖進來一樣，版面裡要有 Kit 按鈕），沒有就用 `agent.start`。

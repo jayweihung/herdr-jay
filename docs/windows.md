@@ -233,8 +233,10 @@ OpenSSH server has RedirectionGuard: a junction a non-admin account made is refu
 that core then can't read through the junctions kit makes (`node_modules`, `.venv`): files look missing.
 不要從 ssh 開 core：從 Windows OpenSSH 開的程式跟不過一般帳號建的 junction，裡面的 agent 讀不到 kit 建的 `node_modules`、`.venv`。
 
-Start it from a scheduled task instead. Which kind depends on whether someone is signed in to that account's desktop:
-改用排程工作開。看這個帳號平常有沒有人登入桌面：
+Start it from a scheduled task instead. Which kind depends on whether someone is signed in to that account's desktop.
+Task names are shared by every account on the PC, and one account can't see or delete another's task: name it
+`herdr-core-<account>`.
+改用排程工作開。看這個帳號平常有沒有人登入桌面。工作名稱整台電腦共用、也刪不到別人的，所以取名 `herdr-core-<帳號>`：
 
 - **Someone is signed in at the desktop / 有人登入桌面** — the account itself, no admin, a task that runs when this account
   signs in. A normal account gets `Access is denied` from `Register-ScheduledTask` (CIM) and from `schtasks /SC ONLOGON`
@@ -254,7 +256,7 @@ $x = "$env:TEMP\herdr-core-task.xml"
   <Actions Context="Author"><Exec><Command>$hc</Command><Arguments>server restart</Arguments></Exec></Actions>
 </Task>
 "@ | Set-Content -Encoding Unicode $x
-schtasks /Create /TN herdr-core /XML $x; Remove-Item $x
+schtasks /Create /TN "herdr-core-$env:USERNAME" /XML $x; Remove-Item $x
 ```
 
   It runs only while that account is signed in; `schtasks /Run` does nothing otherwise (Last Result `267011`, never ran).
@@ -263,10 +265,7 @@ schtasks /Create /TN herdr-core /XML $x; Remove-Item $x
   running at boot with no stored password (S4U). A normal account can't make this kind itself (`Access is denied`):
 
   ```powershell
-  $a = New-ScheduledTaskAction -Execute 'C:\Users\<user>\AppData\Local\Programs\herdr-core\hc.exe' -Argument 'server restart'
-  $t = New-ScheduledTaskTrigger -AtStartup
-  $p = New-ScheduledTaskPrincipal -UserId '<user>' -LogonType S4U -RunLevel Limited
-  Register-ScheduledTask -TaskName herdr-core-<user> -Action $a -Trigger $t -Principal $p
+  schtasks /Create /TN herdr-core-<user> /RU <user> /NP /SC ONSTART /RL LIMITED /TR "C:\Users\<user>\AppData\Local\Programs\herdr-core\hc.exe server restart"
   ```
 
   Limits of S4U: no network credentials and no DPAPI (Credential Manager). In that core, `git push` over https with Git
@@ -279,7 +278,7 @@ On Windows the `hc` that asks for the restart starts the new core itself, so ove
 工作跑的是 `hc server restart`：沒有 core 就開一個，有就重開（程式不斷）。Windows 上新的 core 是下指令的那個 `hc` 開的，所以從 ssh 不要自己打 `hc server restart`，叫排程工作：
 
 ```powershell
-schtasks /Run /TN herdr-core      # (or herdr-core-<user>)
+schtasks /Run /TN "herdr-core-$env:USERNAME"
 ```
 
 Terminals that were already open stay under ssh's limits; tabs opened after this don't have them. Check in a new tab:

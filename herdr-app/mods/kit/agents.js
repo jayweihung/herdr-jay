@@ -12,10 +12,9 @@
 //   kit agent <name> add|rm rule|skill|mcp <item>  change an agent (its file in the source)
 //   kit run <name> --tool claude|codex|omp         open it (in a new tab); kit 0.17.0 (api 1.22) here: kit open <tool>
 //                                                  --agent <name> --tab-env HC_TERMINAL_ID instead (the tab its own copy)
-//   kit place <name> <folder> --json               give it its own folder in a space, then a tab there (place.js; kit
-//                                                  0.17.0 there: kit open in a new tab in the space's folder instead):
-//                                                  its card dragged onto a space (a newer Herdr), or 放到 space… (only an
-//                                                  older Herdr, which can't drag: the drag says where better)
+//   kit open <tool> --agent <name> --tab-env HC_TERMINAL_ID   on the space's machine, in a new tab in its folder
+//                                                  (place.js; kit 0.17.0 there): its card dragged onto a space (a newer
+//                                                  Herdr), or 放到 space… (only an older Herdr, which can't drag)
 // Each agent has a logo (bots.js): a cute animal-robot head, `bot: <animal>` or `bot: <animal> <color>` in its file's
 // frontmatter (written here, not by kit; kit keeps the line and kit push sends it), or one its name picks. In the list
 // a still picture; in its page drawn live (it says hello).
@@ -30,7 +29,7 @@ import { AGENTS_DATA, AGENTS_LOAD, AGENTS_MSG, CTX, NOTE, NODES, fs, stop, isWin
   apiAtLeast, tabList } from "./common.js";
 import { ANIMALS, COLORS } from "./bot-models.js";
 import { readBot, withBot, pickBot, botIcon, botProblem, LiveBot } from "./bots.js";
-import { canDrag, draggable, dropLoop, requestPlace, takeAsks, placeClosed, placeDir, liveNow, openArgv } from "./place.js";
+import { canDrag, draggable, dropLoop, requestPlace, takeAsks, placeClosed, liveNow, openArgv } from "./place.js";
 import { graphData, graphView, edgeList, alertsView, legendView, layoutOf, nudgeText, LONG_WAIT } from "./graph.js";
 import { logTick, eventLog, downMachines } from "./events.js";
 import { SAID, SUBS, BG, STEPS, saidTick, saidNow, asks } from "./said.js";
@@ -492,10 +491,10 @@ export class Agents {
     const body = v_flex().id("kit-agents-list").flex_1().min_h(0).overflow_y_scrollbar().px(10).py(8).gap(2);
     const ags = [...(d.agents ?? [])].sort((x, y) => x.name.localeCompare(y.name));
     if (!ags.length) return body.child(div().p(8).text_color(t.muted).child("來源裡還沒有 agent。在終端機打  kit new agent <名字>  寫一個。"));
-    // giving an agent its own folder in a space: drag (a newer Herdr), or the button (an older one only)
+    // opening an agent in a space: drag (a newer Herdr), or the button (an older one only)
     body.child(div().px(8).pb(4).text_size(z - 2).text_color(t.dim).child(canDrag()
-      ? "把 agent 拖到 Agents 或 Spaces 面板的 space 上（放在哪一列就排在那裡）：在那個 space 的資料夾裡建它自己的資料夾，開一個分頁跑它。"
-      : "按「放到 space…」：在那個 space 的資料夾裡建 agent 自己的資料夾，開一個分頁跑它。"));
+      ? "把 agent 拖到 Agents 或 Spaces 面板的 space 上（放在哪一列就排在那裡）：在那個 space 的資料夾開一個新分頁跑它（kit open），分頁有自己一份它的規則、技能、MCP。"
+      : "按「放到 space…」：在那個 space 的資料夾開一個新分頁跑它（kit open），分頁有自己一份它的規則、技能、MCP。"));
     const tool = this.curTool(), live = liveNow();
     for (const a of ags) {
       const counts = `規則 ${(a.rules ?? []).length} · 技能 ${(a.skills ?? []).length} · MCP ${(a.mcp ?? []).length}`;
@@ -517,18 +516,18 @@ export class Agents {
     return body;
   }
 
-  // the tool chosen for opening (one this computer's kit writes for), the same for kit run and kit place
+  // the tool chosen for opening (one this computer's kit writes for), the same for 開啟 and a space
   curTool() { const tools = this.data?.tools ?? ["claude"]; return tools.includes(this.tool) ? this.tool : "claude"; }
   toggleSpaces(name, cx) { this.placing = this.placing === name ? null : name; cx.notify(); }
 
-  // 放到 space…: every space (any machine); a click gives the agent its own folder there and opens it (place.js)
+  // 放到 space…: every space (any machine); a click opens the agent in a new tab there (place.js)
   spacePicker(t, z, a) {
     const all = spaces() ?? [], busy = Boolean(this.busy), tool = this.curTool();
     const box = v_flex().gap(2).p(8).rounded(6).border_1().border_color(t.border).text_size(z - 1.5)
-      .child(div().text_color(t.muted).child(`選一個 space：在它的資料夾裡建 ${a.name} 自己的資料夾（它的規則、技能、MCP、prompt、工具限制），開一個新分頁跑 ${TOOL_NAMES[tool] ?? tool}。`));
+      .child(div().text_color(t.muted).child(`選一個 space：在它的資料夾開一個新分頁跑 ${TOOL_NAMES[tool] ?? tool}（kit open --agent ${a.name}），分頁有自己一份 ${a.name} 的規則、技能、MCP。`));
     if (!all.length) box.child(div().text_color(t.dim).child("沒有開著的 space。"));
     for (const s of all) {
-      const where = placeDir(s, a.name);
+      const where = s.folder || "家目錄";
       box.child(h_flex().id(`place-${a.name}-${s.id}`).gap(8).items_center().px(6).py(4).rounded(5)
         .when(!busy, (el) => el.cursor_pointer().hover((st) => st.bg(t.hover)).on_mouse_down("left", stop)
           .on_click((_e, cx) => { this.placing = null; requestPlace(a.name, s, tool, cx, "放到 space", this); cx.notify(); }))

@@ -2858,59 +2858,58 @@ test("等你放行: what the commit hook blocked (ask.txt) is a card; 放行並�
   assert.match(render(v), /沒放行，mine 的改動還在這台，沒有送出/);
 });
 
-// ---------- an agent in a space (place.js, agents.js): kit place, then a tab there ----------
+// ---------- an agent in a space (place.js, agents.js): kit open in a new tab there (kit 0.17.0 there) ----------
 const AGENTS = { kit: "0.5.0", tools: ["claude", "codex"], available: {}, agents: [{ name: "reviewer", description: "看 PR", rules: [], skills: [], mcp: [], source: "team", path: "/s/agents/reviewer.md" }] };
-const PLACED = (dir, command = ["claude"], warnings = []) => ({ code: 0, stdout: `${JSON.stringify({ dir, agent: "reviewer", tool: command[0], command, warnings })}\n`, stderr: "" });
-// a fake kit that also answers kit place (answer(args) -> an answer, or null for the usual)
-function placeKit(answer) {
-  fakeKit({ api: "1.3", agents: AGENTS });
-  const base = H.answer;
-  H.answer = (argv, on) => { const a = argv[0] === "sh" ? argv.slice(4) : argv.slice(1); return (a[0] === "place" && answer(a, on)) || base(argv, on); };
+const OPEN_ARGV = (agent = "reviewer", tool = "claude") => ["kit", "open", tool, "--agent", agent, "--tab-env", "HC_TERMINAL_ID", ...(tool === "codex" ? ["--", "--no-daemon"] : [])];
+// a fake kit 0.17 (kit api 1.22 on this computer and those machines) answering kit tab list --json with tabs(on)
+function openKit(machines = [], tabs = () => []) {
+  fakeKit({ api: "1.22", agents: AGENTS });
+  H.answer = tabKit(H.answer, tabs);
+  H.store["kit.api.v1"] = API_22(...machines);
 }
+// once armed (the Agents panel's own load reads it before), kit tab list answers only when the test says (release),
+// or never: the task waits on it as long as it likes. Released, it answers at once again (the reload after it too)
+function slowTabs(forever = false) {
+  const s = { armed: false, waiting: [], release: () => { s.armed = false; s.waiting.splice(0).forEach((f) => f()); } };
+  const base = H.answer;
+  H.answer = (argv, on) => {
+    const a = argv[0] === "sh" ? argv.slice(4) : argv.slice(1);
+    if (!s.armed || a[0] !== "tab" || a[1] !== "list") return base(argv, on);
+    return new Promise((r) => { if (!forever) s.waiting.push(() => r(base(argv, on))); });
+  };
+  return s;
+}
+const newTabs = () => H.runs.filter((r) => r[0] === "tab.new");
+const pickSpace = (v, id = "s1") => { render(v); H.clicks["place-reviewer"]({}, cx); render(v); H.clicks[`place-reviewer-${id}`]({}, cx); };
 // a newer Herdr: nextDrop hands out these drops, then stops (as when the panel closes: the loop ends)
 function dropping(drops) {
   const q = [...drops];
   globalThis.__stubs.nextDrop = async () => { if (!q.length) throw new Error("closed"); return q.shift(); };
 }
-test("place: what a card carries, what a drop is read as; the folder kit place makes, written as that machine writes paths", ({ place: P }) => {
+test("place: what a card carries, what a drop is read as", ({ place: P }) => {
   assert.equal(P.dragPayload({ name: "reviewer", source: "team" }, "codex"), '{"agent":"reviewer","source":"team","tool":"codex"}');
   assert.deepEqual(P.readPayload(P.dragPayload({ name: "reviewer" })), { agent: "reviewer", tool: "claude" });
   assert.deepEqual(P.readPayload('{"agent":"a-1","tool":"vim"}'), { agent: "a-1", tool: "claude" });
   for (const bad of ["x", "", null, '{"agent":"../x"}', '{"agent":"Big"}', '{"name":"a"}', "[1]"]) assert.equal(P.readPayload(bad), null, String(bad));
-  fresh();
-  assert.equal(P.placeDir({ folder: "/Users/amy/work/" }, "reviewer"), "/Users/amy/work/reviewer");
-  assert.equal(P.placeDir({ folder: "" }, "reviewer"), "/Users/amy/reviewer", "no folder: this computer's home");
-  assert.equal(P.placeDir({ folder: "", machine: "box" }, "reviewer"), "reviewer", "another machine's home: kit starts there");
-  assert.equal(P.placeDir({ folder: "/home/amy/p", machine: "box" }, "reviewer"), "/home/amy/p/reviewer");
-  assert.equal(P.placeDir({ folder: "C:\\work\\", machine: "winbox" }, "reviewer"), "C:\\work\\reviewer");
-  assert.equal(P.placeDir({ folder: "D:/x y", machine: "winbox" }, "reviewer"), "D:\\x y\\reviewer");
-  H.window = { platform: "windows" }; H.home = "C:\\Users\\amy";
-  assert.equal(P.placeDir({ folder: "C:/w" }, "reviewer"), "C:\\w\\reviewer");
-  assert.equal(P.placeDir({ folder: "" }, "reviewer"), "C:\\Users\\amy\\reviewer");
-  H.home = "/Users/amy";
-  assert.deepEqual([["codex"], ["/usr/local/bin/codex", "-m", "x"], ["C:\\npm\\codex.cmd"], ["codex", "--no-daemon"], ["claude"], ["omp"], ["codexx"]].map(P.herdrArgv),
-    [["codex", "--no-daemon"], ["/usr/local/bin/codex", "--no-daemon", "-m", "x"], ["C:\\npm\\codex.cmd", "--no-daemon"], ["codex", "--no-daemon"], ["claude"], ["omp"], ["codexx"]]);
 });
-test("agents, a newer Herdr: cards are draggable (payload, its name as the label), no 放到 space… button; a drop runs kit place on the space's machine, then tab.new there with kit's command", async (M) => {
+test("agents, a newer Herdr: cards are draggable (payload, its name as the label), no 放到 space… button; a drop runs kit open on the space's machine, in a new tab in its folder", async (M) => {
   fresh();
   const space = { id: "box/s2", machine: "box", name: "proj", folder: "/home/amy/proj" };
   dropping([{ payload: "not one of ours", space }, { payload: M.place.dragPayload({ name: "reviewer", source: "team" }, "codex"), space }]);
-  placeKit(() => PLACED("/home/amy/proj/reviewer", ["codex"], ["Codex 不能只開某些內建工具：tools.only 不套用"]));
+  openKit(["box"]);
   const v = view(M, { role: "agents" }); await settle(); await tick();
-  const place = kitCalls("place");
-  assert.equal(place.length, 1, "the payload that isn't an agent card does nothing");
-  assert.deepEqual(place[0].argv.slice(-6), ["place", "reviewer", "/home/amy/proj/reviewer", "--tool", "codex", "--json"]);
-  assert.equal(place[0].on, "box");
-  assert.deepEqual(H.runs.filter((r) => r[0] === "tab.new"), [["tab.new", { name: "reviewer", space: "box/s2", folder: "/home/amy/proj/reviewer", argv: ["codex", "--no-daemon"], icon: logoPath(M, "reviewer") }]],
-    "Codex in Herdr: --no-daemon, so its commands run in Herdr's terminal");
+  assert.deepEqual(newTabs(), [["tab.new", { name: "reviewer", space: "box/s2", folder: "/home/amy/proj", argv: OPEN_ARGV("reviewer", "codex"), icon: logoPath(M, "reviewer") }]],
+    "the payload that isn't an agent card does nothing; Codex in Herdr: --no-daemon, so its commands run in Herdr's terminal");
+  assert.deepEqual(kitCalls("tab").filter((c) => c.on === "box").map(tabArgs), [["tab", "list", "--json"]], "kit tab list there first");
+  assert.equal(kitCalls("place").length, 0, "no kit place");
   assert.ok(H.writes.some(([p]) => p === `/Users/amy/.config/herdr-app/${logoPath(M, "reviewer")}`), "its logo's SVG is written first");
   const done = H.notes.at(-1);
-  assert.equal(done.level, "success"); assert.match(done.title, /reviewer 放到 proj 了/); assert.match(done.body, /⚠ Codex 不能只開/);
-  assert.equal(H.notes[0].level, "info", "progress first");
+  assert.equal(done.level, "success"); assert.match(done.title, /reviewer 放到 proj 了/); assert.match(done.body, /kit open/);
+  assert.equal(H.notes[0].level, "info", "progress first"); assert.equal(H.notes[0].body, "kit open codex --agent reviewer（在 box）");
   assert.equal(H.store["kit.busy"] ?? null, null, "the lock is given back");
   render(v);
   assert.deepEqual(H.drags.map((d) => d.slice(1)), [['{"agent":"reviewer","source":"team","tool":"claude"}', "reviewer"]], "one card, its payload and label");
-  assert.match(render(v), /拖到 Agents 或 Spaces 面板的 space 上/);
+  assert.match(render(v), /拖到 Agents 或 Spaces 面板的 space 上[\s\S]*kit open/);
   assert.doesNotMatch(render(v), /放到 space…/, "dragging says where: no 放到 space… button");
 });
 test("bots: a tab's icon is the logo cropped to a square just around the drawing (as big as the programs' icons); the page's logo keeps its room", ({ bots: B }) => {
@@ -2941,54 +2940,47 @@ test("place: the tab's own icon is the agent's logo; an older Herdr that doesn't
   assert.deepEqual(H.runs, [["tab.new", { name: "a", space: "s1" }]], "no logo: no icon");
   H.runFail = null;
 });
-test("place: one of each agent per space: dropped again where it already runs, its tab is shown, no kit place, no new tab, no toast", async (M) => {
+test("place: one of each agent per space: its running tab there (kit tab list) is shown, no new tab, no toast but the progress one; an agent Herdr hasn't heard from counts by the program in front", async (M) => {
   const P = M.place;
-  fresh();
   const s1 = { id: "s1", machine: null, name: "web", folder: "/Users/amy/web" };
-  H.agents = [{ address: "t9", space: "s1", tab: "tb9" }, { address: "t8", space: "s2", tab: "tb8" }];
-  H.terminals = [{ address: "t9", cwd: "/Users/amy/web/reviewer" }, { address: "t8", cwd: "/Users/amy/web/reviewer" }];
-  assert.deepEqual(P.openHere(s1, "/Users/amy/web/reviewer"), { tab: "tb9", address: "t9" });
-  assert.equal(P.openHere(s1, "/Users/amy/web/writer"), null, "another agent's folder");
-  assert.equal(P.openHere({ ...s1, id: "s3" }, "/Users/amy/web/reviewer"), null, "another space");
-  H.terminals = [{ address: "t9", cwd: "/Users/amy/web/reviewer/src" }];
-  assert.ok(P.openHere(s1, "/Users/amy/web/reviewer"), "under its folder counts");
-  H.terminals = [{ address: "t9", cwd: "/Users/amy/web/reviewer2" }];
-  assert.equal(P.openHere(s1, "/Users/amy/web/reviewer"), null, "a folder that only starts the same doesn't");
-  H.agents = [{ address: "w/t1", space: "w/s1", tab: "w/tb1" }]; H.terminals = [{ address: "w/t1", cwd: "C:\\Src\\Reviewer" }];
-  assert.ok(P.openHere({ id: "w/s1", machine: "w" }, "C:\\src\\reviewer"), "Windows paths: either slash, any case");
-  H.agents = [{ address: "b/t1", space: "b/s1", tab: "b/tb1" }]; H.terminals = [{ address: "b/t1", cwd: "/home/amy/reviewer" }];
-  assert.ok(P.openHere({ id: "b/s1", machine: "b", folder: "" }, "reviewer"), "a remote space without a folder: the agent's name");
+  const tabs = [{ tab: "t9", agent: "reviewer", live: true }, { tab: "t7", agent: "reviewer", live: true }];
+  fresh();
   // an agent that never reported to Herdr (agents() lacks it, or shows its shell): the program in front decides
   H.agents = [];
-  H.terminals = [{ address: "t7", cwd: "/Users/amy/web/reviewer", labels: { "herdr.space": "s1", "herdr.tab": "tb7" }, foreground: { argv: ["claude", "a question"] } }];
-  assert.deepEqual(P.openHere(s1, "/Users/amy/web/reviewer"), { tab: "tb7", address: "t7" }, "claude in front counts");
-  H.terminals = [{ address: "t7", cwd: "/Users/amy/web/reviewer", labels: { "herdr.space": "s1", "herdr.tab": "tb7" }, foreground: { argv: ["/bin/zsh"] } }];
-  assert.equal(P.openHere(s1, "/Users/amy/web/reviewer"), null, "a shell left in its folder doesn't");
+  H.terminals = [{ address: "t7", labels: { "herdr.space": "s1", "herdr.tab": "tb7" }, foreground: { argv: ["claude", "a question"] } }];
+  assert.deepEqual(P.tabHere(s1, "reviewer", tabs), { tab: "tb7", address: "t7" }, "claude in front counts");
+  H.terminals[0].foreground = { argv: ["/bin/zsh"] };
+  assert.equal(P.tabHere(s1, "reviewer", tabs), null, "a shell doesn't");
   // through placeAgent: shown, nothing else
-  H.agents = [{ address: "t9", space: "s1", tab: "tb9" }]; H.terminals = [{ address: "t9", cwd: "/Users/amy/web/reviewer" }];
+  openKit([], () => tabs);
+  H.agents = [{ address: "t9", space: "s1", tab: "tb9" }]; H.terminals = [{ address: "t9" }];
   assert.equal(P.placeAgent("reviewer", s1, "claude", cx), true);
   await settle();
   assert.deepEqual(H.runs, [["tab.select", { id: "tb9" }]]);
-  assert.equal(kitCalls("place").length, 0); assert.deepEqual(H.notes, []);
+  assert.equal(kitCalls("place").length, 0); assert.deepEqual(H.notes.filter((n) => n.level !== "info"), []);
   assert.match(H.store["kit.agents.msg"].text, /reviewer 已經在 web 開著了（t9）/);
-  assert.equal(H.store["kit.busy"] ?? null, null, "no lock taken");
+  assert.equal(H.store["kit.busy"] ?? null, null, "the lock is given back");
   // with a first message (the Gerrit panel's question): it goes to the one already there
   H.runs = [];
   H.hcAnswer = (a) => (a[0] === "send" ? { code: 0, stdout: "", stderr: "" } : null);
   assert.equal(P.placeAgent("reviewer", s1, "claude", cx, "Gerrit 面板", {}, "/gerrit-review 7"), true);
   await settle();
   assert.deepEqual(H.calls.filter((c) => c.argv[1] === "send").map((c) => c.argv), [["hc", "send", "t9", "/gerrit-review 7"]]);
-  assert.deepEqual(H.notes, [], "sent: nothing to say");
+  assert.deepEqual(newTabs(), []);
+  assert.deepEqual(H.notes.filter((n) => n.level !== "info"), [], "sent: nothing to say");
 });
 test("place: while dragging, the spaces where that agent already runs are refused (ids one per line, and the chip's text there)", async (M) => {
   const P = M.place;
   fresh();
   H.spaces = [{ id: "s1", name: "web", folder: "/Users/amy/web" }, { id: "s2", name: "api", folder: "/Users/amy/api" },
-    { id: "b/s3", machine: "b", name: "ops", folder: "/home/amy/ops" }];
-  H.agents = [{ address: "t9", space: "s1", tab: "tb9" }, { address: "b/t2", space: "b/s3", tab: "b/tb2" }, { address: "t7", space: "s2", tab: "tb7" }];
-  H.terminals = [{ address: "t9", cwd: "/Users/amy/web/reviewer" }, { address: "b/t2", cwd: "/home/amy/ops/reviewer/src" },
-    { address: "t7", cwd: "/Users/amy/api/writer" }];
-  assert.deepEqual(P.openSpaces("reviewer"), ["s1", "b/s3"], "where it runs; another agent's folder doesn't count");
+    { id: "b/s3", machine: "b", name: "ops", folder: "/home/amy/ops" }, { id: "o/s4", machine: "old", name: "old", folder: "/o" }];
+  H.agents = [{ address: "t9", space: "s1", tab: "tb9" }, { address: "b/t2", space: "b/s3", tab: "b/tb2" }, { address: "t7", space: "s2", tab: "tb7" },
+    { address: "old/t4", space: "o/s4", tab: "o/tb4" }];
+  openKit(["b"], (on) => (on === "b" ? [{ tab: "t2", agent: "reviewer", live: true }] : on === "old" ? [{ tab: "t4", agent: "reviewer", live: true }]
+    : [{ tab: "t9", agent: "reviewer", live: true }, { tab: "t7", agent: "writer", live: true }]));
+  H.store["kit.api.v1"].old = { ok: true, kind: "ok", api: "1.21", at: Date.now() };
+  for (const m of [null, "b", "old"]) await M.common.tabList(m);
+  assert.deepEqual(P.openSpaces("reviewer"), ["s1", "b/s3"], "where it runs, by the last kit tab list there; another agent's tab and an older kit's machine don't count");
   assert.deepEqual(P.openSpaces("tester"), []);
   dropping([]);   // a newer Herdr
   const el = (args) => ({ on_drag: (...a) => { args.push(a); return "dragged"; } });
@@ -3005,139 +2997,140 @@ test("agents: dropped at a place among the space's tabs (a newer Herdr's index),
     const space = { id: "s1", machine: null, name: "web", folder: "/Users/amy/web", index: 4 };
     H.runAnswer = (n) => (n === "tab.new" ? { space: "s1", tab: "tb7", terminal: "t7" } : null);
     dropping([{ payload: M.place.dragPayload({ name: "reviewer" }), space, index }]);
-    placeKit(() => PLACED("/Users/amy/web/reviewer", ["claude"], []));
+    openKit();
     view(M, { role: "agents" }); await settle(); await tick();
     assert.equal(H.runs[0][0], "tab.new");
     assert.deepEqual(H.runs.slice(1), moves, "the space's own index (its place among spaces) isn't the tab's");
   }
 });
-test("agents: a drop kit refuses (another agent's folder, an older kit): said in plain words, no tab opened", async (M) => {
-  const space = { id: "s1", machine: null, name: "web", folder: "/Users/amy/web" };
-  for (const [answer, want] of [[kitError("other_agent", "/Users/amy/web/reviewer 已經是 agent writer 的資料夾"), /另一個 agent 的資料夾[\s\S]*agent writer/],
-    [kitError("not_empty", "x"), /不是 kit 放的/], [{ code: 1, stdout: "", stderr: "kit: 沒有這個指令：place（打 kit help）\n" }, /kit 太舊，沒有 kit place：要 kit 0\.5\.0/]]) {
+test("agents: put in a space whose kit is older than 0.17.0 (kit api < 1.22): said to update kit there, no kit place, no tab, no lock; not known yet: kit api asked there first", async (M) => {
+  const P = M.place, now = Date.now();
+  for (const [machine, api, answer, want, asked] of [
+    [null, { "": { ok: true, kind: "ok", api: "1.21", at: now } }, "1.21", /^這台的 kit 太舊：要 kit 0\.17\.0 以上（在這台打 kit self-update）$/, false],
+    ["box", { box: { ok: true, kind: "ok", api: "1.3", at: now } }, "1.3", /^那台的 kit 太舊：要 kit 0\.17\.0 以上（在那台打 kit self-update）$/, false],
+    ["box", { box: { ok: false, kind: "old", api: null, at: now } }, null, /^那台的 kit 太舊/, false],
+    ["box", {}, "1.21", /^那台的 kit 太舊/, true]]) {
     fresh();
-    dropping([{ payload: M.place.dragPayload({ name: "reviewer" }), space }]);
-    placeKit(() => answer);
-    view(M, { role: "agents" }); await settle();
-    assert.equal(kitCalls("place")[0].on, null);
-    assert.equal(kitCalls("place")[0].argv.at(-4), "/Users/amy/web/reviewer");
-    assert.equal(H.runs.filter((r) => r[0] === "tab.new").length, 0);
+    fakeKit({ api: answer, agents: AGENTS }); H.store["kit.api.v1"] = api;
+    assert.equal(P.placeAgent("reviewer", { id: machine ? `${machine}/s1` : "s1", machine, name: "web", folder: "/w" }, "claude", cx), true);
+    if (!asked) assert.equal(H.store["kit.busy"] ?? null, null, "no lock taken");
+    await settle();
+    assert.equal(kitCalls("api").length, asked ? 1 : 0, machine ?? "here");
+    assert.deepEqual([kitCalls("place").length, kitCalls("tab").length, newTabs().length], [0, 0, 0]);
     const n = H.notes.at(-1);
-    assert.equal(n.level, "error"); assert.match(n.body, want);
+    assert.equal(n.level, "error"); assert.match(n.body, want); assert.match(H.store["kit.agents.msg"].text, want);
+    assert.equal(H.store["kit.busy"] ?? null, null);
   }
+  // not known yet, and no kit to ask: kit api's own words
+  fresh(); fakeKit({ missing: true }); H.store["kit.api.v1"] = {};
+  P.placeAgent("reviewer", { id: "s1", machine: null, name: "web", folder: "/w" }, "claude", cx); await settle();
+  assert.match(H.notes.at(-1).body, /找不到 kit/); assert.equal(newTabs().length, 0);
 });
-test("agents, an older Herdr (no nextDrop): nothing draggable, no drop loop; 放到 space… lists the spaces, a click places it there", async (M) => {
+test("agents, an older Herdr (no nextDrop): nothing draggable, no drop loop; 放到 space… lists the spaces, a click opens it there", async (M) => {
   fresh();
   H.spaces = [{ id: "s1", name: "web", machine: null, folder: "/Users/amy/web" }, { id: "w/s3", name: "win", machine: "winbox", folder: "C:\\src" }];
-  placeKit((a) => PLACED(a[2]));
+  openKit(["winbox"]);
   const v = view(M, { role: "agents" }); await settle(); await tick();
   let shown = render(v);
   assert.deepEqual(H.drags, []);
   assert.match(shown, /按「放到 space…」/); assert.doesNotMatch(shown, /拖到/);
   H.clicks["place-reviewer"]({}, cx);
   shown = render(v);
-  assert.match(shown, /web/); assert.match(shown, /winbox · C:\\src\\reviewer/);
+  assert.match(shown, /web/); assert.match(shown, /winbox · C:\\src/); assert.match(shown, /kit open --agent reviewer/);
   H.clicks["place-reviewer-w/s3"]({}, cx); await settle();
-  const c = kitCalls("place");
-  assert.equal(c.length, 1); assert.equal(c[0].on, "winbox"); assert.ok(c[0].argv.includes("C:\\src\\reviewer"));
-  assert.deepEqual(H.runs.find((r) => r[0] === "tab.new")[1], { name: "reviewer", space: "w/s3", folder: "C:\\src\\reviewer", argv: ["claude"], icon: logoPath(M, "reviewer") });
+  assert.deepEqual(kitCalls("tab").filter((c) => c.on === "winbox").map(tabArgs), [["tab", "list", "--json"]]);
+  assert.deepEqual(newTabs()[0][1], { name: "reviewer", space: "w/s3", folder: "C:\\src", argv: OPEN_ARGV(), icon: logoPath(M, "reviewer") });
   assert.ok(!ids(v).includes("place-reviewer-s1"), "the picker closes");
   render(v); H.clicks["place-reviewer"]({}, cx); render(v); H.clicks["place-cancel-reviewer"]({}, cx);
   assert.ok(!ids(v).includes("place-reviewer-s1"));
 });
-// a kit place that answers only when the test says (release), or never: the task waits on it as long as it likes
-function slowPlace() {
-  const s = { release: null };
-  placeKit((a) => new Promise((r) => { s.release = () => r(PLACED(a[2])); }));
-  return s;
-}
 const runTimers = async () => { for (const f of [...timers]) f(cx); await new Promise((r) => setTimeout(r, 20)); };
-test("agents: the panel closed while kit place runs (the task cancelled, no finally): its close gives the lock back and says the tab wasn't opened", async (M) => {
+test("agents: the panel closed while kit open is under way (the task cancelled, no finally): its close gives the lock back and says the tab wasn't opened", async (M) => {
   fresh();
   H.spaces = [{ id: "s1", name: "web", machine: null, folder: "/Users/amy/web" }];
-  placeKit(() => never());
+  openKit(); const s = slowTabs(true);
   const v = view(M, { role: "agents" }); await settle(); await tick();
-  render(v); H.clicks["place-reviewer"]({}, cx); render(v); H.clicks["place-reviewer-s1"]({}, cx);
+  s.armed = true; pickSpace(v);
   await cancelTasks();
-  assert.equal(kitCalls("place").length, 1);
+  M.common.markChanged(null);   // kit's reads under way are shared until a change: the next one isn't the one that never answers
   assert.equal(H.store["kit.busy"].label, "放 reviewer");
   assert.ok(v.part.mine, "its lock id kept by the copy");
   await v.close(cx);
   assert.equal(H.store["kit.busy"] ?? null, null, "not grey for 3 minutes");
   assert.equal(H.store["kit.agents.msg"].text, M.place.CLOSED_TEXT);
   assert.equal(H.store["kit.agents.msg"].ok, false);
-  assert.equal(H.notes.at(-1).level, "error"); assert.equal(H.notes.at(-1).body, "視窗關了，分頁沒開：再放一次（kit place 可以重跑）");
-  assert.equal(H.runs.filter((r) => r[0] === "tab.new").length, 0);
+  assert.equal(H.notes.at(-1).level, "error"); assert.equal(H.notes.at(-1).body, "視窗關了，分頁沒開：再放一次");
+  assert.equal(newTabs().length, 0);
 });
 test("agents window: a place is handed to the tab-bar button, so closing the window doesn't cancel it; no button: the window runs it itself; closed before anyone took it: said", async (M) => {
   fresh();
   const space = { id: "s1", name: "web", machine: null, folder: "/Users/amy/web" };
   H.spaces = [space];
-  let s = slowPlace();
+  openKit(); let s = slowTabs();
   const button = view(M, { role: "agents-toggle" });
   const win = view(M, { role: "agents", overlay: "o1" }); await settle(); await tick();
-  render(win); H.clicks["place-reviewer"]({}, cx); render(win); H.clicks["place-reviewer-s1"]({}, cx);
-  assert.equal(kitCalls("place").length, 0, "handed over, not run in the window");
+  s.armed = true; pickSpace(win);
+  assert.equal(H.store["kit.busy"] ?? null, null, "handed over, not run in the window");
   assert.equal(H.store["kit.place.ask"].length, 1);
   await runTimers();   // the button takes it
-  assert.equal(kitCalls("place").length, 1); assert.deepEqual(H.store["kit.place.ask"], []);
+  assert.deepEqual(H.store["kit.place.ask"], []);
   assert.equal(win.part.mine ?? null, null); assert.ok(button.part.mine, "the button holds the lock");
   await win.close(cx);
   assert.equal(H.store["kit.agents.msg"] ?? null, null, "nothing to say: the button has it");
   assert.equal(H.store["kit.busy"].label, "放 reviewer");
   s.release(); await settle();
-  assert.deepEqual(H.runs.find((r) => r[0] === "tab.new")[1], { name: "reviewer", space: "s1", folder: "/Users/amy/web/reviewer", argv: ["claude"], icon: logoPath(M, "reviewer") });
+  assert.deepEqual(newTabs()[0][1], { name: "reviewer", space: "s1", folder: "/Users/amy/web", argv: OPEN_ARGV(), icon: logoPath(M, "reviewer") });
   assert.equal(H.store["kit.busy"] ?? null, null);
-  assert.match(H.store["kit.agents.msg"].text, /在 \/Users\/amy\/web\/reviewer 開了 reviewer/);
+  assert.match(H.store["kit.agents.msg"].text, /在 web 開了 reviewer（kit open）/);
   H.afters.splice(0).forEach((f) => f(cx)); await settle();
-  assert.equal(kitCalls("place").length, 1, "the window's fallback finds it taken");
+  assert.equal(newTabs().length, 1, "the window's fallback finds it taken");
   // the button closed while it runs it: the same as any copy
-  fresh(); H.spaces = [space]; placeKit(() => never());
+  fresh(); H.spaces = [space]; openKit(); s = slowTabs(true);
   const b2 = view(M, { role: "agents-toggle" });
   const w2 = view(M, { role: "agents", overlay: "o1" }); await settle(); await tick();
-  render(w2); H.clicks["place-reviewer"]({}, cx); render(w2); H.clicks["place-reviewer-s1"]({}, cx);
+  s.armed = true; pickSpace(w2);
   await runTimers(); await cancelTasks();
+  M.common.markChanged(null);   // kit's reads under way are shared until a change: the next one isn't the one that never answers
   await b2.close(cx);
   assert.equal(H.store["kit.busy"] ?? null, null); assert.equal(H.store["kit.agents.msg"].text, M.place.CLOSED_TEXT);
   // no button (a layout without it): after ASK_WAIT the window runs it itself
-  fresh(); H.spaces = [space]; placeKit((a) => PLACED(a[2]));
+  fresh(); H.spaces = [space]; openKit();
   const w3 = view(M, { role: "agents", overlay: "o1" }); await settle(); await tick();
-  render(w3); H.clicks["place-reviewer"]({}, cx); render(w3); H.clicks["place-reviewer-s1"]({}, cx);
-  assert.equal(kitCalls("place").length, 0);
+  pickSpace(w3);
+  assert.equal(newTabs().length, 0);
   H.afters.splice(0).forEach((f) => f(cx)); await settle();
-  assert.equal(kitCalls("place").length, 1); assert.equal(H.runs.filter((r) => r[0] === "tab.new").length, 1);
+  assert.equal(newTabs().length, 1);
   assert.deepEqual(H.store["kit.place.ask"], []);
   // closed before anyone took it: taken back, said
-  fresh(); H.spaces = [space]; placeKit((a) => PLACED(a[2]));
+  fresh(); H.spaces = [space]; openKit();
   const w4 = view(M, { role: "agents", overlay: "o1" }); await settle(); await tick();
-  render(w4); H.clicks["place-reviewer"]({}, cx); render(w4); H.clicks["place-reviewer-s1"]({}, cx);
+  pickSpace(w4);
   await w4.close(cx);
   assert.deepEqual(H.store["kit.place.ask"], []); assert.equal(H.store["kit.agents.msg"].text, M.place.CLOSED_TEXT);
   const late = view(M, { role: "agents-toggle" }); await runTimers();
-  assert.equal(kitCalls("place").length, 0, "nobody runs it later");
+  assert.equal(newTabs().length, 0, "nobody runs it later");
   // an ask too old (Herdr quit before anyone took it) is dropped, never run
   H.store["kit.place.ask"] = [{ id: "x", agent: "reviewer", space, tool: "claude", label: "放到 space", at: Date.now() - M.place.ASK_OLD - 1 }];
   await runTimers();
-  assert.equal(kitCalls("place").length, 0); assert.deepEqual(H.store["kit.place.ask"], []);
+  assert.equal(newTabs().length, 0); assert.deepEqual(H.store["kit.place.ask"], []);
   void late;
 });
 test("another mod's place ask (the Gerrit panel's) with a first message: the tab-bar button runs it, tab.new carries it as task", async (M) => {
   fresh();
   const space = { id: "s1", name: "web", machine: null, folder: "/Users/amy/web" };
-  H.spaces = [space]; placeKit((a) => PLACED(a[2]));
+  H.spaces = [space]; openKit();
   view(M, { role: "agents-toggle" }); await settle(); await tick();
   H.store["kit.place.ask"] = [{ id: "g1", agent: "gerrit", space, tool: "claude", label: "Gerrit 面板", at: Date.now(), task: "/gerrit-review 7 2 https://g/c/p/+/7" }];
   await runTimers(); await settle();
-  assert.equal(kitCalls("place")[0].argv.at(-5), "gerrit");
-  assert.deepEqual(H.runs.find((r) => r[0] === "tab.new")[1],
-    { name: "gerrit", space: "s1", folder: "/Users/amy/web/gerrit", argv: ["claude"], task: "/gerrit-review 7 2 https://g/c/p/+/7", icon: logoPath(M, "gerrit") });
+  assert.deepEqual(newTabs()[0][1],
+    { name: "gerrit", space: "s1", folder: "/Users/amy/web", argv: OPEN_ARGV("gerrit"), task: "/gerrit-review 7 2 https://g/c/p/+/7", icon: logoPath(M, "gerrit") });
   assert.deepEqual(H.store["kit.place.ask"], []);
 });
-test("FEATURES: kit 0.5.0 (api 1.3) adds 貼上 MCP 設定, 各機器的核准和來源, 把 agent 放到 space", ({ machines: X }) => {
-  assert.deepEqual(X.FEATURES.filter((f) => f.api === "1.3").map((f) => [f.name, f.kit]),
-    [["貼上 MCP 設定", "0.5.0"], ["各機器的核准和來源", "0.5.0"], ["把 agent 放到 space", "0.5.0"]]);
-  assert.deepEqual(X.missing({ api: "1.2" }, { api: [1, 3] }).lacks.map((f) => f.name), ["貼上 MCP 設定", "各機器的核准和來源", "把 agent 放到 space"]);
+test("FEATURES: kit 0.5.0 (api 1.3) adds 貼上 MCP 設定, 各機器的核准和來源; kit 0.17.0 (api 1.22) 把 agent 放到 space", ({ machines: X }) => {
+  assert.deepEqual(X.FEATURES.filter((f) => f.api === "1.3").map((f) => [f.name, f.kit]), [["貼上 MCP 設定", "0.5.0"], ["各機器的核准和來源", "0.5.0"]]);
+  assert.deepEqual(X.missing({ api: "1.2" }, { api: [1, 3] }).lacks.map((f) => f.name), ["貼上 MCP 設定", "各機器的核准和來源"]);
   assert.deepEqual(X.missing({ api: "1.13" }, { api: [1, 14] }).lacks, [{ name: "版本和舊版", kit: "0.9.0" }], "kit 0.9.0 (api 1.14)");
+  assert.deepEqual(X.missing({ api: "1.21" }, { api: [1, 22] }).lacks, [{ name: "把 agent 放到 space", kit: "0.17.0" }], "kit 0.17.0 (api 1.22)");
 });
 
 // ---------- 倉庫 → MCP → ＋ 新增 → 貼上設定 (kit new mcp --config <file>) ----------
@@ -3512,7 +3505,7 @@ machinesTest("各機器: what a row lacks is named (no counts), from the api tab
   // a kit newer than the table knows: said as that kit's new things
   const t2 = X.newest([...rows, { state: "ok", kit: "0.6.0", api: "1.4" }]);
   assert.deepEqual(X.missing({ api: "1.3" }, t2), { lacks: [{ name: "kit 0.6.0 的新功能", kit: "0.6.0" }], kit: "0.6.0" });
-  assert.deepEqual(X.missing(rows[0], t2).lacks.map((f) => f.name), ["貼上 MCP 設定", "各機器的核准和來源", "把 agent 放到 space", "kit 0.6.0 的新功能"]);
+  assert.deepEqual(X.missing(rows[0], t2).lacks.map((f) => f.name), ["貼上 MCP 設定", "各機器的核准和來源", "kit 0.6.0 的新功能"]);
   assert.equal(X.atApproved({ self: { commit: SHA("a"), approved: SHA("a") }, sources: [{ commit: SHA("b"), approved: SHA("b") }, { commit: SHA("c"), approved: null }] }), true);
   assert.equal(X.atApproved({ self: { commit: SHA("a"), approved: SHA("e") }, sources: [] }), false);
   assert.equal(X.atApproved({ self: { commit: SHA("a"), approved: null }, sources: [] }), null);

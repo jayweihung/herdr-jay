@@ -12,6 +12,20 @@ which) · **core** / **app** = rebuild · **keys** = see [docs/keys.md](docs/key
 Each mod also keeps its own `CHANGES.md` (shown in the mod as its version and 改動紀錄): when a change to a mod is
 user-visible, add a bullet under a new or current version at the top of that mod's `CHANGES.md`.
 
+## 2026-11-28, kit mod 1.23, Gerrit 1.5, 熱門 1.10: kit place is gone (kit 0.18.0); an agent in a space is a kit open tab
+
+Needs: **mods**, **gerrit** (if you installed it). **kit** 0.17.0 or newer on the machines whose spaces you put agents
+in (kit 0.18.0 has no `kit place`).
+
+- Kit mod 1.23: dragging an agent onto a space (or 放到 space…) always opens a new tab there with
+  `kit open <tool> --agent <name> --tab-env HC_TERMINAL_ID`, in the space's folder. A machine whose kit is older than
+  0.17.0 is told 「那台的 kit 太舊：要 kit 0.17.0 以上（在那台打 kit self-update）」 and nothing opens. docs/kit.md §把 agent 放到 space.
+- A folder an older kit placed an agent in (`agent:` in its `.agentkit`) becomes a plain folder at kit 0.18's next
+  `kit sync`: its rules, skills and MCP stay, as the folder's own.
+- Gerrit 1.5 and 熱門 1.10 find their kit gerrit / trend agent by `kit tab list --json` (a tab `kit open --agent` started,
+  still running), asked every 15 seconds in the background, not by a folder's `.agentkit`.
+- 把 agent 拖到 space 一律用 `kit open` 開新分頁（要 kit 0.17.0）；以前放過的資料夾，kit 0.18 同步後變普通資料夾。Gerrit、熱門面板改看 `kit tab list` 找它們的 agent。
+
 ## 2026-11-27, kit mod 1.21: 「Kit：~/ai」 in a space's right-click menu (app patch 0035)
 
 Needs: **app** (rebuild with `herdr-app/patches/v0.1.18`, now 35 patches), **mods**. Without the new app the mod works

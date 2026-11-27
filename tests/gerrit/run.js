@@ -822,7 +822,7 @@ test("check systems: bot messages on the current patch set under the requirement
   assert.deepEqual(g.systemsOf(c).map((s) => s.name).sort(), ["ci_build", "ci_test"], "gerrit.json bots picks the accounts");
 });
 
-test("ask an agent: only Gerrit agents are listed (a kit gerrit agent by its folder, one opened from gerrit.json); a preset prompt goes by hc send, then focus", async (G) => {
+test("ask an agent: only Gerrit agents are listed (a kit gerrit agent by kit tab list, one opened from gerrit.json); a preset prompt goes by hc send, then focus", async (G) => {
   setConfig(LOGIN); const g = freshView(G); g.cfg = await g.readConfig();
   H.store["gerrit.cfg.v1"] = { url: "https://gerrit.test", auth: true }; delete H.store["gerrit.agents.v1"]; delete H.store["kit.agents.data.v1"];
   H.opened = []; H.runs = []; H.afters = [];
@@ -851,13 +851,23 @@ test("ask an agent: only Gerrit agents are listed (a kit gerrit agent by its fol
   assert.deepEqual(H.opened.at(-1), ["hc", "send", "t3w", "/gerrit-panel:review 7"], "a gerrit.json agent has the plugin's skills");
   assert.deepEqual(H.runs.at(-1), ["agent.focus", { terminal: "t3w" }]);
   assert.equal(g.ask.sent, "R");
-  // a kit gerrit agent: found by its folder's .agentkit (read in the background), this space's first, given kit skill names
-  const dir = mkdtempSync(join(tmpdir(), "gerrit-kit-"));
-  writeFileSync(join(dir, ".agentkit"), "# kit\nagent:gerrit\ntool:claude\n");
-  H.agents = [{ address: "t3w", title: "x", space: "s2" }, { address: "t5", title: "gerrit", space: "s1" }];
-  H.terminals = [{ address: "t5", cwd: join(dir, "src") }, { address: "t3w", cwd: "/w" }];
-  g.agentList(); await new Promise((r) => setTimeout(r, 20));
-  assert.deepEqual(g.agentList().map((x) => [x.address, x.kit]), [["t5", true], ["t3w", false]], "this space's first");
+  // a kit gerrit agent: a tab kit open started with it, still running, by kit tab list on its machine (asked in the
+  // background, kitTick); this space's first, given kit skill names
+  const tabs = (m) => JSON.stringify({ tabs: m ? [{ tab: "t2", agent: "gerrit", live: true }]
+    : [{ tab: "t5", agent: "gerrit", live: true }, { tab: "t6", agent: "gerrit", live: false }, { tab: "t7", agent: "writer", live: true }] });
+  H.execAnswer = (cmd, args, opts) => (cmd === "sh" && args.slice(-3).join(" ") === "tab list --json" ? { code: 0, stdout: tabs(opts?.on), stderr: "" } : null);
+  H.agents = [{ address: "t3w", title: "x", space: "s2" }, { address: "t5", title: "gerrit", space: "s1" }, { address: "t6", title: "old", space: "s1" },
+    { address: "t7", title: "writer", space: "s1" }, { address: "b/t2", title: "far", space: "b/s1" }];
+  H.terminals = ["t5", "t3w", "t6", "t7", "b/t2"].map((address) => ({ address, cwd: "/w" }));
+  H.execs = [];
+  assert.deepEqual(g.agentList().map((x) => x.address), ["t3w"], "not read yet: drawing asks nothing");
+  assert.equal(H.execs.length, 0);
+  await g.kitTick();
+  assert.deepEqual(H.execs.map((x) => x.slice(-3).join(" ")), ["tab list --json", "tab list --json"], "this computer and machine b");
+  assert.deepEqual(g.agentList().map((x) => [x.address, x.kit]), [["t5", true], ["t3w", false], ["b/t2", true]], "this space's first; a stopped tab and another agent's don't count");
+  await g.kitTick(); assert.equal(H.execs.length, 2, "asked again only after a while");
+  H.agents = H.agents.slice(0, 2); H.execAnswer = null;
+  assert.deepEqual(g.agentList().map((x) => [x.address, x.kit]), [["t5", true], ["t3w", false]]);
   g.agentAddr = null; g.save("agent", "");
   await g.askAgent(c, { label: "R", text: "/gerrit-panel:review {change}" }, cx);
   assert.deepEqual(H.opened.at(-1), ["hc", "send", "t5", "/gerrit-review 7"]);
@@ -875,7 +885,6 @@ test("ask an agent: only Gerrit agents are listed (a kit gerrit agent by its fol
   await g.askAgent(c, { label: "R", text: "/gerrit-panel:review {change}" }, cx);
   assert.deepEqual(H.opened.at(-1), ["hc", "send", "t3w", "/gerrit-panel:review 7"]);
   g.agentAddr = null;
-  rmSync(dir, { recursive: true, force: true });
   // a fresh copy (another tab) sees the remembered one too; when its pane is closed it is forgotten
   const kept = H.store; const g2 = freshView(G); H.store = kept; g2.cfg = g.cfg;
   H.agents = [{ address: "t3w", title: "x", space: "s2" }];

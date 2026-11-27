@@ -1,19 +1,13 @@
 // Put an agent in a space, from the Agents panel (agents.js): its card dragged onto a space (Herdr's drag API, a newer
-// Herdr only: on_drag / nextDrop), or 放到 space… and a space picked (every Herdr). On the space's machine, with kit
-// 0.17.0 there (api 1.22):
+// Herdr only: on_drag / nextDrop), or 放到 space… and a space picked (every Herdr). On the space's machine, which needs
+// kit 0.17.0 there (api 1.22; an older kit is told to update, nothing opened):
 //   tab.new { space, folder, argv: kit open <tool> --agent <agent> --tab-env HC_TERMINAL_ID }   a new tab in the space's
 //                                                                     own folder, with its own copy of what the agent has
 //                                                                     (kit tab: gone when the tab closes, tabTick)
-// and "already there" is a tab kit tab list --json has for that agent, still running, in that space. An older kit:
-//   kit place <agent> <space folder>/<agent> --tool <tool> --json   that folder becomes the agent (kit 0.5.0, api 1.3):
-//                                                                     its rules, skills, MCP, prompt and tool limits
-//   tab.new { space, folder, argv, icon }                            a new tab there runs the command kit gave (claude,
-//                                                                     codex --no-daemon, omp): started in that folder,
-//                                                                     it is that agent
-// After that the folder is changed like any other, with 加到這個資料夾 / 從資料夾拿掉 in its Kit list; several agents
-// dragged are several folders. One of each agent per space: dropping it again where it already runs shows that tab, and
-// a newer Herdr shows it while dragging (on_drag's refuse: those spaces dim, the chip says so, the pointer says no, and
-// the drop does nothing there).
+// After that the tab's copy is changed with 加到這個分頁 / 拿掉 in its Kit list. One of each agent per space: a tab kit
+// tab list --json has for that agent, still running, in that space, is shown instead of opening another, and a newer
+// Herdr shows it while dragging (on_drag's refuse: those spaces dim, the chip says so, the pointer says no, and the drop
+// does nothing there).
 // The drag API is looked up at run time (import * as host): an older Herdr has no nextDrop and no on_drag, and then
 // only the button is there.
 // A copy's unfinished work is cancelled when it closes (never settles: no finally). The Agents window is closed
@@ -21,14 +15,14 @@
 // (PLACE_ASK) and runs it itself only when no button took it; whichever copy runs it holds the lock in owner.mine, and
 // its close gives the lock back and says the tab wasn't opened (placeClosed).
 import * as host from "herdr";
-import { run, notify, home, shared, setShared, agents, terminals, spaces, machines } from "herdr";
-import { AGENTS_DATA, AGENTS_MSG, PLACE_ASK, kit, kitJson, isWindows, busyNow, takeBusy, giveBusy, markChanged, apiAtLeast, tabList, TABS } from "./common.js";
+import { run, notify, shared, setShared, agents, terminals, spaces, machines } from "herdr";
+import { AGENTS_DATA, AGENTS_MSG, PLACE_ASK, kit, isWindows, busyNow, takeBusy, giveBusy, markChanged, apiAtLeast, apiState, askApi, tabList, TABS } from "./common.js";
 import { pickBot, botFile } from "./bots.js";
 
 export const PLACE_TTL = 180000;
 export const ASK_WAIT = 1500;    // a window's place no button took by then: the window runs it itself
 export const ASK_OLD = 10000;    // an ask older than this is dropped, never run (its window is long gone)
-export const CLOSED_TEXT = "視窗關了，分頁沒開：再放一次（kit place 可以重跑）";
+export const CLOSED_TEXT = "視窗關了，分頁沒開：再放一次";
 const TAB_API = 22;   // kit 0.17.0: kit open --tab, kit tab
 const TOOLS = ["claude", "codex", "omp"];
 const NAME = /^[a-z0-9][a-z0-9-]*$/;   // kit's names
@@ -57,35 +51,16 @@ export function readPayload(p) {
   return { agent: j.agent, tool: TOOLS.includes(j.tool) ? j.tool : "claude" };
 }
 
-// Where kit place makes the folder: <space folder>/<agent>, written the way that machine writes paths (\ on Windows).
-// A space without a folder starts in its machine's home: this computer's home(); another machine's is not known here,
-// so the agent's name alone, which kit (started in that machine's home) takes from there.
-const looksWindows = (p) => /^[A-Za-z]:([\\/]|$)|^\\\\/.test(p) || (p.includes("\\") && !p.includes("/"));
-function join(dir, name, win) {
-  const d = win ? String(dir).replace(/\//g, "\\") : String(dir);
-  return d.replace(/[\\/]+$/, "") + (win ? "\\" : "/") + name;
-}
-export function placeDir(space, agent) {
-  const f = String(space?.folder ?? "");
-  if (!f) return space?.machine ? agent : join(home(), agent, isWindows());
-  return join(f, agent, space?.machine ? looksWindows(f) : isWindows());
-}
-
 // The agent's logo as its tab's own icon in Herdr's lists (a newer Herdr: tab.new {icon}; an older one says it doesn't
 // know icon, and the tab opens without it): the one its file names, else the one its name picks, as in the Kit list
 async function agentIcon(agent) {
   const a = (shared(AGENTS_DATA)?.agents ?? []).find((x) => x?.name === agent);
   return botFile(a?.bot ?? pickBot(agent));
 }
-// Codex in Herdr runs with --no-daemon (herdr-core's guide; Herdr's own programs.json starts it so): without it a
-// Codex may hand its commands to its shared background server, outside Herdr's terminal (Herdr then doesn't see them
-// run, and the panel can't find its background terminals or sub-agents). Added to kit's command when it lacks it.
-export function herdrArgv(cmd) {
-  const a = (cmd ?? []).map(String);
-  return /(^|[\\/])codex(\.exe|\.cmd)?$/i.test(a[0] ?? "") && !a.includes("--no-daemon") ? [a[0], "--no-daemon", ...a.slice(1)] : a;
-}
 // kit 0.17 (api 1.22): the tool through kit open, in a tab of its own (HC_TERMINAL_ID, Herdr's id of the new terminal,
-// names its copy); agent: what the tab starts with. win: kit.cmd (a Windows machine), through cmd as kit run's (agents.js)
+// names its copy); agent: what the tab starts with. win: kit.cmd (a Windows machine), through cmd as kit run's (agents.js).
+// Codex in Herdr runs with --no-daemon (herdr-core's guide; Herdr's own programs.json starts it so): without it a Codex
+// may hand its commands to its shared background server, outside Herdr's terminal (Herdr then doesn't see them run).
 export function openArgv(tool, agent = null, win = false) {
   const a = ["open", tool, ...(agent ? ["--agent", agent] : []), "--tab-env", "HC_TERMINAL_ID", ...(tool === "codex" ? ["--", "--no-daemon"] : [])];
   return win ? ["cmd.exe", "/d", "/c", "kit.cmd", ...a] : ["kit", ...a];
@@ -98,24 +73,9 @@ export function openTab(args, icon) {
   return run("tab.new", args);
 }
 
-// The agent already running in that space, in its folder (dir: placeDir's): -> { tab, address }, else null. A space
-// has one of each agent: dropping it again shows that one, it doesn't open another. (A space without a folder on
-// another machine: dir is the agent's name alone, so a folder ending in it.)
-export function openHere(space, dir, live = liveNow()) {
-  const win = looksWindows(String(dir));
-  const norm = (p) => { const s = String(p ?? "").replace(/\\/g, "/").replace(/\/+$/, ""); return win ? s.toLowerCase() : s; };
-  const want = norm(dir), rel = !/^([A-Za-z]:)?\//.test(want);
-  const at = (cwd) => {
-    const c = norm(cwd);
-    if (!c || !want) return false;
-    return rel ? c.endsWith(`/${want}`) || c.includes(`/${want}/`) : c === want || c.startsWith(`${want}/`);
-  };
-  const a = live.agents.find((x) => x?.space === space?.id && at(live.cwds.get(x.address)));
-  return a ? { tab: a.tab, address: a.address } : null;
-}
-// the running agents and every terminal's folder, read once for several openHere. An agent that never sent Herdr a
-// status report shows as its shell in agents() (kit place starts it inside the user's shell) or not at all: a terminal
-// whose program in front is claude / codex / omp counts too, so a place doesn't open a second one beside it.
+// the running agents and every terminal's folder, read once for several tabHere. An agent that never sent Herdr a
+// status report shows as its shell in agents() or not at all: a terminal whose program in front is claude / codex /
+// omp counts too, so a place doesn't open a second one beside it.
 const AGENT_PROGRAM = /^(claude|codex|omp|pi)(\.exe|\.cmd)?$/i;
 export const runsAgent = (t) => AGENT_PROGRAM.test(String(t?.foreground?.argv?.[0] ?? "").split(/[\\/]/).pop());
 export function liveNow() {
@@ -131,28 +91,15 @@ export function tabHere(space, agent, tabs, live = liveNow()) {
   const a = ids.size ? live.agents.find((x) => x?.space === space?.id && ids.has(String(x.address).split("/").pop())) : null;
   return a ? { tab: a.tab, address: a.address } : null;
 }
-// the ids of the spaces where that agent already runs (kit 0.17 there: by the last kit tab list read, TABS)
+// the ids of the spaces where that agent already runs (by the last kit tab list read there, TABS)
 export function openSpaces(agent, live = liveNow()) {
-  return (spaces() ?? []).filter((s) => s?.id && (apiAtLeast(s.machine ?? null, TAB_API) ? tabHere(s, agent, TABS.get(s.machine ?? ""), live)
-    : openHere(s, placeDir(s, agent), live))).map((s) => s.id);
+  return (spaces() ?? []).filter((s) => s?.id && apiAtLeast(s.machine ?? null, TAB_API) && tabHere(s, agent, TABS.get(s.machine ?? ""), live)).map((s) => s.id);
 }
 
-// kit's error codes (kit place --json) in plain words
-const ERRORS = {
-  other_agent: "那裡已經是另一個 agent 的資料夾",
-  not_empty: "那裡已經有一個資料夾，裡面有東西，不是 kit 放的：kit 不會動它",
-  no_parent: "這個 space 的資料夾在那台找不到",
-  no_agent: "那台的 kit 來源裡沒有這個 agent：先在那台同步（kit sync）",
-  bad_dir: "不能放在這裡",
-  not_init: "那台還沒設定 kit：先在那台打  kit init <團隊來源的網址>",
-  busy: "那台的 kit 正在忙（例如同步中）：等一下再試一次",
-};
-function placeError(error, r, machine) {
-  if (/沒有這個指令/.test(`${r?.err ?? ""}\n${error.message}`))
-    return `${machine ? `${machine} 上` : "這台"}的 kit 太舊，沒有 kit place：要 kit 0.5.0 以上（在那台打  kit self-update）。`;
-  const plain = ERRORS[error.code];
-  return plain ? `${plain}。\n${error.message}` : error.message;
-}
+// kit there is older than 0.17.0 (it has no kit open --agent)
+const tooOld = (machine) => `${machine ? "那台" : "這台"}的 kit 太舊：要 kit 0.17.0 以上（在${machine ? "那台" : "這台"}打 kit self-update）`;
+// kit api's answer there says kit is older than kit open
+const knownOld = (machine) => { const a = apiState(machine); return (a?.ok || a?.kind === "old") && !apiAtLeast(machine, TAB_API); };
 
 // the outcome, in the Agents panel's message and as a toast
 function sayer(agent, where, label) {
@@ -162,11 +109,6 @@ function sayer(agent, where, label) {
   };
 }
 
-// kit place on the space's machine, then a tab there in the folder kit made, running the command kit gave. Progress
-// and the outcome as toasts, and in the Agents panel's message. One kit action at a time (the mod's lock, its id in
-// owner.mine and the place in owner.placeRun while it runs, so owner's close can give it back: placeClosed).
-// -> false when another action holds the lock (said so)
-// task: the agent's first message (tab.new's task), e.g. a question the Gerrit panel asks a gerrit agent it had to open
 // the one already there: its tab shown, the first message (task) sent to it
 function showThere(there, agent, where, label, task, say) {
   try { run("tab.select", { id: there.tab }); } catch { /* the tab went away meanwhile: still said */ }
@@ -183,7 +125,7 @@ function moveTab(space, opened) {
     try { run("tab.move", { id: opened.tab, index: space.at }); } catch { /* it stays last */ }
   }
 }
-// kit 0.17 there: the agent's running tab in this space shown, else a new tab in the space's folder through kit open
+// the agent's running tab in this space shown, else a new tab in the space's folder through kit open
 async function openInTab(agent, space, tool, task, say, label) {
   const where = space?.name || "這個 space", machine = space?.machine ?? null;
   const got = await tabList(machine);
@@ -199,33 +141,28 @@ async function openInTab(agent, space, tool, task, say, label) {
     "之後在它的 Kit 清單按「加到這個分頁」或「拿掉」，只改這個分頁。"].join("\n"));
 }
 
+// kit open on the space's machine in a new tab there (the agent's tab there shown instead when it runs). Progress and
+// the outcome as toasts, and in the Agents panel's message. One kit action at a time (the mod's lock, its id in
+// owner.mine and the place in owner.placeRun while it runs, so owner's close can give it back: placeClosed). A kit
+// there that kit api says is older than 0.17.0: said so, no lock, no tab; not known yet: kit api asked first.
+// task: the agent's first message (tab.new's task), e.g. a question the Gerrit panel asks a gerrit agent it had to open.
+// -> false when another action holds the lock (said so)
 export function placeAgent(agent, space, tool, cx, label = "放到 space", owner = {}, task = null) {
   const where = space?.name || "這個 space", machine = space?.machine ?? null;
-  const say = sayer(agent, where, label), tabs = apiAtLeast(machine, TAB_API);
-  const there = !tabs && openHere(space, placeDir(space, agent));
-  if (there) { showThere(there, agent, where, label, task, say); return true; }
+  const say = sayer(agent, where, label);
+  if (knownOld(machine)) { say(false, tooOld(machine)); return true; }
   const id = takeBusy(`放 ${agent}`, PLACE_TTL);
   if (!id) { say(false, "另一個 kit 動作還在跑，等它跑完再試一次。"); return false; }
   owner.mine = id;
   owner.placeRun = { agent, where, label };
-  const dir = placeDir(space, agent);
-  notify({ title: `把 ${agent} 放到 ${where}…`, body: tabs ? `kit open ${tool} --agent ${agent}${machine ? `（在 ${machine}）` : ""}` : `kit place ${agent} ${dir}${machine ? `（在 ${machine}）` : ""}`, level: "info", timeout: 3000 });
+  notify({ title: `把 ${agent} 放到 ${where}…`, body: `kit open ${tool} --agent ${agent}${machine ? `（在 ${machine}）` : ""}`, level: "info", timeout: 3000 });
   cx.spawn(async (cx) => {
     try {
-      if (tabs) { await openInTab(agent, space, tool, task, say, label); return; }
-      const r = await kit(["place", agent, dir, "--tool", tool, "--json"], PLACE_TTL, machine);
-      const { data, error } = kitJson(r, "kit place");
-      if (error) { say(false, placeError(error, r, machine)); return; }
-      const cmd = herdrArgv(Array.isArray(data.command) && data.command.length && data.command.every((x) => typeof x === "string") ? data.command : [tool]);
-      const folder = typeof data.dir === "string" && data.dir ? data.dir : dir;
-      const icon = await agentIcon(agent);
-      let opened;
-      try { opened = openTab({ name: agent, space: space.id, folder, argv: cmd, ...(task ? { task: String(task) } : {}) }, icon); }
-      catch (e) { say(false, `資料夾做好了（${folder}），但開不了分頁：${e?.message ?? e}`); return; }
-      moveTab(space, opened);
-      const warns = (Array.isArray(data.warnings) ? data.warnings : []).filter((w) => typeof w === "string");
-      say(true, [`在 ${folder} 開了 ${agent}：在那裡開的 ${cmd[0]} 就是它。`,
-        "之後在它的 Kit 清單按「加到這個資料夾」或「從資料夾拿掉」，只改這個資料夾。", ...warns.map((w) => `⚠ ${w}`)].join("\n"));
+      if (!apiAtLeast(machine, TAB_API)) {
+        await askApi(machine);
+        if (!apiAtLeast(machine, TAB_API)) { say(false, knownOld(machine) ? tooOld(machine) : apiState(machine)?.text || tooOld(machine)); return; }
+      }
+      await openInTab(agent, space, tool, task, say, label);
     } finally {
       giveBusy(id);
       if (owner.mine === id) owner.mine = null;

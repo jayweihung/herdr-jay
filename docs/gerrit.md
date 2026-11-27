@@ -308,8 +308,9 @@ dispatches (it ends in seconds), its log names the job it triggers: that one goe
 
 ## 7. Ask an agent / 問 agent
 
-A change's page has a **問 agent** card. It offers only agents with the Gerrit tools: a **kit gerrit agent** (one put
-in a space from the Kit panel: its folder's `.agentkit` says `agent:gerrit`, see below) or one the panel opened from
+A change's page has a **問 agent** card. It offers only agents with the Gerrit tools: a **kit gerrit agent** (a tab
+`kit open --agent gerrit` started, still running: the panel asks `kit tab list --json` on each machine every 15
+seconds; kit 0.17.0) or one the panel opened from
 `gerrit.json`'s `agent.start` (§8). Any other agent may lack the tools, and a request it can't do would look like it
 went through. This space's agents come first. Press a preset and the panel sends the picked agent a ready-made request
 about this change with `hc send`, then brings it to the front.
@@ -317,7 +318,7 @@ about this change with `hc send`, then brings it to the front.
 **Pick the question first.** The presets work even with no Gerrit agent open: the panel then opens one **in the space
 you are in** and gives it the question as its first message (`tab.new`'s `task`), so it answers as soon as it's up;
 nothing to press twice. With a gerrit agent in your kit sources (the Kit panel lists it), it is put in this space like
-a drag from the Kit panel (`kit place`, its own `…/gerrit` folder, one per space; the Kit button must be in the layout:
+a drag from the Kit panel (`kit open --agent gerrit` in a new tab, one per space; the Kit button must be in the layout:
 it does the work); otherwise `agent.start` opens it. Neither: the card says how to set one up. Presets: **Review**, **整理留言**, **為什麼沒過**, **幫我回覆**, **深入 Review**. Each one calls a skill
 (`/gerrit-panel:review 7 3 <url>` and so on) from the `gerrit-panel` plugin that comes with the mod
 ([herdr-app/mods/gerrit/claude-plugin](../herdr-app/mods/gerrit/claude-plugin/skills)): how to do the job is written in the skill, the button only says
@@ -340,8 +341,8 @@ it runs nothing from the change (no build, tests or scripts) and changes nothing
 「深入 Review」不只看改過的檔：還找誰呼叫、類似的程式、測試、架構。面板先像「在 nvim 看」一樣把這一版放到本機資料夾
 （不開 nvim），好了才問 agent；已經下載過就直接問。agent 只讀那個資料夾，不跑裡面的程式、不改檔案。
 
-「問 agent」只列出有 Gerrit 工具的 agent：kit 的 gerrit agent（從 Kit 面板放進 space 的，資料夾的 `.agentkit` 寫著
-`agent:gerrit`），或面板用 gerrit.json 的 `agent.start` 開的；這個 space 的排前面。別的 agent 不列，免得以為送出去就會做。
+「問 agent」只列出有 Gerrit 工具的 agent：kit 的 gerrit agent（`kit open --agent gerrit` 開的分頁、還在跑：面板每 15 秒問一次各台的
+`kit tab list --json`，要 kit 0.17.0），或面板用 gerrit.json 的 `agent.start` 開的；這個 space 的排前面。別的 agent 不列，免得以為送出去就會做。
 **先選問題**：還沒有 Gerrit agent 也能按，面板會在你現在這個 space 開一個，把問題當第一句話帶進去，開好就回答。kit 來源有
 gerrit agent 就用它（跟從 Kit 面板拖進來一樣，版面裡要有 Kit 按鈕），沒有就用 `agent.start`。
 按了就用 hc send 叫它用對應的 skill 處理這個 change（例如 `/gerrit-panel:review 7 3 網址`，kit 的 gerrit agent 是

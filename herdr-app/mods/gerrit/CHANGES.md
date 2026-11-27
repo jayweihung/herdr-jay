@@ -1,5 +1,8 @@
 # 改動紀錄
 
+## 1.5（2026-11-28）
+- 找 kit 的 gerrit agent 改看 `kit tab list`（經過 kit open 開、還在跑的分頁），不再看資料夾的 `.agentkit`（kit 0.18.0 拿掉了放資料夾）。要 kit 0.17.0 以上
+
 ## 1.4（2026-11-16）
 - 「深入 Review」：先下載這個 change 的程式碼，再讓 agent 深入審查
 - 面板重新載入、重開或重開 Herdr 後，回到你上次看的地方

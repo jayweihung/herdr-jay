@@ -17,10 +17,11 @@ const SHIPPED = ["main", "terminals", "win98"]; // Herdr's own layouts: read-onl
 const PROMPTS_KEY = "gerrit.prompts.v1"; // presets edited in the panel (✎), over gerrit.json and the built-in ones
 const AGENTS_KEY = "gerrit.agents.v1"; // addresses of agents this panel opened from gerrit.json's agent.start
 // The Kit panel's (mods/kit): the agents its sources have (kit agents --json), and the places it is asked to make. A
-// kit agent named gerrit, placed in a space, is a folder whose .agentkit says agent:gerrit (kit place).
+// kit agent named gerrit runs in a tab kit open started (kit 0.17.0): kit tab list --json has it (kitTabIds).
 const KIT_AGENTS = "kit.agents.data.v1";
 const KIT_PLACE_ASK = "kit.place.ask";
 const KIT_TAKEN_WAIT = 8000;   // a place ask the Kit panel hasn't taken by then: nobody will (no Kit button in the layout)
+const KIT_EVERY = 15000;       // how often kit tab list is asked on each machine with terminals (kitTick)
 // The presets call the gerrit-panel plugin's skills (/gerrit-panel:review); a kit gerrit agent has them as kit skills
 // (gerrit-review). Each tool calls a skill its own way: Claude Code /gerrit-review (a plugin's /gerrit-panel:review),
 // Codex $gerrit-review, omp /skill:gerrit-review (a plugin's /skill:gerrit-panel/review). Codex has no --plugin-dir:
@@ -37,8 +38,23 @@ function skillFor(text, tool, kit) {
     tool === "codex" ? `$gerrit-${name}` : tool === "omp" ? (kit ? `/skill:gerrit-${name}` : `/skill:gerrit-panel/${name}`)
     : kit ? `/gerrit-${name}` : `/gerrit-panel:${name}`);
 }
-// Whether a folder's .agentkit (kit place) makes it the gerrit agent's
-const isGerritKit = (text) => /^agent:gerrit[ \t]*$/m.test(String(text ?? ""));
+// kit tab list --json on that machine (null: this computer), run as the Kit panel runs kit: through sh, kit from PATH or
+// ~/.local/bin, else kit.cmd (Windows; tried first on a Windows computer) -> the ids of the tabs kit open started with
+// that agent whose tool still runs (a tab's id is its Herdr terminal's on that machine), null when it can't be read
+const KIT_SH = ["-c", 'command -v kit >/dev/null 2>&1 && exec kit "$@"; exec "$HOME/.local/bin/kit" "$@"', "kit"];
+async function kitTabIds(agent, machine, win) {
+  const args = ["tab", "list", "--json"], ways = [["sh", [...KIT_SH, ...args]], ["kit.cmd", args]];
+  for (const [prog, a] of win ? ways.reverse() : ways) {
+    let r;
+    try { r = await exec(prog, a, { timeout: 30000, ...(machine ? { on: machine } : {}) }); } catch { continue; }
+    if (r?.code === 127 || r?.code === 9009) continue;   // sh found no kit; cmd found no kit.cmd
+    try {
+      const j = JSON.parse(String(r?.stdout ?? ""));
+      return r.code === 0 && Array.isArray(j?.tabs) ? new Set(j.tabs.filter((x) => x?.agent === agent && x.live).map((x) => String(x.tab))) : null;
+    } catch { return null; }
+  }
+  return null;
+}
 const DATA = "gerrit.data.v1", SAFE_CFG = "gerrit.cfg.v1", BUSY = "gerrit.busy", REFRESH = "gerrit.refresh";
 function find(node, id) {
   if (node?.id === id) return node;
@@ -318,7 +334,8 @@ export default class Gerrit extends View {
     this.nextAt = 0;
     this.refreshSeen = shared(REFRESH) ?? 0;
     cx.timer.every(1000, (cx) => {
-      if (this.kitChanged) { this.kitChanged = false; cx.notify(); } // a gerrit agent's folder found
+      if (this.role !== "toggle") this.kitTick();
+      if (this.kitChanged) { this.kitChanged = false; cx.notify(); } // kit tab list's gerrit agents changed
       if (this.pulseUntil && Date.now() > this.pulseUntil) { this.pulseUntil = 0; cx.notify(); } // the number stops pulsing
       this.reviewDraftedTick(cx); // nvim's comments saved as drafts: the open change shows them
       if (!this.polls()) {
@@ -546,7 +563,7 @@ export default class Gerrit extends View {
     const tool = TOOLS.includes(a.tool) ? a.tool : toolOf(start?.[0]);
     return { ...a, prompts, start, tool, name: a.name ?? "gerrit" };
   }
-  // Only agents that have the Gerrit tools: a kit gerrit agent (its folder's .agentkit says agent:gerrit), or one this
+  // Only agents that have the Gerrit tools: a kit gerrit agent (kit tab list: a tab kit open started with it), or one this
   // panel opened from gerrit.json (remembered by address in shared state: every copy, survives restarts). Any other
   // agent may not have them, and asking it would look like it worked. This space's first. kit: true on the kit ones.
   agentList() {
@@ -564,35 +581,34 @@ export default class Gerrit extends View {
       .map((x) => ({ ...x, kit: kit.has(x.address) }))
       .sort((a, b) => Number(b.space === here) - Number(a.space === here));
   }
-  // The agents whose folder (or one above it, up to 3) has an .agentkit saying agent:gerrit. Files are read in the
-  // background, each folder once a minute; the panel draws again when one turns out to be a gerrit agent's.
+  // The agents in a tab kit open started with the gerrit agent, still running: by the last kit tab list there (kitTick)
   kitAgents(all) {
-    this.kitDirs ??= new Map();   // folder -> { gerrit, at }
-    let cwds = new Map();
-    try { cwds = new Map((terminals() ?? []).map((t) => [t?.address, t?.cwd])); } catch {}
     const found = new Set();
     for (const x of all) {
-      const cwd = cwds.get(x.address);
-      if (!cwd || x.address.includes("/")) continue;   // another machine's folder can't be read from here
-      const dirs = [];
-      for (let d = String(cwd).replace(/[\\/]+$/, ""), i = 0; d && i < 4; i++) {
-        dirs.push(d);
-        const up = d.replace(/[\\/][^\\/]*$/, "");
-        if (up === d) break;
-        d = up;
-      }
-      if (dirs.some((d) => this.kitDirs.get(d)?.gerrit)) found.add(x.address);
-      for (const d of dirs) {
-        const k = this.kitDirs.get(d);
-        if (k && (k.reading || Date.now() - k.at < 60000)) continue;
-        this.kitDirs.set(d, { gerrit: k?.gerrit ?? false, at: Date.now(), reading: true });
-        readTextFile(`${d}/.agentkit`).then((text) => isGerritKit(text), () => false).then((gerrit) => {
-          this.kitDirs.set(d, { gerrit, at: Date.now() });
-          if (gerrit !== Boolean(k?.gerrit)) this.kitChanged = true;
-        });
-      }
+      const a = String(x.address), m = a.includes("/") ? a.split("/")[0] : "";
+      if (this.kitTabs?.get(m)?.ids.has(a.split("/").pop())) found.add(a);
     }
     return found;
+  }
+  // kit tab list on each machine with terminals (this computer's "" too), every KIT_EVERY, in the background (the 1 s
+  // timer, not the drawing); the panel draws again when its gerrit tabs change. A read that fails keeps the last one.
+  // -> the reads started
+  kitTick() {
+    this.kitTabs ??= new Map();   // machine ("" this computer) -> { ids, at, reading }
+    let addrs = [];
+    try { addrs = (terminals() ?? []).map((t) => String(t?.address ?? "")).filter(Boolean); } catch {}
+    const reads = [];
+    for (const m of new Set(addrs.map((a) => (a.includes("/") ? a.split("/")[0] : "")))) {
+      const k = this.kitTabs.get(m);
+      if (k?.reading || (k && Date.now() - k.at < KIT_EVERY)) continue;
+      this.kitTabs.set(m, { ids: k?.ids ?? new Set(), at: Date.now(), reading: true });
+      reads.push(kitTabIds("gerrit", m || null, window()?.platform === "windows").catch(() => null).then((ids) => {
+        const was = k?.ids ?? new Set(), now = ids ?? was;
+        this.kitTabs.set(m, { ids: now, at: Date.now() });
+        if (now.size !== was.size || [...now].some((id) => !was.has(id))) this.kitChanged = true;
+      }));
+    }
+    return Promise.all(reads);
   }
   currentSpace() {
     let f = null, all = [];
@@ -664,8 +680,8 @@ export default class Gerrit extends View {
     cx.notify();
   }
   // No Gerrit agent yet: open one in this space with the question as its first message (tab.new's task), so it answers
-  // once it's up. A kit gerrit agent when the kit sources have one (the Kit panel places it: kit place, its own folder
-  // here); else gerrit.json's agent.start.
+  // once it's up. A kit gerrit agent when the kit sources have one (the Kit panel opens it: kit open --agent gerrit in a
+  // new tab here); else gerrit.json's agent.start.
   openAndAsk(c, p, cx) {
     const a = this.agentCfg(), space = this.currentSpace(), filled = p.filled ?? fillPrompt(p.text, this.promptVars(c));
     if (!space) { this.ask = { error: "沒有開著的 space" }; cx.notify(); return; }

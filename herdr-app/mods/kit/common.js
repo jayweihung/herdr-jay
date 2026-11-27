@@ -440,7 +440,8 @@ async function runKit(args, timeout, machine) {
 export const KIT_ERRORS = ["usage", "not_init", "busy", "no_source", "not_git", "check_failed", "no_git_identity", "author_not_allowed",
   "bad_push_mode", "no_origin", "no_remote", "not_on_branch", "out_of_sync", "host_not_allowed", "push_failed", "not_maintainer",
   "not_allowed", "download_failed", "no_skill",
-  // kit 0.5.0 (api 1.3): kit new mcp --config (a pasted MCP setup), kit place (an agent's own folder)
+  // kit 0.5.0 (api 1.3): kit new mcp --config (a pasted MCP setup); no_agent and the four after it were kit place's
+  // (gone in kit 0.18.0)
   "bad_config", "several_servers", "not_found", "no_name", "bad_name", "exists", "no_agent", "no_parent", "other_agent", "not_empty", "bad_dir",
   // kit 0.17.0 (api 1.22): kit tab show (no such tab), kit add --tab (the folder or the account has it already)
   "no_tab", "below",
@@ -510,7 +511,7 @@ export function partsLine(p) {
   return bits.length ? `裡面有：${bits.join("、")}` : "";
 }
 export function apiState(machine = null) { return (shared(API) ?? {})[machine ?? ""] ?? null; }
-// kit api there is known to be at least 1.<minor> (kit 0.5.0 is 1.3: kit place, kit new mcp --config); false when it is
+// kit api there is known to be at least 1.<minor> (kit 0.5.0 is 1.3: kit new mcp --config); false when it is
 // older, or not known yet
 export function apiAtLeast(machine, minor) {
   const m = String(apiState(machine)?.api ?? "").match(/^(\d+)\.(\d+)$/);
@@ -529,12 +530,13 @@ export function checkApi(machine, cx, force = false) {
   if (!force && apiKnown(machine)) return;
   const started = Date.now(), first = !a?.kind || (a.at ?? 0) < BOOT;
   setShared(API, { ...(shared(API) ?? {}), [m]: { ...(a ?? {}), busy: true, started } });
-  cx.spawn(async (cx) => {
-    let r;
-    try { r = await kit(["api"], first ? API_FIRST : API_AGAIN, machine); } catch (e) { r = { code: -1, out: "", err: String(e?.message ?? e), missing: true }; }
-    setShared(API, { ...(shared(API) ?? {}), [m]: { ...readApi(r, machine), busy: false, started, at: Date.now() } });
-    cx.notify();
-  });
+  cx.spawn(async (cx) => { await askApi(machine, first, started); cx.notify(); });
+}
+// kit api asked there now and kept as checkApi keeps it (for work that needs the answer before it goes on)
+export async function askApi(machine, first = true, started = Date.now()) {
+  let r;
+  try { r = await kit(["api"], first ? API_FIRST : API_AGAIN, machine); } catch (e) { r = { code: -1, out: "", err: String(e?.message ?? e), missing: true }; }
+  setShared(API, { ...(shared(API) ?? {}), [machine ?? ""]: { ...readApi(r, machine), busy: false, started, at: Date.now() } });
 }
 // the card shown in place of a part's content while kit isn't usable there
 export function apiCard(t, z, a, machine, id) {

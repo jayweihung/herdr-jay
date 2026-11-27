@@ -33,8 +33,8 @@ export const FEATURES = [
   { api: "1.2", name: "按輪分段", kit: "0.4.1" },
   { api: "1.3", name: "貼上 MCP 設定", kit: "0.5.0" },
   { api: "1.3", name: "各機器的核准和來源", kit: "0.5.0" },
-  { api: "1.3", name: "把 agent 放到 space", kit: "0.5.0" },
   { api: "1.14", name: "版本和舊版", kit: "0.9.0" },
+  { api: "1.22", name: "把 agent 放到 space", kit: "0.17.0" },
 ];
 // what the copy button puts on the clipboard (kit's own steps: kit self-update, then kit sync)
 export const UPGRADE = { sh: "kit self-update && kit sync", cmd: "kit self-update; if ($?) { kit sync }" };

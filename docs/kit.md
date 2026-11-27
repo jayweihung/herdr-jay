@@ -44,10 +44,10 @@ Windows（和 Linux）的分頁列自己畫最小化、最大化、關閉，所�
 - **A layout with kit in it**: jay's layout ([layout.md](layout.md)) already has the Agents / Kit buttons, both panels
   and kit's header on every pane.
   畫面要有 kit 的位置：jay 的 layout 已經放好了。
-- **kit 0.5.0** (`kit api` 1.3) for 倉庫 → MCP → 貼上設定 and for putting an agent in a space (`kit place`, on the
-  space's machine). **Dragging** an agent onto a space also needs a Herdr with the drag API (`on_drag`,
-  `nextDrop()`); without it the 放到 space… button does the same.
-  「貼上設定」和「把 agent 放到 space」要 kit 0.5.0（那個 space 的機器上）；用拖的還要有拖放功能的 Herdr，沒有的話用「放到 space…」按鈕。
+- **kit 0.5.0** (`kit api` 1.3) for 倉庫 → MCP → 貼上設定; **kit 0.17.0** (`kit api` 1.22, on the space's machine) for
+  putting an agent in a space (`kit open <tool> --agent <name>` in a new tab). **Dragging** an agent onto a space also
+  needs a Herdr with the drag API (`on_drag`, `nextDrop()`); without it the 放到 space… button does the same.
+  「貼上設定」要 kit 0.5.0；「把 agent 放到 space」要 kit 0.17.0（那個 space 的機器上）；用拖的還要有拖放功能的 Herdr，沒有的話用「放到 space…」按鈕。
 
 When Herdr starts, the mod first runs `kit api` (once, shared by every part, again every few minutes; the first time
 it waits up to 40 seconds, since a company's virus scanner may hold kit's first start). `kit api` prints
@@ -636,46 +636,38 @@ mod 只用這些欄位，每個都先檢查：`kit`（版本）、`api`（`major
   「照名字」會拿掉這一行，換回照名字挑的。
 - logo 是 mod 用 Zdog 自己畫的，不用裝任何東西。清單上的小圖是 SVG，每種組合只寫一次，存在 `~/.config/herdr-app/data/kit/bots/`。
 
-### 把 agent 放到 space（kit 0.5.0 以上）
+### 把 agent 放到 space（kit 0.17.0 以上）
 
-**kit 0.17.0（`kit api` 1.22）以上**（看的是那個 space 的機器）：不建資料夾、不跑 `kit place`，直接在那個 space 開新分頁跑
+在某個 space 開一個新分頁跑這個 agent：在那個 space 的機器上跑
 `kit open <工具> --agent <agent> --tab-env HC_TERMINAL_ID`（Codex 加 `-- --no-daemon`；那台的 kit 是 `kit.cmd` 時經過
-`cmd.exe /d /c kit.cmd`），開在 space 自己的資料夾（沒有就是那台的家目錄）。這個分頁有自己一份那個 agent 的東西，分頁關掉就清掉。
-「一個 space 只開一個」改看那台的 `kit tab list --json`：那個 agent 的分頁、工具還在跑（`live`）、而且那個終端機在這個 space，
-就切到那一格（`task` 照樣用 `hc send` 送給它）。拖的時候變淡的 space 照最近一次讀到的 `kit tab list`（這台在 Agents 面板每次重讀時一起讀；
-別台在放過一次之後才知道）。下面是比較舊的 kit 的做法，拖、按鈕、位置、logo、別的 mod 叫它放都一樣。
+`cmd.exe /d /c kit.cmd`），開在 space 自己的資料夾（沒有就是那台的家目錄）。這個分頁有自己一份那個 agent 的規則、技能、MCP，
+分頁關掉就清掉；之後在它的 Kit 清單按「加到這個分頁」／「拿掉」，只改這個分頁。工具是 agent 詳細頁選的（Claude、Codex、omp；
+沒選是 Claude）。進度和結果用通知說。
 
-讓一個 space 裡有一個「就是這個 agent」的資料夾：在那裡開的 `claude`、`codex`、`omp` 就是它（它的規則、skill、MCP、提示、
-工具限制），不用每次 `kit run`。
-
+- **要 kit 0.17.0（`kit api` 1.22）以上**，看的是那個 space 的機器。那台的 kit 比較舊：說「那台的 kit 太舊：要 kit 0.17.0 以上
+  （在那台打 kit self-update）」（這台的寫「這台」），不開分頁。還不知道那台的 kit 版本時先問一次 `kit api`。
+- 以前用舊 kit 放過的 agent 資料夾（`.agentkit` 有 `agent:` 那一行），kit 0.18.0 同步後變成普通資料夾：規則、技能、MCP 留著，
+  變成那個資料夾自己的。
 - **拖過去**：把 Agents 面板上的 agent 拖到 Agents 或 Spaces 面板的某個 space 上放開。要有拖放功能的 Herdr
   （herdr-app 的 drag 修改：元素的 `on_drag`、`nextDrop()`）；舊的 Herdr 沒有，就只有下面的按鈕，其他都一樣。
 - **放到 space…**（只有不能拖的舊 Herdr 才有）：agent 那一列或它的詳細頁按「放到 space…」，從列出的 space 裡點一個。
   能拖的 Herdr 不顯示這個按鈕：拖的時候看得到放在哪裡、哪個 space 不收。
-- 接著在那個 space 的機器上跑 `kit place <agent> <space 的資料夾>/<agent> --tool <工具> --json`：在 space 的資料夾裡建
-  `<agent>` 這個資料夾（只建最後一層），放進它的東西。space 沒有資料夾的話是那台的家目錄。Windows 的機器用 `\`。
-  工具是 agent 詳細頁選的（Claude、Codex、omp；沒選是 Claude）。
-- kit 做好後，在那個 space 開一個新分頁，在那個資料夾跑 kit 給的指令（就是 `claude`、`codex` 或 `omp`；Herdr 的
-  `tab.new`，帶 `space`、`folder`、`argv`）。Codex 會補上 `--no-daemon`（kit 給的只有 `codex`）：Herdr 裡的 Codex 要這樣開，
-  不然它的指令在 Codex 共用的背景服務裡跑，不在 Herdr 的終端機裡。進度和結果用通知說；kit 的提醒（例如 Codex 擋不到的工具限制）也會列出來。
 - **它自己的 logo**：那一格在 Herdr 的清單（左邊 Agents 欄等）顯示這個 agent 的機器人頭像，不是 Claude／Codex 的圖示
   （`tab.new` 多帶 `icon`，圖檔是 Kit 寫在 Herdr 資料夾裡的 `data/kit/bots/…svg`）。要有 icon 修改的 Herdr
   （herdr-app 的 `0003` patch）；舊的 Herdr 不認得 `icon`，分頁照開，只是用程式的圖示。
-- **一個 space 只開一個**：那個 space 裡已經有 agent 在 `<space 的資料夾>/<agent>`（或底下）跑著，再放一次不會多開，
-  只切到那一格，Agents 面板寫一行「已經在 … 開著了」（不跳通知）。要它的資料夾重新照 agent 檔同步：`kit sync`。
+- **一個 space 只開一個**：先看那台的 `kit tab list --json`：那個 agent 的分頁、工具還在跑（`live`）、而且那個終端機在這個 space，
+  再放一次不會多開，只切到那一格，Agents 面板寫一行「已經在 … 開著了」（不跳通知）。
   拖的時候就看得出來（herdr-app 的 `0004` patch）：拖到它已經開著的 space 上，那一列變淡、跟著游標的小標籤變成
-  「… 已經在這個 space 開著了」、游標變成禁止符號，放開也不會做任何事。舊的 Herdr 拖的時候看不出來，放下去才切到那一格。
+  「… 已經在這個 space 開著了」、游標變成禁止符號，放開也不會做任何事。變淡的 space 照最近一次讀到的 `kit tab list`
+  （這台在 Agents 面板每次重讀時一起讀；別台在放過一次之後才知道）。舊的 Herdr 拖的時候看不出來，放下去才切到那一格。
 - **放在哪個位置**（herdr-app 的 `0005` patch）：Agents 面板（依 space 分組）裡，space 的標題和底下每一列 agent 都能放，
   拖過去時那一列下面有一條線：放在標題 = 排第一個，放在某一列 = 排在它後面，新分頁會移到那裡。Spaces 面板的 space 列：
   排最後。群組裡的 agent 也能直接拖來排順序（只能在同一個 space 裡）。
 - **別的 mod 也能叫它放**：Gerrit 面板按問題但還沒有 Gerrit agent 時，請 Kit 按鈕把 gerrit 放進目前的 space，問題當第一句話
   帶進新分頁（`tab.new` 的 `task`）；那個 space 已經開著 gerrit 的話，切到那一格、用 `hc send` 把問題送給它
   （[docs/gerrit.md](gerrit.md) §7）。共用的 `kit.place.ask` 每筆可以多帶 `task`。
-- 那裡已經是別的 agent 的資料夾、或已經有不是 kit 放的東西時，kit 不會動它，通知會說原因。那台的 kit 太舊（沒有
-  `kit place`）也會直接說。
-- 之後在那裡開的 agent 的 Kit 清單按「加到這個資料夾」／「從資料夾拿掉」，只改這個資料夾。拖好幾個 agent 就是好幾個資料夾。
 - 從 Agents **視窗**放的，交給分頁列上的 Agents 按鈕去跑：放了之後馬上關掉視窗也照樣做完。版面裡沒有那個按鈕時由視窗自己跑；
-  這時、或是跑的那一份（面板、按鈕）在 kit 跑到一半被關掉時，會說「視窗關了，分頁沒開：再放一次（kit place 可以重跑）」，
+  這時、或是跑的那一份（面板、按鈕）在 kit 跑到一半被關掉時，會說「視窗關了，分頁沒開：再放一次」，
   其他按鈕也不會被卡住變灰。
 
 ### 關係：現在在跑的 agent 誰跟誰在傳話
@@ -829,7 +821,7 @@ Agents 面板上方有兩個分頁：「定義」是上面那些做好的 agent�
 | Agents 清單 | `kit agents --json` |
 | agent 的加上／拿掉 | `kit agent <名字> add\|rm <種類> <東西>` |
 | 開啟 | `kit run <名字> --tool <工具>`；kit 0.17.0 起 `kit open <工具> --agent <名字> --tab-env HC_TERMINAL_ID`（新分頁） |
-| 把 agent 拖到 space ／ 放到 space… | 在那個 space 的機器上 `kit place <名字> <space 的資料夾>/<名字> --tool <工具> --json`，再在那個 space 開新分頁跑 kit 給的指令；kit 0.17.0 起先看那台的 `kit tab list --json`，沒開著就在那個 space 開新分頁跑 `kit open <工具> --agent <名字> --tab-env HC_TERMINAL_ID` |
+| 把 agent 拖到 space ／ 放到 space… | 先看那個 space 那台的 `kit tab list --json`，沒開著就在那個 space 開新分頁跑 `kit open <工具> --agent <名字> --tab-env HC_TERMINAL_ID`（要 kit 0.17.0；還不知道那台的版本先問 `kit api`） |
 | agent 視窗「這個分頁的」 | `kit tab show <分頁> --json`（標題列讀清單時一起讀）；拿掉 `kit rm --tab <分頁> <種類> <名字>`，加到這個分頁 `kit add --tab <分頁> <種類> <名字>` |
 | 分頁關掉 ／ Herdr 開起來 | 那台 `kit tab list --json`，工具不在跑了才 `kit tab rm <分頁>`；每台一次 `kit tab keep <那台的終端機>` |
 | ＋ 新增 → 貼上設定：看看會變成什麼 | `kit new mcp [名字] --config <暫存檔> --to <來源> --look`（貼的內容在檔案裡，不在參數裡） |
@@ -840,7 +832,7 @@ Agents 面板上方有兩個分頁：「定義」是上面那些做好的 agent�
 
 `herdr-app/mods/kit/`: `main.js` picks the part by `props.role`; `repo.js` (repo, repo-toggle, editor), `agent.js`
 (agent), `agents.js` (agents, agents-toggle), `place.js` (an agent put in a space: the drag payload, the drop loop,
-`kit place` then `tab.new`, or with kit 0.17 `tab.new` running `kit open`; a closed tab's `kit tab rm`), `header.js` (header, context), `layout.js` (where kit sits in a
+`tab.new` running `kit open`, kit 0.17 there; a closed tab's `kit tab rm`), `header.js` (header, context), `layout.js` (where kit sits in a
 layout: 放進上排 / 更新版面), `machines.js` (the repository's 各機器 tab: every machine's kit, what it lacks by
 `FEATURES`, the self-reported accounts of `kit-machines.json`, the sources against the approved commits), `context.js` (what the context window and chip compute, from plain values), `versions.js` (an item's version in words and why an agent's copy is old, from plain values), `common.js`
 (running kit, `kit api`, the shared state keys, the layout's node ids, one kit action at a time, the shared UI

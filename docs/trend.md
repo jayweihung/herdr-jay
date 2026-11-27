@@ -44,10 +44,12 @@ A tab-bar button **熱門** and a panel, like Gerrit's (macOS and Windows):
   listed under it with their own numbers and links. 每則記第一次出現和每輪分數：1 到 3 小時內分數漲一成以上標「↑ 升溫」，
   3 小時內出現標「新進榜」，上面的鈕可以只看這兩種；不同站或看板講同一件事的合成一張卡，下面列其他站的連結。
 - **Asking costs tokens, only when you ask.** The buttons and the box at the bottom send to a **kit trend agent** in
-  this space (`hc send`), as Gerrit's 問 agent does: with none here, the Kit panel puts one in this space (`kit place`,
-  the Kit button must be in the layout) and it starts on the question. Pick Claude / Codex / omp for the next one it
-  opens. The answer is in the agent's own tab. Drag trend from the Agents panel onto a space to keep one there.
-  問問題才花 token：送給這個 space 的 trend agent；沒有就先開一個。從 Agents 面板把 trend 拖到 space 也可以。
+  this space (`hc send`), as Gerrit's 問 agent does: a tab `kit open --agent trend` started, still running (the panel
+  asks `kit tab list --json` every 15 seconds; kit 0.17.0). With none here, the Kit panel opens one in this space
+  (`kit open --agent trend` in a new tab; the Kit button must be in the layout) and it starts on the question. Pick
+  Claude / Codex / omp for the next one it opens. The answer is in the agent's own tab. Drag trend from the Agents panel
+  onto a space to keep one there.
+  問問題才花 token：送給這個 space 的 trend agent（`kit open` 開的分頁，看 `kit tab list`）；沒有就先開一個。從 Agents 面板把 trend 拖到 space 也可以。
 - **報告**: a deep dive ends as an HTML page the agent writes to `<Herdr home>/mods/trend/.reports/`
   (`<YYYY-MM-DD-HHMM>-<topic>.html`, `<meta name="trend-topic" content="<the topic as asked>">`, `agents/trend.md` says
   how). The panel's 報告 tab lists them newest first and shows one as a web page (the system's WebKit / WebView2;

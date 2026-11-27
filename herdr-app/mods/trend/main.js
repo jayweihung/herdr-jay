@@ -2,8 +2,8 @@
 // panel and its 問 agent). The data costs no tokens: launchd runs fetch.js every 10 minutes (last30days --discover, no
 // model), which writes <Herdr home>/trend/trends.json and status.json; this mod only reads them (docs/trend.md).
 // Asking costs tokens, only when you ask: the question goes to a kit trend agent (agents/trend.md in a kit source,
-// skills: last30days) in this space with `hc send`; none here: the Kit panel places one (kit place) and it starts on
-// the question.
+// skills: last30days) in this space with `hc send`; none here: the Kit panel opens one (kit open --agent trend, a new
+// tab) and it starts on the question.
 // Roles (props.role): the panel (default) and "toggle", the tab-bar button that shows or hides the layout's
 // "trend-panel": a number for topics you haven't seen, a ring while fetch.js runs, a red ! when its last run failed.
 // 熱門：launchd 每 10 分鐘跑 fetch.js（不花 token）寫 trend/；這個 mod 只讀。問問題才叫 trend agent（花 token）。
@@ -18,9 +18,9 @@ const TASK = "herdr-jay-trend";      // the same on Windows: a Task Scheduler ta
 const EVERY = 10 * 60000;            // its StartInterval: every 10 minutes
 const STALE = 12 * 3600000;          // a front page not read for 3 times its slowest interval (fetch.js gently: 4 hours)
 const SEEN = "trend.seen.v1";        // the topics shown when the panel was last opened: the button counts the others
-// The Kit panel's (mods/kit): the agents its sources have, and the places it is asked to make. A kit trend agent
-// placed in a space is a folder whose .agentkit says agent:trend (kit place).
-const KIT_AGENTS = "kit.agents.data.v1", KIT_PLACE_ASK = "kit.place.ask", KIT_TAKEN_WAIT = 8000;
+// The Kit panel's (mods/kit): the agents its sources have, and the places it is asked to make. A kit trend agent runs
+// in a tab kit open started (kit 0.17.0): kit tab list --json has it (kitTabIds), asked every KIT_EVERY.
+const KIT_AGENTS = "kit.agents.data.v1", KIT_PLACE_ASK = "kit.place.ask", KIT_TAKEN_WAIT = 8000, KIT_EVERY = 15000;
 const TOOLS = ["claude", "codex", "omp"], TOOL_NAMES = { claude: "Claude", codex: "Codex", omp: "omp" };
 const toolOf = (x) => {
   const n = String(x ?? "").replace(/\\/g, "/").split("/").pop().replace(/\.(exe|cmd|ps1)$/i, "").toLowerCase();
@@ -28,7 +28,23 @@ const toolOf = (x) => {
 };
 // Written the Claude way (/last30days …); each tool calls a skill its own way
 const skillFor = (text, tool) => String(text).replace(/^\/last30days\b/, tool === "codex" ? "$last30days" : tool === "omp" ? "/skill:last30days" : "/last30days");
-const isTrendKit = (text) => /^agent:trend[ \t]*$/m.test(String(text ?? ""));
+// kit tab list --json on that machine (null: this computer), run as the Kit panel runs kit: through sh, kit from PATH or
+// ~/.local/bin, else kit.cmd (Windows; tried first on a Windows computer) -> the ids of the tabs kit open started with
+// that agent whose tool still runs (a tab's id is its Herdr terminal's on that machine), null when it can't be read
+const KIT_SH = ["-c", 'command -v kit >/dev/null 2>&1 && exec kit "$@"; exec "$HOME/.local/bin/kit" "$@"', "kit"];
+async function kitTabIds(agent, machine, win) {
+  const args = ["tab", "list", "--json"], ways = [["sh", [...KIT_SH, ...args]], ["kit.cmd", args]];
+  for (const [prog, a] of win ? ways.reverse() : ways) {
+    let r;
+    try { r = await exec(prog, a, { timeout: 30000, ...(machine ? { on: machine } : {}) }); } catch { continue; }
+    if (r?.code === 127 || r?.code === 9009) continue;   // sh found no kit; cmd found no kit.cmd
+    try {
+      const j = JSON.parse(String(r?.stdout ?? ""));
+      return r.code === 0 && Array.isArray(j?.tabs) ? new Set(j.tabs.filter((x) => x?.agent === agent && x.live).map((x) => String(x.tab))) : null;
+    } catch { return null; }
+  }
+  return null;
+}
 // a terminal whose program in front is an agent (one Herdr hasn't heard from shows as its shell in agents())
 const runsAgent = (t) => /^(claude|codex|omp|pi)(\.exe|\.cmd)?$/i.test(String(t?.foreground?.argv?.[0] ?? "").split(/[\\/]/).pop());
 // The trend agent's reports: HTML it writes to <Herdr home>/mods/trend/.reports/ (hidden: a write there doesn't
@@ -323,7 +339,10 @@ export default class Trend extends View {
       }
     });
     cx.timer.every(15000, (cx) => this.load(cx)); // fetch.js writes once an hour; this also keeps 「幾分前」 fresh
-    cx.timer.every(1000, (cx) => { if (this.kitChanged) { this.kitChanged = false; cx.notify(); } }); // a trend agent's folder found
+    cx.timer.every(1000, (cx) => {   // kit tab list's trend agents changed
+      if (this.role !== "toggle") this.kitTick();
+      if (this.kitChanged) { this.kitChanged = false; cx.notify(); }
+    });
   }
 
   get dir() { return `${appHome().replace(/\\/g, "/")}/trend`; }
@@ -745,7 +764,7 @@ export default class Trend extends View {
   }
 
   // ---- asking the trend agent (as Gerrit's panel asks its gerrit agent)
-  // Only kit trend agents (folder's .agentkit says agent:trend): another agent may lack last30days. This space's first.
+  // Only kit trend agents (kit tab list: a tab kit open started with it): another agent may lack last30days. This space's first.
   agentList() {
     let all = [];
     try { all = (agents() ?? []).filter((x) => x?.address); } catch {}
@@ -759,34 +778,34 @@ export default class Trend extends View {
     const kit = this.kitAgents(all), here = this.currentSpace()?.id;
     return all.filter((x) => kit.has(x.address)).sort((a, b) => Number(b.space === here) - Number(a.space === here));
   }
-  // The agents whose folder (or one up to 3 above) has an .agentkit saying agent:trend; each folder read once a minute
+  // The agents in a tab kit open started with the trend agent, still running: by the last kit tab list there (kitTick)
   kitAgents(all) {
-    this.kitDirs ??= new Map();
-    let cwds = new Map();
-    try { cwds = new Map((terminals() ?? []).map((t) => [t?.address, t?.cwd])); } catch {}
     const found = new Set();
     for (const x of all) {
-      const cwd = cwds.get(x.address);
-      if (!cwd || x.address.includes("/")) continue;   // another machine's folder can't be read from here
-      const dirs = [];
-      for (let d = String(cwd).replace(/[\\/]+$/, ""), i = 0; d && i < 4; i++) {
-        dirs.push(d);
-        const up = d.replace(/[\\/][^\\/]*$/, "");
-        if (up === d) break;
-        d = up;
-      }
-      if (dirs.some((d) => this.kitDirs.get(d)?.trend)) found.add(x.address);
-      for (const d of dirs) {
-        const k = this.kitDirs.get(d);
-        if (k && (k.reading || Date.now() - k.at < 60000)) continue;
-        this.kitDirs.set(d, { trend: k?.trend ?? false, at: Date.now(), reading: true });
-        readTextFile(`${d}/.agentkit`).then(isTrendKit, () => false).then((trend) => {
-          this.kitDirs.set(d, { trend, at: Date.now() });
-          if (trend !== Boolean(k?.trend)) this.kitChanged = true;
-        });
-      }
+      const a = String(x.address), m = a.includes("/") ? a.split("/")[0] : "";
+      if (this.kitTabs?.get(m)?.ids.has(a.split("/").pop())) found.add(a);
     }
     return found;
+  }
+  // kit tab list on each machine with terminals (this computer's "" too), every KIT_EVERY, in the background (the 1 s
+  // timer, not the drawing); the panel draws again when its trend tabs change. A read that fails keeps the last one.
+  // -> the reads started
+  kitTick() {
+    this.kitTabs ??= new Map();   // machine ("" this computer) -> { ids, at, reading }
+    let addrs = [];
+    try { addrs = (terminals() ?? []).map((t) => String(t?.address ?? "")).filter(Boolean); } catch {}
+    const reads = [];
+    for (const m of new Set(addrs.map((a) => (a.includes("/") ? a.split("/")[0] : "")))) {
+      const k = this.kitTabs.get(m);
+      if (k?.reading || (k && Date.now() - k.at < KIT_EVERY)) continue;
+      this.kitTabs.set(m, { ids: k?.ids ?? new Set(), at: Date.now(), reading: true });
+      reads.push(kitTabIds("trend", m || null, window()?.platform === "windows").catch(() => null).then((ids) => {
+        const was = k?.ids ?? new Set(), now = ids ?? was;
+        this.kitTabs.set(m, { ids: now, at: Date.now() });
+        if (now.size !== was.size || [...now].some((id) => !was.has(id))) this.kitChanged = true;
+      }));
+    }
+    return Promise.all(reads);
   }
   currentSpace() {
     let f = null, all = [];
@@ -812,7 +831,7 @@ export default class Trend extends View {
     if (!err) try { run("agent.focus", { terminal: target.address }); } catch {}
     cx.notify();
   }
-  // None here: the Kit panel puts a trend agent in this space (kit place) with the question as its first message
+  // None here: the Kit panel opens a trend agent in this space (kit open, a new tab) with the question as its first message
   openAndAsk(label, text, cx) {
     const space = this.currentSpace();
     if (!space) { this.asked = { error: "沒有開著的 space" }; cx.notify(); return; }

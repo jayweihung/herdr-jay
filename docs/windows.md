@@ -268,9 +268,11 @@ schtasks /Create /TN "herdr-core-$env:USERNAME" /XML $x; Remove-Item $x
   schtasks /Create /TN herdr-core-<user> /RU <user> /NP /SC ONSTART /RL LIMITED /TR "C:\Users\<user>\AppData\Local\Programs\herdr-core\hc.exe server restart"
   ```
 
-  Limits of S4U: no network credentials and no DPAPI (Credential Manager). In that core, `git push` over https with Git
-  Credential Manager, `gh` sign-in, and other tokens kept in Credential Manager may fail; ssh keys in files and public
-  fetches work. S4U 沒有網路憑證、也開不了認證管理員：用 GCM 推送、`gh` 登入可能會壞，檔案裡的 ssh 金鑰沒問題。
+  `schtasks` may still ask for the account's password (it did on our PC): the task then keeps it, and has to be made
+  again when that password changes. 就算加了 `/NP`，`schtasks` 也可能要密碼：輸入後工作會存著，那個帳號改密碼就要重建。
+  Without a stored password (S4U) the core has no network credentials and no DPAPI (Credential Manager): `git push` over
+  https with Git Credential Manager, `gh` sign-in and other tokens kept there may fail; ssh keys in files and public
+  fetches work. 沒存密碼（S4U）時：沒有網路憑證、開不了認證管理員，用 GCM 推送、`gh` 登入可能會壞，檔案裡的 ssh 金鑰沒問題。
 
 The task runs `hc server restart`: with no core running it starts one; with one running it restarts it, programs kept.
 On Windows the `hc` that asks for the restart starts the new core itself, so over ssh never type `hc server restart`
@@ -280,6 +282,9 @@ On Windows the `hc` that asks for the restart starts the new core itself, so ove
 ```powershell
 schtasks /Run /TN "herdr-core-$env:USERNAME"
 ```
+
+With no core running, any `hc` typed over ssh (`hc ls`, `hc send`, …) starts one, under ssh again: run the task first.
+沒有 core 時，從 ssh 打任何 `hc` 都會在 ssh 底下開一個 core，所以先叫排程工作。
 
 Terminals that were already open stay under ssh's limits; tabs opened after this don't have them. Check in a new tab:
 make a junction (`New-Item -ItemType Junction -Path j -Target t`, with a file in `t`) and `Test-Path j\<file>` → `True`.

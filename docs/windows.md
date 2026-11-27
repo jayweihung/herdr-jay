@@ -226,6 +226,54 @@ if (-not (Test-Path "$d\hc.exe")) { New-Item -ItemType HardLink -Path "$d\hc.exe
 Then add it to PATH: [Add to PATH](#add-a-folder-to-path) with the first line `$add = "$env:LOCALAPPDATA\Programs\herdr-core"`.
 Later updates by hand, while it runs: `hc update --from target\release\herdr-core.exe` (terminals kept).
 
+### 2a. Managing this PC over ssh / 從 ssh 遠端管這台時
+
+Don't start the core from an ssh session (`hc server start` / `restart` typed over ssh). Every program started under Windows'
+OpenSSH server has RedirectionGuard: a junction a non-admin account made is refused ("untrusted mount point"). Agents in
+that core then can't read through the junctions kit makes (`node_modules`, `.venv`): files look missing.
+不要從 ssh 開 core：從 Windows OpenSSH 開的程式跟不過一般帳號建的 junction，裡面的 agent 讀不到 kit 建的 `node_modules`、`.venv`。
+
+Start it from a scheduled task instead. Which kind depends on whether someone is signed in to that account's desktop:
+改用排程工作開。看這個帳號平常有沒有人登入桌面：
+
+- **Someone is signed in at the desktop / 有人登入桌面** — the account itself, no admin, a task that runs at sign-in:
+
+  ```powershell
+  $a = New-ScheduledTaskAction -Execute "$env:LOCALAPPDATA\Programs\herdr-core\hc.exe" -Argument 'server restart'
+  $t = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
+  $p = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited
+  Register-ScheduledTask -TaskName herdr-core -Action $a -Trigger $t -Principal $p
+  ```
+
+  It runs only while that account is signed in; `schtasks /Run` does nothing otherwise (Last Result `267011`, never ran).
+
+- **Nobody signs in (a build or service account) / 沒人登入的帳號** — an admin makes it once, for that account (`<user>`),
+  running at boot with no stored password (S4U). A normal account can't make this kind itself (`Access is denied`):
+
+  ```powershell
+  $a = New-ScheduledTaskAction -Execute 'C:\Users\<user>\AppData\Local\Programs\herdr-core\hc.exe' -Argument 'server restart'
+  $t = New-ScheduledTaskTrigger -AtStartup
+  $p = New-ScheduledTaskPrincipal -UserId '<user>' -LogonType S4U -RunLevel Limited
+  Register-ScheduledTask -TaskName herdr-core-<user> -Action $a -Trigger $t -Principal $p
+  ```
+
+  Limits of S4U: no network credentials and no DPAPI (Credential Manager). In that core, `git push` over https with Git
+  Credential Manager, `gh` sign-in, and other tokens kept in Credential Manager may fail; ssh keys in files and public
+  fetches work. S4U 沒有網路憑證、也開不了認證管理員：用 GCM 推送、`gh` 登入可能會壞，檔案裡的 ssh 金鑰沒問題。
+
+The task runs `hc server restart`: with no core running it starts one; with one running it restarts it, programs kept.
+On Windows the `hc` that asks for the restart starts the new core itself, so over ssh never type `hc server restart`
+(or `start`); run the task:
+工作跑的是 `hc server restart`：沒有 core 就開一個，有就重開（程式不斷）。Windows 上新的 core 是下指令的那個 `hc` 開的，所以從 ssh 不要自己打 `hc server restart`，叫排程工作：
+
+```powershell
+schtasks /Run /TN herdr-core      # (or herdr-core-<user>)
+```
+
+Terminals that were already open stay under ssh's limits; tabs opened after this don't have them. Check in a new tab:
+make a junction (`New-Item -ItemType Junction -Path j -Target t`, with a file in `t`) and `Test-Path j\<file>` → `True`.
+重開前已經開著的分頁還是 ssh 的限制，之後新開的分頁才沒有。
+
 ---
 
 ## 3. Herdr app

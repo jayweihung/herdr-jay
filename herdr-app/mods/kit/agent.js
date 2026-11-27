@@ -112,9 +112,12 @@ export class AgentPopup {
   // role "space": kit list there once kit can be used, again after a kit change there (changesOn) or ⟳; one at a time
   tickOwn(cx) {
     const m = this.target.machine ?? null;
-    if (this.ownBusy || !apiKnown(m)?.ok) return;
+    // a first open sat on 讀取中 with no kit list running (11/27): ask kit api again when its answer is gone, and a
+    // read that never came back (kit gives up at 60 s) doesn't hold the next one
+    if (!apiKnown(m)) checkApi(m, cx);
+    if ((this.ownBusy && Date.now() - this.ownBusy < 90000) || !apiKnown(m)?.ok) return;
     if (this.own && this.ownGen === changesOn(m) && this.ownWant === this.ownAsked) return;
-    this.ownBusy = true; this.ownGen = changesOn(m); this.ownAsked = this.ownWant;
+    this.ownBusy = Date.now(); this.ownGen = changesOn(m); this.ownAsked = this.ownWant;
     cx.spawn(async (cx) => {
       try { this.own = await loadAgent(m, this.target.cwd, null); } catch (e) { this.own = { error: String(e?.message ?? e), machine: m, at: Date.now() }; }
       this.ownBusy = false; cx.notify();

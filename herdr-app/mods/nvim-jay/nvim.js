@@ -693,10 +693,15 @@ function P.session(info, t)
     if p and not mine[p] then mine[p], pids[#pids + 1] = true, p end
   end
   local roster = read_json(P.home .. "/.claude/daemon/roster.json", 1048576)
-  for _, w in pairs(type(roster) == "table" and type(roster.workers) == "table" and roster.workers or {}) do
-    if type(w) == "table" and type(w.sessionId) == "string"
-      and (mine[tonumber(w.pid) or false] or mine[tonumber(w.replPid) or false]) then
-      return { sessionId = w.sessionId }
+  local workers = type(roster) == "table" and type(roster.workers) == "table" and roster.workers or {}
+  -- the foreground itself first, then anything under the pane: pairs() has no order, and a worker that is merely
+  -- somewhere under the pane must not win over the one in front (CI 11/27: on Linux pid 1's tree is every process)
+  for _, set in ipairs({ { [pid or false] = true }, mine }) do
+    for _, w in pairs(workers) do
+      if type(w) == "table" and type(w.sessionId) == "string"
+        and (set[tonumber(w.pid) or false] or set[tonumber(w.replPid) or false]) then
+        return { sessionId = w.sessionId }
+      end
     end
   end
   if P.win and type(t.cwd) == "string" then

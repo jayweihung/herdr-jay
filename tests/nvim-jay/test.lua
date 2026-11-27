@@ -461,7 +461,7 @@ test("session sources", function()
   local nobody = { pid = 999999, foreground = { pid = 999998 } }
   -- 1
   write(sess .. "/5151.json", vim.json.encode({ sessionId = "old-1", pid = 5151 }))
-  local s = S({ pid = 1, foreground = { pid = 5151 } }, {})
+  local s = S({ pid = 999999, foreground = { pid = 5151 } }, {})
   check("sessions/<pid>.json of the foreground", s and s.sessionId == "old-1", s)
   write(sess .. "/" .. child.pid .. ".json", vim.json.encode({ sessionId = "old-2", pid = child.pid }))
   s = S({ pid = me }, {})
@@ -475,7 +475,7 @@ test("session sources", function()
     a = { pid = 7001, replPid = 7002, sessionId = "ros-1", cwd = "/x", token = "SECRET" },
     b = { pid = child.pid, sessionId = "ros-2", cwd = "/y", authToken = "SECRET" },
     c = "junk" } }))
-  s = S({ pid = 1, foreground = { pid = 7002 } }, {})
+  s = S({ pid = 999999, foreground = { pid = 7002 } }, {})
   check("roster: worker whose replPid is the foreground; only its sessionId kept", s and s.sessionId == "ros-1"
     and vim.tbl_count(s) == 1, s)
   s = S({ pid = me, foreground = { pid = 999998 } }, {})
